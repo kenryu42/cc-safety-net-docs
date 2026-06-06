@@ -6,11 +6,15 @@ description: "Configure CC Safety Net's protection level with Strict, Paranoid, 
 
 CC Safety Net ships with sensible defaults but provides three operation modes via environment variables that let you tune its behavior to your workflow. You can enable any combination of modes by exporting the corresponding variables before starting your AI coding agent.
 
+<Note>
+  Mode and debug flags use `CC_SAFETY_NET_*` environment variables. Older `SAFETY_NET_*` names (without the `CC_` prefix) are still accepted for strict, paranoid, and worktree toggles.
+</Note>
+
 ## Default Mode
 
 No environment variables are required to get started. In default mode, CC Safety Net protects against all built-in destructive git and filesystem patterns. If a command cannot be parsed — due to invalid JSON, unterminated quotes, or a malformed shell wrapper — it is **allowed through** (fail-open). This is the recommended starting point for most users.
 
-## Strict Mode (`SAFETY_NET_STRICT=1`)
+## Strict Mode (`CC_SAFETY_NET_STRICT=1`)
 
 When strict mode is enabled, CC Safety Net switches to **fail-closed** behavior on unparseable commands. Any command input that cannot be safely analyzed is blocked rather than allowed.
 
@@ -23,20 +27,20 @@ This covers situations such as:
 **How to enable:**
 
 ```bash
-export SAFETY_NET_STRICT=1
+export CC_SAFETY_NET_STRICT=1
 ```
 
 **When to use:** Enable strict mode when you want maximum protection and can tolerate occasional false positives on unusual or exotic command syntax.
 
-## Paranoid Mode (`SAFETY_NET_PARANOID=1`)
+## Paranoid Mode (`CC_SAFETY_NET_PARANOID=1`)
 
 Paranoid mode enables additional safety checks that go beyond the defaults. These checks may be disruptive to some normal workflows, so they are opt-in. You can enable all paranoid checks at once, or activate individual checks selectively.
 
-### rm check (`SAFETY_NET_PARANOID_RM=1`)
+### rm check (`CC_SAFETY_NET_PARANOID_RM=1`)
 
 By default, `rm -rf` within the current working directory is allowed — the assumption is that deleting files inside your own project root is intentional. With the paranoid rm check enabled, **all non-temp `rm -rf` commands are blocked**, including those targeting paths inside the cwd.
 
-### Interpreter one-liners (`SAFETY_NET_PARANOID_INTERPRETERS=1`)
+### Interpreter one-liners (`CC_SAFETY_NET_PARANOID_INTERPRETERS=1`)
 
 Interpreter one-liners can hide destructive commands inside strings that are hard to inspect statically. With this check enabled, the following forms are blocked entirely:
 
@@ -48,26 +52,26 @@ Interpreter one-liners can hide destructive commands inside strings that are har
 **How to enable all paranoid checks at once:**
 
 ```bash
-export SAFETY_NET_PARANOID=1
+export CC_SAFETY_NET_PARANOID=1
 ```
 
 **How to enable individual paranoid checks:**
 
 ```bash
-export SAFETY_NET_PARANOID_RM=1
-export SAFETY_NET_PARANOID_INTERPRETERS=1
+export CC_SAFETY_NET_PARANOID_RM=1
+export CC_SAFETY_NET_PARANOID_INTERPRETERS=1
 ```
 
-Setting `SAFETY_NET_PARANOID=1` is equivalent to enabling both `SAFETY_NET_PARANOID_RM=1` and `SAFETY_NET_PARANOID_INTERPRETERS=1` simultaneously.
+Setting `CC_SAFETY_NET_PARANOID=1` is equivalent to enabling both `CC_SAFETY_NET_PARANOID_RM=1` and `CC_SAFETY_NET_PARANOID_INTERPRETERS=1` simultaneously.
 
-## Worktree Mode (`SAFETY_NET_WORKTREE=1`)
+## Worktree Mode (`CC_SAFETY_NET_WORKTREE=1`)
 
 Linked git worktrees are designed as disposable, isolated workspaces. Discarding changes inside one does not risk the main working tree, making the usual local-discard restrictions unnecessarily strict in that context. Worktree mode relaxes those rules — but only when CC Safety Net can positively confirm that the current working directory is inside a linked worktree.
 
 **How to enable:**
 
 ```bash
-export SAFETY_NET_WORKTREE=1
+export CC_SAFETY_NET_WORKTREE=1
 ```
 
 ### What's allowed inside a linked worktree
@@ -93,7 +97,7 @@ These commands affect shared refs or other worktrees and are **never relaxed**, 
 
 Worktree detection is **fail-closed**: if CC Safety Net cannot positively identify the cwd as a linked worktree, the stricter default rules remain in effect. Specifically:
 
-- A linked worktree is identified by a `.git` *file* (not a directory) whose resolved git directory contains a `commondir` file. Main worktrees and submodules are not relaxed.
+- A linked worktree is identified by a `.git` _file_ (not a directory) whose resolved git directory contains a `commondir` file. Main worktrees and submodules are not relaxed.
 - The cwd walk uses `realpath` so symlinked paths resolve correctly.
 - `git -C <path>` arguments are honored; unresolved targets keep the command blocked.
 - Relaxation is disabled if `--git-dir` / `--work-tree` is passed, or if `GIT_DIR` / `GIT_WORK_TREE` / `GIT_COMMON_DIR` is set in the environment.
@@ -101,13 +105,13 @@ Worktree detection is **fail-closed**: if CC Safety Net cannot positively identi
 ## Summary
 
 | Variable | Effect |
-|---|---|
-| `SAFETY_NET_STRICT=1` | Fail-closed on unparseable commands |
-| `SAFETY_NET_PARANOID=1` | All paranoid checks (rm + interpreters) |
-| `SAFETY_NET_PARANOID_RM=1` | Block `rm -rf` even within cwd |
-| `SAFETY_NET_PARANOID_INTERPRETERS=1` | Block interpreter one-liners |
-| `SAFETY_NET_WORKTREE=1` | Relax local-discard rules in linked worktrees |
+| --- | --- |
+| `CC_SAFETY_NET_STRICT=1` | Fail-closed on unparseable commands |
+| `CC_SAFETY_NET_PARANOID=1` | All paranoid checks (rm \+ interpreters) |
+| `CC_SAFETY_NET_PARANOID_RM=1` | Block `rm -rf` even within cwd |
+| `CC_SAFETY_NET_PARANOID_INTERPRETERS=1` | Block interpreter one-liners |
+| `CC_SAFETY_NET_WORKTREE=1` | Relax local-discard rules in linked worktrees |
 
 <Tip>
-  You can check which modes are currently active by running `npx cc-safety-net --verify-config` or by looking at the status line in Claude Code. See [Status Line](/configuration/status-line) for setup instructions.
+  You can check which modes are currently active by running `npx cc-safety-net doctor` or by looking at the status line in Claude Code. See [Status Line](/configuration/status-line) for setup instructions.
 </Tip>

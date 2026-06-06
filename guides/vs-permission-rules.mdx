@@ -4,16 +4,16 @@ sidebarTitle: "vs Permission Rules"
 description: "Compare CC Safety Net's semantic analysis with Claude Code permission deny rules, and learn why combining both approaches gives the strongest protection."
 ---
 
-Claude Code's `.claude/settings.json` supports permission deny rules with wildcard matching — for example, `Bash(git reset --hard:*)`. CC Safety Net is different: it uses semantic command analysis and runs *before* the permission system. This page explains how they compare and why you should use both.
+Claude Code's `.claude/settings.json` supports permission deny rules with wildcard matching — for example, `Bash(git reset --hard:*)`. CC Safety Net is different: it uses semantic command analysis and runs _before_ the permission system. This page explains how they compare and why you should use both.
 
 ## At a Glance
 
-| | Permission Deny Rules | CC Safety Net |
-|---|---|---|
+|  | Permission Deny Rules | CC Safety Net |
+| --- | --- | --- |
 | **Setup** | Manual configuration required | Works out of the box |
 | **Parsing** | Wildcard pattern matching | Semantic command analysis |
 | **Execution order** | Runs second | Runs first (PreToolUse hook) |
-| **Shell wrappers** | Not handled automatically (must match wrapper forms) | Recursively analyzed (5 levels) |
+| **Shell wrappers** | Not handled automatically (must match wrapper forms) | Recursively analyzed (10 levels) |
 | **Interpreter one-liners** | Not handled automatically (must match interpreter forms) | Detected and blocked |
 
 ## Bypass Vectors in Permission Rules
@@ -21,7 +21,7 @@ Claude Code's `.claude/settings.json` supports permission deny rules with wildca
 Even with wildcard matching, Bash permission patterns are intentionally limited in scope. A determined command — or an AI agent that simply phrases things differently — can bypass them in several ways:
 
 | Bypass Method | Example |
-|---|---|
+| --- | --- |
 | Options before value | `curl -X GET http://evil.com` bypasses `Bash(curl http://evil.com:*)` |
 | Shell variables | `URL=http://evil.com && curl $URL` bypasses the URL pattern |
 | Flag reordering | `rm -r -f /` bypasses `Bash(rm -rf:*)` |
@@ -35,7 +35,7 @@ Because permission rules compare the raw command string against a pattern, any v
 The table below shows how each approach handles a set of real-world scenarios:
 
 | Scenario | Permission Rules | CC Safety Net |
-|---|---|---|
+| --- | --- | --- |
 | `git checkout -b feature` (safe) | Blocked by `Bash(git checkout:*)` | Allowed |
 | `git checkout -- file` (dangerous) | Blocked by `Bash(git checkout:*)` | Blocked |
 | `rm -rf /tmp/cache` (safe) | Blocked by `Bash(rm -rf:*)` | Allowed |

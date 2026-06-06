@@ -16,11 +16,11 @@ bunx cc-safety-net doctor
 The `doctor` command runs a comprehensive health check of your installation:
 
 | Check | What It Does |
-|---|---|
+| --- | --- |
 | Hook Integration | Verifies the plugin is properly configured for each supported platform |
 | Self-Test | Runs sample commands to confirm blocking is working correctly |
 | Configuration | Validates custom rules in your user and project config files |
-| Environment | Shows the status of mode flags (`SAFETY_NET_STRICT`, `SAFETY_NET_PARANOID`, etc.) |
+| Environment | Shows the status of mode flags (`CC_SAFETY_NET_STRICT`, `CC_SAFETY_NET_PARANOID`, etc.; legacy `SAFETY_NET_*` also listed when set) |
 | Recent Activity | Summarizes blocked commands from the last 7 days |
 | System Info | Displays versions of all relevant tools |
 | Update Check | Checks whether a newer version is available |
@@ -48,7 +48,7 @@ Review the output before diving into the individual issues below. Most problems 
 
     1. Run `npx cc-safety-net explain "<the command>"` to see the full step-by-step analysis of how CC Safety Net evaluated that specific command. This will show you exactly which rules were checked and why the command was allowed.
     2. The command may fall into an explicitly allowed category. For example, `rm -rf` within the current working directory is allowed by default because it's scoped to your project. See the [Commands Allowed](/reference/allowed-commands) reference for the full list.
-    3. If you need the command blocked in your context, create a custom rule in `.safety-net.json` at your project root. See the custom rules documentation for the schema.
+    3. If you need the command blocked in your context, create a custom rulebook with `npx -y cc-safety-net rule init` and add a rule to `.cc-safety-net/rules/project-rules/rulebook.json`. See [Custom Rules](/configuration/custom-rules) for the schema.
     4. If you believe the command should have been blocked by a built-in rule and wasn't, share the output of `npx cc-safety-net doctor --json` when filing a bug report.
   </Accordion>
 
@@ -59,24 +59,25 @@ Review the output before diving into the individual issues below. Most problems 
 
     1. Run `npx cc-safety-net explain "<the command>"` to understand exactly why it's being blocked and which rule matched.
     2. Consider these alternatives depending on your situation:
-       - **Working in a linked git worktree?** Set `SAFETY_NET_WORKTREE=1`. This relaxes local-discard rules when the command is proven to run inside a linked worktree, which is designed to be a disposable, isolated workspace.
+       - **Working in a linked git worktree?** Set `CC_SAFETY_NET_WORKTREE=1`. This relaxes local-discard rules when the command is proven to run inside a linked worktree, which is designed to be a disposable, isolated workspace.
        - **Need a safer variant?** For example, `git push --force-with-lease` is allowed and provides the same outcome as `--force` with an added safety check. `git clean -n` (dry-run) is allowed and lets you preview what would be removed.
        - **Command is genuinely needed?** Run it manually outside the agent. This is always an option, and CC Safety Net will tell the agent to ask you to do exactly this when a block fires.
     3. If none of the above apply, you can add a custom allow path by structuring the situation so the agent asks you to run the command directly.
   </Accordion>
 
   <Accordion title="Custom rules not loading">
-    CC Safety Net uses silent fallback error handling for custom rules — if your config file has any problem, it silently falls back to built-in rules only, with no error shown to the agent.
+    Rulebook-backed custom rules **fail closed** when configured rulebooks cannot be loaded safely. If your rulebook has any problem, commands stay blocked until it's fixed.
 
     **Steps to resolve:**
 
-    1. Run `npx cc-safety-net --verify-config` to explicitly validate your config file and see any errors. This is the fastest way to find the problem.
+    1. Run `npx -y cc-safety-net rule verify` to validate rulebook structure, and `npx -y cc-safety-net rule test` to run every fixture. These commands surface the exact errors.
     2. Check that you're using the correct file locations:
-       - **User scope**: `~/.cc-safety-net/config.json` (loaded globally, always)
-       - **Project scope**: `.safety-net.json` in your project root (loaded when you're working in that directory)
-    3. Ensure your config file is valid JSON. Common mistakes include trailing commas and unquoted keys. Run the file through a JSON validator if you're unsure.
-    4. Confirm that `"version": 1` is present at the top level of the config object. This field is required.
-    5. After fixing the file, run `npx cc-safety-net explain "some command"` to confirm your rules are now active.
+       - **User scope**: `~/.cc-safety-net/rules/rule.json` (created with `rule init --global`)
+       - **Project scope**: `.cc-safety-net/rules/rule.json` in your project root
+    3. Ensure both `rule.json` and your rulebook JSON files are valid JSON. Common mistakes include trailing commas and unquoted keys.
+    4. Confirm that `"version": 1` is present in `rule.json` and `"rulebook_version": 1` is present in each `rulebook.json`. Both fields are required.
+    5. If you previously used the legacy inline config (`.safety-net.json` or `~/.cc-safety-net/config.json`), run `npx -y cc-safety-net rule migrate` to convert it to the new layout. Legacy files with rules cause commands to fail closed until migrated.
+    6. After making changes to rulebook sources, run `npx -y cc-safety-net rule sync` to rebuild the lock and cache, then re-run `rule verify` and `rule test`.
   </Accordion>
 
   <Accordion title="Status line not showing in Claude Code">
@@ -85,23 +86,18 @@ Review the output before diving into the individual issues below. Most problems 
     **Steps to resolve:**
 
     1. Open `~/.claude/settings.json` and verify the `statusLine` entry is present. It should look like one of the following:
-
        ```json
-       { "statusLine": { "type": "command", "command": "bunx cc-safety-net --statusline" } }
+       { "statusLine": { "type": "command", "command": "bunx cc-safety-net statusline --claude-code" } }
        ```
-
        ```json
-       { "statusLine": { "type": "command", "command": "npx -y cc-safety-net --statusline" } }
+       { "statusLine": { "type": "command", "command": "npx -y cc-safety-net statusline --claude-code" } }
        ```
-
     2. Changes to this file take effect immediately — you do not need to restart Claude Code.
     3. If you're using the `claude x` variant, note that it is only compatible with the native version of Claude Code. If you installed Claude Code via npm, use `npx` or `bunx` instead.
     4. Test the status line command directly in your terminal to confirm it produces output:
-
        ```bash
-       bunx cc-safety-net --statusline
+       bunx cc-safety-net statusline --claude-code
        ```
-
        If this command fails, the status line will be blank inside Claude Code.
   </Accordion>
 
@@ -142,4 +138,4 @@ If you're unable to resolve an issue with the steps above, collect the full diag
 npx cc-safety-net doctor --json
 ```
 
-The `--json` flag produces structured output that captures your environment, installed versions, hook configuration, and self-test results in a single snapshot. Include this output when [opening an issue on GitHub](https://github.com/kenryu42/claude-code-safety-net/issues).
+The `--json` flag produces structured output that captures your environment, installed versions, hook configuration, and self-test results in a single snapshot. Include this output when [opening an issue on GitHub](https://github.com/kenryu42/cc-safety-net/issues).

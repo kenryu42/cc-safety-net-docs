@@ -9,12 +9,14 @@ CC Safety Net blocks these commands because they can permanently destroy data �
 ## Git Commands
 
 | Command Pattern | Why It's Blocked |
-|---|---|
+| --- | --- |
 | `git checkout -- <files>` | Discards uncommitted changes permanently |
 | `git checkout <ref> -- <path>` | Overwrites working tree with ref version |
 | `git checkout <ref> <path>` | May overwrite working tree when Git disambiguates ref vs pathspec |
 | `git restore <files>` | Discards uncommitted changes |
 | `git restore --worktree` | Explicitly discards working tree changes |
+| `git switch --discard-changes` | Discards uncommitted changes when switching branches |
+| `git switch --force` / `-f` | Discards uncommitted changes (force switch) |
 | `git reset --hard` | Destroys all uncommitted changes |
 | `git reset --merge` | Can lose uncommitted changes |
 | `git clean -f` | Removes untracked files permanently |
@@ -27,25 +29,28 @@ CC Safety Net blocks these commands because they can permanently destroy data �
 ## Filesystem Commands
 
 | Command Pattern | Why It's Blocked |
-|---|---|
-| `rm -rf` (paths outside cwd) | Recursive deletion outside current directory |
+| --- | --- |
+| `rm -rf` (destructive targets) | Recursive deletion of root, home, parent, absolute, or non-temp paths outside cwd |
 | `rm -rf /` or `~` or `$HOME` | Root/home deletion is extremely dangerous |
 | `find ... -delete` | Permanently removes files matching criteria |
 | `xargs rm -rf` | Dynamic input makes targets unpredictable |
 | `xargs <shell> -c` | Can execute arbitrary commands |
 | `parallel rm -rf` | Dynamic input makes targets unpredictable |
 | `parallel <shell> -c` | Can execute arbitrary commands |
+| `dd` writing to block devices | Can overwrite disks or partitions |
+| `mkfs` on block devices | Formats disks or partitions |
+| `shred` | Permanently destroys file contents |
 
 ## Shell Wrappers and Interpreter One-Liners
 
-Commands wrapped in shell interpreters like `bash -c` or `sh -c` are also blocked. CC Safety Net recursively analyzes nested wrappers up to 5 levels deep, so there is no bypass through indirection.
+Commands wrapped in shell interpreters like `bash -c` or `sh -c` are also blocked. CC Safety Net recursively analyzes nested wrappers up to 10 levels deep, so there is no bypass through indirection.
 
-With `SAFETY_NET_PARANOID_INTERPRETERS=1`, interpreter one-liners — including `python -c`, `node -e`, `ruby -e`, and `perl -e` — are blocked as well, since they can hide destructive operations behind a language runtime.
+With `CC_SAFETY_NET_PARANOID_INTERPRETERS=1`, interpreter one-liners — including `python -c`, `node -e`, `ruby -e`, and `perl -e` — are blocked as well, since they can hide destructive operations behind a language runtime.
 
 ```bash
 bash -c 'git reset --hard'                       # Blocked
 sh -lc 'rm -rf /'                                # Blocked
-python -c 'import os; os.system("rm -rf /")'     # Blocked (with PARANOID_INTERPRETERS)
+python -c 'import os; os.system("rm -rf /")'     # Blocked (with CC_SAFETY_NET_PARANOID_INTERPRETERS)
 ```
 
 <Note>

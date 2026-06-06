@@ -4,7 +4,7 @@ sidebarTitle: "CLI Commands"
 description: "Reference for all CC Safety Net CLI commands: doctor for diagnostics, explain for command tracing, --verify-config, --statusline, and --custom-rules-doc."
 ---
 
-CC Safety Net provides CLI commands for diagnostics, command analysis, and configuration validation. Run them with `npx cc-safety-net` or `bunx cc-safety-net`.
+CC Safety Net provides CLI commands for diagnostics, command analysis, status line output, hook installation, and rulebook management. Run them with `npx cc-safety-net` or `bunx cc-safety-net`.
 
 ## doctor
 
@@ -16,11 +16,11 @@ bunx cc-safety-net doctor
 ```
 
 | Check | Description |
-|---|---|
+| --- | --- |
 | Hook Integration | Verifies the plugin is properly configured for each supported platform |
 | Self-Test | Runs sample commands to confirm blocking works correctly |
 | Configuration | Validates custom rules in user and project configs |
-| Environment | Shows status of mode flags (`SAFETY_NET_STRICT`, `SAFETY_NET_PARANOID`, etc.) |
+| Environment | Shows status of mode flags (`CC_SAFETY_NET_STRICT`, `CC_SAFETY_NET_PARANOID`, etc.; legacy `SAFETY_NET_*` also listed when set) |
 | Recent Activity | Summarizes blocked commands from the last 7 days |
 | System Info | Displays versions of all relevant tools |
 | Update Check | Checks if a newer version is available |
@@ -28,7 +28,7 @@ bunx cc-safety-net doctor
 **Flags:**
 
 | Flag | Description |
-|---|---|
+| --- | --- |
 | `--json` | Output in JSON format (useful for sharing in bug reports) |
 | `--skip-update-check` | Skip the npm version check |
 
@@ -44,7 +44,7 @@ bunx cc-safety-net explain "git reset --hard"
 **Flags:**
 
 | Flag | Description |
-|---|---|
+| --- | --- |
 | `--json` | Output the analysis as JSON |
 | `--cwd <path>` | Use a custom working directory for analysis |
 
@@ -56,36 +56,91 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 npx cc-safety-net explain --cwd /tmp "git status"
 ```
 
-## --verify-config
+## statusline
 
-The `--verify-config` flag (alias: `-vc`) validates your custom rules configuration file without running any other checks. Use this in CI pipelines or any time you manually edit `.safety-net.json` to confirm the file is well-formed and all rules are valid.
-
-```bash
-npx cc-safety-net --verify-config
-npx cc-safety-net -vc
-bunx cc-safety-net --verify-config
-```
-
-Returns exit code `0` if the configuration is valid, or a non-zero exit code if errors are found.
-
-## --statusline
-
-The `--statusline` flag outputs CC Safety Net's current status in a format suitable for Claude Code's status line. It shows whether protection is active and which modes are enabled.
+The `statusline` command outputs CC Safety Net's current status in a format suitable for your agent's status line. It shows whether protection is active and which modes are enabled.
 
 ```bash
-bunx cc-safety-net --statusline
-npx -y cc-safety-net --statusline
+bunx cc-safety-net statusline --claude-code
+npx -y cc-safety-net statusline --claude-code
 ```
 
 See the [Status Line](/configuration/status-line) configuration page for setup instructions.
 
-## --custom-rules-doc
+## hook install
 
-The `--custom-rules-doc` flag prints a machine-readable prompt document describing the custom rules schema. Pass this output to your AI coding agent to let it help you write or validate `.safety-net.json` rules interactively.
+Install CC Safety Net's PreToolUse hook directly into a supported agent's config:
 
 ```bash
-npx cc-safety-net --custom-rules-doc
-bunx cc-safety-net --custom-rules-doc
+npx -y cc-safety-net hook install --kimi-cli
+```
+
+Use the appropriate flag for your agent (e.g., `--kimi-cli`). See [Installation](/installation) for the recommended approach per agent.
+
+## rule
+
+The `rule` command manages rulebook-based custom rules. See [Custom Rules](/configuration/custom-rules) for the full authoring guide.
+
+### rule init
+
+Create a starter project rule config and rulebook in the current directory:
+
+```bash
+npx -y cc-safety-net rule init
+```
+
+Use `--global` to create the user-scope config at `~/.cc-safety-net/rules/rule.json` instead:
+
+```bash
+npx -y cc-safety-net rule init --global
+```
+
+### rule sync
+
+Rebuild the lock and cache for configured rulebook sources. Run after adding or changing entries in `rule.json`:
+
+```bash
+npx -y cc-safety-net rule sync
+```
+
+### rule verify
+
+Validate the structure of all active rulebooks and rule definitions. Use this in CI or whenever you edit a rulebook by hand:
+
+```bash
+npx -y cc-safety-net rule verify
+```
+
+Returns exit code `0` if everything is valid, or non-zero if errors are found.
+
+### rule test
+
+Run every fixture defined in every active rulebook and confirm rules block and allow as expected:
+
+```bash
+npx -y cc-safety-net rule test
+```
+
+### rule migrate
+
+Convert legacy inline config files (`.safety-net.json`, `~/.cc-safety-net/config.json`) into the new rulebook layout:
+
+```bash
+npx -y cc-safety-net rule migrate
+```
+
+Use `--cleanup` to delete the legacy files after the migrated rules are verified:
+
+```bash
+npx -y cc-safety-net rule migrate --cleanup
+```
+
+### rule doc
+
+Print a machine-readable document describing the rulebook schema. Pipe the output to your agent to let it help author or validate rulebooks interactively:
+
+```bash
+npx -y cc-safety-net rule doc
 ```
 
 ## --version and --help

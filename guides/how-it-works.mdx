@@ -4,7 +4,7 @@ sidebarTitle: "How It Works"
 description: "How CC Safety Net intercepts Bash commands, runs semantic analysis, detects shell wrappers, and returns block decisions before execution."
 ---
 
-CC Safety Net hooks into your AI agent's tool execution pipeline using a PreToolUse hook — a mechanism that runs *before* any Bash command executes. Rather than maintaining a list of forbidden strings, it parses each command into its components and reasons about intent. This page walks through exactly what happens between the moment your agent builds a command and when (or whether) that command runs.
+CC Safety Net hooks into your AI agent's tool execution pipeline using a PreToolUse hook — a mechanism that runs _before_ any Bash command executes. Rather than maintaining a list of forbidden strings, it parses each command into its components and reasons about intent. This page walks through exactly what happens between the moment your agent builds a command and when (or whether) that command runs.
 
 ## The Hook Pipeline
 
@@ -13,7 +13,7 @@ CC Safety Net hooks into your AI agent's tool execution pipeline using a PreTool
     Your AI agent constructs a shell command to execute — for example, `git reset --hard` — and passes it to the Bash tool.
   </Step>
   <Step title="PreToolUse hook fires">
-    Before the Bash tool executes anything, CC Safety Net intercepts the call. This happens at the hook layer, which runs *before* the permission system and before the OS ever sees the command.
+    Before the Bash tool executes anything, CC Safety Net intercepts the call. This happens at the hook layer, which runs _before_ the permission system and before the OS ever sees the command.
   </Step>
   <Step title="Semantic analysis">
     CC Safety Net parses the command into its components — executable, subcommand, flags, and arguments — and analyzes the intent of the operation. See [Semantic Analysis](#semantic-analysis) below for details.
@@ -34,10 +34,10 @@ When a command arrives, it is parsed into its structural components:
 - **Flags** — options that modify behavior (`--hard`, `-f`, `-r`, etc.)
 - **Arguments** — the targets the command acts on (file paths, branch names, refs, etc.)
 
-With this parsed representation, CC Safety Net reasons about *what the command will do*, not just *what it looks like*. Consider two commands that share the same base:
+With this parsed representation, CC Safety Net reasons about _what the command will do_, not just _what it looks like_. Consider two commands that share the same base:
 
 | Command | Intent | Outcome |
-|---|---|---|
+| --- | --- | --- |
 | `git checkout -b feature` | Creates a new branch | **Allowed** |
 | `git checkout -- file` | Discards uncommitted changes in a file | **Blocked** |
 
@@ -45,7 +45,7 @@ Both start with `git checkout`. A pattern-matching approach either blocks both o
 
 ## Shell Wrapper Detection
 
-Wrapping a destructive command in a shell invocation doesn't hide it from CC Safety Net. Shell wrappers like `bash -c '...'` are recursively unwrapped and the inner command is subjected to the same semantic analysis. This unwrapping goes up to **5 levels deep**.
+Wrapping a destructive command in a shell invocation doesn't hide it from CC Safety Net. Shell wrappers like `bash -c '...'` are recursively unwrapped and the inner command is subjected to the same semantic analysis. This unwrapping goes up to **10 levels deep**.
 
 ```bash
 bash -c 'git reset --hard'    # → analyzed → BLOCKED
@@ -62,14 +62,14 @@ Destructive commands can also be hidden inside interpreter one-liners. By defaul
 python -c 'import os; os.system("rm -rf /")'  # BLOCKED
 ```
 
-If you want stricter behavior, set `SAFETY_NET_PARANOID_INTERPRETERS=1` to block *all* interpreter one-liners outright — regardless of their content.
+If you want stricter behavior, set `CC_SAFETY_NET_PARANOID_INTERPRETERS=1` to block _all_ interpreter one-liners outright — regardless of their content.
 
 ## Block Output Format
 
 When CC Safety Net blocks a command, the agent receives a structured response as the tool result. A typical block message looks like this:
 
 ```text
-BLOCKED by Safety Net
+BLOCKED by CC Safety Net
 
 Reason: git checkout -- discards uncommitted changes permanently. Use 'git stash' first.
 
@@ -95,7 +95,7 @@ Each entry in the log is a JSON object on its own line:
 ```
 
 | Field | Description |
-|---|---|
+| --- | --- |
 | `ts` | ISO 8601 timestamp of when the command was blocked |
 | `command` | The full command string as received |
 | `segment` | The specific segment that triggered the block (may differ for wrapped commands) |
