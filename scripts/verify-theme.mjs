@@ -90,8 +90,8 @@ for (const token of requiredCssTokens) {
 
 const style = await readFile("style.css", "utf8");
 
-if (!style.includes('@import url("/custom.css");')) {
-  throw new Error('style.css must import "/custom.css" for Mintlify CSS discovery.');
+if (style.includes("/custom.css")) {
+  throw new Error('style.css must not import "/custom.css"; it resolves outside the /docs subpath in production.');
 }
 
 console.log("Mintlify theme matches DESIGN.md tokens.");
