@@ -15,6 +15,11 @@ const requiredDocsConfig = {
       dark: "#091c1e",
     },
   },
+  favicon: "/favicon.svg",
+  logo: {
+    light: "/cc-safety-net-header-logo-light.svg",
+    dark: "/cc-safety-net-header-logo-dark.svg",
+  },
 };
 
 const requiredCssTokens = [
@@ -44,6 +49,21 @@ assertEqual(docs.colors?.primary, requiredDocsConfig.colors.primary, "colors.pri
 assertEqual(docs.colors?.light, requiredDocsConfig.colors.light, "colors.light");
 assertEqual(docs.colors?.dark, requiredDocsConfig.colors.dark, "colors.dark");
 assertEqual(docs.background?.color?.dark, requiredDocsConfig.background.color.dark, "background.color.dark");
+assertEqual(docs.favicon, requiredDocsConfig.favicon, "favicon");
+assertEqual(docs.logo?.light, requiredDocsConfig.logo.light, "logo.light");
+assertEqual(docs.logo?.dark, requiredDocsConfig.logo.dark, "logo.dark");
+
+for (const logoPath of Object.values(requiredDocsConfig.logo)) {
+  const logo = await readFile(logoPath.slice(1), "utf8");
+
+  if (!logo.includes('data-source="favicon.svg"')) {
+    throw new Error(`${logoPath} must include favicon.svg in the header logo.`);
+  }
+
+  if (!logo.includes('data-source="cc-safety-net-wordmark-logo.svg"')) {
+    throw new Error(`${logoPath} must include cc-safety-net-wordmark-logo.svg in the header logo.`);
+  }
+}
 
 const css = await readFile("custom.css", "utf8");
 
