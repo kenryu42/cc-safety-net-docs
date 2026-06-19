@@ -15,11 +15,18 @@ const requiredDocsConfig = {
       dark: "#091c1e",
     },
   },
-  favicon: "/favicon.svg",
+  favicon: "/assets/favicon.svg",
   logo: {
-    light: "/cc-safety-net-header-logo-light.svg",
-    dark: "/cc-safety-net-header-logo-dark.svg",
+    light: "/assets/cc-safety-net-header-logo-light.svg",
+    dark: "/assets/cc-safety-net-header-logo-dark.svg",
   },
+};
+
+const requiredHeaderLogoWordmark = {
+  x: "76",
+  y: "-18",
+  width: "500",
+  height: "132",
 };
 
 const requiredCssTokens = [
@@ -62,6 +69,14 @@ for (const logoPath of Object.values(requiredDocsConfig.logo)) {
 
   if (!logo.includes('data-source="cc-safety-net-wordmark-logo.svg"')) {
     throw new Error(`${logoPath} must include cc-safety-net-wordmark-logo.svg in the header logo.`);
+  }
+
+  const wordmarkPattern = new RegExp(
+    `data-source="cc-safety-net-wordmark-logo\\.svg"[^>]* x="${requiredHeaderLogoWordmark.x}"[^>]* y="${requiredHeaderLogoWordmark.y}"[^>]* width="${requiredHeaderLogoWordmark.width}"[^>]* height="${requiredHeaderLogoWordmark.height}"`
+  );
+
+  if (!wordmarkPattern.test(logo)) {
+    throw new Error(`${logoPath} must use the larger header wordmark geometry.`);
   }
 }
 
