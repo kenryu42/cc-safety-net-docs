@@ -35,10 +35,15 @@ Review the output before diving into the individual issues below. Most problems 
 
     **Steps to resolve:**
 
-    1. Run `npx cc-safety-net doctor` — it checks hook integration for each supported platform and will flag misconfiguration.
-    2. **Claude Code**: run `/plugin` inside Claude Code and confirm that `safety-net` appears in the installed plugins list. If it doesn't appear, reinstall with `/plugin install safety-net@cc-marketplace`.
-    3. **Codex**: open your `~/.codex/config.toml` and verify that `plugin_hooks = true` is set under `[features]`. Then run `/hooks` in the TUI, select the safety-net PreToolUse hook, and press `t` to mark it as trusted. Without the trust step, the hook will not fire.
-    4. After making any changes, reload your agent session.
+    1. Run `npx cc-safety-net doctor` — it checks hook integration for every supported agent and flags misconfiguration with the exact config path.
+    2. **Claude Code**: run `/plugin` inside Claude Code and confirm that `safety-net` appears in the installed plugins list and is enabled. If it doesn't appear, reinstall with `/plugin install safety-net@cc-marketplace`, then `/reload-plugins`.
+    3. **Codex**: open your `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`) and verify that `plugin_hooks = true` is set under `[features]` and `enabled = true` is set under `[plugins."safety-net@cc-marketplace"]`. Then run `/hooks` in the TUI, select the safety-net PreToolUse hook, and press `t` to mark it as trusted. Without the trust step, the hook will not fire.
+    4. **Gemini CLI**: run `gemini extensions list` and confirm the `https://github.com/kenryu42/gemini-safety-net` source is installed and enabled (check both User and Workspace scope — Workspace wins if set). Reinstall with `gemini extensions install https://github.com/kenryu42/gemini-safety-net` and start a new Gemini session.
+    5. **Copilot CLI**: confirm the `copilot-safety-net` plugin is installed (`/plugin`), and that hooks are not disabled via `disableAllHooks: true` in `~/.copilot/config.json`, `.github/copilot/settings.json`, or `.github/copilot/settings.local.json`. Inline hooks require Copilot CLI 1.0.8+ and user hook files require 0.0.422+.
+    6. **Kimi Code**: check `~/.kimi-code/config.toml` (or `$KIMI_CODE_HOME/config.toml`) for a `[[hooks]]` block running `npx -y cc-safety-net hook --kimi-code` on `PreToolUse` `Bash`. Re-run `npx -y cc-safety-net hook install --kimi-code` if it's missing.
+    7. **OpenCode**: check `~/.config/opencode/opencode.json` (or `.jsonc`) for `cc-safety-net` in the `plugin[]` array. OpenCode can cache a stale version — see the [Installation](/installation#opencode) cache-clearance steps.
+    8. **Pi**: confirm `pi install npm:cc-safety-net` completed and you restarted Pi so the extension loads. Pi runs CC Safety Net as an in-process extension; run `npx cc-safety-net doctor` which probes Pi directly.
+    9. After making any changes, reload or restart your agent session.
   </Accordion>
 
   <Accordion title="A destructive command wasn't blocked">
@@ -99,6 +104,7 @@ Review the output before diving into the individual issues below. Most problems 
        bunx cc-safety-net statusline --claude-code
        ```
        If this command fails, the status line will be blank inside Claude Code.
+    5. Note that the status line reflects the `enabledPlugins["safety-net@cc-marketplace"]` entry in `~/.claude/settings.json`. If you run CC Safety Net as a manual hook or for another agent, it may show `❌` even though protection is active. See [Status Line](/configuration/status-line) for what each indicator means.
   </Accordion>
 
   <Accordion title="Getting an update">

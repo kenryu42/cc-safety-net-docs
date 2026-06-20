@@ -47,8 +47,12 @@ With pattern matching, you face an unavoidable tradeoff: broad patterns cause fa
 
 ## Defense in Depth
 
-PreToolUse hooks run [**before**](https://code.claude.com/docs/en/iam#additional-permission-control-with-hooks) the permission system. This means CC Safety Net inspects every Bash command first, regardless of how your permission deny rules are configured. Even if you misconfigure or forget to add a deny rule, CC Safety Net provides a fallback layer that catches known-destructive operations before they ever reach the permission check.
+PreToolUse hooks run [**before**](https://code.claude.com/docs/en/permissions#extend-permissions-with-hooks) the permission system. This means CC Safety Net inspects every Bash command first, regardless of how your permission deny rules are configured. A blocking hook short-circuits before deny/ask/allow rules are evaluated; a hook _allow_ decision does **not** bypass your deny or ask rules, which still run afterward. Even if you misconfigure or forget to add a deny rule, CC Safety Net provides a fallback layer that catches known-destructive operations before they ever reach the permission check.
 
 <Tip>
   Use both together for the strongest protection: configure permission deny rules for quick, user-configurable blocks on commands specific to your workflow; rely on CC Safety Net for robust, bypass-resistant protection that works out of the box without any manual tuning.
 </Tip>
+
+<Note>
+  Claude Code also has newer native safety features beyond static wildcard rules: a classifier-based `auto` permission mode, a built-in read-only command allowlist, and protected-path circuit breakers that still prompt before destructive operations on `/`, your home directory, or critical system paths even under `bypassPermissions` or sandbox auto-allow. The bypass vectors above still apply to _wildcard_ deny rules, which is where CC Safety Net's semantic analysis adds the most value.
+</Note>

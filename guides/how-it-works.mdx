@@ -4,7 +4,7 @@ sidebarTitle: "How It Works"
 description: "How CC Safety Net intercepts Bash commands, runs semantic analysis, detects shell wrappers, and returns block decisions before execution."
 ---
 
-CC Safety Net hooks into your AI agent's tool execution pipeline using a PreToolUse hook — a mechanism that runs _before_ any Bash command executes. Rather than maintaining a list of forbidden strings, it parses each command into its components and reasons about intent. This page walks through exactly what happens between the moment your agent builds a command and when (or whether) that command runs.
+CC Safety Net hooks into your AI agent's tool execution pipeline so it runs _before_ any shell command executes. For most agents this is a PreToolUse hook; the exact mechanism varies by agent (Claude Code and Kimi Code use a `PreToolUse` hook on the `Bash` tool, Gemini CLI uses a `BeforeTool` hook on `run_shell_command`, Copilot CLI uses a preToolUse hook, and Pi loads CC Safety Net as an in-process extension). See [Integration Architecture](/guides/integration-architecture) for the per-agent details. Rather than maintaining a list of forbidden strings, CC Safety Net parses each command into its components and reasons about intent. This page walks through exactly what happens between the moment your agent builds a command and when (or whether) that command runs.
 
 ## The Hook Pipeline
 
@@ -56,7 +56,7 @@ This means an agent cannot bypass protection simply by embedding a blocked comma
 
 ## Interpreter One-Liner Detection
 
-Destructive commands can also be hidden inside interpreter one-liners. By default, CC Safety Net analyzes the content of one-liners passed to Python, Node, Ruby, and Perl for embedded destructive operations:
+Destructive commands can also be hidden inside interpreter one-liners. By default, CC Safety Net extracts the code passed to an interpreter's `-c` or `-e` flag — for `python`, `python2`, `python3`, `node`, `ruby`, and `perl` — and scans it for embedded destructive operations:
 
 ```bash
 python -c 'import os; os.system("rm -rf /")'  # BLOCKED
@@ -82,7 +82,7 @@ The agent reads this as the tool response and typically surfaces the explanation
 
 ## Audit Logging
 
-Every blocked command is written to a structured log file for later review:
+Blocked commands are written to a structured log file for later review:
 
 ```text
 ~/.cc-safety-net/logs/<session_id>.jsonl
@@ -91,19 +91,37 @@ Every blocked command is written to a structured log file for later review:
 Each entry in the log is a JSON object on its own line:
 
 ```json
-{"ts": "2025-01-15T10:30:00Z", "command": "git reset --hard", "segment": "git reset --hard", "reason": "...", "cwd": "/path/to/project"}
+{"ts": "2025-01-15T10:30:00Z", "decision": "deny", "command": "git reset --hard", "segment": "git reset --hard", "reason": "...", "cwd": "/path/to/project"}
 ```
 
 | Field | Description |
 | --- | --- |
-| `ts` | ISO 8601 timestamp of when the command was blocked |
-| `command` | The full command string as received |
-| `segment` | The specific segment that triggered the block (may differ for wrapped commands) |
+| `ts` | ISO 8601 timestamp of when the command was handled |
+| `decision` | The decision CC Safety Net made: `deny` (blocked) or `allow` (permitted) |
+| `command` | The full command string as received, truncated to 300 characters |
+| `segment` | The specific segment that triggered the block, truncated to 300 characters (may differ for wrapped commands) |
 | `reason` | The human-readable reason for blocking |
 | `cwd` | The working directory at the time of the call |
 
-Sensitive data (tokens, passwords, API keys) in log entries is automatically redacted before they are written to disk.
+A few details worth knowing:
+
+- **Denied commands are always logged** when a session id is available; **allowed commands are logged only when `CC_SAFETY_NET_DEBUG=1`** is set, to keep the log focused on interventions.
+- Commands blocked because the analyzer itself failed (the fail-closed safety net) are **not** written to the log.
+- Nothing is written when there is no session id available.
+- The `doctor` command summarizes this log as its **Recent Activity** check (blocked commands from the last 7 days).
+
+Sensitive data (tokens, passwords, API keys) in log entries is automatically redacted before they are written to disk. See the [audit log reference](/reference/audit-log) for the full redaction scope.
 
 ## Secret Redaction
 
 Block messages and log entries both go through automatic secret redaction before being surfaced to the agent or written to disk. This ensures that if a destructive command happens to include a token, credential, or API key in its arguments, that sensitive data is never exposed in agent responses or audit logs.
+
+## Known Limitations
+
+CC Safety Net analyzes the command string your agent attempts to run. A few cases are out of scope or not yet handled:
+
+- **Transparent command proxies** — A tool that rewrites or proxies a shell command before it runs (for example `rtk git reset --hard`) can bypass analysis, because CC Safety Net sees the proxy executable (`rtk`) rather than the underlying command. Some top-level proxied commands are caught by the fallback dangerous-text scan, but this is incomplete, and custom rules do not yet apply through proxies. Work is tracked to add a transparent-proxy normalization layer.
+- **Behavior inside binaries** — If a command does not visibly contain a destructive operation (for example `some-tool --task destructive-cleanup`), command-string analysis cannot infer it. CC Safety Net does not and cannot inspect what arbitrary binaries do at runtime — use [sandboxing](/guides/vs-sandboxing) for that threat.
+- **Reads and network** — CC Safety Net has no read-protection or network layer. It does not stop an agent from reading sensitive files or exfiltrating data. See [vs Sandboxing](/guides/vs-sandboxing#where-cc-safety-net-cannot-help).
+
+If you believe a destructive command slipped through, run `npx cc-safety-net explain "<command>"` to see the analysis, and report genuine bypasses as described in the [security policy](/security).

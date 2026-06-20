@@ -1,10 +1,12 @@
 ---
 title: "CC Safety Net CLI Commands Reference"
 sidebarTitle: "CLI Commands"
-description: "Reference for all CC Safety Net CLI commands: doctor for diagnostics, explain for command tracing, --verify-config, --statusline, and --custom-rules-doc."
+description: "Reference for all CC Safety Net CLI commands: doctor for diagnostics, explain for command tracing, statusline for Claude Code, hook for Kimi Code install, and rule for rulebook management."
 ---
 
 CC Safety Net provides CLI commands for diagnostics, command analysis, status line output, hook installation, and rulebook management. Run them with `npx cc-safety-net` or `bunx cc-safety-net`.
+
+CC Safety Net is invoked through your agent; there is no global install step. `npx`/`bunx` are only used to run the CLI subcommands documented here.
 
 ## doctor
 
@@ -17,8 +19,8 @@ bunx cc-safety-net doctor
 
 | Check | Description |
 | --- | --- |
-| Hook Integration | Verifies the plugin is properly configured for each supported platform |
-| Self-Test | Runs sample commands to confirm blocking works correctly |
+| Hook Integration | Verifies the plugin/hook is configured for each supported agent: Claude Code, Codex, Copilot CLI, Gemini CLI, Kimi Code, OpenCode, and Pi |
+| Self-Test | Runs sample commands to confirm blocking works (`git reset --hard` and `rm -rf /` blocked; `rm -rf ./node_modules` allowed) |
 | Configuration | Validates custom rules in user and project configs |
 | Environment | Shows status of mode flags (`CC_SAFETY_NET_STRICT`, `CC_SAFETY_NET_PARANOID`, etc.; legacy `SAFETY_NET_*` also listed when set) |
 | Recent Activity | Summarizes blocked commands from the last 7 days |
@@ -58,28 +60,60 @@ npx cc-safety-net explain --cwd /tmp "git status"
 
 ## statusline
 
-The `statusline` command outputs CC Safety Net's current status in a format suitable for your agent's status line. It shows whether protection is active and which modes are enabled.
+The `statusline` command outputs CC Safety Net's current status in a format suitable for Claude Code's status line. It shows whether the Claude Code plugin is enabled and which modes are active. This command is Claude-Code-specific — it requires `--claude-code`.
 
 ```bash
 bunx cc-safety-net statusline --claude-code
-npx -y cc-safety-net statusline --claude-code
+# -cc is a short alias for --claude-code
+bunx cc-safety-net statusline -cc
 ```
 
-See the [Status Line](/configuration/status-line) configuration page for setup instructions.
+See the [Status Line](/configuration/status-line) configuration page for setup instructions and what each indicator means.
 
-## hook install
+## hook
 
-Install CC Safety Net's PreToolUse hook directly into a supported agent's config:
+The `hook` command has two roles: installing/uninstalling the hook for agents that need a config write, and running as the runtime PreToolUse hook invoked from an agent's config.
+
+### hook install / hook uninstall
+
+Write or remove CC Safety Net's hook in an agent's config file. Currently the only supported target is Kimi Code, whose config is the only one CC Safety Net writes directly. All other agents are installed through their own plugin or extension marketplaces — see [Installation](/installation).
 
 ```bash
+# Install the Kimi Code hook
 npx -y cc-safety-net hook install --kimi-code
+
+# Remove the Kimi Code hook
+npx -y cc-safety-net hook uninstall --kimi-code
 ```
 
-Use the appropriate flag for your agent (e.g., `--kimi-code`). See [Installation](/installation) for the recommended approach per agent.
+`--kimi-code` is the only install/uninstall target. This writes a `[[hooks]]` block to `~/.kimi-code/config.toml` (or `$KIMI_CODE_HOME/config.toml`).
+
+### Runtime hook entrypoints
+
+When CC Safety Net runs as an agent's PreToolUse hook, the agent invokes `cc-safety-net hook <flag>`. These entrypoints read the agent's hook input from stdin and emit the agent-specific deny format. You normally do not run these by hand — your agent's plugin or config wires them up — but they are the actual command behind the protection.
+
+| Flag | Agent | Hook event / tool | Legacy top-level alias |
+| --- | --- | --- | --- |
+| `--claude-code` / `-cc` | Claude Code | `PreToolUse` / `Bash` | Yes (`cc-safety-net --claude-code`) |
+| `--copilot-cli` / `-cp` | GitHub Copilot CLI | preToolUse / `bash` | Yes (`cc-safety-net --copilot-cli`) |
+| `--gemini-cli` / `-gc` | Gemini CLI | `BeforeTool` / `run_shell_command` | Yes (`cc-safety-net --gemini-cli`) |
+| `--kimi-code` / `-kc` | Kimi Code | `PreToolUse` / `Bash` | No |
+
+`-cc`, `-cp`, and `-gc` also work as legacy top-level flags (for example `cc-safety-net --claude-code`); `-kc` is only valid as `hook --kimi-code`. Codex, OpenCode, and Pi do not use this command — they load CC Safety Net as a plugin or in-process extension instead. See [Integration Architecture](/guides/integration-architecture) for how each agent plugs in.
 
 ## rule
 
 The `rule` command manages rulebook-based custom rules. See [Custom Rules](/configuration/custom-rules) for the full authoring guide.
+
+**Shared flags** (apply to most subcommands):
+
+| Flag | Description |
+| --- | --- |
+| `-g`, `--global` | Use the user-scope rule config (`~/.cc-safety-net/rules/rule.json`) instead of the project scope |
+| `--check` | Check without changing lock/cache state (valid with `update` and `sync`) |
+| `--delete-source` | Delete the local source directory on `remove` |
+| `--cleanup` | Delete legacy files after `migrate` verifies them |
+| `-h`, `--help` | Show help |
 
 ### rule init
 
@@ -95,12 +129,60 @@ Use `--global` to create the user-scope config at `~/.cc-safety-net/rules/rule.j
 npx -y cc-safety-net rule init --global
 ```
 
+### rule add
+
+Add a rulebook source and sync. `<source>` is a bare local name (for example `project-rules`) or a GitHub source in the form `owner/repo#ref/<rulebook-name>`:
+
+```bash
+npx -y cc-safety-net rule add project-rules
+npx -y cc-safety-net rule add kenryu42/cc-safety-net#main/block-git-add-all
+npx -y cc-safety-net rule add --global my-personal-rules
+```
+
+### rule remove
+
+Remove a rulebook source and sync. Use `--delete-source` to also delete the local source directory:
+
+```bash
+npx -y cc-safety-net rule remove project-rules
+npx -y cc-safety-net rule remove project-rules --delete-source
+```
+
+### rule update
+
+Refresh the lock and cache for configured rulebook sources, or a single source if one is given. Use `--check` to verify without writing:
+
+```bash
+npx -y cc-safety-net rule update
+npx -y cc-safety-net rule update project-rules
+npx -y cc-safety-net rule update --check
+```
+
 ### rule sync
 
-Rebuild the lock and cache for configured rulebook sources. Run after adding or changing entries in `rule.json`:
+Rebuild the lock and cache for all configured rulebook sources. Run after adding or changing entries in `rule.json`:
 
 ```bash
 npx -y cc-safety-net rule sync
+```
+
+`rule sync` is equivalent to `rule update` with no source argument.
+
+### rule list
+
+List the active rulebooks and their resolved sources across user and project scope:
+
+```bash
+npx -y cc-safety-net rule list
+```
+
+### rule test
+
+Run every fixture defined in every active rulebook (or a single source) and confirm rules block and allow as expected:
+
+```bash
+npx -y cc-safety-net rule test
+npx -y cc-safety-net rule test project-rules
 ```
 
 ### rule verify
@@ -112,14 +194,6 @@ npx -y cc-safety-net rule verify
 ```
 
 Returns exit code `0` if everything is valid, or non-zero if errors are found.
-
-### rule test
-
-Run every fixture defined in every active rulebook and confirm rules block and allow as expected:
-
-```bash
-npx -y cc-safety-net rule test
-```
 
 ### rule migrate
 
@@ -143,9 +217,9 @@ Print a machine-readable document describing the rulebook schema. Pipe the outpu
 npx -y cc-safety-net rule doc
 ```
 
-## --version and --help
+## Version and help flags
 
-You can check the installed version or get usage information at any time. The `--version` flag has a `-V` short alias, and `--help` has a `-h` short alias.
+You can check the installed version or get usage information at any time. `--version` has a `-V` short alias, and `--help` has a `-h` short alias.
 
 ```bash
 npx cc-safety-net --version

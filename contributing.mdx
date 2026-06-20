@@ -1,0 +1,55 @@
+---
+title: "Contributing to CC Safety Net"
+sidebarTitle: "Contributing"
+description: "How to contribute to CC Safety Net: development setup with Bun, the check command, local testing in Claude Code and OpenCode, and the pull request process."
+---
+
+Contributions to CC Safety Net are welcome. This page summarizes how to get set up and the conventions to follow. For the full guide, see [CONTRIBUTING.md](https://github.com/kenryu42/cc-safety-net/blob/main/CONTRIBUTING.md) in the source repository.
+
+## Propose before you build
+
+CC Safety Net has a focused scope: **preventing coding agents from making accidental mistakes that cause data loss**. It is not a general security-hardening or attack-prevention tool. Open an issue to discuss new detection rules, command categories, architectural changes, or configuration options before implementing them. Typo fixes and small bug fixes with an obvious solution can go straight to a pull request.
+
+## Prerequisites and setup
+
+- **Bun** — the required runtime and package manager ([install guide](https://bun.sh/docs/installation))
+- **Claude Code** or **OpenCode** — for testing the plugin locally
+
+```bash
+git clone https://github.com/kenryu42/cc-safety-net.git
+cd cc-safety-net
+bun install
+bun run build
+bun run check
+```
+
+`bun run check` runs lint, typecheck, dead-code detection, an AST pattern scan, and the test suite with coverage. Run it before every pull request — it must pass with no errors.
+
+## Local testing
+
+Build, then load the local plugin so you can test real blocks:
+
+- **Claude Code**: disable any installed safety-net plugin, exit Claude Code, then run `claude --plugin-dir .` from the repo root.
+- **OpenCode**: point the `plugin[]` array in `~/.config/opencode/opencode.json` at the built `file://.../cc-safety-net/dist/index.js`, remove the npm `cc-safety-net` entry to avoid conflicts, and restart OpenCode.
+
+Confirm a known block (`git checkout -- README.md` is blocked; `git checkout -b test-branch` is allowed).
+
+## Conventions
+
+| Convention | Rule |
+| --- | --- |
+| Runtime / package manager | Bun only |
+| Formatter / linter | Biome |
+| Types | Type hints required on all functions; `type \| null` preferred over `type \| undefined` |
+| File naming | `kebab-case` |
+| Function / type naming | `camelCase` functions, `PascalCase` types |
+| Constants | `SCREAMING_SNAKE_CASE` (for example reason constants) |
+
+New rules require tests with a minimum of 90% coverage. Do not bump the version in `package.json` — maintainers handle releases.
+
+## Getting help
+
+- `bunx cc-safety-net doctor` verifies your setup.
+- `bunx cc-safety-net explain "<command>"` shows step-by-step how a command is analyzed.
+- Check `AGENTS.md` in the source repo for architecture and conventions.
+- Open an issue for bugs or feature requests.

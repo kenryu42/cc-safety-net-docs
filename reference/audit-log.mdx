@@ -1,0 +1,55 @@
+---
+title: "CC Safety Net Audit Log Reference"
+sidebarTitle: "Audit Log"
+description: "Reference for CC Safety Net's audit log: file location, JSONL entry schema, what gets logged, and the full secret-redaction scope."
+---
+
+CC Safety Net writes a structured audit trail of the commands it inspects so you can review what your agent tried to do and why it was stopped. Logs are JSON Lines (JSONL) — one JSON object per line.
+
+## Location
+
+```text
+~/.cc-safety-net/logs/<session_id>.jsonl
+```
+
+The file is named after the agent session id (sanitized to a filesystem-safe form). With `CC_SAFETY_NET_HOME` set, the logs directory lives under that path instead. Each line is a self-contained JSON object.
+
+## Entry schema
+
+| Field | Description |
+| --- | --- |
+| `ts` | ISO 8601 timestamp of when the command was handled |
+| `decision` | The decision CC Safety Net made: `deny` (blocked) or `allow` (permitted) |
+| `command` | The full command string as received, truncated to 300 characters |
+| `segment` | The specific segment that triggered the decision, truncated to 300 characters (may differ from `command` for wrapped commands) |
+| `reason` | The human-readable reason for the decision (present on blocks) |
+| `cwd` | The working directory at the time of the call, when available |
+
+Example entry:
+
+```json
+{"ts": "2025-01-15T10:30:00Z", "decision": "deny", "command": "git reset --hard", "segment": "git reset --hard", "reason": "git reset --hard destroys all uncommitted changes permanently. Use 'git stash' first.", "cwd": "/path/to/project"}
+```
+
+## What gets logged
+
+- **Denied commands are always logged** when a session id is available.
+- **Allowed commands are logged only when `CC_SAFETY_NET_DEBUG=1`** is set. By default the log stays focused on interventions, so it is not flooded with every safe command.
+- Commands blocked by the fail-closed safety net (the analyzer itself threw an error) are **not** written to the log.
+- Nothing is written when no session id is available.
+
+The `doctor` command summarizes this log as its **Recent Activity** check, reporting blocked commands from the last 7 days.
+
+## Secret redaction
+
+Before any command or segment is written to the log (or returned to the agent), it is passed through automatic secret redaction. The following categories are replaced with `<redacted>`:
+
+- PEM private keys (`-----BEGIN ... PRIVATE KEY-----` blocks)
+- Database URL environment variables (`DATABASE_URL`, `POSTGRES_URL`, `MYSQL_URL`, `REDIS_URL`, `MONGODB_URL`, etc.)
+- Environment assignments whose name contains `TOKEN`, `SECRET`, `PASSWORD`, `PASS`, `KEY`, or `CREDENTIALS`
+- Common secret-bearing HTTP headers (`Authorization`, `Cookie`, `X-API-KEY`, `API-KEY`)
+- URL credentials (`scheme://user:pass@host` and `scheme://token@host`)
+- Known provider token prefixes (`ghp_...`, `gho_...`, `xoxb-...`, `npm_...`, `sk_live_...`, `rk_live_...`, `pypi-...`)
+- JWTs and AWS access key IDs (`AKIA...` / `ASIA...`)
+
+Redaction is conservative and pattern-based. It reduces the risk of leaking secrets that happen to appear in a command's arguments, but you should still avoid piping real credentials through commands an agent runs.

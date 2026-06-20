@@ -1,0 +1,93 @@
+---
+title: "How CC Safety Net Integrates with Each Agent"
+sidebarTitle: "Integration Architecture"
+description: "How CC Safety Net plugs into Claude Code, Codex, Copilot CLI, Gemini CLI, Kimi Code, OpenCode, and Pi — hook subprocesses, plugins, and the in-process Pi extension."
+---
+
+CC Safety Net supports seven AI coding agents, but it does not plug into all of them the same way. There are three integration models. Understanding which one your agent uses helps you install it correctly, debug a hook that is not firing, and know where its configuration lives.
+
+## The three integration models
+
+| Model | Agents | How it works |
+| --- | --- | --- |
+| **Hook subprocess** | Claude Code, GitHub Copilot CLI, Gemini CLI, Kimi Code | The agent invokes `cc-safety-net hook <flag>` as a process for each shell tool call, passing the command as JSON on stdin. CC Safety Net analyzes it and prints an agent-specific deny JSON on stdout (exit 0) when it should block. |
+| **Plugin** | Codex, OpenCode | The agent loads CC Safety Net from its own plugin marketplace. The plugin registers the hook internally; there is no `cc-safety-net hook` command on the agent's side. |
+| **In-process extension** | Pi | Pi loads CC Safety Net directly into its process via the package's `pi.extensions` field. CC Safety Net registers a `tool_call` event handler in memory — no subprocess, no stdin/stdout. |
+
+## Hook subprocess agents
+
+For these agents, the protection is the runtime `hook <flag>` command. Each agent names its hook event and shell tool differently, and each expects a different deny shape on stdout:
+
+| Agent | Runtime flag | Hook event | Shell tool | Deny output shape |
+| --- | --- | --- | --- | --- |
+| Claude Code | `--claude-code` / `-cc` | `PreToolUse` | `Bash` | `hookSpecificOutput.permissionDecision: "deny"` |
+| GitHub Copilot CLI | `--copilot-cli` / `-cp` | preToolUse | `bash` | `permissionDecision: "deny"` |
+| Gemini CLI | `--gemini-cli` / `-gc` | `BeforeTool` | `run_shell_command` | `decision: "deny"` (exit 0) |
+| Kimi Code | `--kimi-code` / `-kc` | `PreToolUse` | `Bash` | Claude-style `hookSpecificOutput` JSON (exit 0) |
+
+`-cc`, `-cp`, and `-gc` also work as legacy top-level flags (for example `cc-safety-net --claude-code`). `-kc` is only valid as `hook --kimi-code`.
+
+<Note>
+  Because these agents use different hook events and deny formats, CC Safety Net emits the correct shape per agent. Gemini CLI, for example, expects a `decision`/`systemMessage` object with exit 0 rather than Claude Code's `hookSpecificOutput`. You do not need to configure the output format — the flag you pass selects it.
+</Note>
+
+### Where each hook agent's config lives
+
+Only **Kimi Code** has its config written directly by CC Safety Net (via `hook install --kimi-code`). The others install through their own plugin or extension marketplaces:
+
+| Agent | Config / install mechanism |
+| --- | --- |
+| Claude Code | Plugin `safety-net@cc-marketplace` (via `/plugin`); settings in `~/.claude/settings.json` |
+| GitHub Copilot CLI | Plugin `copilot-safety-net`, or manual hook files under `~/.copilot/hooks` / inline hooks in `~/.copilot/config.json`. Version-gated: user hook files need Copilot CLI 0.0.422+, inline hooks 1.0.8+. `disableAllHooks: true` disables all hooks. |
+| Gemini CLI | Extension from `https://github.com/kenryu42/gemini-safety-net` (via `gemini extensions install`) |
+| Kimi Code | `~/.kimi-code/config.toml` (or `$KIMI_CODE_HOME/config.toml`), written by `hook install --kimi-code` as a `[[hooks]]` block running `npx -y cc-safety-net hook --kimi-code` |
+
+## Plugin agents
+
+### Codex
+
+Codex loads CC Safety Net as a plugin from the `cc-marketplace`. Two settings in `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`) must be correct for the hook to fire:
+
+```toml
+[features]
+plugin_hooks = true
+
+[plugins."safety-net@cc-marketplace"]
+enabled = true
+```
+
+The hook must also be marked trusted via `/hooks` in the Codex TUI (press `t`). See [Installation](/installation#codex) for the full setup.
+
+### OpenCode
+
+OpenCode loads CC Safety Net as a plugin declared in `~/.config/opencode/opencode.json` (or `.jsonc`) under the `plugin[]` array, installed via `opencode plugin -g cc-safety-net`. OpenCode can cache a stale version; see the [Installation](/installation#opencode) cache-clearance steps if updates do not take effect.
+
+## The Pi extension
+
+Pi is the only agent that runs CC Safety Net **in-process**. When you run `pi install npm:cc-safety-net`, Pi reads the package's `pi.extensions` field and loads CC Safety Net's extension directly into the Pi process. The extension does two things:
+
+1. **Registers a `tool_call` event handler** (`pi.on('tool_call')`). This handler intercepts shell tool calls before they run, analyzes the command with the same engine used everywhere else, and returns a block result when the command is destructive. Unlike the hook subprocesses, there is no JSON-over-stdio — the call and its result stay in memory.
+2. **Registers a `/cc-safety-net` builtin command** for managing rulebooks interactively inside Pi.
+
+### Tools Pi protects
+
+The extension intercepts both the built-in **`bash`** tool and custom **`Shell`** tools (such as the one provided by pi-grok-cli). For `Shell` tools it resolves the call's `working_directory` relative to the session cwd before analyzing the command, so the same cwd-aware rules (worktree relaxation, `rm -rf` target classification) apply. If a tool call is malformed, CC Safety Net fails closed and blocks it.
+
+| Tool | Command field | Working directory |
+| --- | --- | --- |
+| `bash` | `command` | session cwd |
+| `Shell` | `command` | `working_directory` (resolved against session cwd) |
+
+### Detecting Pi
+
+Because there is no config file to inspect, the `doctor` command detects Pi with a runtime probe (it spawns `pi` and asks whether the extension is loaded and enabled). This is why a Pi status in `doctor` may read `n/a` even when Pi is installed, if the probe cannot run.
+
+## Choosing and verifying
+
+Install for your agent using the method documented in [Installation](/installation). After installing, run the doctor command — it reports the detected integration model and config path for every agent, and runs a self-test wherever protection is active:
+
+```bash
+npx cc-safety-net doctor
+```
+
+For troubleshooting a hook that is not firing for a specific agent, see the per-agent steps in [Troubleshooting](/guides/troubleshooting).

@@ -43,6 +43,41 @@ Local rulebook sources are referenced by bare names like `project-rules`. GitHub
 
 If no config is found in either location, only built-in rules apply.
 
+## Managing rulebook sources
+
+A rulebook source is referenced by an entry in `rule.json`'s `rules` array. There are two kinds:
+
+- **Local source** — a bare name like `project-rules`. The rulebook lives at `.cc-safety-net/rules/project-rules/rulebook.json` (project) or `~/.cc-safety-net/rules/project-rules/rulebook.json` (user). Local sources must stay within their config directory.
+- **GitHub source** — `owner/repo#ref/<rulebook-name>`, pointing at `.cc-safety-net/rules/<rulebook-name>/rulebook.json` in that repository and ref.
+
+Use the `rule` command to add, update, and remove sources rather than editing `rule.json` and the lockfile by hand:
+
+```bash
+# Add a local rulebook source and sync
+npx -y cc-safety-net rule add project-rules
+
+# Add a GitHub rulebook source (creates a lock entry pinned by SHA-256 digest)
+npx -y cc-safety-net rule add kenryu42/cc-safety-net#main/example-rules
+
+# Refresh the lock and cache after editing sources
+npx -y cc-safety-net rule sync
+
+# Update a single source, or all sources when no source is given
+npx -y cc-safety-net rule update example-rules
+
+# List active rulebooks and their resolved sources
+npx -y cc-safety-net rule list
+
+# Remove a source (--delete-source also deletes a local source directory)
+npx -y cc-safety-net rule remove example-rules --delete-source
+```
+
+Add `--global` (`-g`) to operate on the user scope instead of the project scope.
+
+### Lock and cache
+
+Every configured source is pinned in a `rule.lock` file by a SHA-256 digest, and its rulebook is cached under `.cc-safety-net/cache/rulebooks/`. At runtime CC Safety Net verifies the cached rulebook against the digest. A missing or stale lock/cache, a digest mismatch, or a local source that drifts from its pinned digest causes commands to **fail closed** until you run `rule sync` to repair it.
+
 ## Quick Start
 
 Create a starter project rule config and rulebook:
@@ -159,7 +194,7 @@ Each rulebook lives in its own `rulebook.json` file.
 ## Rule Schema
 
 <ParamField body="name" type="string" required>
-  Unique within the rulebook. Letters, numbers, hyphens, and underscores; max 64 chars.
+  Unique within the rulebook. Must start with a letter, followed by letters, numbers, hyphens, or underscores; max 64 chars.
 </ParamField>
 
 <ParamField body="command" type="string" required>
@@ -319,15 +354,17 @@ Understanding how CC Safety Net matches commands against your rules helps you wr
 
 ## Block Output Format
 
-When a custom rule blocks a command, the output includes the rule name:
+When a custom rule blocks a command, the output is prefixed with the rulebook name and the rule name, so you can tell which rulebook produced the block:
 
 ```text
 BLOCKED by CC Safety Net
 
-Reason: [block-git-add-all] Use 'git add <specific-files>' instead of blanket add.
+Reason: [project-rules/block-git-add-all] Use 'git add <specific-files>' instead of blanket add.
 
 Command: git add -A
 ```
+
+The prefix is `<rulebook-name>/<rule-name>`. This is also the key you use in `rule.json` `overrides` to disable a rule (`"off"`) or replace its reason.
 
 ## Validating Your Rulebooks
 

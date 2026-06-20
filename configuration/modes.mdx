@@ -7,22 +7,24 @@ description: "Configure CC Safety Net's protection level with Strict, Paranoid, 
 CC Safety Net ships with sensible defaults but provides three operation modes via environment variables that let you tune its behavior to your workflow. You can enable any combination of modes by exporting the corresponding variables before starting your AI coding agent.
 
 <Note>
-  Mode and debug flags use `CC_SAFETY_NET_*` environment variables. Older `SAFETY_NET_*` names (without the `CC_` prefix) are still accepted for strict, paranoid, and worktree toggles.
+  Mode and debug flags use `CC_SAFETY_NET_*` environment variables. Older `SAFETY_NET_*` names (without the `CC_` prefix) are also accepted for strict, paranoid, paranoid-rm, paranoid-interpreters, and worktree toggles. See the [environment variable reference](/configuration/environment) for the full list, including `CC_SAFETY_NET_DEBUG` and `CC_SAFETY_NET_HOME`.
 </Note>
 
 ## Default Mode
 
-No environment variables are required to get started. In default mode, CC Safety Net protects against all built-in destructive git and filesystem patterns. If a command cannot be parsed — due to invalid JSON, unterminated quotes, or a malformed shell wrapper — it is **allowed through** (fail-open). This is the recommended starting point for most users.
+No environment variables are required to get started. In default mode, CC Safety Net protects against all built-in destructive git and filesystem patterns. This is the recommended starting point for most users.
+
+Most malformed input is already handled safely regardless of mode:
+
+- **Invalid hook input JSON** is **always blocked** (fail-closed), in every mode.
+- If the analyzer itself throws an unexpected error, the command is **always blocked** (fail-closed) with a "failed closed" reason, in every mode.
+- If a command cannot be tokenized by the shell parser (for example, an unterminated quote), CC Safety Net runs a fallback text scan for known-dangerous patterns. If the scan matches, the command is blocked; if it does not match, the command is **allowed through** (fail-open). Strict mode changes only this last case.
 
 ## Strict Mode (`CC_SAFETY_NET_STRICT=1`)
 
-When strict mode is enabled, CC Safety Net switches to **fail-closed** behavior on unparseable commands. Any command input that cannot be safely analyzed is blocked rather than allowed.
+When strict mode is enabled, CC Safety Net switches to **fail-closed** behavior on commands that cannot be tokenized by the shell parser. Any command the parser cannot split into tokens is blocked rather than allowed, even if the fallback text scan finds no dangerous pattern.
 
-This covers situations such as:
-
-- Invalid JSON in the hook input
-- Unterminated quotes in shell arguments
-- Malformed `bash -c` wrappers that cannot be recursively unwrapped
+Note that invalid hook input JSON and analyzer exceptions are **already fail-closed in every mode** — strict mode only tightens the unparseable-command case described above.
 
 **How to enable:**
 
@@ -79,7 +81,7 @@ export CC_SAFETY_NET_WORKTREE=1
 When worktree mode is active and the cwd is confirmed to be a linked worktree, the following commands are permitted:
 
 - `git restore <file>` and `git restore --worktree <file>`
-- `git checkout -- <file>`, `git checkout <ref> -- <file>`, and ambiguous multi-positional checkout forms
+- `git checkout -- <file>`, `git checkout <ref> -- <file>`, `git checkout --force`, and ambiguous multi-positional checkout forms
 - `git reset --hard` and `git reset --merge`
 - `git clean -f` (and combined short flags like `-fd`)
 - `git switch --discard-changes` and `git switch -f / --force`
@@ -100,7 +102,8 @@ Worktree detection is **fail-closed**: if CC Safety Net cannot positively identi
 - A linked worktree is identified by a `.git` _file_ (not a directory) whose resolved git directory contains a `commondir` file. Main worktrees and submodules are not relaxed.
 - The cwd walk uses `realpath` so symlinked paths resolve correctly.
 - `git -C <path>` arguments are honored; unresolved targets keep the command blocked.
-- Relaxation is disabled if `--git-dir` / `--work-tree` is passed, or if `GIT_DIR` / `GIT_WORK_TREE` / `GIT_COMMON_DIR` is set in the environment.
+- Relaxation is disabled if `--git-dir` / `--work-tree` is passed, or if `GIT_DIR` / `GIT_WORK_TREE` / `GIT_COMMON_DIR` / `GIT_INDEX_FILE` is set in the environment.
+- Certain local discards are never relaxed even inside a confirmed worktree: commands with dynamic arguments containing `$`, `*`, `?`, or `[`; forced branch resets (`git checkout -B`/`-Bf` or `git switch -C`/`-Cf` with `-f` or `--discard-changes`); `git clean` with more than one `-f`; and any command using `--recurse-submodules` (or a recursive-submodule config).
 
 ## Summary
 

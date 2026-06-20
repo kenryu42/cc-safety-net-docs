@@ -1,0 +1,47 @@
+---
+title: "CC Safety Net Environment Variables"
+sidebarTitle: "Environment Variables"
+description: "Complete reference for every CC Safety Net environment variable: protection modes, debug output, and config-directory overrides."
+---
+
+CC Safety Net is configured primarily through environment variables. Mode toggles use the `CC_SAFETY_NET_*` prefix, and older `SAFETY_NET_*` names (without the `CC_` prefix) are still accepted as legacy aliases where noted. Set them in your shell, your agent's launch environment, or your `.env` file before starting your agent.
+
+## Protection modes
+
+| Variable | Legacy alias | Effect |
+| --- | --- | --- |
+| `CC_SAFETY_NET_STRICT=1` | `SAFETY_NET_STRICT` | Fail-closed on commands that cannot be tokenized. See [Modes](/configuration/modes). |
+| `CC_SAFETY_NET_PARANOID=1` | `SAFETY_NET_PARANOID` | Enable all paranoid checks (equivalent to setting both paranoid rm and paranoid interpreters). |
+| `CC_SAFETY_NET_PARANOID_RM=1` | `SAFETY_NET_PARANOID_RM` | Block `rm -rf` even when the target is inside the cwd. |
+| `CC_SAFETY_NET_PARANOID_INTERPRETERS=1` | `SAFETY_NET_PARANOID_INTERPRETERS` | Block all interpreter one-liners (`python -c`, `node -e`, etc.) regardless of content. |
+| `CC_SAFETY_NET_WORKTREE=1` | `SAFETY_NET_WORKTREE` | Relax local-discard git rules inside a confirmed linked worktree. |
+
+Setting `CC_SAFETY_NET_PARANOID=1` implies both `CC_SAFETY_NET_PARANOID_RM=1` and `CC_SAFETY_NET_PARANOID_INTERPRETERS=1`.
+
+Values are truthy when set to `1` or `true` (case-insensitive). See [Modes](/configuration/modes) for what each toggle changes and when to use it.
+
+## Debug output
+
+| Variable | Effect |
+| --- | --- |
+| `CC_SAFETY_NET_DEBUG=1` | Print diagnostic output to stderr, including the reason an analysis exception occurred. Also enables logging of _allowed_ commands to the audit log (normally only blocked commands are logged). |
+
+Use `CC_SAFETY_NET_DEBUG=1` when investigating why a command was allowed or when filing a bug report. The `doctor` command reports whether it is set.
+
+## Config directory override
+
+| Variable | Effect |
+| --- | --- |
+| `CC_SAFETY_NET_HOME=<path>` | Use `<path>` as the CC Safety Net home directory instead of `~/.cc-safety-net`. User-scope rules, the rule lock/cache, and logs are read from and written to this location. |
+
+This is useful in sandboxed or non-standard `HOME` setups (for example, when an agent runs with a different home directory than your shell). When unset, CC Safety Net uses `~/.cc-safety-net`.
+
+## Checking your active configuration
+
+Run the doctor command to see which variables are currently set and how they resolve:
+
+```bash
+npx cc-safety-net doctor
+```
+
+The Environment section of the report lists each mode flag and notes any legacy `SAFETY_NET_*` names that are in use. The Claude Code [status line](/configuration/status-line) also reflects the active modes at a glance.
