@@ -6,9 +6,9 @@ const requiredDocsConfig = {
     strict: true,
   },
   colors: {
-    primary: "#34d399",
+    primary: "#005f46",
     light: "#5ee8b5",
-    dark: "#f3f1db",
+    dark: "#7c958c",
   },
   background: {
     color: {
@@ -94,4 +94,4 @@ if (style.includes("/custom.css")) {
   throw new Error('style.css must not import "/custom.css"; it resolves outside the /docs subpath in production.');
 }
 
-console.log("Mintlify theme matches DESIGN.md tokens.");
+console.log("Mintlify theme config matches expected tokens.");

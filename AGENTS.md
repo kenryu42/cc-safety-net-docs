@@ -31,3 +31,6 @@
 
 {/* Define what should and shouldn't be documented */}
 {/* Example: Don't document internal admin features */}
+
+## Tests
+NO NEED TO DO TDD FOR THIS PROJECT. DO NOT WRITE ANY TESTS AT ALL.
