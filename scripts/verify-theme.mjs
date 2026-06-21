@@ -3,15 +3,16 @@ import { readFile } from "node:fs/promises";
 const requiredDocsConfig = {
   appearance: {
     default: "dark",
-    strict: true,
+    strict: false,
   },
   colors: {
     primary: "#005f46",
     light: "#5ee8b5",
-    dark: "#7c958c",
+    dark: "#004a38",
   },
   background: {
     color: {
+      light: "#f5f8f7",
       dark: "#091c1e",
     },
   },
@@ -30,16 +31,24 @@ const requiredHeaderLogoWordmark = {
 };
 
 const requiredCssTokens = [
+  // Fixed raw palette (always-dark terminal context)
   "--cc-void-teal: #091c1e;",
   "--cc-abyss-black: #070a0a;",
-  "--cc-rail-line: #dfe0c11f;",
-  "--cc-rail-line-strong: #dfe0c13d;",
   "--cc-bone-ink: #f3f1db;",
-  "--cc-body-muted: #b8b9a1;",
+  "--cc-terminal-text: #b8b9a1;",
   "--cc-panel-teal: #0d2426;",
   "--cc-card-teal: #102b2d;",
-  "--cc-guard-green: #34d399;",
-  "--cc-block-red: #ff6b6b;",
+  "--cc-guard-green-bright: #34d399;",
+  "--cc-block-red-bright: #ff6b6b;",
+  "--cc-rail-line: #dfe0c11f;",
+  "--cc-rail-line-strong: #dfe0c13d;",
+  // Light-mode source tokens + dual-mode mechanism
+  "--cc-paper: #f5f8f7;",
+  "--cc-guard-green-deep: #0f7a4d;",
+  "--cc-block-red-deep: #c0392b;",
+  "html:not(.dark) {",
+  "color-scheme: dark;",
+  "color-scheme: light;",
 ];
 
 function assertEqual(actual, expected, label) {
@@ -55,6 +64,7 @@ assertEqual(docs.appearance?.strict, requiredDocsConfig.appearance.strict, "appe
 assertEqual(docs.colors?.primary, requiredDocsConfig.colors.primary, "colors.primary");
 assertEqual(docs.colors?.light, requiredDocsConfig.colors.light, "colors.light");
 assertEqual(docs.colors?.dark, requiredDocsConfig.colors.dark, "colors.dark");
+assertEqual(docs.background?.color?.light, requiredDocsConfig.background.color.light, "background.color.light");
 assertEqual(docs.background?.color?.dark, requiredDocsConfig.background.color.dark, "background.color.dark");
 assertEqual(docs.favicon, requiredDocsConfig.favicon, "favicon");
 assertEqual(docs.logo?.light, requiredDocsConfig.logo.light, "logo.light");
@@ -94,4 +104,4 @@ if (style.includes("/custom.css")) {
   throw new Error('style.css must not import "/custom.css"; it resolves outside the /docs subpath in production.');
 }
 
-console.log("Mintlify theme config matches expected tokens.");
+console.log("Mintlify theme config matches expected dual-mode tokens.");

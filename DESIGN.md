@@ -1,6 +1,6 @@
 ---
 name: CC Safety Net
-description: A rail-grid, command-first landing page for a coding-agent safety layer.
+description: A rail-grid, command-first docs and landing surface for a coding-agent safety layer. Dark default with a light reading mode; terminal proof panels stay dark in both.
 colors:
   void-teal: "#091c1e"
   abyss-black: "#070a0a"
@@ -15,6 +15,17 @@ colors:
   guard-green-hover: "#5ee8b5"
   block-red: "#ff6b6b"
   warning-amber: "#dfdfc1"
+  # Light field (active when .dark is absent; cool teal-tinted paper, not cream)
+  paper: "#f5f8f7"
+  paper-tint: "#eef4f2"
+  ink: "#091c1e"
+  ink-body: "#3d4b49"
+  ink-soft: "#56635f"
+  surface-light: "#ebf2f0"
+  surface-light-hover: "#e2ebe8"
+  guard-green-deep: "#0f7a4d"
+  guard-green-deep-hover: "#0a6340"
+  block-red-deep: "#c0392b"
 typography:
   display:
     fontFamily: "Georgia, ui-serif, Cambria, \"Times New Roman\", Times, serif"
@@ -62,25 +73,25 @@ spacing:
   section: "clamp(72px, 12vw, 136px)"
 components:
   button-primary:
-    backgroundColor: "{colors.bone-ink}"
-    textColor: "{colors.void-teal}"
+    backgroundColor: "{colors.bone-ink} (dark) / {colors.void-teal} (light)"
+    textColor: "{colors.void-teal} (dark) / #f5f8f7 (light)"
     typography: "{typography.label}"
     rounded: "{rounded.md}"
     padding: "10px 14px"
   button-primary-hover:
-    backgroundColor: "{colors.guard-green-hover}"
-    textColor: "{colors.void-teal}"
+    backgroundColor: "{colors.guard-green-hover} (dark) / {colors.guard-green-deep} (light)"
+    textColor: "{colors.void-teal} (dark) / #ffffff (light)"
     rounded: "{rounded.md}"
     padding: "10px 14px"
   button-ghost:
-    backgroundColor: "transparent"
-    textColor: "{colors.bone-ink}"
+    backgroundColor: "transparent (dark) / {colors.surface-light} 70% (light)"
+    textColor: "{colors.bone-ink} (dark) / {colors.ink} (light)"
     typography: "{typography.label}"
     rounded: "{rounded.md}"
     padding: "8px 10px"
   rail-section:
-    backgroundColor: "{colors.void-teal}"
-    borderColor: "{colors.rail-line}"
+    backgroundColor: "{colors.void-teal} (dark) / {colors.paper} (light)"
+    borderColor: "{colors.rail-line} (dark) / ink-tinted #091c1e1f (light)"
     padding: "{spacing.section} 0"
   terminal-panel:
     backgroundColor: "{colors.panel-teal}"
@@ -89,9 +100,9 @@ components:
     rounded: "{rounded.lg}"
     padding: "20px"
   integration-cell:
-    backgroundColor: "transparent"
-    textColor: "{colors.bone-ink}"
-    borderColor: "{colors.rail-line}"
+    backgroundColor: "transparent (dark) / {colors.surface-light} (light)"
+    textColor: "{colors.bone-ink} (dark) / {colors.ink} (light)"
+    borderColor: "{colors.rail-line} (dark) / ink-tinted #091c1e1f (light)"
     rounded: "{rounded.md}"
     padding: "18px"
 ---
@@ -107,7 +118,8 @@ CC Safety Net should borrow the strongest parts of Amp's homepage language witho
 The visual system should feel like a safety interlock installed inside a developer's command path. It is darker and sharper than a SaaS landing page, more editorial than a docs page, and less ornamental than a security brochure.
 
 **Key Characteristics:**
-- Deep teal-black page color with pale bone text, inspired by Amp's dark homepage mood.
+- Dark mode is the default and the brand field: deep teal-black page color with pale bone text, inspired by Amp's dark homepage mood. A light reading mode is supported as a toggle; it uses a cool teal-tinted paper (`#f5f8f7`) with deep teal-green ink — never warm cream or beige.
+- Terminal proof panels, install snippets, and code blocks stay dark in both modes. They are media objects, not page chrome, so their internal contrast never depends on the page mode.
 - Visible vertical rails and section strokes that make the page feel engineered.
 - One huge hero statement with an optional italic emphasis word, never gradient text.
 - Compact rectangular actions instead of glossy oversized pills.
@@ -128,18 +140,20 @@ The visual system should feel like a safety interlock installed inside a develop
 ### What Not to Copy
 
 - Do not copy Amp's brand mark, exact headline, exact copy, or exact font files.
-- Do not use cream as the body background. Pale cream/bone is allowed only for text, rails, and small surfaces on the dark canvas.
+- Do not use warm cream or beige as the body background in either mode. In dark mode, pale Bone is allowed only for text, rails, and small surfaces on the dark canvas; in light mode the field is the cool teal-tinted Paper, not cream.
 - Do not turn CC Safety Net into an agent productivity brand. The story remains command safety and local-work protection.
 - Do not use generic videos as decoration. If media appears, it must show the product behavior: command proposed, command inspected, command blocked or allowed.
 
 ## 3. Colors
 
-The palette is committed but controlled. The page is drenched in **Void Teal**, with pale **Bone Ink** carrying most text and rails. Status colors retain their semantic jobs: green protects, red blocks, amber warns.
+The palette is committed but controlled. In dark mode the page is drenched in **Void Teal**, with pale **Bone Ink** carrying most text and rails. In light mode the page is **Paper** (`#f5f8f7`, a cool teal-tinted off-white) with **Ink** (`#091c1e`, the same Void Teal repurposed as text) carrying headings and strong copy. Status colors retain their semantic jobs in both modes: green protects, red blocks, amber warns. The status greens and reds shift to deeper, AA-compliant shades on the light field (`Guard Green Deep` `#0f7a4d`, `Block Red Deep` `#c0392b`) and stay bright on dark terminal panels.
 
 ### Primary
 
-- **Void Teal:** Main body background, section background, and brand field. It replaces pure black as the dominant surface so the page has a more distinct Amp-adjacent mood.
-- **Bone Ink:** Primary text, selected button fill, and occasional high-contrast rails. It should feel like light reflecting off a dark terminal, not startup paper.
+- **Void Teal:** Dark-mode body background, section background, and brand field; in light mode it becomes **Ink** (headings, strong text, primary button fill). It replaces pure black as the dominant dark surface so the page has a more distinct Amp-adjacent mood.
+- **Bone Ink:** Dark-mode primary text, selected button fill, and high-contrast rails. In light mode it is used only inside always-dark terminal panels.
+- **Paper:** Light-mode body background. A cool off-white tinted toward the brand's own teal hue, not warm cream. The light field carries restraint; warmth is not the goal.
+- **Ink Body / Ink Soft:** Light-mode body and secondary text. Deep teal-gray, AA-comfortable on Paper (~8:1 and ~6:1).
 
 ### Secondary
 
@@ -156,7 +170,7 @@ The palette is committed but controlled. The page is drenched in **Void Teal**, 
 
 ### Named Rules
 
-**The Dark Field Rule.** The page canvas is dark teal-black. Do not introduce a light-mode cream homepage unless the product strategy changes.
+**The Dual-Field Rule.** Dark is the default and the brand field. Light is a supported reading mode, not a second brand: it uses the cool Paper/Ink palette above, never warm cream or beige, and terminal proof panels stay dark in both modes so the proof object keeps its dark-terminal authority. Do not tint the light background toward warmth; warmth is carried by accent and copy, not by the page field.
 
 **The Rail Is Structure Rule.** Rails are part of layout, not decoration. Align content to them and let them disappear on cramped mobile widths when they stop helping.
 
@@ -226,7 +240,7 @@ The system stays flat. Amp's feel comes from rail structure, typography, and med
 ### Shadow Vocabulary
 
 - **No card shadows at rest.** Cards and panels use tone and borders.
-- **Focus Ring:** Guard Green, 2px, visible against Void Teal.
+- **Focus Ring:** Guard Green (bright in dark, deep in light), 2px, visible against the page field.
 - **Terminal Glow:** Optional and very restrained, only around an active command caret or status line.
 
 ### Named Rules
@@ -240,16 +254,16 @@ The system stays flat. Amp's feel comes from rail structure, typography, and med
 Buttons become compact rectangular controls, closer to Amp's small action buttons than the current large SaaS pill style.
 
 - **Shape:** 6px radius by default. Full-pill only for tiny status chips.
-- **Primary:** Bone Ink background, Void Teal text, `10px 14px` padding.
-- **Primary Hover:** Guard Green Hover background when the action is installation or protection-related.
-- **Secondary:** Transparent or low-tint fill with Rail Line Strong border.
-- **Focus:** Guard Green outline with enough offset to clear the border.
+- **Primary:** Bone Ink background with Void Teal text in dark mode; Void Teal background with Paper text in light mode. `10px 14px` padding.
+- **Primary Hover:** Guard Green Hover (bright) in dark; Guard Green Deep in light, when the action is installation or protection-related.
+- **Secondary:** Transparent or low-tint fill with Rail Line Strong border; in light mode a faint surface tint with an ink-tinted border.
+- **Focus:** Guard Green outline (bright in dark, deep in light) with enough offset to clear the border.
 
 ### Navigation
 
 The nav is a rail-aligned utility row.
 
-- **Style:** Transparent or Void Teal backdrop, bottom border aligned with section rails.
+- **Style:** Transparent or Void Teal backdrop (dark) / Paper backdrop (light), bottom border aligned with section rails.
 - **Logo / Brand:** Left rail. Mark and wordmark should feel anchored, not centered.
 - **Links:** Compact rectangular hit areas, small label type, no large pill cluster.
 - **Mobile:** Use a minimal menu trigger or collapse secondary links. Keep GitHub/docs/install reachable.
@@ -312,7 +326,7 @@ Motion should feel like a terminal/session state changing, not page-builder entr
 ### Don't:
 
 - **Don't** copy Amp's logo, exact copy, or exact font assets.
-- **Don't** use cream or beige as the page background.
+- **Don't** use cream, beige, or warm paper as the page background, in either mode. The light field is the cool teal-tinted Paper; warmth comes from accent and copy, never the page field.
 - **Don't** use generic SaaS polish, decorative dashboards, or interchangeable feature cards.
 - **Don't** hide the destructive command examples behind abstract "AI safety" language.
 - **Don't** use gradient text, glassmorphism, decorative side-stripe borders, repeated tiny uppercase eyebrows, or fake numbered section scaffolding.
