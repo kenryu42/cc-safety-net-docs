@@ -83,17 +83,17 @@ Git accepts `GIT_SSH_COMMAND`, `GIT_SSH`, and `GIT_SSH_VARIANT` to run an arbitr
 
 Commands wrapped in shell interpreters like `bash -c` or `sh -c` are also blocked. CC Safety Net recursively analyzes nested wrappers up to 10 levels deep, so there is no bypass through indirection.
 
-```bash
-bash -c 'git reset --hard'                       # Blocked
-sh -lc 'rm -rf /'                                # Blocked
-```
+| Example | Result |
+| --- | --- |
+| `bash -c 'git reset --hard'` | Blocked |
+| `sh -lc 'rm -rf /'` | Blocked |
 
 Destructive code embedded in interpreter one-liners is detected and blocked **by default**. CC Safety Net extracts the code passed to an interpreter's `-c` or `-e` flag and scans it for embedded destructive operations, so an agent cannot sneak `os.system("rm -rf /")` past the hook by wrapping it in a Python or Node call.
 
-```bash
-python -c 'import os; os.system("rm -rf /")'     # Blocked by default (embedded rm -rf detected)
-node -e 'require("child_process").exec("git reset --hard")'  # Blocked by default
-```
+| Example | Result |
+| --- | --- |
+| `python -c 'import os; os.system("rm -rf /")'` | Blocked by default (embedded `rm -rf` detected) |
+| `node -e 'require("child_process").exec("git reset --hard")'` | Blocked by default |
 
 The analyzed interpreters are `python`, `python2`, `python3`, `node`, `ruby`, and `perl`. It is the embedded destructive command that triggers the block — the one-liner form alone is allowed by default.
 
