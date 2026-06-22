@@ -1,0 +1,70 @@
+---
+title: "CC Safety Net explain --json Trace Reference"
+sidebarTitle: "Explain Trace"
+description: "Schema for the JSON object returned by cc-safety-net explain --json: the ExplainResult fields and the TraceStep variant types that describe each analysis step."
+---
+
+The `explain --json` command returns a structured trace of every analysis step CC Safety Net performs on a command. This page documents that JSON shape, for anyone scripting against the trace or building tooling on top of it. For the command itself, see [CLI Commands](/reference/cli-commands#explain).
+
+```bash
+npx cc-safety-net explain --json "git checkout -- file.txt"
+```
+
+## ExplainResult
+
+The top-level object returned by `explain --json`.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `result` | `"blocked" \| "allowed"` | Final outcome for the command |
+| `reason` | `string` | The block reason, present when `result` is `blocked` |
+| `segment` | `string` | The specific segment that triggered the decision |
+| `trace` | `ExplainTrace` | The trace container with top-level and per-segment steps |
+| `customRule` | `object` | When a custom rule matched: `id`, optional `rulebook`, `source`, and `override` |
+| `configSource` | `string` | The config file the effective config was loaded from |
+| `configValid` | `boolean` | Whether the loaded config validated cleanly |
+
+## ExplainTrace
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `steps` | `TraceStep[]` | Top-level steps (for example the initial parse) |
+| `segments` | `object[]` | Per-segment entries, each with its own `steps` array |
+
+## TraceStep variants
+
+Each step in a trace is a `TraceStep` discriminated by its `type` field. The table below lists every variant and what it captures. Parse the `type` first, then read the variant's key fields.
+
+| `type` | Key fields | When it appears |
+| --- | --- | --- |
+| `parse` | `input`, `segments` | Initial shell split into token segments |
+| `env-strip` | `input`, `envVars`, `output` | Environment assignments stripped from the segment front (values redacted) |
+| `leading-tokens-stripped` | `input`, `removed`, `output` | Leading tokens (for example `env`, `command`) removed before analysis |
+| `shell-wrapper` | `wrapper`, `innerCommand` | A shell wrapper (`bash -c`, etc.) was unwrapped |
+| `interpreter` | `interpreter`, `codeArg`, `paranoidBlocked` | An interpreter one-liner was inspected; `paranoidBlocked` indicates paranoid mode denied it outright |
+| `busybox` | `subcommand` | A busybox-style dispatch was resolved to a subcommand |
+| `recurse` | `reason`, `innerCommand`, `depth` | Recursive re-analysis triggered by a wrapper, interpreter, or busybox dispatch |
+| `rule-check` | `ruleModule`, `ruleFunction`, `matched`, `reason?` | A built-in rule module was evaluated |
+| `worktree-relaxation` | `originalReason`, `gitCwd` | A git discard command was relaxed because the target is a linked worktree |
+| `tmpdir-check` | `tmpdirValue`, `isOverriddenToNonTemp`, `allowTmpdirVar` | `$TMPDIR` resolution and override detection |
+| `fallback-scan` | `tokensScanned`, `embeddedCommandFound?` | Fallback dangerous-text scan over remaining tokens |
+| `custom-rules-check` | `rulesChecked`, `matched`, `reason?` | User-defined rules were evaluated |
+| `cwd-change` | `segment`, `effectiveCwdNowUnknown` | A `cd`/`pushd` changed the effective cwd; subsequent classification uses the new (or unknown) cwd |
+| `dangerous-text` | `token`, `matched`, `reason?` | A token was scanned against dangerous text patterns |
+| `strict-unparseable` | `rawCommand`, `reason` | Strict mode failed-closed on an unparseable command |
+| `segment-skipped` | `index`, `reason` | A segment was skipped because a prior segment already blocked |
+| `error` | `message`, `partial?` | An analysis error was captured; `partial` indicates partial output |
+
+## Reading a trace
+
+A typical trace flows from `parse` → per-segment `env-strip` / `leading-tokens-stripped` → detection (`shell-wrapper` / `interpreter` / `busybox`) → `rule-check` (or `custom-rules-check`) → a decision. Recursion appears as `recurse` steps with increasing `depth`. When you only need the verdict, read `result` (and `reason` / `segment`) at the top level instead of walking the trace.
+
+<Note>
+  Secret values in trace output are redacted — `KEY=value` appears as `KEY=<redacted>` — so traces are safe to share in bug reports. See the [Audit Log reference](/reference/audit-log#secret-redaction) for the redaction system.
+</Note>
+
+## Related pages
+
+- [CLI Commands](/reference/cli-commands#explain) — `explain` flags and examples.
+- [Analysis Engine](/guides/analysis-engine) — the behavior each trace step corresponds to.
+- [Troubleshooting](/guides/troubleshooting) — using `explain` to diagnose unexpected blocks.

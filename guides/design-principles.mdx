@@ -1,0 +1,76 @@
+---
+title: "CC Safety Net Design Principles"
+sidebarTitle: "Design Principles"
+description: "Why CC Safety Net works the way it does: semantic analysis over wildcards, fail-closed as the default, a single runtime dependency, the rulebook system, defense-in-depth positioning, and worktree relaxation."
+---
+
+CC Safety Net was built in response to a real incident — an AI coding agent deleting an entire home directory. Every design choice flows from one goal: stop destructive commands _before_ an agent executes them, and never create a false sense of security. This page explains the reasoning behind the key decisions so you can trust what the tool does (and understand what it deliberately does not do).
+
+## Semantic analysis over wildcard patterns
+
+AI coding agents support deny rules with wildcard matching, such as `Bash(git reset --hard:*)`. Wildcard patterns compare the raw command string against a pattern, so any variation in spacing, flag order, or command wrapping can cause a block to silently fail. Reordering flags (`rm -r -f /`), wrapping in a shell (`sh -c "rm -rf /"`), or hiding behind an interpreter all bypass string matching.
+
+CC Safety Net instead parses each command into tokens, splits it into segments by shell operators, strips wrappers and environment assignments, and then runs per-command analyzers that understand the option grammar of `rm`, `git`, `find`, `xargs`, and `parallel`. This semantic approach catches forms that wildcard matching misses, because it reasons about _what the command does_ rather than _what it looks like_.
+
+The tradeoff is complexity: the parser must handle shell syntax correctly, and each supported command needs its own analyzer. The benefit is bypass resistance for the commands that matter most. For a concrete comparison, see [vs Permission Rules](/guides/vs-permission-rules). For the full pipeline, see [Analysis Engine](/guides/analysis-engine).
+
+## Fail-closed as the default
+
+When analysis fails, config is invalid, or input cannot be parsed, CC Safety Net blocks the command. This applies at every entry point:
+
+- The hook entry point wraps analysis in a try/catch and denies with a "failed closed" reason on any thrown error.
+- The OpenCode plugin and Pi extension catch analysis errors and re-surface them as block messages.
+- [Strict mode](/configuration/modes#strict-mode-cc_safety_net_strict1) extends fail-closed to commands the shell parser cannot safely tokenize.
+- A broken rulebook config sets a fail-closed reason that blocks every command until repaired.
+
+The reasoning is simple: a safety net that fails open is worse than no safety net, because it creates a false sense of security. Blocking on an unexpected error is annoying but recoverable; allowing a destructive command through is not. See [Security Model](/guides/security-model) for how this property is enforced at each trust boundary.
+
+## A single runtime dependency
+
+The only runtime dependency is `shell-quote`, used for command tokenization. This is deliberate:
+
+- A smaller dependency tree means a smaller supply-chain attack surface.
+- Shell tokenization is a well-understood problem with a mature, focused library.
+- CC Safety Net runs as a short-lived process on every shell tool call, so startup time matters — fewer dependencies mean faster cold starts.
+
+All other shell handling (segment splitting, command-substitution extraction, ANSI-C quote normalization, redirect stripping) is implemented on top of the tokenizer. See [Analysis Engine](/guides/analysis-engine) for how the pieces fit together.
+
+## The rulebook system
+
+Earlier versions stored custom rules as inline JSON in a single project file. CC Safety Net replaced this with a rulebook system for four reasons:
+
+- **Sharing** — rulebooks can be fetched from GitHub repositories and pinned with SHA-256 digests in a lockfile, so teams share blocking policy without copy-pasting JSON.
+- **Integrity** — remote rulebook content is verified against the lockfile digest before use. Inline config had no integrity story.
+- **Scoping** — rulebooks support separate user (global) and project scopes with distinct config directories.
+- **Validation** — rulebook content is schema-validated and fixture-tested before it can influence a blocking decision.
+
+Custom rules are strictly additive: they can only add restrictions, never relax built-in protections. This keeps the trust boundary simple. See [Custom Rules](/configuration/custom-rules) for the authoring workflow.
+
+## Defense-in-depth, not a replacement
+
+CC Safety Net does not claim to be a complete security solution. It is positioned as one layer in a defense-in-depth stack:
+
+- **Permission deny rules** offer quick, user-configurable blocks. CC Safety Net runs _before_ the permission system, so it inspects every command regardless of how deny rules are configured.
+- **OS-level sandboxing** restricts filesystem and network access but does not understand whether an operation is destructive _within_ those boundaries. A `git reset --hard` inside a sandboxed directory is technically safe from the sandbox's perspective but still a footgun.
+
+The recommendation is to use all three together: deny rules for fast iteration, sandboxing for unknown threats and containment, and CC Safety Net for bypass-resistant protection against known-destructive patterns. See [vs Permission Rules](/guides/vs-permission-rules) and [vs Sandboxing](/guides/vs-sandboxing).
+
+## Worktree relaxation
+
+Linked git worktrees create a usability problem: a developer working in a worktree often wants to run `git checkout -- .` or `git reset --hard` to discard local changes _in that worktree_, but the default rules block these as local-discard operations.
+
+Worktree relaxation lifts the block for local discards when all of the following hold:
+
+1. [Worktree mode](/configuration/modes#worktree-mode-cc_safety_net_worktree1) is enabled (`CC_SAFETY_NET_WORKTREE=1`).
+2. No git context environment override is present (for example `GIT_DIR` or `GIT_WORK_TREE`).
+3. The current directory is positively verified as a linked worktree — the `.git` file, its `commondir` backlink, and the `config.worktree` setting are all checked, so a crafted directory cannot masquerade as a worktree.
+4. The command is not a non-relaxable local discard (dynamic arguments, recursive submodule config, forced branch resets, or `git clean` with more than one `-f`).
+
+Relaxation is conservative: it only lifts the block for local discards in verified linked worktrees, and keeps every remote-affecting operation (force pushes, branch deletes, stash drops) in force.
+
+## Related pages
+
+- [Analysis Engine](/guides/analysis-engine) — how the semantic-analysis pipeline is implemented.
+- [Security Model](/guides/security-model) — the trust boundaries and attack surface these decisions protect.
+- [Known Limitations](/guides/known-limitations) — what these design choices cannot do.
+- [Architecture](/guides/architecture) — the entry points and component layout.

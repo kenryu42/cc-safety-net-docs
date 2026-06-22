@@ -1,0 +1,52 @@
+---
+title: "CC Safety Net Glossary"
+sidebarTitle: "Glossary"
+description: "Definitions for the terms used across CC Safety Net documentation: fail-closed, segments, shell wrappers, interpreter one-liners, worktree relaxation, paranoid and strict modes, and more."
+---
+
+A reference for the terms used throughout the CC Safety Net documentation. If a word in another page is unfamiliar, check here first.
+
+## Core concepts
+
+| Term | Definition |
+| --- | --- |
+| **PreToolUse hook** | A hook that runs before a tool executes. CC Safety Net registers as a PreToolUse hook (or the equivalent event on each agent) to intercept shell commands before they run. See [How It Works](/guides/how-it-works). |
+| **Fail-closed** | When analysis fails, config is invalid, or input cannot be parsed, the command is **blocked** rather than allowed. Deny is the safe default. See [Design Principles](/guides/design-principles) and [Security Model](/guides/security-model). |
+| **Segment** | A single command split from a compound command by shell operators (`&&`, `\|\|`, `\|`, `;`, newline). Each segment is analyzed independently; if any segment is blocked, the whole command is denied. |
+| **Analysis engine** | The platform-agnostic core that parses a command string and decides whether to block it. Every agent integration feeds the same engine. See [Analysis Engine](/guides/analysis-engine). |
+
+## Command forms
+
+| Term | Definition |
+| --- | --- |
+| **Shell wrapper** | A shell command that wraps another command, such as `bash -c 'git reset --hard'`. CC Safety Net recursively analyzes wrapped commands up to 10 levels deep. |
+| **Interpreter one-liner** | A command like `python -c 'import os; os.system("rm -rf /")'` that executes code inline. Detected and analyzed for dangerous patterns by default. |
+| **Dynamic substitution** | Shell command substitution `$(...)`, process substitution `<(...)`, or variable expansion `$VAR`. Segments containing these are flagged because their output cannot be predicted at analysis time. |
+
+## rm and paths
+
+| Term | Definition |
+| --- | --- |
+| **CWD self-target** | An `rm -rf` target that resolves to the current working directory itself (for example `rm -rf .`). Always blocked. |
+| **Effective cwd** | The working directory tracked across `cd` and `pushd` commands within a compound command. Used for `rm -rf` target classification and worktree detection. |
+| **Within-cwd target** | An `rm -rf` target that resolves inside the current working directory. Allowed by default; blocked under paranoid rm mode. |
+
+## Modes
+
+| Term | Definition |
+| --- | --- |
+| **Strict mode** | Fail-closed on commands that cannot be tokenized (unterminated quotes, malformed wrappers). Enabled via `CC_SAFETY_NET_STRICT=1`. See [Modes](/configuration/modes). |
+| **Paranoid mode** | Stricter checks enabled via `CC_SAFETY_NET_PARANOID=1`. Blocks non-temp `rm -rf` within cwd and interpreter one-liners. Individual toggles: `CC_SAFETY_NET_PARANOID_RM`, `CC_SAFETY_NET_PARANOID_INTERPRETERS`. |
+| **Worktree relaxation** | When `CC_SAFETY_NET_WORKTREE=1` is set, local git discard commands are allowed inside confirmed linked git worktrees, because changes there are disposable. |
+
+## Rules
+
+| Term | Definition |
+| --- | --- |
+| **Rulebook** | A JSON file containing a collection of custom blocking rules, fixtures, and metadata. Loaded from local directories or GitHub sources. See [Custom Rules](/configuration/custom-rules). |
+| **Policy** | The loaded set of rules from user and project scopes, merged with overrides. Produced by the rulebook policy system. |
+| **Lockfile** | A JSON file (`rule.lock`) tracking rulebook source digests and cached content. Used to detect stale or tampered rulebooks. |
+
+<Note>
+  Looking for the formal schemas for rulebooks, rules, fixtures, and lockfiles? See the [Custom Rules](/configuration/custom-rules) reference. For the JSON shape returned by `explain --json`, see the [Explain trace reference](/reference/explain-trace).
+</Note>
