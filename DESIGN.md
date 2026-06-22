@@ -28,7 +28,7 @@ colors:
   block-red-deep: "#c0392b"
 typography:
   display:
-    fontFamily: "Georgia, ui-serif, Cambria, \"Times New Roman\", Times, serif"
+    fontFamily: "var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif"
     fontSize: "clamp(4rem, 11vw, 6rem)"
     fontWeight: 400
     lineHeight: 0.92
@@ -38,7 +38,7 @@ typography:
     fontWeight: 300
     letterSpacing: "-0.03em"
   headline:
-    fontFamily: "Georgia, ui-serif, Cambria, \"Times New Roman\", Times, serif"
+    fontFamily: "var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif"
     fontSize: "clamp(2.25rem, 5vw, 4rem)"
     fontWeight: 400
     lineHeight: 0.98
