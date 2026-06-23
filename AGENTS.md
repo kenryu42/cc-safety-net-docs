@@ -10,7 +10,7 @@
 
 ## Terminology
 
-- ALWAYS run `mint validate`, `mint broken-links`, `mint a11y` to verify changes.
+- ALWAYS run `make check` to verify changes (runs `mint validate && mint broken-links && mint a11y`).
 
 ## Style preferences
 
