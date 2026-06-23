@@ -1,31 +1,35 @@
 ---
-title: "CC Safety Net vs Claude Code OS-Level Native Sandboxing"
+title: "CC Safety Net vs OS-Level Sandboxing"
 sidebarTitle: "vs Sandboxing"
-description: "Compare CC Safety Net with Claude Code native sandboxing. They defend against different threats — use both together for complete defense-in-depth."
+description: "Compare CC Safety Net with OS-level sandboxing. They defend against different threats — use both together for complete defense-in-depth."
 ---
 
-Claude Code offers [native sandboxing](https://code.claude.com/docs/en/sandboxing) that provides OS-level filesystem and network isolation. CC Safety Net operates at the application layer. They protect against different threats — using both gives the most complete protection.
+Most coding agent CLIs now ship or support OS-level sandboxing that provides filesystem and network isolation. CC Safety Net operates at the application layer. They protect against different threats — using both gives the most complete protection.
 
-## Different Layers of Protection
+## Common patterns
 
-| | Sandboxing | CC Safety Net |
+Sandboxing implementations vary by platform, but most converge on the same OS primitives — macOS Seatbelt and Linux bubblewrap — and the same default posture: reads are broad, writes are limited to the working directory and a temp directory, and network access is restricted or off by default. Every implementation also separates two controls: the **sandbox** itself, a technical boundary over what can be touched, and an **approval policy** that decides when the agent must ask before acting.
+
+## Different layers of protection
+
+| | OS-level sandboxing | CC Safety Net |
 |---|---|---|
-| **Enforcement** | OS-level (Seatbelt/bubblewrap) | Application-level (PreToolUse hook) |
+| **Enforcement** | OS-level (Seatbelt/bubblewrap) | Application-level (runs before the command executes) |
 | **Approach** | Containment — restricts filesystem + network | Command analysis — blocks destructive operations |
 | **Filesystem** | Writes restricted (default: cwd); reads are broad | Only destructive operations blocked |
-| **Network** | Domain-based proxy filtering | None |
+| **Network** | Restricted or off by default (mechanism varies) | None |
 | **Git awareness** | None | Explicit rules for destructive git operations |
 | **Bypass resistance** | High — OS enforces boundaries | Lower — analyzes command strings only |
 
-## Why Sandboxing Isn't Enough
+## Why sandboxing isn't enough
 
 Sandboxing restricts *where* you can write, but it doesn't understand whether an operation is destructive *within* those boundaries. The following commands are all permitted by the sandbox because they operate inside the current working directory:
 
 <Note>
-  Whether these commands are auto-run or require confirmation depends on your sandbox mode (auto-allow vs regular permissions), and network access still depends on your allowed-domain policy. Claude Code can also retry a command outside the sandbox via `dangerouslyDisableSandbox` (with user permission); you can prevent this by setting `allowUnsandboxedCommands: false`.
+  Whether these commands run automatically or require confirmation depends on your agent's sandbox mode and approval policy. Network-dependent commands like `git push --force` also depend on your allowed-domain configuration.
 </Note>
 
-| Command | Sandboxing | CC Safety Net |
+| Command | OS-level sandboxing | CC Safety Net |
 |---|---|---|
 | `git reset --hard` | Allowed (within cwd) | Blocked |
 | `git checkout -- .` | Allowed (within cwd) | Blocked |
@@ -39,7 +43,7 @@ Sandboxing restricts *where* you can write, but it doesn't understand whether an
 
 From the OS's perspective, these commands are entirely legitimate: they write to an allowed path, don't touch the network (except push), and complete without error. The sandbox has no concept of git history, uncommitted changes, or stash entries. CC Safety Net understands these semantics and blocks them accordingly.
 
-## When Sandboxing Is the Better Choice
+## When sandboxing is the better choice
 
 Sandboxing is the right tool when your primary concern is:
 
@@ -52,9 +56,9 @@ If you're running code from an untrusted source, or you're worried about a compr
 
 ### Where CC Safety Net cannot help
 
-CC Safety Net operates only on shell commands and only on known-destructive patterns. It has **no read-protection layer and no network layer**. That means it does not stop an agent from _reading_ sensitive files (for example `~/.aws/credentials`, `~/.ssh/id_*`, or `.env` files, which the sandbox permits reads of by default), and it does not stop data exfiltration over the network. Those threats are exactly what sandboxing's read constraints and domain-based network filtering are for — which is why the two tools are complementary rather than alternatives.
+CC Safety Net operates only on shell commands and only on known-destructive patterns. It has **no read-protection layer and no network layer**. That means it does not stop an agent from _reading_ sensitive files (for example `~/.aws/credentials`, `~/.ssh/id_*`, or `.env` files, which the sandbox permits reads of by default), and it does not stop data exfiltration over the network. Those threats are exactly what sandboxing's read constraints and network restrictions are for — which is why the two tools are complementary rather than alternatives.
 
-## Using Both Together
+## Using both together
 
 <Tip>
   Run both for defense-in-depth. They complement each other cleanly:
