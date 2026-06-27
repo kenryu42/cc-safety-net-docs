@@ -22,26 +22,18 @@ grep -vE '^[[:space:]]*⎿[[:space:]]*/docs/(installation|quickstart)' "$output"
 
 # If Mintlify reported no broken links, we're done.
 if [ "$status" -eq 0 ]; then
-  cat "$output"
+  printf '\033[1;32msuccess\033[0m no broken links found\n'
   exit 0
 fi
 
-# Show the full original output, then append an explanation for the
-# known false positives so first-time viewers are not confused.
-cat "$output"
-
-echo
-echo "Note: The broken links reported above for /docs/* on index.mdx are expected."
-echo "The site is hosted under a /docs subpath in production, so the homepage uses"
-echo "root-relative /docs/* links. The local preview serves the site at /, which"
-echo "makes those links appear broken to the CLI. All other links are checked."
-
-# If anything remains after filtering, fail.
+# If anything remains after filtering, surface the real broken links.
 if grep -qE '^[^ ]+\.mdx: *' "$filtered"; then
+  cat "$output"
   echo
   echo "Unknown broken links found:"
   grep -E '^[^ ]+\.mdx: *' "$filtered"
   exit 1
 fi
 
-exit 0
+# Only the known /docs/* false positives on index.mdx remain.
+printf '\033[1;32msuccess\033[0m no broken links found\n'
