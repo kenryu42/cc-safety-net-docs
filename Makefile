@@ -1,4 +1,4 @@
 .PHONY: check
 
 check:
-	mint validate && mint broken-links && mint a11y
+	mint validate && ./scripts/broken-links.sh && mint a11y
