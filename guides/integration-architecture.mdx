@@ -1,72 +1,86 @@
 ---
 title: "How CC Safety Net Integrates with Each Agent"
 sidebarTitle: "Integration Architecture"
-description: "How CC Safety Net plugs into Claude Code, Codex, Copilot CLI, Gemini CLI, Kimi Code, OpenCode, and Pi via hooks, plugins, and the in-process Pi extension."
+description: "The four integration models behind CC Safety Net's ten agents: stdin hook subprocesses, agent-loaded plugins, the in-process Pi extension, and the Amp Code event plugin."
 ---
 
-CC Safety Net supports seven AI coding agents, but it does not plug into all of them the same way. There are three integration models. Understanding which one your agent uses helps you install it correctly, debug a hook that is not firing, and know where its configuration lives.
+CC Safety Net supports ten AI coding agents, and it does not plug into all of them the same way. There are four integration models. Knowing which one your agent uses helps you debug a hook that is not firing and know where its configuration lives.
 
-## The three integration models
+This page describes wiring and runtime behavior only. For the commands that set each integration up or remove it, see [Installation](/installation).
+
+## The four integration models
 
 | Model | Agents | How it works |
 | --- | --- | --- |
-| **Hook subprocess** | Claude Code, GitHub Copilot CLI, Gemini CLI, Kimi Code | The agent invokes `cc-safety-net hook <flag>` as a process for each shell tool call, passing the command as JSON on stdin. CC Safety Net analyzes it and prints an agent-specific deny JSON on stdout (exit 0) when it should block. |
-| **Plugin** | Codex, OpenCode | The agent loads CC Safety Net from its own plugin marketplace. The plugin registers the hook internally; there is no `cc-safety-net hook` command on the agent's side. |
-| **In-process extension** | Pi | Pi loads CC Safety Net directly into its process via the package's `pi.extensions` field. CC Safety Net registers a `tool_call` event handler in memory — no subprocess, no stdin/stdout. |
+| **Stdin hook subprocess** | Antigravity CLI, Claude Code, Cursor, Gemini CLI, GitHub Copilot CLI, Kimi Code | The agent runs `cc-safety-net hook <flag>` as a short-lived process for each tool call, writing the call as JSON to its stdin. CC Safety Net analyzes it and prints an agent-specific deny object on stdout, exiting 0. |
+| **Agent-loaded plugin** | Codex, OpenCode | The agent loads CC Safety Net as a plugin of its own package format. There is no `hook` flag for these agents. |
+| **In-process extension** | Pi | Pi loads CC Safety Net's extension directly into the Pi process and calls it in memory — no subprocess, no stdin or stdout. |
+| **Event plugin** | Amp Code | Amp loads a managed plugin file and delivers each `tool.call` event to it, in process. |
 
-## Hook subprocess agents
+## Stdin hook subprocess agents
 
-For these agents, the protection is the runtime `hook <flag>` command. Each agent names its hook event and shell tool differently, and each expects a different deny shape on stdout:
+For these six agents, the protection is the runtime `hook <flag>` command, which reads JSON from stdin. Each agent names its pre-execution event and its command tool differently, and each expects a different deny shape on stdout:
 
-| Agent | Runtime flag | Hook event | Shell tool | Deny output shape |
+| Agent | Runtime flag | Hook event | Command tool | Deny output shape |
 | --- | --- | --- | --- | --- |
-| Claude Code | `--claude-code` / `-cc` | `PreToolUse` | `Bash` | `hookSpecificOutput.permissionDecision: "deny"` |
-| GitHub Copilot CLI | `--copilot-cli` / `-cp` | preToolUse | `bash` | `permissionDecision: "deny"` |
-| Gemini CLI | `--gemini-cli` / `-gc` | `BeforeTool` | `run_shell_command` | `decision: "deny"` (exit 0) |
-| Kimi Code | `--kimi-code` / `-kc` | `PreToolUse` | `Bash` | Claude-style `hookSpecificOutput` JSON (exit 0) |
-
-`-cc`, `-cp`, and `-gc` also work as legacy top-level flags (for example `cc-safety-net --claude-code`). `-kc` is only valid as `hook --kimi-code`.
+| Antigravity CLI | `-ac` / `--agy-cli` | `PreToolUse` | `run_command` | `{ "decision": "deny", "reason": … }` |
+| Claude Code | `-cc` / `--coding-cli` | `PreToolUse` | `Bash`, `PowerShell` | `hookSpecificOutput.permissionDecision: "deny"` |
+| Cursor | `-cu` / `--cursor` | `preToolUse` | `Shell` | `{ "permission": "deny", "user_message": …, "agent_message": … }` |
+| Gemini CLI | `-gc` / `--gemini-cli` | `BeforeTool` | `run_shell_command` | `{ "decision": "deny", "reason": …, "systemMessage": … }` |
+| GitHub Copilot CLI | `-cp` / `--copilot-cli` | `PreToolUse` | `bash`, `Bash` | `{ "permissionDecision": "deny", "permissionDecisionReason": … }` |
+| Kimi Code | `-kc` / `--kimi-code` | `PreToolUse` | `Bash` | `hookSpecificOutput.permissionDecision: "deny"` |
 
 <Note>
-  Because these agents use different hook events and deny formats, CC Safety Net emits the correct shape per agent. Gemini CLI, for example, expects a `decision`/`systemMessage` object with exit 0 rather than Claude Code's `hookSpecificOutput`. You do not need to configure the output format — the flag you pass selects it.
+  Because these agents use different events and deny formats, CC Safety Net emits the correct shape per agent. Gemini CLI, for example, expects a `decision`/`systemMessage` object with exit 0 rather than Claude Code's `hookSpecificOutput`. You do not need to configure the output format — the flag you pass selects it.
+</Note>
+
+### The shared Coding CLI hook
+
+`hook --coding-cli` (short flag `-cc`) is the canonical name of the Claude-shaped hook. It is called "Coding CLI" rather than "Claude Code" because both the Claude Code plugin and the Codex plugin invoke this same binary entry point.
+
+`hook --claude-code` is accepted as a legacy alias and is not advertised in `hook --help`. Do not use it in new configuration.
+
+Separately, three agents keep legacy **top-level** forms that skip the `hook` word: `cc-safety-net -cc` / `--claude-code`, `-gc` / `--gemini-cli`, and `-cp` / `--copilot-cli`. The canonical `--coding-cli` is deliberately not a top-level flag — a bare `cc-safety-net --coding-cli` errors with `Unknown option: --coding-cli`.
+
+<Note>
+  The `statusline` command is unrelated to the hook and still requires `--claude-code` or `-cc`. See [Status line](/configuration/status-line).
 </Note>
 
 ### Where each hook agent's config lives
 
-Only **Kimi Code** has its config written directly by CC Safety Net (via `hook install --kimi-code`). The others install through their own plugin or extension marketplaces:
+Three of the six have their config written directly by CC Safety Net. The other three install through their own plugin or extension distribution channel, which then invokes the stdin hook:
 
 | Agent | Config / install mechanism |
 | --- | --- |
-| Claude Code | Plugin `safety-net@cc-marketplace` (via `/plugin`); settings in `~/.claude/settings.json` |
-| GitHub Copilot CLI | Plugin `copilot-safety-net`, or manual hook files under `~/.copilot/hooks` / inline hooks in `~/.copilot/config.json`. Version-gated: user hook files need Copilot CLI 0.0.422+, inline hooks 1.0.8+. `disableAllHooks: true` disables all hooks. |
-| Gemini CLI | Extension from `https://github.com/kenryu42/gemini-safety-net` (via `gemini extensions install`) |
-| Kimi Code | `~/.kimi-code/config.toml` (or `$KIMI_CODE_HOME/config.toml`), written by `hook install --kimi-code` as a `[[hooks]]` block running `npx -y cc-safety-net hook --kimi-code` |
+| Antigravity CLI | Written directly: a managed `PreToolUse` entry in `~/.gemini/config/hooks.json` running `npx -y cc-safety-net hook --agy-cli` |
+| Claude Code | Plugin `cc-safety-net@cc-marketplace`; plugin state in `~/.claude/settings.json` under `enabledPlugins` |
+| Cursor | Written directly: a managed `preToolUse` entry in `~/.cursor/hooks.json` running `npx -y cc-safety-net hook --cursor` with `timeout: 30` and `failClosed: true`. The config is global, so it covers Cursor IDE and Cursor CLI across all projects |
+| Gemini CLI | Extension `gemini-safety-net`, installed from `https://github.com/kenryu42/gemini-safety-net` — not a `cc-marketplace` plugin |
+| GitHub Copilot CLI | Plugin `cc-safety-net@cc-marketplace`, or manual hook files under `~/.copilot/hooks` / inline hooks in Copilot config. Version-gated: user hook files need Copilot CLI 0.0.422+, inline hooks 1.0.8+. `disableAllHooks: true` disables all hooks |
+| Kimi Code | Written directly: a `[[hooks]]` block in `~/.kimi-code/config.toml` (or `$KIMI_CODE_HOME/config.toml`) running `npx -y cc-safety-net hook --kimi-code` |
 
-## Plugin agents
+## Agent-loaded plugins
 
 ### Codex
 
-Codex loads CC Safety Net as a plugin from the `cc-marketplace`. Two settings in `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`) must be correct for the hook to fire:
+Codex loads CC Safety Net as the `cc-safety-net@cc-marketplace` plugin from the `cc-marketplace` marketplace. The plugin registers a `PreToolUse` hook that runs the shared `hook --coding-cli` entry point, so Codex has no `hook` flag of its own.
 
-```toml
-[features]
-plugin_hooks = true
-
-[plugins."safety-net@cc-marketplace"]
-enabled = true
-```
-
-The hook must also be marked trusted via `/hooks` in the Codex TUI (press `t`). See [Installation](/installation#codex) for the full setup.
+Codex will not run an untrusted hook: the hook must be marked trusted via `/hooks` in the Codex TUI (press `t`). See [Installation](/installation#codex-installation).
 
 ### OpenCode
 
-OpenCode loads CC Safety Net as a plugin declared in `~/.config/opencode/opencode.json` (or `.jsonc`) under the `plugin[]` array, installed via `opencode plugin -g cc-safety-net`. OpenCode can cache a stale version; see the [Installation](/installation#opencode) cache-clearance steps if updates do not take effect.
+OpenCode loads CC Safety Net **in process** as a plugin object implementing OpenCode's own `@opencode-ai/plugin` contract, declared in the `plugin` array of `~/.config/opencode/opencode.json` (or `.jsonc`). The plugin does two things:
+
+1. Implements `tool.execute.before`, which OpenCode calls ahead of every tool execution. CC Safety Net analyzes the call and throws a denial when the command is destructive; there is no JSON-over-stdio.
+2. Implements the `config` hook to inject CC Safety Net's builtin commands into the OpenCode command set, without overwriting commands you have already defined.
+
+OpenCode can serve a stale cached copy of the plugin; see the [OpenCode installation steps](/installation#opencode-installation) if an update does not take effect.
 
 ## The Pi extension
 
-Pi is the only agent that runs CC Safety Net **in-process**. When you run `pi install npm:cc-safety-net`, Pi reads the package's `pi.extensions` field and loads CC Safety Net's extension directly into the Pi process. The extension does two things:
+Pi loads CC Safety Net as an in-process extension, declared through the package's `pi.extensions` field and recorded as the package source `npm:cc-safety-net` in `~/.pi/agent/settings.json`. The extension does two things:
 
-1. **Registers a `tool_call` event handler** (`pi.on('tool_call')`). This handler intercepts shell tool calls before they run, analyzes the command with the same engine used everywhere else, and returns a block result when the command is destructive. Unlike the hook subprocesses, there is no JSON-over-stdio — the call and its result stay in memory.
+1. **Registers a `tool_call` event handler** (`pi.on('tool_call')`). The handler intercepts shell tool calls before they run, analyzes the command with the same engine used everywhere else, and returns a block result when the command is destructive. Nothing crosses a process boundary.
 2. **Registers a `/cc-safety-net` builtin command** for managing rulebooks interactively inside Pi.
 
 ### Tools Pi protects
@@ -80,11 +94,24 @@ The extension intercepts both the built-in **`bash`** tool and custom **`Shell`*
 
 ### Detecting Pi
 
-Because there is no config file to inspect, the `doctor` command detects Pi with a runtime probe (it spawns `pi` and asks whether the extension is loaded and enabled). This is why a Pi status in `doctor` may read `n/a` even when Pi is installed, if the probe cannot run.
+Because there is no hook config file to inspect, the `doctor` command detects Pi with a runtime probe (it spawns `pi` and asks whether the extension is loaded and enabled). This is why a Pi status in `doctor` may read `n/a` even when Pi is installed, if the probe cannot run.
 
-## Choosing and verifying
+## The Amp Code event plugin
 
-Install for your agent using the method documented in [Installation](/installation). After installing, run the doctor command — it reports the detected integration model and config path for every agent, and runs a self-test wherever protection is active:
+Amp Code loads CC Safety Net as a system plugin: a single self-contained file at `~/.config/amp/plugins/cc-safety-net.ts`, copied out of the npm package rather than fetched from a URL. The plugin subscribes to Amp's `tool.call` event through the `@ampcode/plugin` API and returns either `allow` or `reject-and-continue` with a message. Like Pi and OpenCode, it runs in process.
+
+The file carries a managed header identifying it as CC Safety Net's. Install and uninstall both refuse to overwrite or remove a file that lacks that header, or one that is a symlink or a directory.
+
+Amp reads plugins at startup, so restart Amp or run `plugins: reload` after any change.
+
+### Amp Code coverage limits
+
+- A system plugin protects only the machine it is installed on. Tool calls executed on a remote executor such as an Amp Orb run without it.
+- Amp does not define the execution order of multiple plugins subscribed to the same `tool.call` event. CC Safety Net evaluates the input it receives and cannot re-evaluate an input that another plugin rewrites after CC Safety Net has already allowed it.
+
+## Verifying the wiring
+
+After installing, run the doctor command — it reports the detected integration and config path for every agent, and runs a self-test wherever protection is active:
 
 ```bash
 npx cc-safety-net doctor

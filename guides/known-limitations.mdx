@@ -1,12 +1,16 @@
 ---
 title: "CC Safety Net Known Limitations and Pitfalls"
 sidebarTitle: "Known Limitations"
-description: "What CC Safety Net can't catch: transparent proxies, in-binary behavior, reads and network, symlink TOCTOU, interpreter flags, and eval-based execution."
+description: "What CC Safety Net can't catch: opaque command proxies, in-binary behavior, filesystem containment and network, symlink TOCTOU, interpreter flags, and eval-based execution."
 ---
 
-CC Safety Net analyzes the command string your agent attempts to run. It is a strong guardrail against accidental data loss from known-destructive git and filesystem operations, but it is not a complete security solution. This page is an honest list of what it cannot catch, so you can set correct expectations and know when to reach for [sandboxing](/guides/vs-sandboxing) instead.
+CC Safety Net analyzes the command string your agent attempts to run. It is a strong guardrail against accidental data loss from known-destructive git and filesystem operations, but it is not a complete security solution. This page is an honest list of the **residual** limits that remain today, so you can set correct expectations and know when to reach for [sandboxing](/guides/vs-sandboxing) instead.
 
-The project's scope is deliberately focused: **preventing coding agents from making accidental mistakes that cause data loss**. It is not a general attack-prevention or sandboxing system.
+The project's scope is deliberately focused: it is a best-effort, static pre-execution policy gate for supported coding-agent tool calls. It is not an operating-system sandbox, a privilege boundary, or protection for commands that bypass an installed integration.
+
+<Note>
+  Standard mode is best-effort for adversarial or dynamic input, and several items below are relaxations that [strict or paranoid mode](/configuration/modes) closes. Where that is the case, it is called out.
+</Note>
 
 ## Command-string analysis limits
 
@@ -14,9 +18,22 @@ The project's scope is deliberately focused: **preventing coding agents from mak
 
 If a command does not visibly contain a destructive operation, command-string analysis cannot infer it. `some-tool --task destructive-cleanup` looks benign to CC Safety Net — it cannot inspect what an arbitrary binary does at runtime. Use [sandboxing](/guides/vs-sandboxing) for that threat class.
 
-### Transparent command proxies
+### Unconfigured or opaque command proxies
 
-A tool that rewrites or proxies a shell command before it runs (for example `rtk git reset --hard`) can bypass analysis, because CC Safety Net sees the proxy executable (`rtk`) rather than the underlying command. Some top-level proxied commands are caught by a fallback dangerous-text scan, but this is incomplete, and [custom rules](/configuration/custom-rules) do not yet apply through proxies. Work is tracked to add a transparent-proxy normalization layer.
+A tool that runs a shell command on your behalf (for example `rtk git reset --hard`) is analyzed only when you declare it as a transparent wrapper:
+
+```bash
+npx -y cc-safety-net rule wrapper add rtk
+```
+
+Once configured, analysis looks through the wrapper to the visible child command, so both built-in rules and [custom rules](/configuration/custom-rules) apply to `rtk git reset --hard` exactly as they would to `git reset --hard`. There are no built-in defaults — configure only wrappers you intentionally trust — and reserved commands (`git`, `busybox`, the built-in analyzed commands, shell wrappers, and interpreters) cannot be registered as wrappers.
+
+The residual limit is narrower than "every proxy":
+
+- A proxy that is **not** listed in `transparent_wrappers` is not unwrapped.
+- A proxy that **rewrites or hides** its child command, rather than executing a visible one, cannot be unwrapped even when it is configured.
+
+In both cases only the top-level fallback dangerous-text scan may catch the command, and that scan is incomplete. One more nuance: `transparent_wrappers` lives in `rule.json`, so a scope whose `rule.json` is unreadable loses that scope's wrappers until it is fixed — see [Configuration Recovery](/configuration/recovery).
 
 ### eval and dynamic execution
 
@@ -51,19 +68,39 @@ This is inherent to any pre-execution command analysis tool; fully closing it wo
 
 ## Out of scope
 
-### Reads and network
+### Sensitive-path coverage is bounded, not a general read boundary
 
-CC Safety Net has **no read-protection layer and no network layer**. It does not stop an agent from reading sensitive files (for example `~/.aws/credentials`, `~/.ssh/id_*`, or `.env` files) or exfiltrating data over the network. Those threats are exactly what sandboxing's read constraints and domain-based network filtering address. See [vs Sandboxing — where CC Safety Net cannot help](/guides/vs-sandboxing#where-cc-safety-net-cannot-help).
+CC Safety Net **does** protect sensitive paths. Reads of the built-in sensitive set — `.env` and its variants, `~/.ssh/id_*`, `~/.aws`, `~/.kube/config`, coding-CLI credential files, and more — are blocked, as are user-configured deny paths and all of their descendants. Protection applies across supported command, path, search, and patch shapes, including unknown-tool fallback inspection.
+
+The residual limit is that this is a **bounded pattern set over supported shapes**, not a general read boundary:
+
+- A credential in a file whose name and extension are not on the pattern list is not recognized.
+- Standard mode allows standalone metadata-only checks of built-in sensitive paths (for example `test -f ~/.ssh/id_rsa` or `find ~/.ssh -type f`). [Strict and paranoid](/configuration/modes#strict-mode-cc_safety_net_strict=1) block that discovery. Configured deny paths are never relaxed in any mode.
+- Setting `secret_protection.enabled` to `false` in `policy.json` turns the whole stage off, deny paths included.
+
+For a boundary that constrains *all* reads rather than a recognized set, use [sandboxing](/guides/vs-sandboxing#where-cc-safety-net-cannot-help).
+
+### No complete filesystem containment
+
+CC Safety Net denies a tool call before it runs; it does not enforce filesystem permissions. The hard-stop message is guidance to the agent, not a claim of complete filesystem enforcement. Catastrophic protections (recursive deletion of root or home, the protected Git metadata set, and the canonical user `policy.json`) are always enforced, but when you need complete protection rather than best-effort interception, use a trusted write broker, operating-system permissions, a sandbox, or equivalent runtime enforcement.
+
+### No network layer
+
+Runtime evaluation performs no network requests, and nothing in the guard pipeline inspects or filters egress. Data exfiltration over the network, domain allowlisting, and container boundaries are outside the product. Those are exactly what sandboxing's network restrictions address.
 
 ### General attack prevention
 
-Blocking prompt-injection-driven exfiltration, authenticating users, enforcing container boundaries, and network egress filtering are all out of scope. CC Safety Net assumes the agent's command string is untrusted, but it does not detect hidden behavior inside arbitrary binaries or enforce filesystem boundaries.
+Blocking prompt-injection-driven exfiltration, authenticating users, and enforcing container boundaries are all out of scope. CC Safety Net assumes the agent's command string is untrusted, but it does not detect hidden behavior inside arbitrary binaries.
+
+### Custom rule configuration is not tamper-resistant
+
+Tamper resistance covers the canonical user `policy.json` only. `rule.json`, rulebooks, lockfiles, and caches are best-effort against agent modification: in the `ready` state an agent can already remove a rulebook entry from `rule.json`, and removal is not drift, so nothing gates it. Protecting `rule.json` is a deferred product decision.
 
 ## Platform-specific issues
 
 ### OpenCode stale cache
 
-OpenCode's plugin installer can keep serving a stale cached version of `cc-safety-net` after a new release is published. If updates do not take effect, clear the cache and reinstall — see the [OpenCode installation steps](/installation#opencode). Run `npx cc-safety-net doctor` to confirm the detected plugin version.
+OpenCode's plugin installer can keep serving a stale cached version of `cc-safety-net` after a new release is published. If updates do not take effect, clear the cache and reinstall — see the [OpenCode installation steps](/installation#opencode-installation). Run `npx cc-safety-net doctor` to confirm the detected plugin version.
 
 ## What to do if a destructive command slipped through
 
@@ -71,4 +108,10 @@ OpenCode's plugin installer can keep serving a stale cached version of `cc-safet
 npx cc-safety-net explain "<the command>"
 ```
 
-The `explain` command shows the full step-by-step analysis of how CC Safety Net evaluated that specific command. If you find a genuine bypass of a documented protection, report it as described in the [security policy](/security).
+The `explain` command shows the full step-by-step analysis of how CC Safety Net evaluated that specific command, including the effective safety level, so you can tell a documented standard-mode relaxation from a real gap.
+
+<Warning>
+  A real trace is **not** automatically safe to share. Redaction covers recognized credential shapes only; the command text you supplied, its parsed tokens, absolute paths including your home directory, and your policy file path are all carried through. Reproduce with placeholder credentials and review the output before pasting it anywhere.
+</Warning>
+
+A command shape the rules do not block yet is a **coverage gap**, and it belongs in a public GitHub issue — report the shape, not a weaponized payload. Secret leakage, a write outside the intended directory, and package-integrity problems go through private disclosure instead. The [security policy](/security) has both procedures.

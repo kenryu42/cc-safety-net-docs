@@ -1,7 +1,7 @@
 ---
 title: "CC Safety Net explain --json Trace Reference"
 sidebarTitle: "Explain Trace"
-description: "Schema for the JSON returned by cc-safety-net explain --json: ExplainResult fields and the TraceStep variants that describe each analysis step."
+description: "Schema for the JSON returned by cc-safety-net explain --json: ExplainResult fields, the TraceStep variants that describe each analysis step, and what a trace reveals before you share it."
 keywords:
   - "explain"
   - "explain --json"
@@ -13,67 +13,142 @@ keywords:
   - "why blocked"
 ---
 
-The `explain --json` command returns a structured trace of every analysis step CC Safety Net performs on a command. This page documents that JSON shape, for anyone scripting against the trace or building tooling on top of it. For the command itself, see [CLI Commands](/reference/cli-commands#explain).
+The `explain --json` command returns a structured trace of every analysis step CC Safety Net performs on a command. This page documents that JSON shape, for anyone scripting against the trace or building tooling on top of it. For the command itself, see [CLI commands](/reference/cli-commands#explain).
 
 ```bash
 npx cc-safety-net explain --json "git checkout -- file.txt"
 ```
 
+<Warning>
+  A trace is not automatically safe to share. Read [Before you share a trace](#before-you-share-a-trace) first.
+</Warning>
+
 ## ExplainResult
 
 The top-level object returned by `explain --json`.
 
+| Field | Type | Presence | Description |
+| --- | --- | --- | --- |
+| `result` | `"blocked" \| "allowed"` | always | Final outcome for the command |
+| `reason` | `string` | blocked only | The block reason |
+| `segment` | `string` | blocked only | The specific segment that triggered the decision |
+| `ruleId` | `string` | blocked with a matched rule | The id of the rule that produced the block |
+| `trace` | `ExplainTrace` | always | The trace container with top-level and per-segment steps |
+| `customRule` | `object` | when a custom or rulebook rule matched | `id`, plus optional `rulebook` (`name`, `version`), `source`, and `override` (`{ type: "reason", reason }`) |
+| `configSource` | `string \| null` | always | The config file the effective config was loaded from |
+| `configValid` | `boolean` | always | Whether the loaded config validated cleanly |
+| `effectiveLevel` | `"standard" \| "strict" \| "paranoid" \| "custom"` | always | The level actually in force, after environment flags and overrides |
+| `selectedPreset` | `"standard" \| "strict" \| "paranoid"` | always | The preset named in the policy, defaulting to `standard` |
+| `effectiveCapabilities` | `object` | always | Per-capability state — see below |
+| `destructiveCommandRuleOverrides` | `Record<string, "on" \| "off">` | always, may be `{}` | Per-rule overrides stored in the policy |
+| `ruleActivation` | `object` | conditional — see below | How the relevant rule got its on/off state |
+
+The four configuration fields — `effectiveLevel`, `selectedPreset`, `effectiveCapabilities`, and `destructiveCommandRuleOverrides` — are built once and included in every return path, so they are present even when you explain an empty command.
+
+### effectiveCapabilities
+
+A record keyed by capability name — `fail_closed`, `paranoid_rm`, and `paranoid_interpreters` — where each value is:
+
 | Field | Type | Description |
 | --- | --- | --- |
-| `result` | `"blocked" \| "allowed"` | Final outcome for the command |
-| `reason` | `string` | The block reason, present when `result` is `blocked` |
-| `segment` | `string` | The specific segment that triggered the decision |
-| `trace` | `ExplainTrace` | The trace container with top-level and per-segment steps |
-| `customRule` | `object` | When a custom rule matched: `id`, optional `rulebook`, `source`, and `override` |
-| `configSource` | `string` | The config file the effective config was loaded from |
-| `configValid` | `boolean` | Whether the loaded config validated cleanly |
+| `enabled` | `boolean` | Whether the capability is on |
+| `source` | `"preset" \| "capability_override" \| "environment"` | What decided the final state |
+| `sources` | `array` | Every input that contributed, in precedence order |
+
+See [Modes](/configuration/modes) for what each capability changes.
+
+### ruleActivation
+
+Present **only** when the relevant rule declares an activation capability — that is, when the rule is one that a level or capability can switch on and off. The relevant rule is the rule that matched, or, when nothing matched, the rule a *mode-gated candidate* would have matched. That second case is what lets `explain` tell you "this would have been blocked, but that rule is off at your level."
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | `string` | The rule id |
+| `enabled` | `boolean` | Whether the rule is active right now |
+| `inheritedEnabled` | `boolean` | Whether the rule would be active from inheritance alone |
+| `changesInherited` | `boolean` | Whether the effective state differs from the inherited one |
+| `source` | `string` | What decided it: `catastrophic`, `master_disabled`, `rule_override`, `preset`, `capability_override`, `environment`, or `built_in_default` |
+| `activationCapability` | `string` | Optional. The capability that gates the rule |
+| `override` | `"on" \| "off"` | Optional. The stored per-rule override, when there is one |
+
+In human output this renders as a single line: `Rule activation: <id> — on|off via <source>`.
 
 ## ExplainTrace
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `steps` | `TraceStep[]` | Top-level steps (for example the initial parse) |
-| `segments` | `object[]` | Per-segment entries, each with its own `steps` array |
+| `steps` | `TraceStep[]` | Top-level steps, starting with the global `parse` |
+| `segments` | `object[]` | Per-segment entries, each with an `index` and its own `steps` array |
+
+The trace is passive: recording it never changes a decision, and ordinary guard evaluation never builds one. It exists only for `explain`.
+
+**Bounds.** The recorder caps what it keeps: at most 512 events, 2,048 characters per text value, 128 items per list, 128 properties per object, and 16 levels of nesting. Events beyond the cap are counted rather than stored, and every recorded value is deep-frozen. The count of dropped events is not exposed in `ExplainTrace` — only `steps` and `segments` are.
 
 ## TraceStep variants
 
-Each step in a trace is a `TraceStep` discriminated by its `type` field. The table below lists every variant and what it captures. Parse the `type` first, then read the variant's key fields.
+Each step is discriminated by its `type` field. Parse the `type` first, then read that variant's fields.
 
 | `type` | Key fields | When it appears |
 | --- | --- | --- |
-| `parse` | `input`, `segments` | Initial shell split into token segments |
-| `env-strip` | `input`, `envVars`, `output` | Environment assignments stripped from the segment front (values redacted) |
+| `parse` | `input`, `segments` | The initial shell split into token segments |
+| `env-strip` | `input`, `envVars`, `output` | Environment assignments stripped from the front of the segment (values redacted) |
 | `leading-tokens-stripped` | `input`, `removed`, `output` | Leading tokens (for example `env`, `command`) removed before analysis |
-| `shell-wrapper` | `wrapper`, `innerCommand` | A shell wrapper (`bash -c`, etc.) was unwrapped |
-| `interpreter` | `interpreter`, `codeArg`, `paranoidBlocked` | An interpreter one-liner was inspected; `paranoidBlocked` indicates paranoid mode denied it outright |
+| `shell-wrapper` | `wrapper`, `innerCommand` | A shell wrapper such as `bash -c` was unwrapped |
+| `interpreter` | `interpreter`, `codeArg`, `paranoidBlocked` | An interpreter one-liner was inspected; `paranoidBlocked` marks a paranoid-mode outright denial |
 | `busybox` | `subcommand` | A busybox-style dispatch was resolved to a subcommand |
-| `recurse` | `reason`, `innerCommand`, `depth` | Recursive re-analysis triggered by a wrapper, interpreter, or busybox dispatch |
+| `transparent-wrapper` | `wrapper`, `output` | A registered transparent wrapper was seen through — see below |
+| `recurse` | `reason`, `innerCommand`, `depth` | Recursive re-analysis was triggered |
 | `rule-check` | `ruleModule`, `ruleFunction`, `matched`, `reason?` | A built-in rule module was evaluated |
 | `worktree-relaxation` | `originalReason`, `gitCwd` | A git discard command was relaxed because the target is a linked worktree |
 | `tmpdir-check` | `tmpdirValue`, `isOverriddenToNonTemp`, `allowTmpdirVar` | `$TMPDIR` resolution and override detection |
-| `fallback-scan` | `tokensScanned`, `embeddedCommandFound?` | Fallback dangerous-text scan over remaining tokens |
+| `fallback-scan` | `tokensScanned`, `embeddedCommandFound?` | Fallback dangerous-text scan over the remaining tokens |
 | `custom-rules-check` | `rulesChecked`, `matched`, `reason?` | User-defined rules were evaluated |
-| `cwd-change` | `segment`, `effectiveCwdNowUnknown` | A `cd`/`pushd` changed the effective cwd; subsequent classification uses the new (or unknown) cwd |
-| `dangerous-text` | `token`, `matched`, `reason?` | A token was scanned against dangerous text patterns |
-| `strict-unparseable` | `rawCommand`, `reason` | Strict mode failed-closed on an unparseable command |
+| `cwd-change` | `segment`, `effectiveCwdNowUnknown` | A `cd`/`pushd` changed the effective cwd; later classification uses the new or unknown cwd |
+| `dangerous-text` | `token`, `matched`, `reason?` | A token was scanned against dangerous-text patterns |
+| `strict-unparseable` | `rawCommand`, `reason` | Strict mode failed closed on an unparseable command |
 | `segment-skipped` | `index`, `reason` | A segment was skipped because a prior segment already blocked |
-| `error` | `message`, `partial?` | An analysis error was captured; `partial` indicates partial output |
+| `error` | `message`, `partial?` | An analysis error was captured; `partial` marks partial output |
+
+### recurse reasons
+
+`recurse.reason` is one of eight values, not just the wrapper cases: `shell-wrapper`, `interpreter`, `busybox`, `shell-eval`, `shell-trap`, `shell-stdin`, `shell-heredoc`, `heredoc-file`.
+
+### transparent-wrapper steps
+
+`transparent-wrapper` is a segment-scoped step recorded when a command you registered with `rule wrapper add` is seen through. One step is emitted per candidate child — the primary child plus each alternative — each carrying:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `wrapper` | `string` | The wrapper command name |
+| `output` | `string[]` | The candidate token list the analysis will recurse into |
+
+The step is recorded immediately before recursing into those tokens, so it always precedes the analysis of the wrapped command. Human output renders it as a numbered `Transparent wrapper` step showing `Wrapper:` and `Tokens:`.
+
+Manage the wrapper list with [`rule wrapper add|remove|list`](/reference/cli-commands#rule-wrapper).
 
 ## Reading a trace
 
-A typical trace flows from `parse` → per-segment `env-strip` / `leading-tokens-stripped` → detection (`shell-wrapper` / `interpreter` / `busybox`) → `rule-check` (or `custom-rules-check`) → a decision. Recursion appears as `recurse` steps with increasing `depth`. When you only need the verdict, read `result` (and `reason` / `segment`) at the top level instead of walking the trace.
+A typical trace flows from `parse` → per-segment `env-strip` / `leading-tokens-stripped` → detection (`shell-wrapper` / `interpreter` / `busybox` / `transparent-wrapper`) → `rule-check` or `custom-rules-check` → a decision. Recursion appears as `recurse` steps with increasing `depth`. When you only need the verdict, read `result` (plus `reason`, `segment`, and `ruleId`) at the top level instead of walking the trace.
 
-<Note>
-  Secret values in trace output are redacted — `KEY=value` appears as `KEY=<redacted>` — so traces are safe to share in bug reports. See the [Audit Log reference](/reference/audit-log#secret-redaction) for the redaction system.
-</Note>
+Three protections short-circuit before the evaluator runs: policy-config protection, git-metadata protection, and secret protection. When one of those blocks a command, the trace contains a **single synthetic `rule-check` step and no `parse` step**, with `ruleId` set to `policy-protection`, `git-metadata-protection`, or the id of the matched secret rule. Tooling that assumes every trace opens with a `parse` step needs to handle this case.
+
+## Before you share a trace
+
+<Warning>
+  **An explain trace is not inherently safe to share.** The `parse` step records the raw command string you supplied and every token it parsed out of it. Many other steps carry raw text too — `fallback-scan.tokensScanned`, `dangerous-text.token`, `shell-wrapper.innerCommand`, `interpreter.codeArg`, `recurse.innerCommand`, `strict-unparseable.rawCommand`, `transparent-wrapper.output`, `worktree-relaxation.gitCwd`, and `cwd-change.segment`. `configSource` is an absolute path, normally inside your home directory.
+
+  Redaction removes recognized credential **shapes** only — the same bounded pattern list the [audit log](/reference/audit-log#secret-redaction) uses. It makes no claim about file paths, hostnames, IP addresses, usernames, project or client names, or any secret whose format is not on the list, and it cannot redact what it does not recognize.
+
+  Before sharing a trace: reproduce the case with **placeholder credentials and placeholder paths**, then **read the output end to end** and remove anything you would not post publicly.
+</Warning>
+
+For example, explaining a command that contains a `--token=…` assignment redacts the token, but a path like `/srv/acme-prod/customer-dump.sql` in the same command is returned in full, along with any hostname, IP address, or account name in the command text.
+
+Vulnerability reports are welcome to include `explain` output — but redaction is a best-effort control, not a guarantee, and a redaction bypass is itself treated as a reportable vulnerability. Review before you paste.
 
 ## Related pages
 
-- [CLI Commands](/reference/cli-commands#explain) — `explain` flags and examples.
-- [Analysis Engine](/guides/analysis-engine) — the behavior each trace step corresponds to.
-- [Troubleshooting](/guides/troubleshooting) — using `explain` to diagnose unexpected blocks.
+- [CLI commands](/reference/cli-commands#explain) — `explain` flags, examples, and exit behavior.
+- [Audit log](/reference/audit-log#secret-redaction) — the redaction pattern list, and the same bound applied to logged records.
+- [Analysis engine](/guides/analysis-engine) — the behavior each trace step corresponds to.
+- [Troubleshooting](/guides/troubleshooting) — using `explain` to diagnose an unexpected block.

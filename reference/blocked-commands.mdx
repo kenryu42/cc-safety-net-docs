@@ -1,7 +1,7 @@
 ---
 title: "Commands Blocked by CC Safety Net"
 sidebarTitle: "Blocked Commands"
-description: "Complete reference of git, rm, find, and xargs commands that CC Safety Net blocks by default, with the reason each command is considered destructive."
+description: "Complete reference of the git, rm, find, device, PowerShell, and sensitive-path commands CC Safety Net blocks, with the safety level each rule needs."
 keywords:
   - "blocked commands"
   - "dangerous commands"
@@ -13,11 +13,31 @@ keywords:
   - "git push --force"
   - "find delete"
   - "xargs rm"
+  - "dd mkfs shred"
+  - "Remove-Item"
+  - "git metadata protection"
+  - "policy.json protection"
 ---
 
-CC Safety Net blocks these commands because they can permanently destroy data — uncommitted changes, stashed work, or remote history. The list below covers the default built-in rules; custom rules can extend this list.
+CC Safety Net blocks these commands because they can permanently destroy data — uncommitted changes, stashed work, remote history, or a whole disk. The tables below cover the default built-in rules; [custom rules](/configuration/custom-rules) can extend them.
 
-## Git Commands
+Every row blocks in all three safety levels unless it is explicitly tagged **strict** or **paranoid**. Those rows only block once the matching level or capability is active. See [Modes](/configuration/modes) for how to turn them on.
+
+This page is the behavior matrix — *what* is blocked. For *how* a decision is reached, see [Architecture](/guides/architecture) and the [Analysis engine](/guides/analysis-engine).
+
+## What each safety level adds
+
+| Level | What the blocked matrix looks like |
+| --- | --- |
+| Standard | Every untagged row on this page. Safe-looking unparseable text such as `echo 'unterminated` is permitted, but unparseable text containing a recognizable destructive pattern is still blocked heuristically. Dynamic `rm -rf` targets are **not** categorically blocked. |
+| [Strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) | Everything Standard blocks, plus unparseable commands outright, destructive targets that cannot be verified, and metadata-only discovery of built-in sensitive paths. |
+| [Paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) | Everything Strict blocks, plus non-temp recursive forced deletion even inside the current working directory, and every interpreter one-liner regardless of content. |
+
+<Note>
+  A few protections sit outside the level system entirely. Root and home recursive deletion, Git metadata protection, and canonical `policy.json` protection are catastrophic rules: they block in Standard, they ignore the master destructive-command switch, and they ignore a per-rule `off` override.
+</Note>
+
+## Git commands
 
 These git operations are blocked because they discard uncommitted work, destroy recovery history, or rewrite shared state.
 
@@ -57,31 +77,130 @@ Git accepts `GIT_SSH_COMMAND`, `GIT_SSH`, and `GIT_SSH_VARIANT` to run an arbitr
 | `GIT_SSH=... git fetch` / `pull` / `push` | Same — applies to fetch, pull, push |
 | `GIT_SSH_VARIANT=... git ls-remote` / `submodule` | Same — applies to ls-remote and submodule |
 
-## Filesystem Commands
+## Filesystem commands
+
+| Command Pattern | Why It's Blocked | Level |
+| --- | --- | --- |
+| `rm -rf /`, `~`, `$HOME` | Root/home deletion is extremely dangerous | All (catastrophic) |
+| `rm -rf .git` and protected hooks | Destroys repository history and hooks | All (catastrophic) |
+| `rm -rf .` (the cwd itself) | Deleting the whole working directory removes the workspace you are standing in | All |
+| `rm -rf` outside the cwd | Recursive deletion of absolute, parent, or non-temp paths outside the cwd | All |
+| `rm -rf` while the cwd is your home | Anchoring recursive deletion at home is unsafe — change into a project directory first | All |
+| `rm -rf "$target"` and other dynamic targets | A target built from a variable, backtick, or substitution cannot be verified before it runs | **Strict**, paranoid |
+| `rm -rf ./cache` (non-temp path inside the cwd) | Recursive forced deletion is restricted even inside the working directory | **Paranoid** ([`CC_SAFETY_NET_PARANOID_RM=1`](/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1)) |
+| `find ... -delete` | Permanently removes files matching criteria (use `-print` to preview) | All |
+| `find .git -delete` | Selects protected Git metadata for deletion | All (catastrophic) |
+| `find -exec rm -rf ...` | Recursive-force delete inside a find exec block | All |
+| `xargs rm -rf` | Dynamic input makes targets unpredictable | All |
+| `xargs <shell> -c` | Can execute arbitrary commands | All |
+| `parallel rm -rf` | Dynamic input makes targets unpredictable | All |
+| `parallel <shell> -c` | Can execute arbitrary commands | All |
+
+`rm -rf` is classified by target, first match wins: unsupported Windows UNC/device targets, root/home, protected Git metadata, temp paths, dynamic targets, configured allow paths, home-as-cwd, the cwd itself, inside the cwd, and finally outside the cwd. Temp paths (`/tmp`, `/var/tmp`, the system temp dir, `$TMPDIR`) and paths inside the current working directory are allowed. See [Commands Allowed](/reference/allowed-commands) for the safe variants.
+
+<Warning>
+  Dynamic `rm -rf` targets are **not** categorically blocked in Standard. `rm -rf "$target"` is allowed in Standard and blocked only once the fail-closed capability is on, that is in [Strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) or [Paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1). Standard is best-effort against adversarial or dynamically generated command text; use Strict or Paranoid when commands may originate from prompt injection or another untrusted source.
+</Warning>
+
+Because Git metadata is classified before configured allow paths, and dynamic targets are classified before them too, an entry in `destructive_command_protection.allow_paths` never relaxes Git-metadata protection and never applies to an unverifiable target.
+
+## Device and disk destruction
+
+`dd`, `mkfs`, and `shred` are analyzed as ordinary top-level commands in every safety level. They are not catastrophic, so the master destructive-command switch and a per-rule `off` override still apply to them.
 
 | Command Pattern | Why It's Blocked |
 | --- | --- |
-| `rm -rf /`, `~`, `$HOME` | Root/home deletion is extremely dangerous and always blocked |
-| `rm -rf .` (the cwd itself) | Deleting the whole working directory is treated as outside-cwd |
-| `rm -rf` on dynamic targets | Targets containing `$` or backticks can't be verified and are blocked |
-| `rm -rf` outside the cwd | Recursive deletion of absolute, parent, or non-temp paths outside the cwd is blocked |
-| `rm -rf` while the cwd is your home | Blocked — change into a project directory first |
-| `find ... -delete` | Permanently removes files matching criteria (use `-print` to preview) |
-| `find -exec rm -rf ...` | Recursive-force delete inside a find exec block is blocked |
-| `xargs rm -rf` | Dynamic input makes targets unpredictable |
-| `xargs <shell> -c` | Can execute arbitrary commands |
-| `parallel rm -rf` | Dynamic input makes targets unpredictable |
-| `parallel <shell> -c` | Can execute arbitrary commands |
+| `dd ... of=/dev/...` | A direct `dd` write to a device path can destroy a disk or partition. Reordered and quoted operands are covered (`dd of=/dev/nvme0n1 if=/dev/zero`, `of="/dev/sda"`) |
+| `mkfs /dev/...` and any `mkfs.*` variant | Formatting a device erases everything on it (`mkfs.ext4 /dev/sda1`, `mkfs -t ext4 /dev/sdb`) |
+| `shred <target>` | `shred` permanently destroys whatever it is given, so any target is blocked — including `shred --help` and `shred --version` |
 
-`rm -rf` is classified by target: root/home, dynamic, cwd-self (`.`), home-cwd, and outside-cwd targets are blocked; temp paths (`/tmp`, `/var/tmp`, the system temp dir, `$TMPDIR`) and paths inside the current working directory are allowed. See [Commands Allowed](/reference/allowed-commands) for the safe variants.
+Only a *write* to a device triggers the `dd` rule. Reading from a device into a file (`dd if=/dev/sda of=./backup.img`) is allowed, and so is `mkfs.ext4 disk.img` against a file-backed image. All three rules also apply through wrappers and carriers: `bash -c "dd if=/dev/zero of=/dev/sda"`, `sudo mkfs.ext4 /dev/sda`, `env dd of=/dev/sda if=/dev/zero`, and `eval "shred secret"` are all blocked.
+
+## Git metadata
+
+CC Safety Net resolves the nearest ancestor `.git` entry of the execution directory and protects it, its resolved Git directories, and their `hooks` subtrees. This protection applies **even when you are inside the working directory**, and it is evaluated before any configuration is loaded — so it carries no safety level and cannot be turned off by policy.
+
+| Blocked shape | Note |
+| --- | --- |
+| `rm .git`, `rm -rf .git`, `rm .*` | Direct removal of the control-plane entry |
+| `rm -rf <resolved gitDir>`, `rm -rf <commonDir>` | For a **linked worktree** or submodule, `.git` is a marker file; the resolved `gitDir` and `commonDir` it points at are protected too |
+| `rm -rf <root>/.git/modules/<submodule>` | Submodule Git directories |
+| `rm -rf <dirname(gitDir)>/*` | A glob covering a protected directory |
+| `mv` with a protected source or destination | Move route |
+| `> .git` and other write redirections | Redirection route |
+| `Write` or patch targeting `.git/hooks/new-hook` | Write-tool and patch routes |
+| `find .git -delete` | Catastrophic even with `find.delete-git-metadata` set to `off` |
+
+A symlinked `.git` directory and a symlinked hooks directory are protected on **both** the lexical and the canonical alias, and a `.git` marker pointing at a missing Git directory still blocks. A trailing `*` glob in a POSIX shell does not match dot-entries, so `rm -rf ./*` at a repository root does not cover `.git` — but `rm -rf .git/worktrees/*` and PowerShell wildcards do.
+
+<Note>
+  Boundary: this guard covers the nearest ancestor Git control plane of the execution directory. Other repositories nested below the execution directory, and Git-internal paths outside the resolved set, are not covered.
+</Note>
+
+## Canonical policy.json
+
+Mutating or deleting the canonical user policy file — `~/.cc-safety-net/policy.json`, or `$CC_SAFETY_NET_HOME/policy.json` when that variable is set — is always blocked. This check runs **before** the configuration is loaded, so it can never be disabled by the policy it protects, and its denial carries no safety level and no config state. The reason string is exactly:
+
+```text
+This path contains the protected policy config and you must not modify or delete it.
+```
+
+Matching covers the file, its directory, and that directory's ancestors, across these shapes:
+
+- Direct write, edit, and patch targets.
+- Exact shell operands and write redirections.
+- Supported environment-variable, relative, and existing-symlink aliases.
+- Recursive `rm` of the policy directory or an ancestor of it.
+- `mv` when the file, its directory, or an ancestor is a source.
+
+Read-only inspection commands are allowlisted and pass through: `[`, `cat`, `file`, `grep`, `head`, `jq`, `less`, `ls`, `more`, `rg`, `sed`, `stat`, `tail`, `test`, `wc`.
 
 <Warning>
-  Commands like `dd`, `mkfs`, and `shred` are **not** blocked as bare top-level commands. They are only caught when they appear inside an [interpreter one-liner](#shell-wrappers-and-interpreter-one-liners) or unparseable command text that CC Safety Net scans for dangerous patterns. A bare `dd if=/dev/zero of=/dev/sda` is allowed through — if you need these blocked in your environment, add a [custom rule](/configuration/custom-rules).
+  This is a deliberately minimal exact-path guard, not command emulation. It tracks assignment-only shell variables and explicit `cd`, but it does not expand globs or braces, infer computed interpreter paths, inspect interpreter bodies, infer archive members, simulate `find` actions, or infer a transfer's final filename. Rulebooks, lockfiles, caches, sibling files, and policy-directory inspection are outside this guard — only `policy.json` is tamper-resistant.
 </Warning>
 
-## Shell Wrappers and Interpreter One-Liners
+## PowerShell Remove-Item
 
-Commands wrapped in shell interpreters like `bash -c` or `sh -c` are also blocked. CC Safety Net recursively analyzes nested wrappers up to 10 levels deep, so there is no bypass through indirection.
+PowerShell support is a conservative subset centered on `Remove-Item` and its aliases, plus the existing cross-shell rules. It is not a general PowerShell parser. Rules apply in `powershell` and `auto` shell modes; `posix` mode deliberately does not apply them, while still keeping cross-shell rules such as `git.reset-hard` and `rm.recursive-force-root-or-home`.
+
+| Command Pattern | Why It's Blocked | Level |
+| --- | --- | --- |
+| `Remove-Item C:\`, `~`, `$HOME`, `$env:USERPROFILE`, `$env:HOME` | Root/home removal, including trailing `\`, `\*`, and `/` variants | All (catastrophic) |
+| `Remove-Item .git -Recurse -Force` | Protected Git metadata; PowerShell wildcards *do* match dot-entries | All (catastrophic) |
+| `Remove-Item . -Recurse -Force` | The current directory itself, including after the `--` end-of-parameters marker | All |
+| `Remove-Item ../other -Recurse -Force` | Outside the cwd, including `..\other`, `../{other}`, comma-separated arrays containing an outside element, and Windows UNC/namespace targets | All |
+| `Set-Location $HOME; Remove-Item ./build -Recurse -Force` | Recursive removal while the cwd is home | All |
+| `Remove-Item $target -Recurse -Force` | Dynamic target that cannot be verified | **Strict**, paranoid |
+| `Get-ChildItem . -Recurse \| Remove-Item -Force` | Unverifiable pipeline input | **Strict**, paranoid |
+| `Remove-Item -Recurse -Force -Path` | Missing `-Path` value classifies as a dynamic target | **Strict**, paranoid |
+| `Remove-Item @params -Recurse -Force` | Splatted parameters classify as a dynamic target | **Strict**, paranoid |
+| `Remove-Item ./cache -Recurse -Force` | Non-temp path inside the cwd | **Paranoid** ([`CC_SAFETY_NET_PARANOID_RM=1`](/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1)) |
+
+Aliases and abbreviated parameters are resolved, so `ri . -r -fo` blocks. Invocation-operator forms (`& Remove-Item ...`, `& { ... }`, `. { ... }`), `iex` / `Invoke-Expression` with a literal string, and `$(...)` subexpressions are all analyzed. Line comments (`#`) and block comments (`<# ... #>`, including nested) are ignored, but a real command after them still blocks; malformed or depth-limited block comments and subexpressions fail closed.
+
+<Note>
+  `-WhatIf` neutralizes the block, because PowerShell will not actually delete anything. `-WhatIf`, `-WhatIf:$true`, and the `-wi` abbreviation all allow an otherwise-blocked `Remove-Item . -Recurse -Force`. Explicit `-WhatIf:$false` blocks again. One exception to the strict-only rows above: `Remove-Item $HOME -Recurse -Force` blocks in **Standard**, because it classifies as a root/home target rather than a dynamic one.
+</Note>
+
+## Sensitive paths
+
+Sensitive-path protection is a separate guard stage that runs before command analysis. It applies across the supported **command**, **path**, **search** (grep/glob), and **patch** shapes, and it also inspects unknown tools: for a tool CC Safety Net does not recognize, both the command-candidate extraction and the path-like values are inspected — without ever treating that tool's arbitrary text as a shell command.
+
+| Shape | What is inspected |
+| --- | --- |
+| `command` | Path targets extracted from the parsed command, including segments, pipes, redirection targets (including legacy-ordered ones), command substitutions, and `VAR=value` assignment values |
+| `path` | The extracted path-like tool values (read, write, edit tool inputs) |
+| `search` (`grep`, `glob`) | File operands, distinguished from pattern-supplying flags |
+| `patch` | The extracted path-like tool values |
+| unknown tool | Both the command-candidate extraction **and** the path values |
+
+Reads are blocked for the built-in sensitive set, not just writes: `cat .env`, `env cat .env`, `sudo command cat .env`, `strings id_rsa`, `xxd .env`, `base64 .env`, `dd if=.env`, `cat ~/.ssh/id_rsa`, `bash -c "cat .env"`, and `node -e 'require("child_process").execSync("cat .env")'` are all blocked.
+
+Command-shape extraction is bounded and structural: it fails closed on a structural shell-syntax limit and throws on an invalid parse. Configured deny paths are matched before the built-in rules and are never relaxed by any standard-mode allowance. The whole feature can be disabled with `secretProtection.enabled: false`, and individual built-in rules can be disabled through `disabledRules`.
+
+## Shell wrappers and interpreter one-liners
+
+Commands wrapped in shell interpreters like `bash -c` or `sh -c` are also blocked. CC Safety Net recursively analyzes nested wrappers up to 10 levels deep; a command that exceeds that depth is denied rather than passed through.
 
 | Example | Result |
 | --- | --- |
@@ -99,7 +218,23 @@ The analyzed interpreters are `python`, `python2`, `python3`, `node`, `ruby`, an
 
 ### Blocking all interpreter one-liners
 
-If you want to block interpreter one-liners outright regardless of their content, set `CC_SAFETY_NET_PARANOID_INTERPRETERS=1`. Every `python -c`, `node -e`, `ruby -e`, and `perl -e` one-liner is then blocked, even if it contains no dangerous code. See [Modes](/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1).
+If you want to block interpreter one-liners outright regardless of their content, set `CC_SAFETY_NET_PARANOID_INTERPRETERS=1`. Every `python -c`, `node -e`, `ruby -e`, and `perl -e` one-liner is then blocked, even if it contains no dangerous code — `python -c "print(1)"` is allowed in Standard and Strict and blocked here. See [Modes](/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1).
+
+## Unparseable command text
+
+When the shell parser cannot tokenize a command — an unterminated quote, for example — behavior depends on the safety level.
+
+| Input | Standard | Strict and paranoid |
+| --- | --- | --- |
+| `echo 'unterminated` | Allowed — safe-looking unparseable text passes | Blocked, "could not be safely analyzed" |
+| `git reset --hard 'unterminated` | **Blocked** by the heuristic scan | Blocked |
+| `dd if=/dev/zero of=/dev/sda 'oops` | **Blocked** by the heuristic scan | Blocked |
+
+The heuristic scan looks for `rm -rf`, `git reset --hard`, `git reset --merge`, `git clean -f`, `git checkout --force`, `git checkout --`, `git push --force`, `git push --delete`, `git branch -D`, `git tag -d`, `git stash drop`, `git stash clear`, `git restore` without `--staged`, `find -delete`, `dd of=/dev/`, `mkfs /dev/`, and `shred <arg>`. A match denies with the rule `raw-text.dangerous-command`. The `find`, `dd`, `mkfs`, and `shred` patterns are skipped when the text begins with `echo ` or `rg `, so quoting one of those strings into an echo or ripgrep invocation does not trip the scan.
+
+<Warning>
+  Resource-exhaustion limits are separate from the level system and deny in **every** mode, including Standard: exceeding the declared-command recursion limit or the structural command-validation limit is always a deny, never a pass-through.
+</Warning>
 
 <Note>
   The `explain` command lets you trace exactly why CC Safety Net blocks or allows any specific command. See the [CLI Commands](/reference/cli-commands) reference.

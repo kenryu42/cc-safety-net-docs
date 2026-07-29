@@ -1,19 +1,30 @@
 ---
 title: "Get Started with CC Safety Net"
 sidebarTitle: "Quickstart"
-description: "Install CC Safety Net, verify it's running, and see a real blocked command. Supports Claude Code, Codex, Gemini CLI, Copilot CLI, and more."
+description: "Install CC Safety Net, check its status, run doctor, and see a real blocked command. The same first-run path works for all ten supported coding agents."
 ---
 
-This guide gets CC Safety Net installed, verified, and producing a real blocked command in minutes. It works the same way across every supported agent — Claude Code, Codex, Gemini CLI, GitHub Copilot CLI, Kimi Code, OpenCode, and Pi — so the steps below are agent-neutral.
+This guide gets CC Safety Net installed, verified, and producing a real blocked command in minutes. The steps below are agent-neutral — they are the same whichever of the ten supported agents you use.
 
 <Steps>
   <Step title="Install CC Safety Net for your agent">
-    Each agent has its own install method (plugin marketplace, extension, config write, or package install). Follow the step for your agent on the **[Installation](/installation)** page, then come back here.
+    Every integration installs with `cc-safety-net install`, but each agent has its own underlying mechanism (plugin marketplace, extension, config write, or package install). Follow the section for your agent on the **[Installation](/installation)** page, then come back here.
 
-    That page is the single source of truth for install commands — this guide avoids duplicating them so the instructions can't drift out of sync.
+    That page is the single source of truth for install and uninstall commands — this guide avoids duplicating them so the instructions can't drift out of sync.
   </Step>
-  <Step title="Verify the installation">
-    Run the doctor command to confirm CC Safety Net is wired in and blocking commands for your agent:
+  <Step title="Check the status">
+    Get a one-screen summary of what is currently enforcing:
+
+    ```bash
+    npx cc-safety-net status
+    ```
+
+    The verdict line reads `ready` when the policy loaded cleanly, or `degraded` when something in your configuration could not be applied. Below it you get the protections that are on, your effective level, how many custom rules are active, and the policy file path. `status` is purely informational and always exits `0`.
+
+    If you use Claude Code, the verdict reads `not enforcing` whenever the `cc-safety-net@cc-marketplace` plugin is not enabled in `~/.claude/settings.json`.
+  </Step>
+  <Step title="Run doctor">
+    Where `status` summarizes your policy, `doctor` verifies the wiring end to end:
 
     ```bash
     npx cc-safety-net doctor
@@ -36,9 +47,22 @@ This guide gets CC Safety Net installed, verified, and producing a real blocked 
 
     When CC Safety Net blocks the first command, your agent receives a structured block message (see below) and is instructed to ask you for explicit permission before trying anything similar again. The second command runs normally.
   </Step>
+  <Step title="Ask why, without running anything">
+    If a decision surprises you, `explain` evaluates a command string through the same engine without executing it:
+
+    ```bash
+    npx cc-safety-net explain "git checkout -- README.md"
+    ```
+
+    It prints the verdict, the rule that matched, and the effective configuration behind it. Use a placeholder command like the one above while you are exploring.
+
+    <Warning>
+      An explain trace echoes the command you passed, its parsed tokens, and absolute paths including your home directory. Credential-shaped values are redacted, but paths, hostnames, and project names are not — review the output before pasting it into an issue or a chat.
+    </Warning>
+  </Step>
 </Steps>
 
-## What a Block Looks Like
+## What a block looks like
 
 When CC Safety Net intercepts a destructive command, it returns a message like this to your agent:
 
@@ -52,22 +76,22 @@ If this operation is truly needed, ask the user for explicit permission and have
 
 Your agent sees this message instead of executing the command. It will typically explain what happened, suggest a safer alternative, and ask you whether you want to proceed manually.
 
-## Next Steps
+## Next steps
 
 <CardGroup cols={2}>
-  <Card title="Explore Modes" icon="toggle-right" href="/configuration/modes">
-    Learn about Default, Strict, Paranoid, and Worktree modes and when to use each one.
+  <Card title="Explore modes" icon="toggle-right" href="/configuration/modes">
+    Learn about the standard, strict, and paranoid levels and worktree mode, and when to use each one.
   </Card>
 
-  <Card title="Custom Rules" icon="sliders-horizontal" href="/configuration/custom-rules">
+  <Card title="Custom rules" icon="sliders-horizontal" href="/configuration/custom-rules">
     Define your own blocking rules at the project or user level to enforce team conventions.
   </Card>
 
-  <Card title="Blocked Commands" icon="ban" href="/reference/blocked-commands">
+  <Card title="Blocked commands" icon="ban" href="/reference/blocked-commands">
     Browse the full list of commands CC Safety Net blocks by default and the reasoning behind each.
   </Card>
 
-  <Card title="How It Works" icon="settings" href="/guides/how-it-works">
-    Go deeper on semantic command analysis, shell wrapper detection, and the hook lifecycle.
+  <Card title="How it works" icon="settings" href="/guides/how-it-works">
+    Go deeper on semantic command analysis, shell wrapper detection, and the evaluation lifecycle.
   </Card>
 </CardGroup>

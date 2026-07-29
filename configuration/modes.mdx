@@ -1,57 +1,109 @@
 ---
 title: "CC Safety Net Modes: Strict, Paranoid, and Worktree"
 sidebarTitle: "Modes"
-description: "Configure CC Safety Net's protection level with Strict, Paranoid, and Worktree modes. Set environment variables to tune behavior for your workflow."
+description: "What CC Safety Net's standard, strict, and paranoid safety levels block, plus worktree mode. Set a level in policy.json or with environment variables to tune behavior for your workflow."
 ---
 
-CC Safety Net ships with sensible defaults but provides three operation modes via environment variables that let you tune its behavior to your workflow. You can enable any combination of modes by exporting the corresponding variables before starting your AI coding agent.
+CC Safety Net resolves protection into three **safety levels** — `standard`, `strict`, and `paranoid`. Each level is a preset that expands into the same three capabilities, so a level is shorthand rather than a separate code path:
+
+| Level | `fail_closed` | `paranoid_rm` | `paranoid_interpreters` |
+| --- | --- | --- | --- |
+| `standard` (default) | off | off | off |
+| `strict` | **on** | off | off |
+| `paranoid` | **on** | **on** | **on** |
+
+Set the level with `safety.level` in `policy.json` or with the `CC_SAFETY_NET_LEVEL` environment variable — the effective base level is the higher of the two. The individual toggles documented on this page set a single capability on top of that base. Any capability combination that is not exactly one of the three presets is reported as the effective level `custom`.
 
 <Note>
-  Mode and debug flags use `CC_SAFETY_NET_*` environment variables. Older `SAFETY_NET_*` names (without the `CC_` prefix) are also accepted for strict, paranoid, paranoid-rm, paranoid-interpreters, and worktree toggles. See the [environment variable reference](/configuration/environment) for the full list, including `CC_SAFETY_NET_DEBUG` and `CC_SAFETY_NET_HOME`.
+  Mode and debug flags use `CC_SAFETY_NET_*` environment variables. Older `SAFETY_NET_*` names (without the `CC_` prefix) are also accepted for strict, paranoid, paranoid-rm, paranoid-interpreters, and worktree toggles. See the [environment variable reference](/configuration/environment) for the full list and for the exact precedence between policy and environment, and the [policy reference](/configuration/policy) for `safety.level` and `safety.overrides`.
 </Note>
 
 ## Default Mode
 
-No environment variables are required to get started. In default mode, CC Safety Net protects against all built-in destructive git and filesystem patterns. This is the recommended starting point for most users.
+Default mode is the `standard` safety level. No environment variables are required to get started, and CC Safety Net protects against the built-in destructive git and filesystem patterns. This is the recommended starting point for most users.
 
-Most malformed input is already handled safely regardless of mode:
+Some failures are handled the same way at every level:
 
 - **Invalid hook input JSON** is **always blocked** (fail-closed), in every mode.
 - If the analyzer itself throws an unexpected error, the command is **always blocked** (fail-closed) with a "failed closed" reason, in every mode.
-- If a command cannot be tokenized by the shell parser (for example, an unterminated quote), CC Safety Net runs a fallback text scan for known-dangerous patterns. If the scan matches, the command is blocked; if it does not match, the command is **allowed through** (fail-open). Strict mode changes only this last case.
+- A command that exceeds the parser's **recursion or structural validation limits** is **always blocked**, in every mode. These resource-exhaustion bounds are not relaxed by the standard level.
+
+Where standard differs is unparseable and unverifiable input:
+
+- If a command cannot be tokenized by the shell parser (for example, an unterminated quote), CC Safety Net runs a fallback text scan for known-dangerous patterns. If the scan matches, the command is blocked; if it does not match, the command is **allowed through**. So `echo 'unterminated` is allowed, while `git reset --hard 'unterminated` is still blocked by the heuristic scan.
+- **Dynamic recursive-delete targets are not categorically blocked in standard.** `rm -rf "$target"` is allowed here and blocked only once the fail-closed capability is on.
+
+Standard also intentionally allows dynamic executables, command structure assembled through substitution, other unverifiable recursive-delete targets, and standalone metadata-only checks of built-in sensitive paths. These are deliberate trade-offs: standard is **best-effort against adversarial or dynamic input**. Use strict or paranoid when commands may come from prompt injection or another adversarial context.
+
+Standard never relaxes sensitive **content** access, user-configured deny paths and their descendants, or the catastrophic protections (root and home recursive deletion, Git metadata, and the canonical `policy.json`).
 
 ## Strict Mode (`CC_SAFETY_NET_STRICT=1`)
 
-When strict mode is enabled, CC Safety Net switches to **fail-closed** behavior on commands that cannot be tokenized by the shell parser. Any command the parser cannot split into tokens is blocked rather than allowed, even if the fallback text scan finds no dangerous pattern.
+Strict mode turns on the `fail_closed` capability. It tightens four distinct things, not just unparseable commands:
 
-Note that invalid hook input JSON and analyzer exceptions are **already fail-closed in every mode** — strict mode only tightens the unparseable-command case described above.
+- **Unparseable commands are blocked.** Any command the parser cannot split into tokens is denied — "Command could not be safely analyzed (strict mode)" — even when the fallback text scan finds no dangerous pattern. `echo 'unterminated` is allowed in standard and blocked here.
+- **Unverifiable destructive targets are blocked** by the five rules listed below.
+- **Metadata-only sensitive-path discovery is blocked.** `test -f ~/.ssh/id_rsa` and `find ~/.ssh -type f` are allowed in standard and denied in strict.
+- **The standard-only inline-data relaxation is disabled.** In standard, a sensitive path literal inside a Node or Bun inline evaluation is treated as inert diagnostic data when a bounded lexical scan finds no filesystem or command-execution marker. Strict removes that allowance.
+
+These five rules activate only when `fail_closed` is on:
+
+| Rule id | Example that is allowed in standard and blocked in strict |
+| --- | --- |
+| `rm.recursive-force-dynamic-target` | `rm -rf "$target"` |
+| `powershell.remove-item-recursive-force-dynamic-target` | `Remove-Item $target -Recurse -Force` |
+| `powershell.remove-item-pipeline-dynamic-target` | `Get-ChildItem . -Recurse \| Remove-Item -Force` |
+| `shell.dynamic-executable` | `$(printf r)m -rf /` |
+| `shell.dynamic-structure` | `git reset $(printf --hard)` |
+
+Note that invalid hook input JSON, analyzer exceptions, and parser resource-limit failures are **already fail-closed in every mode** — those are not what strict adds.
 
 **How to enable:**
+
+```bash
+export CC_SAFETY_NET_LEVEL=strict
+```
+
+The legacy toggle `CC_SAFETY_NET_STRICT=1` sets the same capability and is still accepted:
 
 ```bash
 export CC_SAFETY_NET_STRICT=1
 ```
 
-**When to use:** Enable strict mode when you want maximum protection and can tolerate occasional false positives on unusual or exotic command syntax.
+**When to use:** Enable strict mode when commands may come from an adversarial or untrusted context, or when you want maximum protection and can tolerate occasional false positives on unusual or exotic command syntax.
+
+<Note>
+  Individual strict-tier rules can be turned off through `destructive_command_protection.overrides` in [policy.json](/configuration/policy), and any strict-tier rule can be force-enabled under standard with an `"on"` override. Strict is still strict for fail-closed outcomes that have no destructive-command rule id, such as parser fail-closed and sensitive-path outcomes.
+</Note>
 
 ## Paranoid Mode (`CC_SAFETY_NET_PARANOID=1`)
 
-Paranoid mode enables additional safety checks that go beyond the defaults. These checks may be disruptive to some normal workflows, so they are opt-in. You can enable all paranoid checks at once, or activate individual checks selectively.
+The `paranoid` level is strict plus two further capabilities, `paranoid_rm` and `paranoid_interpreters`. These checks may be disruptive to some normal workflows, so they are opt-in. You can select the whole level, or activate the individual capabilities selectively — a level that carries only one of them reports as the effective level `custom`.
 
 ### rm check (`CC_SAFETY_NET_PARANOID_RM=1`)
 
-By default, `rm -rf` within the current working directory is allowed — the assumption is that deleting files inside your own project root is intentional. With the paranoid rm check enabled, **all non-temp `rm -rf` commands are blocked**, including those targeting paths inside the cwd.
+By default, `rm -rf` within the current working directory is allowed — the assumption is that deleting files inside your own project root is intentional. With the paranoid rm check enabled, non-temp recursive forced removal is blocked **even inside the current working directory**: `rm -rf ./cache` matches `rm.recursive-force-paranoid`, and the PowerShell equivalent `Remove-Item ./cache -Recurse -Force` matches `powershell.remove-item-recursive-force-paranoid`.
+
+Temp targets and directories listed in `destructive_command_protection.allow_paths` are still allowed under this check.
 
 ### Interpreter one-liners (`CC_SAFETY_NET_PARANOID_INTERPRETERS=1`)
 
-Interpreter one-liners can hide destructive commands inside strings that are hard to inspect statically. With this check enabled, the following forms are blocked entirely:
+Interpreter one-liners can hide destructive commands inside strings that are hard to inspect statically. Below paranoid, only a one-liner whose body contains a dangerous command is blocked (rule `interpreter.dangerous-command`). With this check enabled, **every** interpreter one-liner is blocked regardless of its content, via `interpreter.one-liner-paranoid`:
 
-- `python -c '...'`
+- `python -c '...'` (also `python3` and `python2`)
 - `node -e '...'`
 - `ruby -e '...'`
 - `perl -e '...'`
 
-**How to enable all paranoid checks at once:**
+So `python -c "print(1)"` is allowed in standard and strict, and blocked here.
+
+**How to enable the paranoid level:**
+
+```bash
+export CC_SAFETY_NET_LEVEL=paranoid
+```
+
+**How to enable all paranoid checks at once with the legacy toggle:**
 
 ```bash
 export CC_SAFETY_NET_PARANOID=1
@@ -64,7 +116,7 @@ export CC_SAFETY_NET_PARANOID_RM=1
 export CC_SAFETY_NET_PARANOID_INTERPRETERS=1
 ```
 
-Setting `CC_SAFETY_NET_PARANOID=1` is equivalent to enabling both `CC_SAFETY_NET_PARANOID_RM=1` and `CC_SAFETY_NET_PARANOID_INTERPRETERS=1` simultaneously.
+Setting `CC_SAFETY_NET_PARANOID=1` is equivalent to enabling both `CC_SAFETY_NET_PARANOID_RM=1` and `CC_SAFETY_NET_PARANOID_INTERPRETERS=1` simultaneously. It does **not** turn on `fail_closed`, so on top of the default standard level it produces the effective level `custom` rather than `paranoid`. Use `CC_SAFETY_NET_LEVEL=paranoid` (or `safety.level: "paranoid"`) when you want the full preset.
 
 ## Worktree Mode (`CC_SAFETY_NET_WORKTREE=1`)
 
@@ -75,6 +127,8 @@ Linked git worktrees are designed as disposable, isolated workspaces. Discarding
 ```bash
 export CC_SAFETY_NET_WORKTREE=1
 ```
+
+You can also set `workflow.worktree_mode: true` in [policy.json](/configuration/policy). The two are combined as a logical OR — either one enables worktree mode.
 
 ### What's allowed inside a linked worktree
 
@@ -109,12 +163,15 @@ Worktree detection is **fail-closed**: if CC Safety Net cannot positively identi
 
 | Variable | Effect |
 | --- | --- |
-| `CC_SAFETY_NET_STRICT=1` | Fail-closed on unparseable commands |
-| `CC_SAFETY_NET_PARANOID=1` | All paranoid checks (rm \+ interpreters) |
-| `CC_SAFETY_NET_PARANOID_RM=1` | Block `rm -rf` even within cwd |
-| `CC_SAFETY_NET_PARANOID_INTERPRETERS=1` | Block interpreter one-liners |
+| `CC_SAFETY_NET_LEVEL=standard\|strict\|paranoid` | Select a preset; raises the policy level but never lowers it |
+| `CC_SAFETY_NET_STRICT=1` | Fail-closed capability: unparseable commands, unverifiable destructive targets, metadata-only sensitive-path discovery |
+| `CC_SAFETY_NET_PARANOID=1` | Both paranoid checks (rm \+ interpreters); does not set fail-closed |
+| `CC_SAFETY_NET_PARANOID_RM=1` | Block non-temp `rm -rf` even within cwd |
+| `CC_SAFETY_NET_PARANOID_INTERPRETERS=1` | Block every interpreter one-liner regardless of content |
 | `CC_SAFETY_NET_WORKTREE=1` | Relax local-discard rules in linked worktrees |
 
+See [Environment Variables](/configuration/environment) for the legacy `SAFETY_NET_*` aliases and the full precedence rules between `policy.json` and the environment.
+
 <Tip>
-  You can check which modes are currently active by running `npx cc-safety-net doctor` or by looking at the status line in Claude Code. See [Status Line](/configuration/status-line) for setup instructions.
+  You can check which level is currently in effect by running `npx cc-safety-net status` (or `npx cc-safety-net doctor` for the full report), or by looking at the status line in Claude Code. See [Status Line](/configuration/status-line) for setup instructions.
 </Tip>

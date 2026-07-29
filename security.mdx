@@ -14,16 +14,20 @@ Include as much detail as you can safely share:
 
 - The affected `cc-safety-net` version
 - Your operating system and runtime version
-- The affected integration (Claude Code, Codex, Copilot CLI, Gemini CLI, Kimi Code, OpenCode, or Pi)
+- The affected integration, such as Claude Code, OpenCode, Gemini CLI, GitHub Copilot CLI, or Codex
 - Steps to reproduce, and the command or input that bypasses, weakens, or abuses CC Safety Net
 - Any relevant output from `cc-safety-net explain` or `cc-safety-net doctor`
-- The concrete impact: data loss, command execution, secret exposure, or something else
+- Whether the issue can cause data loss, command execution, secret exposure, or another concrete security impact
 
 Redact tokens, credentials, private repository names, and sensitive file paths before sending logs or command output.
 
+<Warning>
+  `explain` and `doctor` output is **not** automatically safe to attach. Redaction covers recognized credential shapes only — the command text you supplied, its parsed tokens, absolute paths including your home directory, hostnames, and your configuration paths are carried through. Reproduce the issue with **placeholder credentials** and read the output before you send it.
+</Warning>
+
 ## The boundary: bug or vulnerability?
 
-CC Safety Net's job is to stop agents from running destructive commands. A report that the tool failed to do that job is a **bug**, and it belongs in a public GitHub issue. The threat model already assumes an attacker (prompt injection, adversarial context) can emit any destructive command, so publishing "this command shape is not caught" does not hand the attacker a capability they did not already have — it just gets the gap fixed faster and lets users ship a custom rule as an immediate workaround.
+CC Safety Net's job is to stop agents from running destructive commands within the selected safety level's documented guarantees. A report that the tool failed to do that job is a **bug**, and it belongs in a public GitHub issue. The strict and paranoid threat model assumes an attacker (prompt injection, adversarial context) can emit any destructive command, so publishing "this command shape is not caught" does not hand the attacker a capability they did not already have — it just gets the gap fixed faster and lets users ship a custom rule as an immediate workaround.
 
 A report that the tool did something harmful it was never supposed to do — leak a secret, write a file outside its own directory, or ship a tampered package — is a **vulnerability**. The non-obvious construction is the secret, so it belongs in private disclosure.
 
@@ -33,7 +37,7 @@ The dividing line is: **did the tool fail to stop a destructive command, or did 
 
 Report these privately:
 
-- Leakage of secrets through block messages, audit logs, diagnostics, or debug output, including a redaction bypass for a specific token format
+- Leakage of secrets through block messages, audit logs, diagnostics, debug output, or a false-positive report prefill, including a redaction bypass for a specific token format or a path the report preview claims to have replaced
 - A path traversal or filesystem issue in audit logging or configuration handling, where crafted input writes outside the intended directory
 - A supply-chain or packaging issue affecting the published npm package or plugin distribution, including rulebook integrity
 
@@ -42,12 +46,18 @@ Report these privately:
 Use normal GitHub issues for:
 
 - Any bypass or fail-open that lets a destructive command execute — a coverage gap (a command the rules do not block yet), a parser, tokenizer, or wrapper-analysis edge case, or an analysis error that lets a command through instead of blocking it. Report the command *shape*, not a ready-to-paste weaponized prompt-injection payload.
-- False positives (safe commands blocked)
-- Missing convenience rules or feature requests
+- False positives where a safe command is blocked
+- Missing convenience rules or new feature requests
 - Documentation bugs
 - Installation problems without a security impact
 - Questions about custom rules or configuration
 
+<Note>
+  A destructive-command coverage gap stays public even when it looks severe. It is not reclassified as a vulnerability, and the private path is reserved for the categories listed above. Note also that a command allowed under [standard mode's documented relaxations](/guides/security-model#what-each-safety-level-guarantees) is not a gap at all — standard is best-effort, and strict or paranoid is the level that fails closed on those forms.
+</Note>
+
 ## Response and disclosure
 
-You should receive an initial response within **7 days**. The maintainer will work with you to confirm the impact, identify affected versions, prepare a fix, and coordinate disclosure. When a vulnerability is confirmed, a fix is published as soon as practical, optionally with a GitHub security advisory and credit unless you request otherwise. Please do not publicly disclose exploit details until a fixed version is available.
+You should receive an initial response within **7 days**. The maintainer will work with you to confirm the impact, identify affected versions, prepare a fix, and coordinate disclosure. Please give the maintainer reasonable time to investigate before publishing details publicly.
+
+When a vulnerability is confirmed, the maintainer publishes a fix as soon as practical and may publish a GitHub security advisory or release note with appropriate credit, unless you request otherwise. Please do not publicly disclose exploit details until a fixed version is available.

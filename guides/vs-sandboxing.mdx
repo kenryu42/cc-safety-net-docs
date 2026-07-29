@@ -15,11 +15,12 @@ Sandboxing implementations vary by platform, but most converge on the same OS pr
 | | OS-level sandboxing | CC Safety Net |
 |---|---|---|
 | **Enforcement** | OS-level (Seatbelt/bubblewrap) | Application-level (runs before the command executes) |
-| **Approach** | Containment — restricts filesystem + network | Command analysis — blocks destructive operations |
-| **Filesystem** | Writes restricted (default: cwd); reads are broad | Only destructive operations blocked |
+| **Approach** | Containment — restricts filesystem + network | Semantic analysis — intercepts destructive and sensitive operations in supported tool calls |
+| **Filesystem writes** | Restricted by boundary (default: cwd) | Destructive operations blocked by meaning, wherever they point |
+| **Filesystem reads** | Broad by default | A bounded set of sensitive paths is blocked (`.env`, `~/.ssh/id_*`, `~/.aws`, coding-CLI credentials, plus your deny paths) |
 | **Network** | Restricted or off by default (mechanism varies) | None |
-| **Git awareness** | None | Explicit rules for destructive git operations |
-| **Bypass resistance** | High — OS enforces boundaries | Lower — analyzes command strings only |
+| **Git awareness** | None | Explicit rules for destructive git operations, plus always-on protection of the repository's Git metadata |
+| **Bypass resistance** | High — OS enforces boundaries | Lower — analyzes supported tool calls and command text only |
 
 ## Why sandboxing isn't enough
 
@@ -36,12 +37,15 @@ Sandboxing restricts *where* you can write, but it doesn't understand whether an
 | `git stash clear` | Allowed (within cwd) | Blocked |
 | `git push --force` | Allowed (if remote domain allowed) | Blocked |
 | `rm -rf .` | Allowed (within cwd) | Blocked |
+| `cat .env` | Allowed (reads are broad) | Blocked |
 
 <Note>
   Sandboxing sees `git reset --hard` as a safe operation — it only modifies files within the current directory. But your AI agent just discarded all of your uncommitted work.
 </Note>
 
-From the OS's perspective, these commands are entirely legitimate: they write to an allowed path, don't touch the network (except push), and complete without error. The sandbox has no concept of git history, uncommitted changes, or stash entries. CC Safety Net understands these semantics and blocks them accordingly.
+From the OS's perspective, these commands are entirely legitimate: they write to an allowed path or read a file the sandbox permits, don't touch the network (except push), and complete without error. The sandbox has no concept of git history, uncommitted changes, stash entries, or which files hold credentials. CC Safety Net understands these semantics and blocks them accordingly.
+
+The same difference applies to command proxies. A tool that runs a command on your behalf looks like one opaque executable to both layers, but once you declare it with `cc-safety-net rule wrapper add <command>`, CC Safety Net looks through it to the visible child command and applies the same rules. A sandbox never inspects the child at all — it only limits what the whole process tree can touch.
 
 ## When sandboxing is the better choice
 
@@ -49,14 +53,21 @@ Sandboxing is the right tool when your primary concern is:
 
 - **Prompt injection attacks** — reduces exfiltration risk by restricting outbound network domains
 - **Malicious dependencies** — limits filesystem writes and network access from untrusted packages
-- **Untrusted code execution** — OS-level containment is fundamentally stronger than pattern matching
+- **Untrusted code execution** — OS-level containment is fundamentally stronger than analyzing command text
 - **Network control** — CC Safety Net has no network protection at all
 
 If you're running code from an untrusted source, or you're worried about a compromised dependency reaching out to an attacker-controlled server, sandboxing is the layer that addresses those threats.
 
 ### Where CC Safety Net cannot help
 
-CC Safety Net operates only on shell commands and only on known-destructive patterns. It has **no read-protection layer and no network layer**. That means it does not stop an agent from _reading_ sensitive files (for example `~/.aws/credentials`, `~/.ssh/id_*`, or `.env` files, which the sandbox permits reads of by default), and it does not stop data exfiltration over the network. Those threats are exactly what sandboxing's read constraints and network restrictions are for — which is why the two tools are complementary rather than alternatives.
+CC Safety Net interprets supported tool calls; it does not contain a process. Each of these limits needs containment rather than semantic analysis:
+
+- **Exfiltration over the network.** Runtime evaluation makes no network requests and nothing in the pipeline inspects egress. Domain allowlisting is the sandbox's job.
+- **Reads outside the recognized set.** Sensitive-path protection covers a bounded pattern set — `.env` and its variants, `~/.ssh/id_*`, `~/.aws`, `~/.kube/config`, coding-CLI credential files, plus the deny paths you configure — across supported command, path, search, and patch shapes. It is not a general read boundary, so a credential in an unrecognized file is not protected. A sandbox constrains *all* reads without knowing which file matters.
+- **Behavior hidden inside a binary.** `some-tool --task destructive-cleanup` looks benign in the command text, and a proxy that rewrites its child instead of executing a visible one cannot be unwrapped even when it is configured as a transparent wrapper.
+- **Complete filesystem enforcement.** A denial stops the tool call; it does not enforce permissions. When you need complete protection rather than best-effort interception, use a trusted write broker, OS permissions, or a sandbox.
+
+These are exactly what sandboxing's containment is for — which is why the two tools are complementary rather than alternatives. See [Known Limitations](/guides/known-limitations) for the full residual list.
 
 ## Using both together
 
@@ -64,7 +75,7 @@ CC Safety Net operates only on shell commands and only on known-destructive patt
   Run both for defense-in-depth. They complement each other cleanly:
 
   - **Sandboxing** contains the blast radius — even if something goes wrong, damage is limited to the current working directory and approved network domains.
-  - **CC Safety Net** prevents footguns — catches git-specific and filesystem-destructive mistakes that sandboxing permits because they operate within cwd.
+  - **CC Safety Net** prevents footguns — catches git-specific and filesystem-destructive mistakes that sandboxing permits because they operate within cwd, and blocks reads of recognized credential files that sandboxing permits because reads are broad.
 </Tip>
 
 Sandboxing handles unknown threats by constraining what the agent *can* do at the OS level. CC Safety Net handles known destructive patterns by intercepting commands before they execute. Together, they cover the gaps that each leaves on its own.

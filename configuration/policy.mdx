@@ -1,0 +1,318 @@
+---
+title: "Policy File: The Complete policy.json Contract"
+sidebarTitle: "Policy File"
+description: "Full reference for CC Safety Net's policy.json: location, schema, safety presets and capability overrides, worktree mode, destructive-command and secret protection, deny-path rules, audit retention, defaults, and precedence."
+---
+
+`policy.json` is CC Safety Net's user-scoped settings file. It selects your safety preset, turns individual built-in protections on or off, adds extra protected paths, and sets how long audit records are kept.
+
+It is separate from `rule.json` and rulebooks, which define your own custom blocking rules — see [Custom rules](/configuration/custom-rules) for that schema.
+
+## Where the file lives
+
+| Setup | Path |
+| --- | --- |
+| Default | `~/.cc-safety-net/policy.json` |
+| `CC_SAFETY_NET_HOME` set | `$CC_SAFETY_NET_HOME/policy.json` |
+
+With `CC_SAFETY_NET_HOME` set, the file sits **directly** under that directory, as a sibling of `rules/`. See [Environment variables](/configuration/environment) for the override itself.
+
+There is exactly one policy file. **There is no project-scoped `policy.json`** — the runtime reads that single path and nothing else, so a project cannot lower or raise your policy.
+
+When the dashboard writes the file it creates the directory with `0700` and the file with `0600`.
+
+## The policy file is protected from your agent
+
+The canonical user `policy.json` is a protected path in **every** runtime state, ready or degraded. Policy-file protection runs before the configuration snapshot is loaded, so a broken config cannot weaken it. These operations hard-stop:
+
+- Writes, edits, and patches to the file through any tool
+- Shell commands naming the file as an operand
+- Write redirections into the file
+- Recursive `rm` of its directory or any ancestor
+- `find … -delete` and `find … -exec rm` reaching it
+- `mv` with the file, its directory, or an ancestor as the source
+
+Reading stays allowed. A read-only command whitelist covers `[`, `cat`, `file`, `grep`, `head`, `jq`, `less`, `ls`, `more`, `rg`, `sed`, `stat`, `tail`, `test`, and `wc` — `sed` only when it is not editing in place with `-i` or `--in-place`. Read-only tools such as Grep and Glob are exempt entirely.
+
+<Warning>
+  Because your agent cannot write this file, ask it to *show* you the change instead. Apply policy edits yourself in an editor, or through the dashboard.
+</Warning>
+
+## Editing the file
+
+You have two supported paths:
+
+- **The dashboard.** `cc-safety-net gui` gives you a form over the same document, writes it with the correct permissions, and can repair a file that no longer validates. It is the lower-risk option, and the only one that repairs a broken file for you.
+- **Direct JSON editing.** Open the file in an editor and edit it by hand. The runtime picks up the change on the next tool call — there is nothing to restart.
+
+After a hand edit, confirm the result:
+
+```bash
+npx cc-safety-net status
+```
+
+A `degraded` verdict means part of your file was rejected. `npx cc-safety-net doctor` names exactly which fields. The runtime **never** rewrites `policy.json` on its own, so an invalid file stays exactly as you left it until you fix it or use the dashboard repair action.
+
+## A complete policy file
+
+Every field, with its default value:
+
+```json
+{
+  "version": 1,
+  "safety": {
+    "level": "standard",
+    "overrides": {}
+  },
+  "workflow": {
+    "worktree_mode": false
+  },
+  "destructive_command_protection": {
+    "enabled": true,
+    "overrides": {},
+    "allow_paths": []
+  },
+  "secret_protection": {
+    "enabled": true,
+    "overrides": {},
+    "deny_paths": []
+  },
+  "audit": {
+    "retention_days": 30
+  }
+}
+```
+
+Only `version` is required. Every other field can be omitted, and an omitted field takes the default shown above. If the file does not exist at all, CC Safety Net runs on these defaults and stays `ready`.
+
+The root object is **strict**: an unrecognized top-level key is an error, as is an unrecognized key inside `safety`, `workflow`, `destructive_command_protection`, `secret_protection`, or `audit`.
+
+## Schema reference
+
+<ParamField body="version" type="integer" required>
+  Schema version. Must be `1`. This is the only required field; the diagnostic for a missing or wrong value is `version must be 1`.
+</ParamField>
+
+<ParamField body="safety.level" type="string" default="standard">
+  The safety preset. One of `"standard"`, `"strict"`, or `"paranoid"`. Each preset supplies inherited capability defaults: `strict` enables `fail_closed`; `paranoid` enables `fail_closed`, `paranoid_rm`, and `paranoid_interpreters`. See [Modes](/configuration/modes) for what each capability changes.
+</ParamField>
+
+<ParamField body="safety.overrides.fail_closed" type="boolean">
+  Set the fail-closed capability explicitly, up or down, regardless of the preset. Omit the key to inherit from the preset.
+</ParamField>
+
+<ParamField body="safety.overrides.paranoid_rm" type="boolean">
+  Set the paranoid `rm` capability explicitly, up or down. Omit the key to inherit from the preset.
+</ParamField>
+
+<ParamField body="safety.overrides.paranoid_interpreters" type="boolean">
+  Set the paranoid interpreter capability explicitly, up or down. Omit the key to inherit from the preset.
+</ParamField>
+
+<ParamField body="workflow.worktree_mode" type="boolean" default="false">
+  Relax local-discard git rules inside a **confirmed** linked worktree. Detection is fail-closed: if the working directory cannot be positively identified as a linked worktree, the stricter default rules stay in effect. See [Modes](/configuration/modes) for the exact list of what is relaxed and what is never relaxed.
+</ParamField>
+
+<ParamField body="destructive_command_protection.enabled" type="boolean" default="true">
+  Master switch for the registered destructive-command rules. Setting it to `false` short-circuits every registered rule — except the catastrophic ones, which are always enforced.
+</ParamField>
+
+<ParamField body="destructive_command_protection.overrides" type="object" default="{}">
+  Per-rule state, keyed by registered destructive-command rule id, with the value `"on"` or `"off"`. Applied on top of the capability-derived state, so `"on"` can enable a rule your preset leaves off and `"off"` can disable one it turns on.
+</ParamField>
+
+<ParamField body="destructive_command_protection.allow_paths" type="string[]" default="[]">
+  Paths exempted from destructive-command rules. Entries must be absolute or start with `~/`.
+</ParamField>
+
+<ParamField body="secret_protection.enabled" type="boolean" default="true">
+  Master switch for secret protection. Setting it to `false` skips the entire secret stage, including your `deny_paths`.
+</ParamField>
+
+<ParamField body="secret_protection.overrides" type="object" default="{}">
+  Per-rule state, keyed by registered secret-protection rule id. The **only** accepted value is `"off"` — there is no `"on"`, because every secret rule is on whenever secret protection is enabled.
+</ParamField>
+
+<ParamField body="secret_protection.deny_paths" type="string[]" default="[]">
+  Extra paths to protect as secrets, in addition to the built-in sensitive paths. See [Deny paths](#deny-paths) for the validation rules.
+</ParamField>
+
+<ParamField body="audit.retention_days" type="integer" default="30">
+  Days of audit history to keep before the sweep deletes it. Must be an integer between `1` and `365`.
+</ParamField>
+
+## Safety preset and capability overrides
+
+`safety.level` picks a preset; `safety.overrides` then sets individual capabilities explicitly. This is the only place a capability can be turned **down** — environment flags can only raise.
+
+```json
+{
+  "version": 1,
+  "safety": {
+    "level": "paranoid",
+    "overrides": {
+      "paranoid_interpreters": false
+    }
+  }
+}
+```
+
+That example takes the `paranoid` preset but leaves interpreter one-liners alone. The reported effective level becomes `custom` whenever the resulting combination of capabilities matches no preset.
+
+### Precedence
+
+Resolution runs in this order, so later steps win:
+
+1. The **preset** from `safety.level` supplies inherited capability defaults.
+2. **`CC_SAFETY_NET_LEVEL`** raises the base level, and never lowers it.
+3. **`safety.overrides.*`** sets each named capability explicitly, up or down.
+4. **Boolean environment flags** — `CC_SAFETY_NET_STRICT`, `CC_SAFETY_NET_PARANOID`, `CC_SAFETY_NET_PARANOID_RM`, `CC_SAFETY_NET_PARANOID_INTERPRETERS` — each force their capability to `true`. They only raise.
+
+`worktree_mode` is a logical OR of the policy field and `CC_SAFETY_NET_WORKTREE`: either one enables it.
+
+<Note>
+  Because the boolean flags are monotonic, an environment variable can never weaken your policy file, and your policy file can never weaken an environment variable that is already set. See [Environment variables](/configuration/environment) for the full list, including legacy `SAFETY_NET_*` aliases.
+</Note>
+
+## Destructive-command protection
+
+`destructive_command_protection.overrides` addresses built-in rules by id, for example:
+
+```json
+{
+  "version": 1,
+  "destructive_command_protection": {
+    "overrides": {
+      "git.push-force": "off",
+      "rm.recursive-force-paranoid": "on"
+    }
+  }
+}
+```
+
+An id that is not registered is rejected with `unknown destructive command rule id "<id>"`, and any value other than `"on"` or `"off"` is rejected with `destructive_command_protection.overrides.<id> must be "on" or "off"`.
+
+**Catastrophic rules are always enforced and are not user-configurable.** They ignore `enabled: false` and ignore an `"off"` override. These are the rules covering removal of `/` or your home directory and deletion of Git metadata, together with their PowerShell and `find` equivalents. See [Blocked commands](/reference/blocked-commands) for the behavior each rule enforces.
+
+### Allow paths
+
+`destructive_command_protection.allow_paths` exempts specific locations from destructive-command rules. Validation is stricter than for deny paths:
+
+| Entry | Result |
+| --- | --- |
+| Non-string, or a string that trims to empty | Invalid — `must be a non-empty path string` |
+| Relative path | Invalid — `must be an absolute path or start with ~/` |
+| Exactly the home directory | Invalid — `cannot be the home directory` |
+| A path containing the home directory, such as `/` | Invalid — `cannot contain the home directory` |
+| Any other absolute or `~/`-rooted path | Valid |
+
+## Secret protection
+
+Secret protection blocks reads and writes of credential-bearing files. `secret_protection.overrides` disables individual built-in rules by id, and `"off"` is the only accepted value:
+
+```json
+{
+  "version": 1,
+  "secret_protection": {
+    "overrides": {
+      "secret.ext-pattern.sql": "off"
+    },
+    "deny_paths": ["config/secrets", "~/work/vault"]
+  }
+}
+```
+
+An unregistered id is rejected with `unknown secret protection rule id "<id>"`, and any other value with `secret_protection.overrides.<id> must be "off"`.
+
+### Deny paths
+
+`secret_protection.deny_paths` adds your own protected locations on top of the built-in sensitive paths. Deny paths are checked **first**, before the built-in rules, and a hit is a hard stop attributed to the rule id `secret.deny-path`.
+
+Validation:
+
+| Entry | Result |
+| --- | --- |
+| Non-string, or a string that trims to empty | Invalid — `must be a non-empty path string` |
+| Relative path, such as `config/secrets` or `./secrets` | **Valid** — resolved per session against the config working directory |
+| `~`, `$HOME`, or `${HOME}` alone | Invalid — the home directory itself is rejected |
+| `~/…`, `$HOME/…` | Valid once expanded, unless it resolves to home or above |
+| A path that resolves to exactly the home directory | Invalid — `cannot be the home directory or a path above it (this would block every command the agent runs)` |
+| A path that resolves to an ancestor of home, such as `/`, `/Users`, or `/home` | Invalid — same message |
+| Any other absolute path | Valid |
+
+Relative entries are accepted precisely because they resolve against each session's working directory, which is unknowable when the file is saved. The rejected class — home, anything above home, and `/` — has no legitimate reading and would block essentially every command in every workspace under home.
+
+**What a valid deny path protects:** the path itself **and every descendant**. A target is normalized against the execution working directory and each configured path against the config working directory before comparison.
+
+Two limits worth knowing:
+
+- Deny paths only apply while `secret_protection.enabled` is `true`. Setting it to `false` turns them off along with everything else in the secret stage.
+- `secret.deny-path` is not a registered secret rule id, so `secret_protection.overrides` cannot disable it. Only `secret_protection.enabled: false` does.
+
+## Audit retention
+
+`audit.retention_days` controls how long audit records survive before the retention sweep deletes them. The default is **30 days**, and the accepted range is **1 to 365**.
+
+```json
+{
+  "version": 1,
+  "audit": {
+    "retention_days": 90
+  }
+}
+```
+
+Pruning is opportunistic: it runs at most one traversal per audit root per UTC day, after audit writes and before audit reads. It never throws and never follows symlinks. See [Audit log](/reference/audit-log) for the record schema and what is captured.
+
+<Note>
+  Retention resolves independently of the rest of the policy. The sweep reads this one field directly from the file, so a policy that fails validation elsewhere still prunes. A value that is missing, non-integer, or unusable falls back to 30; a value below `1` is clamped to `1`, and above `365` to `365`.
+
+  Out-of-range values therefore do two things at once: the schema **rejects** them, degrading the runtime, while the sweep **clamps** them. `"retention_days": 1000` both shows up as a diagnostic and prunes at 365 days.
+</Note>
+
+## When the file is invalid
+
+An invalid `policy.json` never blocks ordinary work. It moves the runtime to `degraded` and falls back:
+
+- **Readable but invalid** — the file is salvaged field by field. Every recognized valid section stays active and protective defaults replace only the rest.
+- **Empty, unparseable, or not a JSON object** — built-in protective defaults are used for the whole file.
+- **Missing entirely** — built-in defaults are used, with no diagnostic. The runtime stays `ready`.
+
+Salvage is deliberately protective, which is why a broken file usually produces *more* denials than you configured:
+
+| Field | When invalid |
+| --- | --- |
+| `version` | Rewritten to `1` |
+| `safety.level` | Falls back to `standard` |
+| `safety.overrides.*` | The invalid key is dropped, so the capability inherits from the preset |
+| `workflow.worktree_mode` | Falls back to `false` |
+| `destructive_command_protection.enabled` | Falls back to `true` — protection **on** |
+| `destructive_command_protection.overrides` | Invalid entries are discarded; a non-object becomes `{}` |
+| `destructive_command_protection.allow_paths` | Invalid entries are discarded; a non-array becomes `[]` — no allowances |
+| `secret_protection.enabled` | Falls back to `true` — protection **on** |
+| `secret_protection.overrides` | Invalid entries are discarded; a non-object becomes `{}` |
+| `secret_protection.deny_paths` | Invalid entries are discarded; a non-array becomes `[]` |
+| `audit.retention_days` | Clamped, or `30` when unusable |
+
+<Warning>
+  Invalid entries are **discarded, not repaired**. A mistyped deny path silently stops protecting that location, and an invalid `safety.level` silently lowers you to `standard`. These are the two quiet failure modes — run `npx cc-safety-net status` after every hand edit.
+</Warning>
+
+[Configuration recovery](/configuration/recovery) is the complete contract for degraded state, including how it is reported and how to get back to `ready`.
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Modes" icon="toggle-right" href="/configuration/modes">
+    What each safety capability changes, and what worktree mode relaxes.
+  </Card>
+  <Card title="Environment variables" icon="variable" href="/configuration/environment">
+    Every variable, including the ones that raise your policy's level.
+  </Card>
+  <Card title="Custom rules" icon="list-checks" href="/configuration/custom-rules">
+    The separate `rule.json` and rulebook schemas for your own blocking rules.
+  </Card>
+  <Card title="Configuration recovery" icon="life-buoy" href="/configuration/recovery">
+    Ready versus degraded, the fallback matrix, and the repair sequence.
+  </Card>
+</CardGroup>

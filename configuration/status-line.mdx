@@ -1,12 +1,12 @@
 ---
 title: "CC Safety Net Status Line: Real-Time Mode Indicators"
 sidebarTitle: "Status Line"
-description: "Display CC Safety Net's active protection mode in Claude Code's status line using bunx, npx, or claude x. Pipe alongside any existing status line command."
+description: "Display CC Safety Net's effective safety level, worktree relaxations, and degraded-config warning in Claude Code's status line using bunx, npx, or claude x."
 ---
 
-CC Safety Net can display its status in Claude Code's status line, showing which protection mode is active at a glance. This gives you a persistent, at-a-glance view of whether the safety hook is running and exactly which modes are engaged — without having to run a separate diagnostic command.
+CC Safety Net can display its state in Claude Code's status line as a single line of emoji indicators, showing the effective safety level at a glance. This gives you a persistent view of whether protection is enforcing and at what level — without having to run a separate diagnostic command.
 
-The status line is **Claude Code only**. It reads the `enabledPlugins["safety-net@cc-marketplace"]` entry from `~/.claude/settings.json` (or `$CLAUDE_SETTINGS_PATH`) to decide whether the Claude Code plugin is enabled. If you installed CC Safety Net for a different agent, or as a manual Claude Code hook rather than the marketplace plugin, this indicator is not relevant to you.
+The status line is **Claude Code only**. It reads the `enabledPlugins["cc-safety-net@cc-marketplace"]` entry from `~/.claude/settings.json` (or `$CLAUDE_SETTINGS_PATH`) to decide whether the Claude Code plugin is enabled. If you installed CC Safety Net for a different agent, or as a manual Claude Code hook rather than the marketplace plugin, this indicator is not relevant to you.
 
 ## Setup
 
@@ -61,29 +61,78 @@ Add a `statusLine` entry to your `~/.claude/settings.json`. Choose the runner th
   </Tab>
 </Tabs>
 
-## Mode Indicators
+## What the status line shows
 
-The status line displays a different emoji depending on which environment variables are set. When multiple modes are active, their emojis are combined.
+The output is exactly one line with this shape:
 
-| Status | Display | Meaning |
+```text
+🛡️ CC Safety Net <level><worktree><degraded>
+```
+
+When the Claude Code plugin is disabled, the whole line collapses to a single indicator instead:
+
+```text
+🛡️ CC Safety Net ❌
+```
+
+### Level indicator
+
+Exactly one level emoji is always present. It reports the **effective** safety level after `policy.json` and the environment have been combined — not which environment variable you happened to set.
+
+| Display | Effective level | Meaning |
 | --- | --- | --- |
-| Plugin disabled | 🛡️ CC Safety Net ❌ | The Claude Code plugin `safety-net@cc-marketplace` is not enabled in `~/.claude/settings.json` |
-| Default mode | 🛡️ CC Safety Net ✅ | Plugin enabled, default settings |
-| Strict mode | 🛡️ CC Safety Net 🔒 | `CC_SAFETY_NET_STRICT=1` — fail-closed on unparseable commands |
-| Paranoid mode | 🛡️ CC Safety Net 👁️ | `CC_SAFETY_NET_PARANOID=1`, or both `CC_SAFETY_NET_PARANOID_RM=1` and `CC_SAFETY_NET_PARANOID_INTERPRETERS=1` |
-| Paranoid RM only | 🛡️ CC Safety Net 🗑️ | `CC_SAFETY_NET_PARANOID_RM=1` — blocks `rm -rf` even within cwd |
-| Paranoid interpreters | 🛡️ CC Safety Net 🐚 | `CC_SAFETY_NET_PARANOID_INTERPRETERS=1` — blocks interpreter one-liners |
-| Worktree mode | 🛡️ CC Safety Net 🌳 | `CC_SAFETY_NET_WORKTREE=1` — relax local git discards in linked worktrees |
-| Strict \+ Paranoid | 🛡️ CC Safety Net 🔒👁️ | Both strict and paranoid modes enabled |
+| ✅ | `standard` | No capabilities enabled — the default preset |
+| 🔒 | `strict` | The `fail_closed` capability only |
+| 👁️ | `paranoid` | `fail_closed`, `paranoid_rm`, and `paranoid_interpreters` |
+| 🔧 | `custom` | Anything else |
 
-Multiple mode emojis are combined when multiple environment variables are set. Mode flags use `CC_SAFETY_NET_*` names; legacy `SAFETY_NET_*` names are still accepted.
+The `custom` indicator appears in two cases: the enabled capabilities match no preset (for example `CC_SAFETY_NET_PARANOID=1` on top of the default level, which turns on both paranoid capabilities but not `fail_closed`), or a per-rule entry in `destructive_command_protection.overrides` changes a destructive-command rule away from the state its level would have given it.
 
-For more information on what each mode does and when to use it, see [Modes](/configuration/modes).
+See [Modes](/configuration/modes) for what each level blocks, and [Environment Variables](/configuration/environment) for the precedence rules that produce the effective level.
+
+### Worktree and degraded indicators
+
+These are appended after the level emoji, in this order:
+
+| Display | Meaning |
+| --- | --- |
+| 🌳 | Worktree mode is active — `workflow.worktree_mode` in `policy.json` or `CC_SAFETY_NET_WORKTREE=1` |
+| ⚠️ | The runtime is **degraded**: at least one configuration source could not be verified, so evaluation is running against a fallback |
+
+The ⚠️ marker is the only passive signal that configuration is degraded. It does not say which source failed — run `npx cc-safety-net status` for the diagnostics, or `npx cc-safety-net doctor` for the full report. See [Recovery](/configuration/recovery) for what `ready`, `degraded`, and `not enforcing` mean and how to repair each one.
+
+### Plugin-disabled indicator
+
+| Display | Meaning |
+| --- | --- |
+| ❌ | The Claude Code plugin `cc-safety-net@cc-marketplace` is not enabled in `~/.claude/settings.json` |
+
+This is the same condition that `status` reports as the verdict **not enforcing**. It is checked first and replaces the rest of the line, so no level, worktree, or degraded indicator is shown alongside it.
 
 <Note>
   The `❌` state specifically means the Claude Code marketplace plugin is disabled. If you run CC Safety Net as a manual Claude Code hook (not the marketplace plugin), or for a different agent entirely, the status line may show `❌` even though protection is active — it only reflects the `enabledPlugins` entry in `~/.claude/settings.json`.
 </Note>
 
+## Status line versus the `status` command
+
+Both surfaces load the same policy snapshot and the same resolved environment, so they never disagree on the facts — only on presentation.
+
+| | `cc-safety-net status` | `cc-safety-net statusline --claude-code` |
+| --- | --- | --- |
+| Audience | a human reading a terminal | a shell or agent status line consuming one line |
+| Shape | multi-line block: verdict, aligned facts, wrapped diagnostics, next-step hint | exactly one line of emoji indicators |
+| State | the words `ready`, `degraded`, or `not enforcing` | ⚠️ for degraded, ❌ for not enforcing, nothing extra for ready |
+| Level | the word `standard`, `strict`, `paranoid`, or `custom`, with a ` (customised)` suffix when per-rule overrides apply | one emoji |
+| Diagnostics | one bullet per issue under `Not active`, plus `Full report: cc-safety-net doctor` | none |
+| Colour | degrades to ASCII under `NO_COLOR` or when stdout is not a TTY | always emoji, no colour handling |
+| Exit code | always `0` — it is purely informational | `0` |
+
+Use `status` when you want to know *why*; use the status line when you want a persistent at-a-glance marker. See [CLI Commands](/reference/cli-commands) for the full `status` and `statusline` syntax.
+
 <Note>
   Changes to `~/.claude/settings.json` take effect immediately — no restart of Claude Code is needed. The `statusline` command accepts `-cc` as a short alias for `--claude-code`.
+</Note>
+
+<Note>
+  When you pipe another command into `statusline`, its output is prefixed as `<piped output> | 🛡️ CC Safety Net …`. JSON piped on stdin is discarded rather than echoed, because Claude Code pipes its own status payload into the command.
 </Note>

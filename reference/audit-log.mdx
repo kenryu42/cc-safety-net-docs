@@ -1,7 +1,7 @@
 ---
 title: "CC Safety Net Audit Log Reference"
 sidebarTitle: "Audit Log"
-description: "Reference for CC Safety Net's audit log: file location, JSONL entry schema, what gets logged, and the full secret-redaction scope."
+description: "Reference for CC Safety Net's audit log: file layout, JSONL record schema, what is recorded, retention and pruning, and the bounded scope of secret redaction."
 keywords:
   - "audit log"
   - "log file"
@@ -9,55 +9,175 @@ keywords:
   - "log location"
   - "log schema"
   - "audit trail"
+  - "retention"
   - "secret redaction"
 ---
 
-CC Safety Net writes a structured audit trail of the commands it inspects so you can review what your agent tried to do and why it was stopped. Logs are JSON Lines (JSONL) — one JSON object per line.
+CC Safety Net writes a structured audit trail of the command decisions it makes, so you can review what your agent tried to do and what happened. Logs are JSON Lines (JSONL) — one JSON object per line — and they never leave your machine.
 
-## Location
+## Log layout
+
+Records are written to a per-project, per-month path:
 
 ```text
-~/.cc-safety-net/logs/<session_id>.jsonl
+~/.cc-safety-net/logs/<encoded-cwd>/<YYYY-MM>/<YYYY-MM-DD>-<session-id>.jsonl
 ```
 
-The file is named after the agent session id (sanitized to a filesystem-safe form). With `CC_SAFETY_NET_HOME` set, the logs directory lives under that path instead. Each line is a self-contained JSON object.
-
-## Entry schema
-
-| Field | Description |
+| Path part | How it is derived |
 | --- | --- |
-| `ts` | ISO 8601 timestamp of when the command was handled |
-| `decision` | The decision CC Safety Net made: `deny` (blocked) or `allow` (permitted) |
-| `command` | The full command string as received, truncated to 300 characters |
-| `segment` | The specific segment that triggered the decision, truncated to 300 characters (may differ from `command` for wrapped commands) |
-| `reason` | The human-readable reason for the decision (present on blocks) |
-| `cwd` | The working directory at the time of the call, when available |
+| `~/.cc-safety-net/logs` | The audit root. The home directory is taken from `CC_SAFETY_NET_AUDIT_HOME`, then `HOME`, then the operating system's home lookup, and must be absolute |
+| `<encoded-cwd>` | The working directory with every non-alphanumeric character replaced by `-`, truncated to 180 characters, or `no-cwd` when there is nothing to encode |
+| `<YYYY-MM>` | The month of the record's timestamp |
+| `<YYYY-MM-DD>-<session-id>` | The record's date plus the agent session id |
 
-Example entry:
+The session id is sanitized before it reaches the filename: runs of characters outside `A-Za-z0-9_.-` collapse to `_`, leading and trailing `.`, `-`, and `_` are stripped, and the result is truncated to 128 characters. If sanitizing leaves an empty string, `.`, or `..`, **the write is abandoned entirely** — this is the path-traversal defence, not a formatting nicety.
+
+Directories are created with mode `0700` and the log file is appended with mode `0600`.
+
+Every failure in the write path is swallowed. Audit logging can never change, delay, or block a decision.
+
+<Note>
+  Flat files directly in `~/.cc-safety-net/logs/` are the **legacy** layout from earlier versions. They are still read by `logs` and still swept by retention, and they are what [`logs --prune-legacy`](#deleting-legacy-logs) targets. New records are never written there.
+</Note>
+
+## A record is one decision, not a transcript
+
+Each line records exactly one allowed-or-blocked command decision: the command, the segment that drove the decision, the reason, and the rule that matched.
+
+- No command output, model prompt, tool result, or conversation content is read or stored anywhere in the write path.
+- Denials are always recorded.
+- Allowed decisions are recorded only when the tool call actually routed to a command. An allowed non-command tool call produces no record at all.
+- Blocks that came from the fail-closed path — the analyzer errored and the guard refused rather than guessed — **are** recorded, and are marked with `failureStage` and `errorCode` precisely so you can find them. `logs --suspect` is built on that field.
+
+## Record schema
+
+| Field | Type | Presence | Description |
+| --- | --- | --- | --- |
+| `ts` | string | always | ISO 8601 timestamp of the decision |
+| `id` | string | always written | 16 hex characters. This is the id `logs --id` takes |
+| `v` | string | optional | The CC Safety Net version that wrote the record, or `dev` |
+| `sessionId` | string | optional | The sanitized agent session id |
+| `decision` | `"allow" \| "deny"` | optional, defaults to `"deny"` | The decision that was made |
+| `agent` | string | optional | The integration id, for example `claude-code`. Doubles as the key for the display name |
+| `shape` | string | optional | The adapter input shape the record came from |
+| `level` | string | optional | The effective safety level in force at decision time |
+| `configFallback` | `true` | optional | Present when the decision ran against a fallback policy |
+| `toolName` | string | optional | The tool name, capped at 256 characters |
+| `command` | string | always | The full command, redacted then capped |
+| `segment` | string | always | The specific segment that drove the decision, redacted then capped |
+| `truncated` | `true` | optional | Present only when something was cut. See below |
+| `reason` | string | always | The human-readable decision reason |
+| `ruleId` | string | optional | The id of the rule that matched |
+| `intent` | string | optional | The block intent classification |
+| `failureStage` | string | optional | Set when the denial came from a guard failure — that is, it failed closed |
+| `errorCode` | string | optional | One of `path-canonicalization-limit`, `tool-input-limit`, `structural-shell-syntax-limit`, `unexpected-error` |
+| `cwd` | string \| `null` | optional | The working directory, redacted then capped |
+
+Example record:
 
 ```json
-{"ts": "2025-01-15T10:30:00Z", "decision": "deny", "command": "git reset --hard", "segment": "git reset --hard", "reason": "git reset --hard destroys all uncommitted changes permanently. Use 'git stash' first.", "cwd": "/path/to/project"}
+{"ts":"2025-01-15T10:30:00.000Z","id":"3fa9c2d1a70e8b42","v":"2.0.0","sessionId":"a1b2c3","decision":"deny","agent":"claude-code","level":"standard","command":"git reset --hard","segment":"git reset --hard","reason":"git reset --hard destroys all uncommitted changes permanently. Use 'git stash' first.","ruleId":"git-reset-hard","cwd":"/path/to/project"}
 ```
 
-## What gets logged
+### Length caps and the truncation indicator
 
-- **Denied commands are always logged** when a session id is available.
-- **Allowed commands are logged only when `CC_SAFETY_NET_DEBUG=1`** is set. By default the log stays focused on interventions, so it is not flooded with every safe command.
-- Commands blocked by the fail-closed safety net (the analyzer itself threw an error) are **not** written to the log.
-- Nothing is written when no session id is available.
+| Field | Cap |
+| --- | --- |
+| `command` | 10,000 characters |
+| `segment` | 2,000 characters |
+| `toolName` | 256 characters |
+| `cwd` | 32,768 characters |
 
-The `doctor` command summarizes this log as its **Recent Activity** check, reporting blocked commands from the last 7 days.
+Caps are applied **after** redaction, so redaction is never cut off part-way through a token.
+
+If any one of `command`, `segment`, `toolName`, or `cwd` exceeded its cap, the record gains `truncated: true`. The flag is never written as `false` — its absence means nothing was cut. `logs --id` renders it as `truncated: yes` or `-`.
+
+## What is recorded: audit scope
+
+`CC_SAFETY_NET_AUDIT_SCOPE` decides whether allowed command decisions join the denials in the log.
+
+| Value | Effect |
+| --- | --- |
+| unset | **Default.** Same as `all` |
+| `all` | Record both allowed and blocked command decisions |
+| `blocked` | Record denials only. This is the privacy-minimising setting |
+| anything else | Treated as invalid: falls back to recording denials only, **and** is reported by `doctor` |
+
+An invalid value is not silent. `doctor` raises the finding `environment.audit-scope-invalid` at warning severity — "Audit scope value is invalid" — with the fix hint to set the variable to `all` or `blocked` and restart the integration. The offending value itself is deliberately not echoed back.
+
+Denials are never suppressed by scope. Scope only ever gates the allow branch.
+
+## Retention
+
+| Setting | Value |
+| --- | --- |
+| Default retention | **30 days** |
+| Configurable range | **1 to 365 days** |
+| Config key | `audit.retention_days` in `policy.json` |
+
+`audit.retention_days` must be a whole number between 1 and 365; anything else is rejected by validation, and any value that cannot be used at all falls back to the 30-day default. Retention is read straight out of the policy file on its own, so pruning keeps working even when the rest of the policy fails validation.
+
+The same value bounds the `logs --since` ceiling and the windows the GUI Activity tab offers.
+
+<Warning>
+  Shortening retention is **irreversible**. The sweep recomputes its cutoff on every run, so lowering the value makes already-existing records immediately eligible for deletion and they are unlinked — there is no archive, no trash, and no undo. The GUI asks you to confirm before lowering the value for exactly this reason.
+</Warning>
+
+### Pruning is opportunistic
+
+Nothing runs on a timer. The retention sweep is triggered by activity:
+
+- after every audit write (deliberately after, so a pruning failure can never cost the record),
+- before `logs` reads,
+- before `doctor` builds its activity summary,
+- before the GUI activity feed loads.
+
+The sweep traverses at most once per UTC day per audit root, throttled by a zero-byte `.last-prune` marker in the audit root. It never throws, never creates the audit root, never follows symlinks, and leaves any file shape it does not recognize untouched. Empty month directories and empty project directories are reclaimed, except the current month, which is left alone to avoid racing an in-flight write. Legacy flat files are deleted only when both the file's timestamp and every record inside it prove it wholly expired; a file with mixed ages is never rewritten or split.
+
+The practical consequence: **expired records can sit on disk while CC Safety Net is idle**, because nothing sweeps until something happens. `logs --id` searches what is physically present, so it can still return a record that is past its retention window but that pruning has not reached yet.
+
+### Deleting legacy logs
+
+<Warning>
+  `cc-safety-net logs --prune-legacy` deletes every legacy flat `*.jsonl` file in the audit root **immediately and irreversibly**. There is no confirmation prompt, no `--dry-run`, and no `--yes` flag. Membership is decided by file position alone — age, schema validity, and malformed lines are all irrelevant.
+</Warning>
+
+This is not the retention sweep. The retention sweep deletes legacy files only when they are wholly expired; `--prune-legacy` deletes them regardless of age. Nested per-project logs are never entered and are never touched, and the command says so in its output. It exits `0` when every deletion succeeded, `1` if any file could not be removed.
+
+## Counts versus returned entries
+
+Every surface that reads the log computes its counts over the whole window and then caps the list of entries it hands back. The two numbers are not the same and should not be read as the same.
+
+| Surface | Window | Counts | Entries returned |
+| --- | --- | --- | --- |
+| GUI Activity tab | Whole local calendar days, so the per-day buckets sum exactly to the blocked total | Blocked, allowed, agents, rules, commands, errors, and the per-day series are all computed over the full window | Capped at 500. The cap is split between decisions so a denial storm cannot crowd out "Allowed", and the response flags that the list is short of the counts |
+| `doctor` activity | 7 days, rolling | Total blocked and session count over the whole window. `doctor` skips allowed decisions entirely, whatever the audit scope | The 3 most recent |
+| `logs` | `--since`, default 30 days | Filtering and suspect-repeat detection run over the whole window | `--limit`, default 20 |
+
+The GUI Activity tab offers window lengths from `7, 30, 90, 180, 365` filtered to those below your retention setting, plus the retention value itself — so the whole log is always reachable and nothing wider than retention is ever offered. At the default 30-day retention the choices are 7 and 30. Requesting a window wider than retention is rejected.
 
 ## Secret redaction
 
-Before any command or segment is written to the log (or returned to the agent), it is passed through automatic secret redaction. The following categories are replaced with `<redacted>`:
+Command, segment, tool name, and working directory are passed through secret redaction **before** the record is serialized. Recognized values are replaced with `<redacted>`:
 
-- PEM private keys (`-----BEGIN ... PRIVATE KEY-----` blocks)
-- Database URL environment variables (`DATABASE_URL`, `POSTGRES_URL`, `MYSQL_URL`, `REDIS_URL`, `MONGODB_URL`, etc.)
 - Environment assignments whose name contains `TOKEN`, `SECRET`, `PASSWORD`, `PASS`, `KEY`, or `CREDENTIALS`
-- Common secret-bearing HTTP headers (`Authorization`, `Cookie`, `X-API-KEY`, `API-KEY`)
-- URL credentials (`scheme://user:pass@host` and `scheme://token@host`)
-- Known provider token prefixes (`ghp_...`, `gho_...`, `xoxb-...`, `npm_...`, `sk_live_...`, `rk_live_...`, `pypi-...`)
-- JWTs and AWS access key IDs (`AKIA...` / `ASIA...`)
+- Database connection variables (`DATABASE_URL`, `POSTGRES_URL`, `MYSQL_URL`, `REDIS_URL`, `MONGODB_URL`, and other DSN/URL/URI/connection-string variables)
+- PEM private key blocks (`-----BEGIN ... PRIVATE KEY-----`)
+- Secret-bearing HTTP headers (`Authorization`, `Cookie`, `X-API-KEY`, `API-KEY`)
+- URL credentials (`scheme://user:pass@host` and `scheme://token@host`) and `-u user:pass`
+- A fixed list of provider token formats (`ghp_...`, `gho_...`, `xoxb-...`, `npm_...`, `sk_live_...`, `rk_live_...`, `pypi-...`, and similar)
+- JWTs (`eyJ...`) and AWS access key ids (`AKIA...` / `ASIA...`)
 
-Redaction is conservative and pattern-based. It reduces the risk of leaking secrets that happen to appear in a command's arguments, but you should still avoid piping real credentials through commands an agent runs.
+<Warning>
+  **Redaction is bounded.** It is a fixed list of patterns, not a classifier. Everything it does not recognize is retained verbatim: absolute filesystem paths, project and directory names, hostnames, IP addresses, usernames, ticket ids, filenames, and any credential whose shape is not on the list. The `reason` field is not redacted at write time at all. Treat the audit log as sensitive local data, and review any excerpt before pasting it into an issue or a chat.
+</Warning>
+
+The GUI acknowledges the residual directly: entries carry unredacted paths, so the client scrubs your home-directory prefix out of false-positive reports before they reach the public issue tracker.
+
+Permissions (`0700` on directories, `0600` on files) and the fact that logs stay on your machine are containment, not redaction. They do not make the contents safe to share.
+
+## Related pages
+
+- [CLI commands](/reference/cli-commands#logs) — the `logs` command, its filters, and its JSON output.
+- [Explain trace](/reference/explain-trace) — the same redaction bound applies to `explain` output.
+- [Security model](/guides/security-model) — where the audit log sits in the overall threat model.

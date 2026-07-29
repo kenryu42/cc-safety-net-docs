@@ -7,7 +7,7 @@ description: "Define project and user-level custom blocking rules in CC Safety N
 Beyond built-in protections, CC Safety Net lets you define custom blocking rules to enforce team conventions or project-specific safety policies. Rules live in a **rulebook-based layout** and are merged from user and project scopes, so you can maintain personal defaults alongside per-project overrides without duplication.
 
 <Warning>
-  **Breaking change** — Legacy inline config files (`.safety-net.json` and `~/.cc-safety-net/config.json`) are no longer loaded at runtime. If they contain rules, commands now **fail closed** (stay blocked) until you migrate. Run `npx -y cc-safety-net rule migrate` to convert legacy rules into the new rulebook layout. See [Migration](#migration-from-legacy-config) below.
+  **Breaking change** — Legacy inline config files (`.safety-net.json` and `~/.cc-safety-net/config.json`) are no longer loaded at runtime. If they contain rules, **those rules are inert until you migrate** — they simply stop being enforced, and the runtime reports itself as `degraded`. Ordinary commands keep working. Run `npx -y cc-safety-net rule migrate` to convert legacy rules into the new rulebook layout. See [Migration](#migration-from-legacy-config) below.
 </Warning>
 
 <Tip>
@@ -37,9 +37,11 @@ Local rulebook sources are referenced by bare names like `project-rules`. GitHub
 
 **Merging behavior:**
 
-- Rulebooks from both scopes are combined.
-- Duplicate active rulebook names are invalid.
-- Project overrides win over user overrides for the same `<rulebook-name>/<rule-name>` key.
+- Rulebooks from both scopes are combined, user scope first.
+- **Duplicate active rulebook names resolve by first claim.** The user scope is loaded first, so a name it claims shadows the project rulebook of the same name; the later rulebook contributes no rules at all rather than partially shadowing the first. The collision is reported as a warning, which puts the runtime in the `degraded` state — rename one of them and run `rule sync`. Because the collision is resolved rather than fatal, `rule sync` for one scope still succeeds on a name the other scope already uses.
+- **Each scope's `overrides` apply to that scope's own rules.** A project override that names a user-scoped rule is ignored with a warning and the rule keeps its user-configured state — project config cannot disable or rewrite a user rule.
+- An override key that matches no known rule is ignored with a warning; other overrides and rules keep their configured state.
+- `transparent_wrappers` from both scopes are unioned.
 
 If no config is found in either location, only built-in rules apply.
 
@@ -76,27 +78,83 @@ Add `--global` (`-g`) to operate on the user scope instead of the project scope.
 
 ### Lock and cache
 
-Every configured source is pinned in a `rule.lock` file by a SHA-256 digest, and its rulebook is cached under `.cc-safety-net/cache/rulebooks/`. At runtime CC Safety Net verifies the cached rulebook against the digest. A missing or stale lock/cache, a digest mismatch, or a local source that drifts from its pinned digest causes commands to **fail closed** until you run `rule sync` to repair it.
+Every configured source is pinned in a `rule.lock` file by a SHA-256 digest, and its rulebook is cached under `.cc-safety-net/cache/rulebooks/`. At runtime CC Safety Net verifies the cached rulebook against the digest, and it never writes, fetches, or caches anything during that verification.
+
+What happens when verification fails depends on which side is broken:
+
+- A **missing lockfile, missing lock entry, missing cache entry, digest mismatch, or unparseable cached rulebook** drops that source. It contributes no rules until you run `rule sync`. Every other verified source and every built-in protection keeps applying, and ordinary commands keep running.
+- A **local source that drifts from its pinned digest** — including one that is missing, unparseable, or schema-invalid on disk — is a warning, not a drop. The digest-verified **cached** rulebook stays enforced, so your pending local edit is provably not active until you run `rule sync`.
+
+Either way the runtime reports itself as `degraded` rather than blocking work. See [Recovery](/configuration/recovery) for the full state model, the exact diagnostic strings, and the repair sequence.
+
+## Transparent wrappers
+
+If your team runs commands through a wrapper such as `rtk`, analysis sees the wrapper by default, not the command underneath. Listing the wrapper in `transparent_wrappers` lets CC Safety Net look through it to the visible protected child command, so both built-in analysis and your custom rules apply to `rtk git reset --hard` and `rtk docker system prune` exactly as they would to the bare commands.
+
+Configure wrappers with the `rule wrapper` subcommand rather than editing `rule.json` by hand:
+
+```bash
+# List configured wrappers for the project scope
+npx -y cc-safety-net rule wrapper list
+
+# Trust a wrapper, or stop trusting it
+npx -y cc-safety-net rule wrapper add rtk
+npx -y cc-safety-net rule wrapper remove rtk
+
+# Operate on the user scope instead
+npx -y cc-safety-net rule wrapper add rtk --global
+```
+
+Rules for the field:
+
+- **There are no built-in defaults.** Configure only wrappers you intentionally trust.
+- A wrapper name must match `^[a-zA-Z][a-zA-Z0-9_-]*$` and must be unique within the file.
+- **Reserved commands cannot be wrappers**: `git`, `busybox`, the built-in analyzed commands `rm`, `find`, `xargs`, and `parallel`, every shell wrapper, every interpreter, and the awk interpreters.
+- Unwrapping finds the first *protectable* child command after wrapper flags and `VAR=value` assignments, or the token immediately after an explicit `--`. A child that is not itself protectable is not unwrapped.
+- A wrapper that is **not** listed here, or one that rewrites or hides its child command rather than exec'ing a visible child, is still not unwrapped. Only the top-level dangerous-text fallback scan may catch such a command.
+
+<Warning>
+  `transparent_wrappers` lives in `rule.json`, which carries no lock or digest. If a scope's `rule.json` becomes unreadable, that scope's wrappers stop applying — the one place where dropped configuration reduces built-in coverage. A dropped **rulebook** (missing cache entry, missing lock entry, digest mismatch) leaves `rule.json` readable, so wrappers survive it.
+</Warning>
 
 ## Quick Start
 
-Create a starter project rule config and rulebook:
+Create a starter project rule config:
 
 ```bash
 npx -y cc-safety-net rule init
 ```
 
-This creates `.cc-safety-net/rules/rule.json`:
+This creates an **inert** `.cc-safety-net/rules/rule.json` — no rulebook sources are configured yet:
+
+```json
+{
+  "version": 1,
+  "rules": [],
+  "overrides": {},
+  "transparent_wrappers": []
+}
+```
+
+Add `--example` to also write an inactive example rulebook at `.cc-safety-net/rules/example-rules/rulebook.json`. It is written only when that file does not already exist, and `rule init` does not reference it, so you must add it as a source to make it active:
+
+```bash
+npx -y cc-safety-net rule init --example
+npx -y cc-safety-net rule add example-rules
+```
+
+To author your own rulebook, create `.cc-safety-net/rules/project-rules/rulebook.json` and register it with `npx -y cc-safety-net rule add project-rules`. That leaves `rule.json` looking like this:
 
 ```json
 {
   "version": 1,
   "rules": ["project-rules"],
-  "overrides": {}
+  "overrides": {},
+  "transparent_wrappers": []
 }
 ```
 
-Rule definitions live in `.cc-safety-net/rules/project-rules/rulebook.json`:
+Rule definitions live in that rulebook file:
 
 ```json
 {
@@ -141,19 +199,40 @@ Now `git add -A`, `git add --all`, and `git add .` will be blocked with your cus
 
 ## Config Schema
 
-The top-level `rule.json` selects which rulebooks are active and applies overrides.
+The top-level `rule.json` selects which rulebooks are active, applies overrides, and declares transparent wrappers. It is separate from `policy.json`, which configures safety levels, built-in protections, allow and deny paths, and audit retention — see [Policy](/configuration/policy) for that file.
 
 <ParamField body="version" type="integer" required>
   Schema version. Must be `1`.
 </ParamField>
 
 <ParamField body="rules" type="array">
-  List of rulebook source strings. Defaults to an empty array.
+  List of rulebook source strings. Defaults to an empty array. Source names must be unique within the file.
 </ParamField>
 
 <ParamField body="overrides" type="object">
-  Rule overrides keyed by `<rulebook-name>/<rule-name>`. Values are either `"off"` to disable a rule or `{ "reason": "..." }` to replace the rule reason.
+  Rule overrides keyed by `<rulebook-name>/<rule-name>`. Values are either `"off"` to disable a rule, or an object to replace the rule's block message. The object form requires `reason` and accepts an optional `intent`; an omitted `intent` leaves the rule's own intent unchanged.
 </ParamField>
+
+<ParamField body="transparent_wrappers" type="array">
+  Command names that transparently execute a visible protected child command, so analysis looks through them. Defaults to an empty array. Entries must be unique and must not be reserved commands. See [Transparent wrappers](#transparent-wrappers).
+</ParamField>
+
+An override that changes both the message and the agent-facing intent looks like this:
+
+```json
+{
+  "version": 1,
+  "rules": ["project-rules", "owner/repo#main/team-rules"],
+  "overrides": {
+    "project-rules/block-docker-system-prune": {
+      "reason": "Use targeted Docker cleanup commands.",
+      "intent": "use_alternative"
+    },
+    "team-rules/block-npm-global": "off"
+  },
+  "transparent_wrappers": ["rtk"]
+}
+```
 
 ## Rulebook Schema
 
@@ -211,6 +290,10 @@ Each rulebook lives in its own `rulebook.json` file.
 
 <ParamField body="reason" type="string" required>
   Message shown when blocked. Max 256 chars.
+</ParamField>
+
+<ParamField body="intent" type="string">
+  Agent behavior intent appended to the block message footer. One of `hard_stop`, `use_alternative`, `scope_down`, `manual_only`, or `stop_and_explain`. Defaults to `manual_only`.
 </ParamField>
 
 ## Fixture Schema
@@ -387,10 +470,10 @@ Legacy inline config files (`.safety-net.json` and `~/.cc-safety-net/config.json
 | Legacy file state | New behavior |
 | --- | --- |
 | Empty legacy file | Silently ignored — built-in rules only |
-| Legacy file with rules | Fail closed until migrated with `rule migrate` |
-| Invalid legacy file | Fail closed until fixed and migrated, or removed |
+| Legacy file with rules | Its rules are **inert** until migrated with `rule migrate`; the runtime reports `degraded` |
+| Invalid legacy file | Same — inert until fixed and migrated, or removed |
 
-**Fail closed** means commands stay blocked until legacy rules are migrated to the new layout.
+Legacy rules are never enforced from their old location, and they never block work either: the legacy source is simply dropped and named in the diagnostics. This is the quietest failure class, because dropping a source only removes denials — nothing rubs. Check `npx cc-safety-net status` after an upgrade.
 
 ```bash
 # Convert legacy inline rules into the rulebook layout
@@ -422,19 +505,23 @@ npx -y cc-safety-net rule test
 
 ## Error Handling
 
-Rulebook-backed custom rules **fail closed** when configured rulebooks cannot be loaded safely:
+Custom-rule configuration that cannot be verified is **dropped, not enforced, and never turned into a denial**. Ordinary commands keep running, every other verified source keeps enforcing, and every built-in protection still applies. The runtime reports itself as `degraded` so the situation is visible.
 
 | Scenario | Behavior |
 | --- | --- |
-| Config file not found | Silent — use built-in rules only |
-| Invalid rule config | Fail closed until fixed |
-| Empty legacy config | Silent — use built-in rules only |
-| Legacy config with rules and no migrated rule config | Fail closed until `rule migrate` creates the new rule config |
-| Invalid legacy config | Fail closed until fixed or removed |
-| Missing or stale lock/cache | Fail closed until `rule sync` repairs it |
-| Invalid local rulebook | Fail closed until the rulebook is fixed and synced |
-| Invalid GitHub rulebook | Fail closed until the source is fixed or removed |
+| Config file not found | Silent — built-in rules only, state stays `ready` |
+| Malformed, empty, or unsupported-`version` `rule.json` | That whole scope is dropped, **including its `transparent_wrappers`** |
+| Empty legacy config | Silent — built-in rules only |
+| Legacy config with rules and no migrated rule config | Legacy rules are inert until `rule migrate` runs |
+| Invalid legacy config | Inert until fixed or removed |
+| Missing lockfile, missing lock entry, missing cache entry, or digest mismatch | Only that source is dropped; run `rule sync` |
+| Invalid cached rulebook | Only that source is dropped |
+| Local rulebook missing, invalid, or drifted from its digest | Warning only — the digest-verified **cached** rulebook keeps enforcing until you run `rule sync` |
+| Duplicate active rulebook name | The first claim wins, user scope first; the later rulebook contributes nothing |
+| Unknown override key, or a project override naming a user-scoped rule | Only that override is ignored |
+
+Because a dropped source **removes** denials rather than adding them, this class of failure produces no friction on its own. `npx cc-safety-net status` is the cheap habitual check; `npx cc-safety-net doctor` gives the full report, and `npx -y cc-safety-net rule list` exits non-zero when any issue or warning remains. See [Recovery](/configuration/recovery) for the diagnostic strings, the reporting surfaces, and the repair sequence.
 
 <Warning>
-  If you add or modify custom rules manually, always validate them with `npx -y cc-safety-net rule verify` and `npx -y cc-safety-net rule test`.
+  Custom rule configuration is **not tamper-resistant**. `rule.json`, rulebooks, lockfiles, and caches are best-effort; only the canonical user `policy.json` is a protected path. If you add or modify custom rules manually, always validate them with `npx -y cc-safety-net rule verify` and `npx -y cc-safety-net rule test`.
 </Warning>

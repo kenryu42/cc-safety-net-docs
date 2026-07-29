@@ -1,7 +1,7 @@
 ---
 title: "CC Safety Net Design Principles"
 sidebarTitle: "Design Principles"
-description: "Why CC Safety Net works: semantic analysis over wildcards, fail-closed by default, one dependency, rulebooks, defense-in-depth, and worktree relaxation."
+description: "The reasoning behind CC Safety Net: semantic analysis over wildcards, a fixed guard order with always-on protections, fail-closed on the tool's own failure, a minimal dependency surface, rulebooks, defense-in-depth, and worktree relaxation."
 ---
 
 CC Safety Net was built in response to a real incident — an AI coding agent deleting an entire home directory. Every design choice flows from one goal: stop destructive commands _before_ an agent executes them, and never create a false sense of security. This page explains the reasoning behind the key decisions so you can trust what the tool does (and understand what it deliberately does not do).
@@ -10,30 +10,46 @@ CC Safety Net was built in response to a real incident — an AI coding agent de
 
 AI coding agents support deny rules with wildcard matching, such as a wildcard rule for `git reset --hard`. Wildcard patterns compare the raw command string against a pattern, so any variation in spacing, flag order, or command wrapping can cause a block to silently fail. Reordering flags (`rm -r -f /`), wrapping in a shell (`sh -c "rm -rf /"`), or hiding behind an interpreter all bypass string matching.
 
-CC Safety Net instead parses each command into tokens, splits it into segments by shell operators, strips wrappers and environment assignments, and then runs per-command analyzers that understand the option grammar of `rm`, `git`, `find`, `xargs`, and `parallel`. This semantic approach catches forms that wildcard matching misses, because it reasons about _what the command does_ rather than _what it looks like_.
+CC Safety Net instead parses each command with its own shell parsers, splits it into segments by shell operators, strips wrappers and environment assignments, and then runs per-command analyzers that understand the option grammar of `git`, `rm`, `Remove-Item`, `find`, `xargs`, and `parallel`. This semantic approach catches forms that wildcard matching misses, because it reasons about _what the command does_ rather than _what it looks like_.
 
 The tradeoff is complexity: the parser must handle shell syntax correctly, and each supported command needs its own analyzer. The benefit is bypass resistance for the commands that matter most. For the full pipeline, see [Analysis Engine](/guides/analysis-engine).
 
+## One fixed order, with the always-on protections first
+
+Every tool call runs through the same ordered stages, on every integration. Two of those stages — protection of the canonical policy file and protection of Git metadata — deliberately run *before* the policy snapshot is loaded.
+
+That ordering is the point. A protection evaluated after configuration is only as strong as the configuration, and configuration is exactly what a compromised agent would try to edit first. By denying before the policy file is read, these two guards carry no config state, cannot be relaxed by a preset or an override, and cannot be switched off by the very file they protect. The cost is that their denials cannot report a safety level or a fallback reason, because neither is known yet — a deliberate trade of diagnostic detail for an unconditional guarantee.
+
+Sensitive-path protection sits on the other side of the line, after the snapshot. It *is* policy-controllable, because which paths count as sensitive is genuinely a local decision, and because deny paths are only useful if you can add your own.
+
+The concrete stage table lives in [Architecture](/guides/architecture#the-ordered-guard-stages).
+
 ## Fail-closed as the default
 
-When analysis fails, config is invalid, or input cannot be parsed, CC Safety Net blocks the command. This applies at every entry point:
+When CC Safety Net cannot complete an analysis, it blocks rather than allows:
 
-- The hook entry point wraps analysis in a try/catch and denies with a "failed closed" reason on any thrown error.
-- The OpenCode plugin and Pi extension catch analysis errors and re-surface them as block messages.
-- [Strict mode](/configuration/modes#strict-mode-cc_safety_net_strict=1) extends fail-closed to commands the shell parser cannot safely tokenize.
-- A broken rulebook config sets a fail-closed reason that blocks every command until repaired.
+- A thrown error anywhere in the guard becomes a deny attributed to the stage that threw, at every entry point.
+- Exceeding a tool-input bound or a parser budget denies, in every safety level.
+- [Strict mode](/configuration/modes#strict-mode-cc_safety_net_strict=1) extends fail-closed further, to commands the parser cannot fully understand and to destructive targets it cannot verify.
 
-The reasoning is simple: a safety net that fails open is worse than no safety net, because it creates a false sense of security. Blocking on an unexpected error is annoying but recoverable; allowing a destructive command through is not. See [Security Model](/guides/security-model) for how this property is enforced at each trust boundary.
+The reasoning is simple: a safety net that fails open is worse than no safety net, because it creates a false sense of security. Blocking on an unexpected error is annoying but recoverable; allowing a destructive command through is not.
 
-## A single runtime dependency
+**Invalid configuration is deliberately not part of this.** A rejected configuration source is dropped, not converted into a denial — the runtime reports a `degraded` state and keeps enforcing everything that did validate, including every built-in protection. Turning a typo in a rulebook into a machine that blocks all work would be a denial-of-service on the user, and it would push people to uninstall the tool rather than fix the file. [Configuration Recovery](/configuration/recovery) owns that contract and the repair path.
 
-The only runtime dependency is `shell-quote`, used for command tokenization. This is deliberate:
+See [Security Model](/guides/security-model) for how these properties are enforced at each trust boundary.
 
-- A smaller dependency tree means a smaller supply-chain attack surface.
-- Shell tokenization is a well-understood problem with a mature, focused library.
-- CC Safety Net runs as a short-lived process on every shell tool call, so startup time matters — fewer dependencies mean faster cold starts.
+## A minimal dependency surface
 
-All other shell handling (segment splitting, command-substitution extraction, ANSI-C quote normalization, redirect stripping) is implemented on top of the tokenizer. See [Analysis Engine](/guides/analysis-engine) for how the pieces fit together.
+CC Safety Net carries **one runtime package dependency, `zod`**, used only for configuration validation and loaded lazily, so a tool call that never touches configuration never pays for it. Published bundles additionally embed `shell-quote` for legacy POSIX token projection and display formatting; it lives in `devDependencies` because consumers never resolve it at runtime, but its bundled code is treated as production security surface and audited as such.
+
+Everything structural — segment splitting, quoting, redirection, command substitution, dynamic-word provenance — comes from CC Safety Net's **own bounded POSIX and PowerShell parsers**, not from a third-party grammar. That is a deliberate build-versus-buy decision:
+
+- A smaller dependency tree means a smaller supply-chain attack surface, and the parser is the component an attacker most wants to confuse.
+- The analysis needs facts a general tokenizer does not carry — which words came from an expansion, which target is anchored to the working directory, which quoting form was used — so an owned parser is the only way to make those facts first-class.
+- Parser budgets can be fixed constants rather than configuration, which makes resource exhaustion a bounded, testable failure mode instead of an open-ended one.
+- CC Safety Net runs as a short-lived process on every shell tool call, so startup time matters and fewer dependencies mean faster cold starts.
+
+See [Architecture](/guides/architecture#parsers-and-the-runtime-dependency-surface) for the parser budgets and how each dependency is consumed.
 
 ## The rulebook system
 
@@ -45,6 +61,16 @@ Earlier versions stored custom rules as inline JSON in a single project file. CC
 - **Validation** — rulebook content is schema-validated and fixture-tested before it can influence a blocking decision.
 
 Custom rules are strictly additive: they can only add restrictions, never relax built-in protections. This keeps the trust boundary simple. See [Custom Rules](/configuration/custom-rules) for the authoring workflow.
+
+## Graduated levels instead of one setting
+
+Protection is shipped as three presets — standard, strict, and paranoid — rather than a single on/off switch, because the honest answer to "should an unverifiable command be blocked?" depends on where the command came from.
+
+Standard optimises for a human-supervised session: it blocks recognisable destructive commands and sensitive-content access while tolerating unparseable-but-harmless text, so day-to-day work is not interrupted. It is explicitly **best-effort against adversarial or dynamic input** and is not the right setting when commands may originate from prompt injection or another untrusted context.
+
+Strict and paranoid buy certainty with friction. Strict blocks what cannot be verified; paranoid additionally blocks categories that are usually fine but occasionally catastrophic. The design deliberately does *not* try to close standard's gaps by adding more standard-mode parser heuristics — a target that cannot be resolved statically cannot be made safe by guessing harder. The prescribed response to a newly found gap is a strict or paranoid fail-closed fixture, which is why the residual-risk families for standard mode are recorded rather than papered over.
+
+Individual capabilities remain separately settable, and any per-rule override can force a strict-tier rule on under standard. What no override can do is weaken a catastrophic rule or the always-on protections. See [Safety Modes](/configuration/modes) for the levels and [Analysis Engine](/guides/analysis-engine#safety-level-boundaries) for exactly where each boundary falls.
 
 ## Defense-in-depth, not a replacement
 
@@ -70,7 +96,8 @@ Relaxation is conservative: it only lifts the block for local discards in verifi
 
 ## Related pages
 
-- [Analysis Engine](/guides/analysis-engine) — how the semantic-analysis pipeline is implemented.
+- [Analysis Engine](/guides/analysis-engine) — how the semantic-analysis pipeline is implemented, and where each safety-level boundary falls.
+- [Architecture](/guides/architecture) — the ordered guard stages, the policy snapshot, and the component layout.
+- [Configuration Recovery](/configuration/recovery) — the `ready` and `degraded` contract referenced above.
 - [Security Model](/guides/security-model) — the trust boundaries and attack surface these decisions protect.
 - [Known Limitations](/guides/known-limitations) — what these design choices cannot do.
-- [Architecture](/guides/architecture) — the entry points and component layout.

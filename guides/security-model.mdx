@@ -1,10 +1,12 @@
 ---
 title: "CC Safety Net Security Model"
 sidebarTitle: "Security Model"
-description: "How CC Safety Net models trust: the AI-to-shell boundary, secondary boundaries for config, rulebooks, and hooks, plus fail-closed and secret redaction."
+description: "How CC Safety Net models trust: the AI-to-shell boundary, what each safety level guarantees, the configuration recovery boundary, and the disclosure classification."
 ---
 
-CC Safety Net sits between an untrusted command source (an AI coding agent) and a trusted execution environment (the host shell). This page documents the trust boundaries, how fail-closed behavior is enforced, how secrets are protected, and the attack surface. To report a vulnerability, see the [security policy](/security) instead.
+CC Safety Net sits between an untrusted command source (an AI coding agent) and a trusted execution environment (the host shell). This page documents the trust boundaries, what each safety level actually guarantees, how configuration failures are contained, how secrets are protected, and the attack surface. To report a vulnerability, see the [security policy](/security) instead.
+
+CC Safety Net is a best-effort, static pre-execution policy gate for supported coding-agent tool calls. It is not an operating-system sandbox, a privilege boundary, or protection for commands that bypass an installed integration.
 
 ## Trust boundaries
 
@@ -17,35 +19,73 @@ The core trust boundary sits between the AI coding agent and the host shell. CC 
 
 Every command that reaches the shell tool on a supported platform flows through the analysis engine before it is allowed to run. If analysis returns a block reason, the command is denied.
 
+The boundary stops at supported tool names and supported shapes. Adapters grant command-execution capability only to exact, integration-specific tool names; unknown tools keep conservative policy-file and sensitive-path inspection but their text is never treated as a shell command. Commands that bypass an installed integration entirely are outside the boundary.
+
 ### Secondary boundaries
 
 Four secondary boundaries cross into CC Safety Net from an external source. Each one is validated before it can influence analysis.
 
 | Boundary | Source | How it is validated |
 | --- | --- | --- |
-| User configuration | Custom rules in JSON files on disk | Parsed and schema-validated; malformed rules fail closed |
-| Rulebook sources | Rulebooks fetched from GitHub or local directories | Remote rulebooks integrity-checked via SHA-256 digests in the lockfile |
-| Hook input JSON | Each agent's JSON payload on stdin | Parsed defensively; malformed JSON triggers a deny |
-| Environment variables | Mode flags and path overrides (`CC_SAFETY_NET_*`, `TMPDIR`, etc.) | Read explicitly; security-critical values treated as untrusted |
+| User configuration | `policy.json` and rule configuration on disk | Parsed and schema-validated; a rejected candidate is never enforced, and the runtime falls back instead of denying ordinary work (see [Configuration recovery boundary](#configuration-recovery-boundary)) |
+| Rulebook sources | Rulebooks fetched from GitHub or local directories | Remote rulebooks integrity-checked via SHA-256 digests in the lockfile; a source that cannot be verified contributes no rules |
+| Hook input JSON | Each agent's JSON payload on stdin | Parsed defensively; malformed or oversized input triggers a deny |
+| Environment variables | Level and capability flags plus path overrides (`CC_SAFETY_NET_*`, `TMPDIR`, etc.) | Read explicitly; security-critical values treated as untrusted |
+
+## What each safety level guarantees
+
+Standard, strict, and paranoid are presets that supply defaults for three capabilities: `fail_closed`, `paranoid_rm`, and `paranoid_interpreters`. The guarantee is not the same at every level.
+
+| Level | Guarantee |
+| --- | --- |
+| [Standard](/configuration/modes#default-mode) | **Best-effort** protection for recognizable destructive commands. It intentionally allows dynamic executables, command structure assembled through substitution, unverifiable recursive-delete targets, and standalone metadata-only checks of built-in sensitive paths. Safe-looking unparseable text is allowed through, while destructive-looking text is still caught by conservative heuristics. |
+| [Strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) | Adds the fail-closed capability: unparseable input is denied instead of passed through, unverifiable destructive targets such as `rm -rf "$target"` are blocked, and metadata-only sensitive-path discovery is blocked. |
+| [Paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) | Strict plus two restrictions: non-temp [recursive forced deletion](/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1) is blocked even inside the current working directory, and [every interpreter one-liner](/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1) is blocked regardless of its content. |
+
+<Warning>
+  Standard mode is **not adversarial-grade**. Dynamic `rm -rf` targets are not categorically blocked in standard — `rm -rf "$target"` is allowed there and blocked only in strict or paranoid. When commands may come from prompt injection or another adversarial context, strict or paranoid is required.
+</Warning>
+
+Independent of the level: sensitive **content** access and user-configured deny paths, including their descendants, are never relaxed, and the catastrophic protections (recursive deletion of root or the user's home directory, destructive mutation of the protected Git metadata set, and destructive mutation of the canonical user `policy.json`) are always enforced. They do not depend on the safety level, the destructive-command master switch, per-rule overrides, or allow paths.
+
+## Configuration recovery boundary
+
+Configuration is a trust boundary, not a kill switch. Invalid configuration resolves to one of two runtime states and **never denies ordinary work merely for being invalid**.
+
+- **`ready`** — every active source validated.
+- **`degraded`** — a candidate source was rejected and something safe is enforced in its place: an unverifiable rule source is dropped so it contributes no rules, a drifted or invalid local rulebook keeps its digest-verified cache, a duplicate rulebook name keeps the first claim, and an unreadable policy file falls back to the salvaged policy or to built-in protective defaults.
+
+The rejected candidate is never treated as active. Dropping a source removes the denials that source contributed, which is a real reduction in enforcement relative to your configured policy — it is reported on every surface rather than presented as security-neutral. What dropping cannot do is weaken a built-in rule: rulebooks contribute only blocking rules, and ignoring an unreadable `rule.json` restores the built-ins its `overrides` would have disabled. One exception is scoped and documented — `transparent_wrappers` lives in `rule.json`, so an unreadable `rule.json` narrows which wrapped commands built-in analysis unwraps for that scope. No command or path is allowlisted in return, because nothing is denied for being unconfigurable.
+
+Policy-file protection and Git-metadata protection are evaluated **before** the configuration snapshot is loaded, so they apply identically in both states and carry no configuration metadata.
+
+The complete contract — every failure row, the fallback it produces, and the recovery commands — lives in [Configuration Recovery](/configuration/recovery).
 
 ## Fail-closed enforcement
 
-Fail-closed is the foundational safety property: when analysis fails, config is invalid, or input cannot be parsed, the command is blocked rather than allowed. It is enforced at every entry point.
+Fail-closed applies to **that one tool call** when analysis itself cannot complete: an unexpected analyzer failure, an input that cannot be parsed, or a resource limit reached. It is not a description of what happens to invalid configuration.
 
 <Steps>
   <Step title="Hook entry points">
-    The hook adapter wraps the analysis call in a try/catch. If analysis throws, the hook emits a deny decision with a "failed closed" reason instead of letting the command proceed. This applies to every stdin-based hook agent (Claude Code, Gemini CLI, Copilot CLI, Kimi Code).
+    The hook adapter wraps the analysis call in a try/catch. If analysis throws, the hook emits a deny decision with a "failed closed" reason instead of letting the command proceed. This applies to every stdin-based hook agent (Antigravity CLI, Claude Code, Cursor, Gemini CLI, GitHub Copilot CLI, Kimi Code).
   </Step>
   <Step title="Plugin and extension entry points">
-    The OpenCode plugin and Pi extension apply the same pattern — analysis errors are caught and re-surfaced as block messages so the platform treats them as denied commands.
+    The Amp Code, OpenCode, and Pi in-process integrations apply the same pattern — analysis errors are caught and re-surfaced as block messages so the platform treats them as denied commands. Codex is installed as a plugin but runs the shared stdin hook entry point, so it is covered by the step above. See [Integration architecture](/guides/integration-architecture) for which model each agent uses.
+  </Step>
+  <Step title="Malformed or oversized tool input">
+    Untrusted recursive tool input is bounded to 64 object levels, 10,000 visited values, 10,000 own keys, 1 MiB per string, and 4 MiB of aggregate string data; hook stdin is capped at 8 MiB of raw bytes. Exceeding any boundary denies the call.
+  </Step>
+  <Step title="Parser resource exhaustion">
+    Input beyond 131,072 UTF-16 code units, more than 16,384 words, or nesting beyond 64 levels is denied rather than analyzed incompletely. This applies in **every** safety level, standard included.
   </Step>
   <Step title="Strict mode">
-    [Strict mode](/configuration/modes#strict-mode-cc_safety_net_strict=1) extends fail-closed to commands the shell parser cannot safely tokenize, so unparseable input is blocked rather than passed through.
-  </Step>
-  <Step title="Config validation">
-    When rulebook loading or validation produces errors, a fail-closed reason is attached to the config. Downstream analysis consults that field, so a broken rulebook state results in blocking rather than silent rule skipping.
+    [Strict mode](/configuration/modes#strict-mode-cc_safety_net_strict=1) extends fail-closed to commands the shell parser cannot safely tokenize, so unparseable input is blocked rather than passed through. Standard mode allows safe-looking unparseable text.
   </Step>
 </Steps>
+
+<Note>
+  Invalid configuration is deliberately **not** in this list. A rejected rule source is dropped and an unreadable policy file falls back to protective defaults, so ordinary work continues — see [Configuration recovery boundary](#configuration-recovery-boundary).
+</Note>
 
 See [Design Principles](/guides/design-principles#fail-closed-as-the-default) for the rationale.
 
@@ -53,7 +93,9 @@ See [Design Principles](/guides/design-principles#fail-closed-as-the-default) fo
 
 Before any command or segment text is written to the audit log or returned to the agent, it passes through automatic secret redaction. The redactor scrubs PEM private keys, database URL environment variables, generic secret-bearing env assignments, common secret HTTP headers, URL credentials, and known provider token prefixes (GitHub, Slack, npm, Stripe, PyPI), plus JWTs and AWS access key IDs. Each matched value is replaced with `<redacted>`.
 
-Redaction is conservative and pattern-based — it reduces the risk of leaking secrets that happen to appear in a command's arguments, but it is not exhaustive. New secret formats emerge regularly, so avoid piping real credentials through commands an agent runs. See the [Audit Log reference](/reference/audit-log#secret-redaction) for the full redaction scope.
+Redaction is conservative and pattern-based — it reduces the risk of leaking secrets that happen to appear in a command's arguments, but it is **bounded to recognized credential shapes**. Absolute filesystem paths, project and directory names, hostnames, IP addresses, usernames, and any credential whose format is not on the pattern list are retained verbatim. New secret formats emerge regularly, so avoid piping real credentials through commands an agent runs. See the [Audit Log reference](/reference/audit-log#secret-redaction) for the full redaction scope.
+
+The same bound applies to `cc-safety-net explain`: a real trace carries the command text you supplied, its parsed tokens, and absolute paths including your home directory. Review a trace before pasting it anywhere — see [Explain Trace](/reference/explain-trace).
 
 ## Attack surface
 
@@ -62,27 +104,33 @@ The threat model enumerates the main attack surfaces and their mitigations.
 | Attack surface | What an attacker tries | Mitigation |
 | --- | --- | --- |
 | **Shell command parser** | Craft a command string that exploits a parser edge case (unusual quoting, nested substitution, operator ambiguity) to hide a destructive payload | Unclosed-quote guard returns the raw string as one segment; variable references are preserved (not expanded) so dynamic substitutions can be detected; strict mode blocks unparseable commands; parser errors trigger fail-closed |
-| **Wrapper and interpreter stripping** | Hide a destructive command behind `sudo`, `env`, `bash -c`, or an interpreter one-liner | Wrappers are stripped iteratively (with an iteration cap); shell wrappers and interpreter code are recursively re-analyzed up to 10 levels |
+| **Wrapper and interpreter stripping** | Hide a destructive command behind `sudo`, `env`, `bash -c`, or an interpreter one-liner | Wrappers are stripped iteratively (with an iteration cap); shell wrappers and interpreter code are recursively re-analyzed up to 10 levels; commands you declare in `transparent_wrappers` are unwrapped to their visible child before analysis |
+| **Sensitive-file access** | Read or discover credentials such as `.env`, `~/.ssh/id_*`, or `~/.aws/credentials` through a command, path, search, or patch shape | Sensitive-path protection covers supported command, path, search, and patch shapes plus unknown-tool fallback inspection; user-configured deny paths and their descendants are matched first and never relaxed; metadata-only discovery is additionally blocked in strict and paranoid. Coverage is a bounded pattern set, not a general read boundary |
 | **Path traversal in rm analysis** | Slip a dangerous `rm -rf` target past classification using symlinks or path tricks | Targets are resolved to canonical paths; `$TMPDIR` overrides pointing outside known temp dirs are detected; a residual TOCTOU window remains (see [Known Limitations](/guides/known-limitations#symlink-toctou-risk)) |
 | **Rulebook supply chain** | Serve a malicious rulebook from a GitHub source | Remote rulebooks are SHA-256-verified against the lockfile and schema-validated; a malicious rulebook can add rules but cannot remove built-in blocking |
 | **Secret leakage in audit logs** | Get a secret written to the on-disk audit log | `redactSecrets` runs before any log write; the pattern list is maintained incrementally |
 | **Hook input parsing** | Crash the hook with malformed JSON | `JSON.parse` failures trigger a deny rather than a crash; platform adapters perform additional validation |
 | **Audit log path traversal** | Craft a session ID that writes outside the logs directory | The session ID is sanitized to a filesystem-safe form, length-capped, and rejects `.` and `..` |
 
-Network-level attacks, denial of service via resource exhaustion, and attacks on the agent platform itself are out of scope — CC Safety Net makes no network requests during command analysis.
+Network-level attacks and attacks on the agent platform itself are out of scope — CC Safety Net makes no network requests during command analysis and has no network layer. Resource exhaustion is bounded rather than mitigated by containment: input past the parser or tool-input limits is denied instead of analyzed incompletely.
 
-## Severity calibration
+## Disclosure classification
 
-Findings are classified to keep the response proportional to impact:
+The dividing line is: **did the tool fail to stop a destructive command, or did the tool itself become the harmful vector?**
 
-- **Critical** — a vulnerability that lets a destructive command bypass all analysis and execute (for example a shell-parser bypass for `rm -rf /`).
-- **High** — a vulnerability that weakens the boundary or allows partial bypass under specific conditions (for example a git-analysis bypass for unusual option ordering).
-- **Medium** — limited impact on the core function or secondary features (for example audit-log path traversal or a redaction bypass for a specific format).
-- **Low** — minimal security impact (for example information disclosure in diagnostic output).
+| Class | Examples | Channel |
+| --- | --- | --- |
+| **Bug** — CC Safety Net failed to stop a destructive command | A coverage gap (a command shape the rules do not block yet), a parser, tokenizer, or wrapper-analysis edge case, an analysis error that lets a command through, or a false positive that blocks a safe command | Public GitHub issue |
+| **Vulnerability** — CC Safety Net did something harmful it was never supposed to do | Secret leakage through block messages, audit logs, diagnostics, debug output, or a false-positive report prefill, including a redaction bypass; a path traversal or filesystem issue in audit logging or configuration handling where crafted input writes outside the intended directory; a supply-chain or packaging issue affecting the published npm package or plugin distribution, including rulebook integrity | Private disclosure |
+
+Coverage gaps are public because the strict and paranoid threat model already assumes an attacker can emit any destructive command, so publishing "this command shape is not caught" hands the attacker nothing they did not already have — it gets the gap fixed faster and lets users ship a [custom rule](/configuration/custom-rules) as an immediate workaround. Report the command *shape*, not a ready-to-paste weaponized prompt-injection payload.
+
+The [security policy](/security) has the submission procedure for both channels.
 
 ## Related pages
 
-- [Security policy](/security) — how to report a vulnerability responsibly.
+- [Security policy](/security) — how to report a bug or a vulnerability.
+- [Configuration Recovery](/configuration/recovery) — the complete `ready` and `degraded` contract.
 - [Design Principles](/guides/design-principles) — the rationale behind fail-closed and semantic analysis.
 - [Known Limitations](/guides/known-limitations) — residual risks like the symlink TOCTOU window.
 - [Audit Log](/reference/audit-log) — where redacted command records are written.

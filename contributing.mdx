@@ -1,7 +1,7 @@
 ---
 title: "Contributing to CC Safety Net"
 sidebarTitle: "Contributing"
-description: "How to contribute to CC Safety Net: development setup with Bun, the check command, local testing in Claude Code and OpenCode, and the pull request process."
+description: "How to contribute to CC Safety Net: setup with Bun 1.3.14 and Node.js 18+, what bun run check covers, local plugin testing, code conventions, and the pull request checklist."
 ---
 
 Contributions to CC Safety Net are welcome. This page summarizes how to get set up and the conventions to follow. For the full guide, see [CONTRIBUTING.md](https://github.com/kenryu42/cc-safety-net/blob/main/CONTRIBUTING.md) in the source repository.
@@ -12,8 +12,9 @@ CC Safety Net has a focused scope: **preventing coding agents from making accide
 
 ## Prerequisites and setup
 
-- **Bun** — the required runtime and package manager ([install guide](https://bun.sh/docs/installation))
-- **Claude Code** or **OpenCode** — for testing the plugin locally
+- **Bun 1.3.14** — the required build and test runtime, and the only supported package manager ([install guide](https://bun.sh/docs/installation)). It is pinned as `packageManager` in `package.json`.
+- **Node.js 18 or newer** — the supported runtime for the built artifacts. Bun is not needed to run the published CLI or plugins.
+- **Claude Code** or **OpenCode** — only if you want to load and exercise the plugin locally. Neither is needed to build the project or run the test suite.
 
 ```bash
 git clone https://github.com/kenryu42/cc-safety-net.git
@@ -23,14 +24,27 @@ bun run build
 bun run check
 ```
 
-`bun run check` runs lint, typecheck, dead-code detection, an AST pattern scan, and the test suite with coverage. Run it before every pull request — it must pass with no errors.
+`bun run check` is the single gate. It runs, in order: Biome lint and format, TypeScript typecheck, `knip` dead-code detection, `jscpd` duplicate detection, the `ast-grep` pattern scan, residual-risk registry validation, the test suite with coverage, and a coverage-threshold check. Run it once when you finish your changes rather than running the sub-commands separately, and make sure it passes with no errors before opening a pull request.
+
+Individual commands are available while iterating:
+
+```bash
+bun run lint          # Biome lint + format
+bun run typecheck     # TypeScript
+bun run knip          # Dead-code detection
+bun run sg:scan       # ast-grep pattern scan
+bun test              # Full test suite
+bun test tests/engine                        # One directory or file
+bun test --test-name-pattern "checkout"      # Tests matching a pattern
+bun run build         # Build for distribution
+```
 
 ## Local testing
 
 Build, then load the local plugin so you can test real blocks:
 
 - **Claude Code**: disable any installed safety-net plugin, exit Claude Code, then run `claude --plugin-dir .` from the repo root.
-- **OpenCode**: point the `plugin[]` array in `~/.config/opencode/opencode.json` at the built `file://.../cc-safety-net/dist/index.js`, remove the npm `cc-safety-net` entry to avoid conflicts, and restart OpenCode.
+- **OpenCode**: point the `plugin[]` array in `~/.config/opencode/opencode.json` at the built `file://.../cc-safety-net/dist/index.js`, remove the npm `cc-safety-net` entry to avoid conflicts, and restart OpenCode. Run `/status` and confirm the plugin name appears as `dist`.
 
 Confirm a known block (`git checkout -- README.md` is blocked; `git checkout -b test-branch` is allowed).
 
@@ -38,18 +52,49 @@ Confirm a known block (`git checkout -- README.md` is blocked; `git checkout -b 
 
 | Convention | Rule |
 | --- | --- |
-| Runtime / package manager | Bun only |
+| Build / test runtime | Bun 1.3.14 |
+| Published runtime | Node.js 18+ |
+| Package manager | bun only (`bun install`, `bun run`) |
 | Formatter / linter | Biome |
-| Types | Type hints required on all functions; `type \| null` preferred over `type \| undefined` |
-| File naming | `kebab-case` |
+| Types | Rely on type inference; add explicit annotations only where an export or clarity needs them. `type \| null` is preferred over `type \| undefined` |
+| File naming | `kebab-case`; files in `docs/` are lowercase kebab-case too |
 | Function / type naming | `camelCase` functions, `PascalCase` types |
 | Constants | `SCREAMING_SNAKE_CASE` (for example reason constants) |
+| Imports | Relative imports within the package |
+| Tests | Live in `tests/` mirroring `src/`, never colocated in `src/` |
+| Build output | Ignore `dist/` — the husky pre-commit hook rebuilds it |
 
-New rules require tests with a minimum of 90% coverage. Do not bump the version in `package.json` — maintainers handle releases.
+### Style guide
+
+- Keep code in one function unless it is genuinely composable or reusable.
+- Avoid `try`/`catch`, the `any` type, and `else` branches — prefer early returns.
+- Prefer functional array methods (`flatMap`, `filter`, `map`) over `for` loops, and use type guards on `filter` so inference survives downstream.
+- Prefer `const` over `let`; use ternaries or early returns instead of reassignment.
+- Inline values used only once instead of naming them, and avoid unnecessary destructuring.
+
+### Scope discipline
+
+Over-engineering is this project's dominant failure mode. Implement the smallest change that satisfies the request, and name the concrete failure that any addition beyond it prevents. Every check must be falsifiable in practice. Do not build schemas, validators, registries, or harnesses ahead of their first real entry, and prefer a documented process over code that enforces the process.
+
+### Knip
+
+Never add entries to `ignoreIssues` in `knip.ts`. When knip flags an unused export, fix the root cause: delete or unexport genuinely dead code, tag test-only exports with a `/** @internal */` JSDoc comment (knip runs in `--production` mode, so test files are excluded), and drop unused names from barrel files.
+
+## Pull request checklist
+
+- Code follows the conventions above.
+- `bun run check` passes with no errors.
+- Tests added for new rules, with a minimum of 90% coverage.
+- Tested locally with at least one supported agent — for example Codex, Claude Code, Gemini CLI, GitHub Copilot CLI, Kimi Code, or Pi. All ten are listed on the [Installation](/installation#install-a-specific-agent) page.
+- Documentation updated where needed (`README.md`, `AGENTS.md`).
+- No version changes in `package.json`.
+
+Version bumping and releases are handled by maintainers only. Never modify the version in `package.json` or `plugin.json` directly.
 
 ## Getting help
 
 - `bunx cc-safety-net doctor` verifies your setup.
 - `bunx cc-safety-net explain "<command>"` shows step-by-step how a command is analyzed.
-- Check `AGENTS.md` in the source repo for architecture and conventions.
+- Check `CLAUDE.md` or `AGENTS.md` in the source repo for architecture and conventions, and read `REVIEW.md` before reviewing code.
+- Review existing implementations in `src/core/` for code patterns, and `tests/helpers.ts` for test utilities.
 - Open an issue for bugs or feature requests.

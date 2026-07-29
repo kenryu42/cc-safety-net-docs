@@ -1,23 +1,33 @@
 ---
 title: "Troubleshooting CC Safety Net Installation and Behavior"
 sidebarTitle: "Troubleshooting"
-description: "Fix common CC Safety Net issues: hook not firing, commands not blocked, false positives, custom rules not loading, and status line not showing."
+description: "Fix common CC Safety Net issues: hook not firing, commands not blocked, false positives, custom rules not enforced, degraded configuration, and status line not showing."
 ---
 
-This guide covers the most common issues with CC Safety Net and how to resolve them. Start with the `doctor` command — it automates most diagnostics and will catch the majority of configuration problems in one pass.
+This guide covers the most common issues with CC Safety Net and how to resolve them. Start with `status` for the one-line verdict, then `doctor` for the full report — together they catch the majority of configuration problems in one pass.
 
-## Run Diagnostics First
+## Run diagnostics first
+
+```bash
+npx cc-safety-net status
+```
+
+`status` prints the runtime verdict (`ready`, `degraded`, or `not enforcing`), the active protections and safety level, your policy path, and one bullet per outstanding issue. It is informational and always exits 0.
 
 ```bash
 npx cc-safety-net doctor
 bunx cc-safety-net doctor
 ```
 
-`doctor` runs a comprehensive health check across every supported agent — hook integration, a self-test that confirms blocking works, custom-rule validation, active mode flags, recent activity, system versions, and an update check. See the [doctor command reference](/reference/cli-commands#doctor) for what each check does.
+`doctor` runs a comprehensive health check across every supported agent — hook integration, a self-test that confirms blocking works, custom-rule validation, active mode flags, recent activity, system versions, and an update check. It is the one command that reports both rule configuration and `policy.json`. See the [doctor command reference](/reference/cli-commands#doctor) for what each check does.
 
 Review the output before diving into the individual issues below. Most problems are visible here.
 
-## Common Issues
+<Note>
+  A `degraded` verdict means a configuration source was rejected and something safe is enforced in its place. It does **not** mean your commands are blocked — invalid configuration never denies ordinary work. See [Configuration Recovery](/configuration/recovery).
+</Note>
+
+## Common issues
 
 <AccordionGroup>
   <Accordion title="Hook not firing — commands execute without being checked">
@@ -26,25 +36,39 @@ Review the output before diving into the individual issues below. Most problems 
     **Steps to resolve:**
 
     1. Run `npx cc-safety-net doctor` — it checks hook integration for every supported agent and flags misconfiguration with the exact config path.
-    2. **Claude Code**: run `/plugin` inside Claude Code and confirm that `safety-net` appears in the installed plugins list and is enabled. If it doesn't appear, reinstall with `/plugin install safety-net@cc-marketplace`, then `/reload-plugins`.
-    3. **Codex**: open your `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`) and verify that `plugin_hooks = true` is set under `[features]` and `enabled = true` is set under `[plugins."safety-net@cc-marketplace"]`. Then run `/hooks` in the TUI, select the safety-net PreToolUse hook, and press `t` to mark it as trusted. Without the trust step, the hook will not fire.
-    4. **Gemini CLI**: run `gemini extensions list` and confirm the `https://github.com/kenryu42/gemini-safety-net` source is installed and enabled (check both User and Workspace scope — Workspace wins if set). Reinstall with `gemini extensions install https://github.com/kenryu42/gemini-safety-net` and start a new Gemini session.
-    5. **Copilot CLI**: confirm the `copilot-safety-net` plugin is installed (`/plugin`), and that hooks are not disabled via `disableAllHooks: true` in `~/.copilot/config.json`, `.github/copilot/settings.json`, or `.github/copilot/settings.local.json`. Inline hooks require Copilot CLI 1.0.8+ and user hook files require 0.0.422+.
-    6. **Kimi Code**: check `~/.kimi-code/config.toml` (or `$KIMI_CODE_HOME/config.toml`) for a `[[hooks]]` block running `npx -y cc-safety-net hook --kimi-code` on `PreToolUse` `Bash`. Re-run `npx -y cc-safety-net hook install --kimi-code` if it's missing.
-    7. **OpenCode**: check `~/.config/opencode/opencode.json` (or `.jsonc`) for `cc-safety-net` in the `plugin[]` array. OpenCode can cache a stale version — see the [Installation](/installation#opencode) cache-clearance steps.
-    8. **Pi**: confirm `pi install npm:cc-safety-net` completed and you restarted Pi so the extension loads. Pi runs CC Safety Net as an in-process extension; run `npx cc-safety-net doctor` which probes Pi directly.
-    9. After making any changes, reload or restart your agent session.
+    2. Re-run the install command for your agent. Every install is idempotent, and it repairs a missing or disabled entry in one step. The full per-agent command table is in [Installation](/installation#install-a-specific-agent).
+    3. **Amp Code**: confirm `~/.config/amp/plugins/cc-safety-net.ts` exists and still carries the CC Safety Net managed header. Amp reads plugins at startup, so restart Amp or run `plugins: reload` after any change.
+    4. **Antigravity CLI**: check `~/.gemini/config/hooks.json` for a managed `PreToolUse` entry running `npx -y cc-safety-net hook --agy-cli`.
+    5. **Claude Code**: run `/plugin` inside Claude Code and confirm that `cc-safety-net` appears in the installed plugins list and is enabled. If it doesn't appear, reinstall with `/plugin install cc-safety-net@cc-marketplace`, then `/reload-plugins`.
+    6. **Codex**: run `codex plugin list` and confirm the `cc-safety-net@cc-marketplace` line reads `installed, enabled`. Then run `/hooks` in the TUI, select the **cc-safety-net PreToolUse hook**, and press `t` to mark it as trusted — without the trust step the hook will not fire. If it still doesn't fire, confirm `plugin_hooks = true` under `[features]` in `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`).
+    7. **Cursor**: check `~/.cursor/hooks.json` for a managed `preToolUse` entry running `npx -y cc-safety-net hook --cursor`. The config is global, so one entry covers Cursor IDE and Cursor CLI across all projects.
+    8. **Gemini CLI**: run `gemini extensions list` and confirm the `https://github.com/kenryu42/gemini-safety-net` source is installed and enabled (check both User and Workspace scope — Workspace wins if set). Reinstall with `gemini extensions install https://github.com/kenryu42/gemini-safety-net` and start a new Gemini session.
+    9. **GitHub Copilot CLI**: confirm the `cc-safety-net@cc-marketplace` plugin is installed (`/plugin`) and enabled in `enabledPlugins` in `~/.copilot/settings.json`, and that hooks are not disabled via `disableAllHooks: true` in `~/.copilot/config.json`, `.github/copilot/settings.json`, or `.github/copilot/settings.local.json`. Inline hooks require Copilot CLI 1.0.8+ and user hook files require 0.0.422+.
+    10. **Kimi Code**: check `~/.kimi-code/config.toml` (or `$KIMI_CODE_HOME/config.toml`) for a `[[hooks]]` block running `npx -y cc-safety-net hook --kimi-code` on `PreToolUse` `Bash`. Re-run `npx -y cc-safety-net install --kimi-code` if it's missing.
+    11. **OpenCode**: check `~/.config/opencode/opencode.json` (or `.jsonc`) for `cc-safety-net` in the `plugin[]` array. OpenCode can cache a stale version — see the [Installation](/installation#opencode-installation) cache-clearance steps.
+    12. **Pi**: confirm `pi install npm:cc-safety-net` completed and you restarted Pi so the extension loads. Pi runs CC Safety Net as an in-process extension; run `npx cc-safety-net doctor` which probes Pi directly.
+    13. After making any changes, reload or restart your agent session.
+
+    If you are unsure which mechanism your agent uses, see [Integration architecture](/guides/integration-architecture).
   </Accordion>
 
-  <Accordion title="A destructive command wasn't blocked">
-    If a command you expected to be blocked was allowed through, there are a few possible explanations.
+  <Accordion title="A destructive command slipped through">
+    If a command you expected to be blocked was allowed through, work down this list — most cases are a documented allowance or a safety level lower than you assumed, not a gap.
 
     **Steps to resolve:**
 
-    1. Run `npx cc-safety-net explain "<the command>"` to see the full step-by-step analysis of how CC Safety Net evaluated that specific command. This will show you exactly which rules were checked and why the command was allowed.
-    2. The command may fall into an explicitly allowed category. For example, `rm -rf` within the current working directory is allowed by default because it's scoped to your project. See the [Commands Allowed](/reference/allowed-commands) reference for the full list.
-    3. If you need the command blocked in your context, create a custom rulebook with `npx -y cc-safety-net rule init` and add a rule to `.cc-safety-net/rules/project-rules/rulebook.json`. See [Custom Rules](/configuration/custom-rules) for the schema.
-    4. If you believe the command should have been blocked by a built-in rule and wasn't, share the output of `npx cc-safety-net doctor --json` when filing a bug report.
+    1. Run `npx cc-safety-net explain "<the command>"` to see the full step-by-step analysis of how CC Safety Net evaluated that specific command. The output names the rules that were checked, the effective safety level, and — when a rule exists but is off at your level — the rule activation line that says so.
+
+       <Warning>
+         A real trace is not automatically safe to share. Redaction covers recognized credential shapes only; the command text, its parsed tokens, absolute paths including your home directory, and your policy file path are carried through. Reproduce the case with **placeholder credentials** and review the output before pasting it anywhere.
+       </Warning>
+
+    2. Check the effective level in that output. [Standard mode](/configuration/modes#default-mode) is best-effort: it deliberately allows dynamic executables, command structure assembled through substitution, unverifiable recursive-delete targets such as `rm -rf "$target"`, and metadata-only checks of built-in sensitive paths. If your commands can come from prompt injection or another adversarial context, raise the level to [strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) or [paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1), which fail closed on all of those forms.
+    3. The command may fall into an explicitly allowed category. For example, `rm -rf` within the current working directory is allowed by default because it's scoped to your project. See the [Commands Allowed](/reference/allowed-commands) reference for the full list.
+    4. Run `npx cc-safety-net status`. A `degraded` verdict means a rule source was dropped, so the denials that source contributed are not being enforced. See [Configuration Recovery](/configuration/recovery).
+    5. If the command runs through a proxy that CC Safety Net does not analyze, register it with `npx -y cc-safety-net rule wrapper add <command>` so analysis looks through it to the real child command.
+    6. If you need the command blocked in your context, create a custom rulebook with `npx -y cc-safety-net rule init` and add a rule to `.cc-safety-net/rules/project-rules/rulebook.json`. See [Custom Rules](/configuration/custom-rules) for the schema.
+    7. If none of the above explains it, a command shape the rules do not block yet is a **coverage gap**, which is a public bug under the project policy — open a GitHub issue describing the command *shape*, not a ready-to-paste payload. Secret leakage, a write outside the intended directory, and package-integrity problems take the private disclosure path instead. Both procedures are in the [security policy](/security).
   </Accordion>
 
   <Accordion title="CC Safety Net is blocking a command I need">
@@ -54,25 +78,44 @@ Review the output before diving into the individual issues below. Most problems 
 
     1. Run `npx cc-safety-net explain "<the command>"` to understand exactly why it's being blocked and which rule matched.
     2. Consider these alternatives depending on your situation:
-       - **Working in a linked git worktree?** Set `CC_SAFETY_NET_WORKTREE=1`. This relaxes local-discard rules when the command is proven to run inside a linked worktree, which is designed to be a disposable, isolated workspace.
+       - **Working in a linked git worktree?** Turn on worktree mode with `workflow.worktree_mode` in `policy.json` or `CC_SAFETY_NET_WORKTREE=1`. This relaxes local-discard rules when the command is proven to run inside a linked worktree, which is designed to be a disposable, isolated workspace.
        - **Need a safer variant?** For example, `git push --force-with-lease` is allowed and provides the same outcome as `--force` with an added safety check. `git clean -n` (dry-run) is allowed and lets you preview what would be removed.
        - **Command is genuinely needed?** Run it manually outside the agent. This is always an option, and CC Safety Net will tell the agent to ask you to do exactly this when a block fires.
     3. If none of the above apply, you can add a custom allow path by structuring the situation so the agent asks you to run the command directly.
   </Accordion>
 
-  <Accordion title="Custom rules not loading">
-    Rulebook-backed custom rules **fail closed** when configured rulebooks cannot be loaded safely. If your rulebook has any problem, commands stay blocked until it's fixed.
+  <Accordion title="Custom rules are not being enforced">
+    A rule source that cannot be verified is **dropped**, not blocked on. Your commands keep running, the rules that source contributed simply stop applying, and the runtime reports `degraded`. That makes this failure quiet: nothing rubs during a clean session, so check it deliberately after any change to rule configuration and after an upgrade.
+
+    Every other verified scope and every built-in protection keeps enforcing. A full breakdown of each failure and the fallback it produces is in [Configuration Recovery](/configuration/recovery).
 
     **Steps to resolve:**
 
-    1. Run `npx -y cc-safety-net rule verify` to validate rulebook structure, and `npx -y cc-safety-net rule test` to run every fixture. These commands surface the exact errors.
-    2. Check that you're using the correct file locations:
+    1. Run `npx cc-safety-net status` for the verdict, then `npx cc-safety-net doctor` for the full reason — it names the rejected source and the condition.
+    2. Run `npx -y cc-safety-net rule list` to see which sources and rules are actually active, plus any issues and warnings. Then `npx -y cc-safety-net rule verify` to validate rulebook structure and `npx -y cc-safety-net rule test` to run every fixture.
+    3. Check that you're using the correct file locations:
        - **User scope**: `~/.cc-safety-net/rules/rule.json` (created with `rule init --global`)
        - **Project scope**: `.cc-safety-net/rules/rule.json` in your project root
-    3. Ensure both `rule.json` and your rulebook JSON files are valid JSON. Common mistakes include trailing commas and unquoted keys.
-    4. Confirm that `"version": 1` is present in `rule.json` and `"rulebook_version": 1` is present in each `rulebook.json`. Both fields are required.
-    5. If you previously used the legacy inline config (`.safety-net.json` or `~/.cc-safety-net/config.json`), run `npx -y cc-safety-net rule migrate` to convert it to the new layout. Legacy files with rules cause commands to fail closed until migrated.
-    6. After making changes to rulebook sources, run `npx -y cc-safety-net rule sync` to rebuild the lock and cache, then re-run `rule verify` and `rule test`.
+    4. Ensure both `rule.json` and your rulebook JSON files are valid JSON. Common mistakes include trailing commas and unquoted keys. An unreadable `rule.json` drops that whole scope, including its `transparent_wrappers`.
+    5. Confirm that `"version": 1` is present in `rule.json` and `"rulebook_version": 1` is present in each `rulebook.json`. Both fields are required.
+    6. If you edited a local rulebook and the old behavior persists, the digest-verified cache is still what enforces. Run `npx -y cc-safety-net rule sync` to promote the local edit.
+    7. If you previously used the legacy inline config (`.safety-net.json` or `~/.cc-safety-net/config.json`), run `npx -y cc-safety-net rule migrate` to convert it to the new layout. An unmigrated legacy file's rules are inert until you do.
+    8. After making changes to rulebook sources, run `npx -y cc-safety-net rule sync` to rebuild the lock and cache, then re-run `rule verify` and `rule test`. `rule sync` reloads the scope the way the guard does and fails with the exact remaining diagnostic rather than reporting a false success.
+
+    You can run all of these while the runtime is `degraded` — nothing is blocked for being unconfigurable.
+  </Accordion>
+
+  <Accordion title="status or the status line reports degraded">
+    `degraded` means a configuration candidate was rejected and something safe is enforced in its place — a dropped rule source, a drifted local rulebook falling back to its verified cache, a duplicate rulebook name, or an invalid `policy.json` falling back to salvaged values or protective defaults. Ordinary work is never denied for this reason.
+
+    **Steps to resolve:**
+
+    1. Run `npx cc-safety-net doctor`. The `config.runtime-degraded` finding carries the full reason, naming the rejected file and condition.
+    2. For a rule source, follow the fix it names and re-run `npx -y cc-safety-net rule sync`.
+    3. For `policy.json`, fix the file by hand — the runtime never rewrites it. Rejected sections fall back to *protective* defaults, so the usual symptom is more denials than you configured, not fewer. The quiet exception is an invalid `safety.level`, which falls back to `standard` and therefore *lowers* your protection.
+    4. Re-run `npx cc-safety-net status` and confirm the verdict is `ready`.
+
+    See [Configuration Recovery](/configuration/recovery) for every failure row and its fallback.
   </Accordion>
 
   <Accordion title="Status line not showing in Claude Code">
@@ -94,7 +137,7 @@ Review the output before diving into the individual issues below. Most problems 
        bunx cc-safety-net statusline --claude-code
        ```
        If this command fails, the status line will be blank inside Claude Code.
-    5. Note that the status line reflects the `enabledPlugins["safety-net@cc-marketplace"]` entry in `~/.claude/settings.json`. If you run CC Safety Net as a manual hook or for another agent, it may show `❌` even though protection is active. See [Status Line](/configuration/status-line) for what each indicator means.
+    5. Note that the status line reflects the `enabledPlugins["cc-safety-net@cc-marketplace"]` entry in `~/.claude/settings.json`. If you run CC Safety Net as a manual hook or for another agent, it may show `❌` even though protection is active. See [Status Line](/configuration/status-line) for what each indicator means.
   </Accordion>
 
   <Accordion title="Getting an update">
@@ -105,7 +148,7 @@ Review the output before diving into the individual issues below. Most problems 
     Go to `/plugin` → select `Marketplaces` → choose `cc-marketplace` → enable auto-update. Alternatively, re-run the install command to pull the latest version:
 
     ```bash
-    /plugin install safety-net@cc-marketplace
+    /plugin install cc-safety-net@cc-marketplace
     ```
 
     **npm / npx:**
@@ -126,7 +169,7 @@ Review the output before diving into the individual issues below. Most problems 
   </Accordion>
 </AccordionGroup>
 
-## Getting Help
+## Getting help
 
 If you're unable to resolve an issue with the steps above, collect the full diagnostic output before filing a report:
 
@@ -134,4 +177,10 @@ If you're unable to resolve an issue with the steps above, collect the full diag
 npx cc-safety-net doctor --json
 ```
 
-The `--json` flag produces structured output that captures your environment, installed versions, hook configuration, and self-test results in a single snapshot. Include this output when [opening an issue on GitHub](https://github.com/kenryu42/cc-safety-net/issues).
+The `--json` flag produces structured output that captures your environment, installed versions, hook configuration, and self-test results in a single snapshot.
+
+<Warning>
+  Review diagnostic and `explain` output before sharing it. It contains absolute filesystem paths including your home directory, project and directory names, and your configuration paths. Redaction covers recognized credential shapes only, so reproduce the problem with **placeholder credentials** rather than real ones and read the output before you paste it.
+</Warning>
+
+Bugs — coverage gaps, false positives, installation problems, and documentation issues — go in a public [GitHub issue](https://github.com/kenryu42/cc-safety-net/issues). Secret leakage, a write outside the intended directory, and supply-chain or package-integrity problems use the private path in the [security policy](/security).
