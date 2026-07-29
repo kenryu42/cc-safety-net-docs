@@ -1,55 +1,100 @@
-# Mintlify Starter Kit
+# CC Safety Net documentation
 
-Use the starter kit to get your docs deployed and ready to customize.
+This repository contains the public documentation site for CC Safety Net, published with [Mintlify](https://mintlify.com).
 
-Click the green **Use this template** button at the top of this repo to copy the Mintlify starter kit. The starter kit contains examples with
+It is **not** the product repository. Product code, tests, `SECURITY.md`, and the changelog live in [`kenryu42/cc-safety-net`](https://github.com/kenryu42/cc-safety-net). This repository only contains pages that describe that product. A behavior change belongs in the product repository first; this repository follows it.
 
-- Guide pages
-- Navigation
-- Customizations
-- API reference pages
-- Use of popular components
+## Prerequisites
 
-**[Follow the full quickstart guide](https://starter.mintlify.com/quickstart)**
+The toolchain is pinned. Match these versions exactly:
 
-## AI-assisted writing
+| Tool | Version | Pinned in |
+| --- | --- | --- |
+| Node.js | `24.18.0` | `.node-version` |
+| Bun | `1.3.14` | `package.json` `packageManager` |
+| Mint CLI | `4.2.598` | `package.json` `devDependencies` |
 
-Set up your AI coding tool to work with Mintlify:
+Mint does not support Node 25 or newer. On an unsupported Node it prints an error and exits nonzero before validating anything, so always select the pinned version first:
 
 ```bash
-npx skills add https://mintlify.com/docs
+nvm use          # reads .node-version
+node --version   # v24.18.0
 ```
 
-This command installs Mintlify's documentation skill for your configured AI tools like Claude Code, Cursor, Windsurf, and others. The skill includes component reference, writing standards, and workflow guidance.
+## Install
 
-See the [AI tools guides](/ai-tools) for tool-specific setup.
+Install from the committed lockfile so everyone resolves the same Mint build:
 
-## Development
-
-Install the [Mintlify CLI](https://www.npmjs.com/package/mint) to preview your documentation changes locally. To install, use the following command:
-
-```
-npm i -g mint
+```bash
+make install     # bun install --frozen-lockfile
 ```
 
-Run the following command at the root of your documentation, where your `docs.json` is located:
+This installs Mint into `node_modules/`. Every command in this repository uses that repository-local binary. There is deliberately no fallback to a globally installed `mint`; if the local install is missing, `make check` fails with an actionable error rather than silently using an unpinned CLI.
 
+## Preview locally
+
+```bash
+make preview
 ```
-mint dev
+
+The preview serves at `http://localhost:3000`.
+
+Local preview does not prove hosted behavior. The production site is served under a `/docs` path prefix supplied by hosting, and search, redirects, and navigation behave differently there. Anything that depends on the deployed environment must be confirmed in a hosted preview.
+
+## The required check
+
+```bash
+make check
 ```
 
-View your local preview at `http://localhost:3000`.
+This is the single required gate. It runs, against the repository-local Mint CLI:
 
-## Publishing changes
+```bash
+mint validate
+mint broken-links --check-anchors --check-redirects --check-snippets
+mint a11y
+```
 
-Install our GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app) to propagate changes from your repo to your deployment. Changes are deployed to production automatically after pushing to the default branch.
+Any nonzero Mint exit fails the gate. No output is filtered or parsed to decide whether a failure is safe to ignore.
 
-## Need help?
+External link checking (`--check-external`) is deliberately excluded, because remote failures are not deterministic and would make the gate flaky.
 
-### Troubleshooting
+## Content layout
 
-- If your dev environment isn't running: Run `mint update` to ensure you have the most recent version of the CLI.
-- If a page loads as a 404: Make sure you are running in a folder with a valid `docs.json`.
+| Path | Contents |
+| --- | --- |
+| `docs.json` | Navigation, theme, and site configuration |
+| `index.mdx`, `introduction.mdx`, `installation.mdx`, `quickstart.mdx` | Landing and onboarding pages |
+| `configuration/` | Modes, policy, environment, custom rules, status line, recovery |
+| `reference/` | Blocked/allowed commands, CLI, audit log, explain trace, glossary |
+| `guides/` | Concepts, comparisons, integration, limits, troubleshooting |
+| `assets/` | Logos, integration marks, and images |
+| `contributing.mdx`, `security.mdx` | Project pages |
+| `*.md` at the root | Planning and research notes; not published |
 
-### Resources
-- [Mintlify documentation](https://mintlify.com/docs)
+## Page conventions
+
+- Every page needs `title` and `description` frontmatter. `sidebarTitle` overrides the navigation label.
+- Use sentence case for headings and navigation labels. Preserve exact casing for product names, commands, flags, environment variables, paths, and rule identifiers.
+- Use root-relative internal links (`/installation`, not `/docs/installation`). The `/docs` prefix belongs to hosting configuration, never to authored links.
+- Tag every code block with a language.
+- Adding a page means adding it to `docs.json`; an unlinked page is invisible.
+- Heading text determines anchor slugs. The mode headings in `configuration/modes.mdx` carry environment variables including an `=` character, and inbound links depend on those exact slugs. Changing such a heading means updating its inbound links in the same change. The anchor check will catch a miss.
+
+## Publishing
+
+Deployment is code-based: merging to the default branch publishes. There is no dashboard-authored content to reconcile.
+
+Because publishing is automatic, a passing `make check` is necessary but not sufficient. Review the hosted preview before merging anything that changes navigation, routes, or landing-page structure.
+
+## Source of truth for product claims
+
+Documentation claims about product behavior must be verified against the product repository, in this order:
+
+1. Current implementation plus focused behavioral tests
+2. Current source `SECURITY.md`, configuration schema, and `CONTRIBUTING.md`
+3. Source `docs/`
+4. Source `README.md`, only where it agrees with the implementation
+5. Existing pages on this site
+
+The product `README.md` is the weakest source: it has contained confirmed drift from the implementation. Never promote a claim from an existing page or a source README over the code and its tests.

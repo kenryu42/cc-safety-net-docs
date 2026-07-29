@@ -45,7 +45,7 @@ After environment assignments and wrappers are stripped from a segment, the comm
 - **Shell wrappers** — `bash`, `sh`, `zsh`, `ksh`, `dash`, `fish`, `csh`, `tcsh`. The argument following `-c` is extracted and recursively analyzed.
 - **Interpreters** — `python`, `python2`, `python3`, `node`, `ruby`, `perl`. The code argument (after `-c`, or `-e` for node/ruby/perl) is extracted and scanned for embedded destructive operations.
 
-By default the interpreter's code is scanned for embedded destructive commands, so `python -c 'import os; os.system("rm -rf /")'` is blocked because of the embedded `rm -rf /` — the one-liner form alone is allowed. [Paranoid interpreters mode](/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters1) blocks every one-liner outright regardless of content.
+By default the interpreter's code is scanned for embedded destructive commands, so `python -c 'import os; os.system("rm -rf /")'` is blocked because of the embedded `rm -rf /` — the one-liner form alone is allowed. [Paranoid interpreters mode](/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1) blocks every one-liner outright regardless of content.
 
 `busybox` dispatch is handled as a special case: the subcommand is shifted into the command position and re-analyzed. `awk`/`gawk`/`mawk` programs are scanned for `system()` calls and backtick command substitutions.
 
@@ -89,7 +89,7 @@ Option matching handles the real-world grammar of git: long options use prefix m
 | 3 | **dynamic target** | Any target containing `$` or a backtick — expansion cannot be predicted | Blocked |
 | 4 | **home-cwd target** | The cwd _is_ the home directory (suggests moving into a project dir first) | Blocked |
 | 5 | **cwd self-target** | `.`, `./`, or any target that resolves to the same inode as the cwd | Blocked |
-| 6 | **within-cwd target** | A path that resolves inside the current working directory | Allowed by default; blocked under [paranoid rm](/configuration/modes#rm-check-cc_safety_net_paranoid_rm1) |
+| 6 | **within-cwd target** | A path that resolves inside the current working directory | Allowed by default; blocked under [paranoid rm](/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1) |
 | 7 | **outside-cwd target** | Anything else (absolute, parent, or non-temp paths outside the cwd) | Blocked |
 
 Both recursive (`-r`/`-R`/`--recursive`) and force (`-f`/`--force`) flags must be present for this classification to run. Path comparison uses canonical (realpath) resolution, so a symlink to `/` is correctly classified as dangerous, and `/tmp-malicious` does not match the `/tmp` temp rule.
@@ -113,7 +113,7 @@ For `xargs` and `parallel`, the concern is that the targets come from dynamic in
 
 ## Worktree relaxation
 
-When [worktree mode](/configuration/modes#worktree-mode-cc_safety_net_worktree1) is active, local-discard git commands are allowed inside a confirmed linked worktree. Relaxation requires all of the following:
+When [worktree mode](/configuration/modes#worktree-mode-cc_safety_net_worktree=1) is active, local-discard git commands are allowed inside a confirmed linked worktree. Relaxation requires all of the following:
 
 1. The matched rule is classified `localDiscard` (see the [git rule engine](#git-rule-engine) table). `sharedState` rules never relax.
 2. `CC_SAFETY_NET_WORKTREE=1` is set.
