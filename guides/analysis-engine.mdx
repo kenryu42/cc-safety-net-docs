@@ -1,27 +1,14 @@
 ---
-title: "How the CC Safety Net Analysis Engine Works"
-sidebarTitle: "Analysis Engine"
+title: "How the CC Safety Net analysis engine works"
+sidebarTitle: "Analysis engine"
 description: "Inside the analysis engine: safety-level boundaries, wrapper and interpreter recursion, git rules, recursive-delete target classification, device commands, and custom rule matching."
 ---
 
-The analysis engine is the platform-agnostic classifier that decides whether a command is destructive. This page documents how each analyzer inspects a command, so you can understand exactly why a given command is blocked or allowed — useful when reading `explain` output or writing precise [custom rules](/configuration/custom-rules). For the system view, see [Architecture](/guides/architecture).
+This is the fourth page of the technical sequence and the narrowest: it assumes the guard pipeline from [Architecture](/guides/architecture) and documents only the exact classification behavior and edge cases of the destructive-command classifier — the level of detail you need when reading `explain` output or writing precise [custom rules](/configuration/custom-rules).
 
-## Where the classifier sits
+The classifier is the **last** stage of the guard. Everything before it — bounded tool-input extraction, parser budgets, policy-file and Git-metadata protection, the policy snapshot load, and sensitive-path protection — has already run and is specified in the [ordered guard stages](/guides/architecture#the-ordered-guard-stages). Those earlier stages fail closed in **every** safety level, so nothing on this page relaxes them.
 
-Command analysis is the **last** stage of the guard, not the first. By the time a command reaches the classifier, the tool input has already passed bounded extraction, the parser budgets have already been checked, and three protections have already had their say:
-
-1. **Policy-file protection** and **Git-metadata protection** ran *before* any configuration was loaded, so they cannot be weakened by policy.
-2. The **policy snapshot** was loaded and the effective safety level resolved.
-3. **Sensitive-path protection** inspected the command, path, search, and patch shapes for built-in sensitive paths and configured deny paths.
-
-Only after all of that does the classifier described on this page run. The full ordered stage table is in [Architecture](/guides/architecture#the-ordered-guard-stages).
-
-Two fail-closed behaviours belong to the guard rather than to the classifier, and they apply **in every safety level**:
-
-- Exceeding a **tool-input bound** (traversal depth, node count, key count, per-string or aggregate size) denies.
-- Exceeding a **parser budget** — 131,072 UTF-16 code units, 16,384 words, or 64 nesting levels — denies.
-
-Invalid *configuration* is a different case entirely. A rejected configuration source is dropped and the runtime reports a `degraded` state; it never turns ordinary work into a denial. See [Configuration Recovery](/configuration/recovery).
+Its dispatch flow — split into segments, strip env assignments and wrappers, identify the head command, hand it to the matching analyzer — is diagrammed once in [Architecture](/guides/architecture#inside-command-analysis). This page picks up from there: what each analyzer does with the segment it receives, and where the safety levels move the boundary.
 
 ## Safety-level boundaries
 
@@ -37,10 +24,10 @@ Any capability mix that is not exactly one of the three presets reports as the e
 
 ### Standard
 
-Standard blocks recognisable destructive commands. It is deliberately **not** adversarial-grade, and it is best-effort against dynamic or hostile input.
+Standard blocks recognizable destructive commands. It is deliberately **not** adversarial-grade, and it is best-effort against dynamic or hostile input.
 
 - **Safe-looking unparseable text is permitted.** `echo 'unterminated` is allowed.
-- **Recognisable destructive text is still blocked, even when unparseable.** `git reset --hard 'unterminated` blocks via the raw-text heuristic scan, which recognises `rm -rf`, `git reset --hard`/`--merge`, `git clean -f`, `git checkout --force`, `git push --force`/`--delete`, `git branch -D`, `git tag -d`, `git stash drop`/`clear`, `git checkout --`, `git restore`, `find -delete`, `dd of=/dev/`, `mkfs /dev/`, and `shred <arg>`.
+- **Recognizable destructive text is still blocked, even when unparseable.** `git reset --hard 'unterminated` blocks via the raw-text heuristic scan, which recognizes `rm -rf`, `git reset --hard`/`--merge`, `git clean -f`, `git checkout --force`, `git push --force`/`--delete`, `git branch -D`, `git tag -d`, `git stash drop`/`clear`, `git checkout --`, `git restore`, `find -delete`, `dd of=/dev/`, `mkfs /dev/`, and `shred <arg>`.
 - **Dynamic `rm -rf` targets are not categorically blocked.** `rm -rf "$target"` is allowed in standard; it blocks only once the fail-closed capability is on.
 - Standard also intentionally allows dynamic executables, guarded command structure assembled through substitution, other unverifiable recursive-delete targets, and standalone metadata-only checks of built-in sensitive paths.
 - Standard never relaxes **sensitive content access** or **configured deny paths**, and never relaxes the catastrophic protections.
@@ -77,37 +64,9 @@ For non-catastrophic rules, precedence is: the master switch `destructive_comman
 
 **Catastrophic rules ignore both the master switch and any `"off"` override.** They are `rm.recursive-force-root-or-home`, `rm.git-metadata`, `powershell.remove-item-root-or-home`, `powershell.remove-item-recursive-force-root-or-home`, `powershell.remove-item-git-metadata`, and `find.delete-git-metadata`, alongside the always-on policy-file guard.
 
-## The classifier pipeline at a glance
-
-A command enters as a single string. The engine splits it into segments by shell operators, then walks each segment through detection and dispatch to the right analyzer. Shell wrappers (`bash -c`) and interpreters (`python -c`) are recursively re-analyzed, with cwd and environment propagated between segments and into nested calls. If any segment is blocked, the whole command is denied.
-
-```mermaid
-graph TD
-    Input["Command string"] --> Split["Split into segments"]
-    Split --> Loop["For each segment"]
-    Loop --> Strip["Strip env assignments + wrappers"]
-    Strip --> Head{"What is the command?"}
-    Head -->|git| Git["Git rule engine"]
-    Head -->|rm| Rm["rm analysis"]
-    Head -->|find / xargs / parallel| Other["Specific analyzers"]
-    Head -->|shell wrapper| Recurse1["Recurse into inner command"]
-    Head -->|interpreter| Recurse2["Recurse into code arg"]
-    Head -->|other| Custom["Custom rules fallback"]
-    Git --> Decision{"Blocked?"}
-    Rm --> Decision
-    Other --> Decision
-    Recurse1 --> Decision
-    Recurse2 --> Decision
-    Custom --> Decision
-    Decision -->|yes| Deny["Deny"]
-    Decision -->|no| Next{"More segments?"}
-    Next -->|yes| Loop
-    Next -->|no| Allow["Allow"]
-```
-
-Recursion is capped at **10 levels deep** to bound the work on deeply nested wrappers and interpreters.
-
 ## Shell wrappers and interpreter one-liners
+
+Recursion into wrappers and interpreters is capped at **10 levels deep**, and if any segment blocks, the whole command is denied.
 
 After environment assignments and wrappers are stripped from a segment, the command name is checked against two sets:
 
@@ -120,24 +79,16 @@ By default the interpreter's code is scanned for embedded destructive commands, 
 
 ### Transparent wrappers
 
-Standard wrappers (`sudo`, `env`, `command`, `builtin`) are always stripped. Beyond those, you can declare your own proxy commands as **transparent wrappers**, so the engine unwraps them and analyzes the real child command:
-
-```bash
-npx cc-safety-net rule wrapper add rtk
-npx cc-safety-net rule wrapper list
-npx cc-safety-net rule wrapper remove rtk
-```
-
-There are **no built-in defaults** — configure only wrappers you intentionally trust. Each entry must match the command pattern, must be unique, and must not be a reserved command (`git`, `busybox`, the built-in analyzed commands `rm`, `find`, `xargs`, `parallel`, every shell wrapper, every interpreter, and the awk interpreters). User- and project-scope lists are merged.
+Standard wrappers (`sudo`, `env`, `command`, `builtin`) are always stripped. Proxy commands you have declared as **transparent wrappers** are stripped too — declaring and constraining them belongs to [Custom rules](/configuration/custom-rules#transparent-wrappers); what matters for classification is how the engine unwraps them.
 
 Unwrapping finds the first *protectable* child command after wrapper flags and environment assignments, or the token right after an explicit `--`. Once unwrapped, both built-in analysis and **custom rules** apply to the child: `rtk git reset --hard` blocks on the built-in rule, and `rtk docker system prune` hits a matching custom rule. Child commands that nothing protects are not unwrapped.
 
-A proxy that is *not* listed in `transparent_wrappers`, or one that rewrites or hides its child command rather than exec'ing a visible child, is still not unwrapped — only the top-level dangerous-text fallback scan may catch it.
+A proxy that is *not* declared, or one that rewrites or hides its child command rather than exec'ing a visible child, is still not unwrapped — only the top-level dangerous-text fallback scan may catch it.
 
 Cwd is tracked across segments of the same command. A `cd` or `pushd` with a literal target updates the effective cwd for subsequent `rm` and `find` analysis; a `cd` to a dynamic target (containing `$` or a backtick) sets the cwd to unknown, which `rm` analysis treats as having no cwd anchor.
 
 <Note>
-  A known limitation: interpreter **long-form flags** (`--eval`, `--execute`, `--require`, and the attached `=value` form) are not recognized in every code path, so the code argument may not always be extracted. See [Known Limitations](/guides/known-limitations#interpreter-long-form-flags).
+  A known limitation: interpreter **long-form flags** (`--eval`, `--execute`, `--require`, and the attached `=value` form) are not recognized in every code path, so the code argument may not always be extracted. See [Known limitations](/guides/known-limitations#interpreter-long-form-flags).
 </Note>
 
 ## Git rule engine
@@ -149,7 +100,7 @@ The git analyzer extracts the subcommand and its options, matches dangerous opti
 | **localDiscard** | Discards only local working-tree state — a candidate for worktree relaxation | `checkout --`, `restore`, `clean -f`, `reset --hard` (no ref), `switch --force`, `rebase --abort`, `merge --abort` |
 | **sharedState** | Affects shared, remote, or recovery state — never relaxed | `push --force`, `branch -D`, `stash drop`/`clear`, `worktree remove --force`, `tag -d`, `reflog delete`, `reset --hard <ref>` |
 
-Option matching handles the real-world grammar of git: long options use prefix matching (so `--forc`, `--force`, and `--force-with-lease` resolve correctly), short options are unbundled (so `-Df` is read as `-D` plus `-f`), and global options that take values (`-c`, `-C`, `--git-dir`, `--work-tree`) are skipped when locating the subcommand. See [Commands Blocked](/reference/blocked-commands) for the full list of blocked git patterns.
+Option matching handles the real-world grammar of git: long options use prefix matching (so `--forc`, `--force`, and `--force-with-lease` resolve correctly), short options are unbundled (so `-Df` is read as `-D` plus `-f`), and global options that take values (`-c`, `-C`, `--git-dir`, `--work-tree`) are skipped when locating the subcommand. See [Commands blocked](/reference/blocked-commands) for the full list of blocked git patterns.
 
 <AccordionGroup>
   <Accordion title="Git SSH environment overrides">
@@ -191,7 +142,7 @@ Allow paths must be absolute or `~/`-prefixed directories. They apply in **every
 Both recursive (`-r`/`-R`/`--recursive`) and force (`-f`/`--force`) flags must be present for this classification to run. Path comparison uses canonical (realpath) resolution, so a symlink to `/` is correctly classified as dangerous, and `/tmp-malicious` does not match the `/tmp` temp rule.
 
 <Note>
-  The important distinction for everyday use: `rm -rf ./subdir` (within cwd) is **allowed**, but `rm -rf .` (the cwd itself) is **blocked**. See [Commands Allowed](/reference/allowed-commands).
+  The important distinction for everyday use: `rm -rf ./subdir` (within cwd) is **allowed**, but `rm -rf .` (the cwd itself) is **blocked**. See [Commands allowed](/reference/allowed-commands).
 </Note>
 
 ### PowerShell `Remove-Item`
@@ -251,7 +202,7 @@ A linked worktree is positively verified — not just assumed. The check confirm
 
 When no built-in analyzer matches, custom rules run as a fallback. They are strictly additive — they can only add blocks, never override a built-in block or relax protection. Rules are namespaced as `<rulebook-name>/<rule-name>` and matched on the command basename, an optional subcommand, and literal `block_args` (with short-option unbundling, so `-Ap` matches `-A`).
 
-See [Custom Rules](/configuration/custom-rules) for the full authoring guide and matching semantics.
+See [Custom rules](/configuration/custom-rules) for the full authoring guide and matching semantics.
 
 ## Tracing a decision
 
@@ -264,12 +215,13 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 
 The human-readable output walks through each segment, showing parse steps and rule evaluations. The JSON output returns the structured trace — see the [Explain trace reference](/reference/explain-trace) for the schema.
 
-If a decision looks wrong for your configuration rather than for the command, check whether the runtime is enforcing a fallback policy: `npx cc-safety-net status` prints `ready` or `degraded`, and [Configuration Recovery](/configuration/recovery) explains how to repair the named source.
+If a decision looks wrong for your configuration rather than for the command, check whether the runtime is enforcing a fallback policy: `npx cc-safety-net status` prints `ready` or `degraded`, and [Configuration recovery](/configuration/recovery) explains how to repair the named source.
 
-## Related pages
+## Where to go next
 
-- [Architecture](/guides/architecture) — the ordered guard stages this classifier is the last part of.
-- [Safety Modes](/configuration/modes) — how to select a level and the individual capability toggles.
-- [Commands Blocked](/reference/blocked-commands) and [Commands Allowed](/reference/allowed-commands) — the outcome reference.
-- [Configuration Recovery](/configuration/recovery) — `ready` versus `degraded`, and the repair path.
-- [Known Limitations](/guides/known-limitations) — what the classifier does not see.
+The technical guides run from the user-facing lifecycle down to the reasoning behind the design. This page is step 4.
+
+- Back: [Architecture](/guides/architecture) — the ordered guard stages this classifier is the last part of.
+- Next: [Design principles](/guides/design-principles) — why classification is semantic rather than pattern-based, and why the level boundaries fall where they do.
+
+Related: [Safety modes](/configuration/modes) for selecting a level, [Commands blocked](/reference/blocked-commands) and [Commands allowed](/reference/allowed-commands) for the outcome reference, and [Known limitations](/guides/known-limitations) for what the classifier does not see.

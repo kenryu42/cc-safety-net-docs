@@ -1,10 +1,12 @@
 ---
-title: "How CC Safety Net Intercepts and Blocks Destructive Commands"
-sidebarTitle: "How It Works"
+title: "How CC Safety Net intercepts and blocks destructive commands"
+sidebarTitle: "How it works"
 description: "The lifecycle of a single tool call: agent request, integration interception, ordered protection and analysis, the allow or block response, the audit record, and where to look when a decision surprises you."
 ---
 
 CC Safety Net sits between your coding agent and your machine. It runs *before* any shell command executes, inspects what the command would actually do, and either lets it through or returns a block the agent can act on. This page follows one tool call from end to end.
+
+This is step 1 of the technical progression, written for people using CC Safety Net rather than maintaining it; when you want the per-agent wiring underneath, continue to [Integration architecture](/guides/integration-architecture).
 
 ## The lifecycle of one tool call
 
@@ -13,13 +15,13 @@ CC Safety Net sits between your coding agent and your machine. It runs *before* 
     The agent decides to run something — a shell command such as `git reset --hard`, or a file write, edit, search, or patch — and hands it to its tool layer.
   </Step>
   <Step title="The integration intercepts it">
-    CC Safety Net's integration for that agent receives the call before the tool executes and before the operating system ever sees it. Some agents call CC Safety Net as a short-lived subprocess hook; others load it in-process as a plugin or extension. Either way the same guard runs. See [Integration Architecture](/guides/integration-architecture) for which agent uses which model.
+    CC Safety Net's integration for that agent receives the call before the tool executes and before the operating system ever sees it. Some agents call CC Safety Net as a short-lived subprocess hook; others load it in-process as a plugin or extension. Either way the same guard runs. See [Integration architecture](/guides/integration-architecture) for which agent uses which model.
   </Step>
   <Step title="Ordered protection and analysis">
     The tool input is read under strict bounds, parsed once, and then walked through a fixed sequence of checks — described in [What gets checked, in order](#what-gets-checked-in-order) below. The order never varies and does not depend on which agent made the call.
   </Step>
   <Step title="An allow or a block comes back">
-    A safe call is allowed and executes normally. A blocked call never runs; the agent receives a structured message naming the reason, the offending command, and what it should do next. See [What a block looks like](#what-a-block-looks-like).
+    A safe call is allowed and executes normally. A blocked call never runs; the agent receives a block message naming the reason, the offending command, and what it should do next. See [What a block looks like](#what-a-block-looks-like).
   </Step>
   <Step title="The decision is audited">
     The decision is appended to a local audit log so you can review what was analyzed and what was stopped. See [The audit record](#the-audit-record).
@@ -40,7 +42,7 @@ Every tool call runs through the same stages, in this order:
 
 Steps 3 and 4 deliberately run **before** step 5. Those two protections are always on and cannot be weakened by your configuration, because they take effect before that configuration is even read. Step 6 is policy-controlled, so you can disable it or extend it with your own deny paths.
 
-For the maintainer-level view of the same sequence, including stage names and evidence, see [Architecture](/guides/architecture#the-ordered-guard-stages). For the classifier internals, see [Analysis Engine](/guides/analysis-engine).
+For the maintainer-level view of the same sequence, including stage names and evidence, see [Architecture](/guides/architecture#the-ordered-guard-stages). For the classifier internals, see [Analysis engine](/guides/analysis-engine).
 
 ## Why intent, not string matching
 
@@ -53,11 +55,11 @@ CC Safety Net reasons about what a command *does*, not what it *looks like*. A c
 
 Both begin with `git checkout`. A pattern-matching deny rule either blocks both or neither. Because the decision is structural rather than textual, it also survives reordered flags (`rm -r -f /`), shell wrapping (`sh -c "rm -rf /"`), and interpreter one-liners (`python -c 'import os; os.system("rm -rf /")'`) — nested commands are unwrapped and re-analyzed up to 10 levels deep.
 
-See [Commands Blocked](/reference/blocked-commands) for what is stopped and [Commands Allowed](/reference/allowed-commands) for what deliberately is not.
+This page does not list every rule. See [Blocked commands](/reference/blocked-commands) for the full behavior matrix of what is stopped, and [Allowed commands](/reference/allowed-commands) for what deliberately is not.
 
 ## What a block looks like
 
-The agent receives the block as the tool result:
+The agent receives the block message as the tool result:
 
 ```text
 BLOCKED by CC Safety Net
@@ -83,17 +85,13 @@ The closing line is the part your agent acts on. It is chosen from the blocked r
 
 ## The audit record
 
-Each decision is appended as one JSON line to a local log under `~/.cc-safety-net/logs/`. Denials are always recorded; allowed command decisions are recorded too by default, and can be narrowed to denials only. Command, segment, and working-directory values are secret-redacted before they are written, and records are deleted by a retention sweep after 30 days unless you change the retention window.
-
-Read the log with the CLI:
+Every decision is written to a local audit log on your machine, so you can go back and see what your agent tried to do and what happened to it. Denials are always recorded, and allowed decisions are recorded by default. Read it with:
 
 ```bash
 npx cc-safety-net logs
-npx cc-safety-net logs --suspect
-npx cc-safety-net logs --json
 ```
 
-The full field list, the caps, the retention rules, and the privacy boundary are documented in the [audit log reference](/reference/audit-log).
+Where the log lives, what each record contains, how long records are kept, and exactly what is redacted before anything is written are all documented in the [audit log reference](/reference/audit-log).
 
 ## When a decision surprises you
 
@@ -102,7 +100,7 @@ The full field list, the caps, the retention rules, and the privacy boundary are
     `npx cc-safety-net explain "<command>"` replays the analysis for a command and shows which rule matched and why. Add `--json` for the structured trace.
   </Step>
   <Step title="Check that protection is actually in force">
-    `npx cc-safety-net status` prints `ready`, `degraded`, or `not enforcing` in one screen. `degraded` means a configuration source was rejected and a fallback is being enforced — see [Configuration Recovery](/configuration/recovery) for what is and is not active, and how to repair it. `npx cc-safety-net doctor` gives the full report.
+    `npx cc-safety-net status` prints `ready`, `degraded`, or `not enforcing` in one screen. `degraded` means a configuration source was rejected and a fallback is being enforced — see [Configuration recovery](/configuration/recovery) for what is and is not active, and how to repair it. `npx cc-safety-net doctor` gives the full report.
   </Step>
   <Step title="Adjust or report">
     If the block is correct but too strict for your workflow, change your [safety mode](/configuration/modes) or add a per-rule override. If a safe command is blocked, or a destructive one was not, see [Troubleshooting](/guides/troubleshooting) and the [security policy](/security) for where to report it.
@@ -111,8 +109,8 @@ The full field list, the caps, the retention rules, and the privacy boundary are
 
 ## What this does not cover
 
-CC Safety Net analyzes the tool call your agent attempts to make, so it cannot see behaviour hidden inside arbitrary binaries, unconfigured or opaque command proxies, or network activity. It is a static pre-execution policy gate — not an OS sandbox, not a privilege boundary, and no protection at all for commands that bypass an installed integration. See [Known Limitations](/guides/known-limitations) for the full list and the recommended mitigations.
+CC Safety Net analyzes the tool call your agent attempts to make, so it cannot see behavior hidden inside arbitrary binaries, unconfigured or opaque command proxies, or network activity. It is a static pre-execution policy gate — not an OS sandbox, not a privilege boundary, and no protection at all for commands that bypass an installed integration. See [Known limitations](/guides/known-limitations) for the full list and the recommended mitigations.
 
 <Note>
-  For the system component view and the ordered stage table, see [Architecture](/guides/architecture). For each analyzer and the recursive-delete classification order, see [Analysis Engine](/guides/analysis-engine). For the reasoning behind these choices, see [Design Principles](/guides/design-principles).
+  Next in the technical progression: [Integration architecture](/guides/integration-architecture) for how each agent is wired, then [Architecture](/guides/architecture) for the system component view and the ordered stage table, [Analysis engine](/guides/analysis-engine) for each analyzer and the recursive-delete classification order, and [Design principles](/guides/design-principles) for the reasoning behind these choices.
 </Note>

@@ -1,64 +1,27 @@
 ---
-title: "What Is CC Safety Net and Why You Need It"
+title: "What CC Safety Net is and why you need it"
 sidebarTitle: "Introduction"
-description: "CC Safety Net catches destructive git and filesystem commands before AI agents run them, using semantic analysis beyond pattern matching and sandboxing."
+description: "CC Safety Net is a pre-execution guard that inspects what your coding agent is about to run and blocks the operations that destroy uncommitted work."
 ---
 
-AI coding agents are powerful — and that power cuts both ways. A single misguided command like `rm -rf ~/` or `git checkout -- .` can wipe hours of uncommitted work in milliseconds. This isn't hypothetical: a [well-documented Reddit incident](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/) showed Claude CLI silently deleting an entire home directory. Adding soft instructions to a `CLAUDE.md` or `AGENTS.md` file helps, but those are guidelines the agent can misinterpret or overlook under the wrong conditions. CC Safety Net is a hard technical constraint — it inspects the agent's shell tool call and blocks destructive commands before they ever reach the shell.
+AI coding agents are powerful, and that power cuts both ways. A single misguided command like `rm -rf ~/` or `git checkout -- .` can wipe hours of uncommitted work in milliseconds. This isn't hypothetical: a [well-documented Reddit incident](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/) showed Claude CLI silently deleting an entire home directory.
 
-## How it works
+Adding soft instructions to a `CLAUDE.md` or `AGENTS.md` file helps, but those are guidelines the agent can misinterpret or overlook. CC Safety Net is a hard technical constraint instead of a request.
 
-CC Safety Net installs into your AI coding agent as a plugin, extension, or hook, depending on what that agent supports. Whichever form it takes, the interception point is the same: before the agent's shell tool call runs, CC Safety Net receives the command. It parses and semantically analyzes it — understanding what it actually intends to do, not just what characters it contains — and either allows it through or blocks it with a plain-language explanation returned to the agent.
+## What it intercepts
 
-The details differ per agent. Some agents invoke CC Safety Net as a short-lived subprocess and exchange JSON on stdin and stdout; others load it in-process and call it directly. Each agent also names its pre-execution event and its shell tool differently. You do not have to configure any of this — the installer wires up the right form for the agent you choose. See [Integration architecture](/guides/integration-architecture) for the per-agent breakdown.
+CC Safety Net installs into your coding agent and runs before the agent's tool call reaches your machine. It receives the operation the agent is about to perform — a shell command, or a file write, edit, search, or patch — analyzes what that operation would actually do, and then either lets it through or blocks it with a plain-language reason the agent can act on.
 
-Because this check runs ahead of the agent's own permission prompt, CC Safety Net acts as the outermost layer of defense. Even if your permission rules are misconfigured or bypassed, CC Safety Net still sees the raw command and can stop it.
+The decision is based on intent, not on spelling. `git checkout -b feature` creates a branch and is allowed; `git checkout -- file` discards uncommitted changes and is blocked. Both start with the same two words.
 
-## Supported agents
+How the interception is wired differs by agent — some run CC Safety Net as a short-lived subprocess, others load it in-process — but you do not configure any of that yourself. The installer sets up the right form for the agent you choose. For the full lifecycle of one tool call, see [How it works](/guides/how-it-works).
 
-CC Safety Net works with ten AI coding agents:
+## What it does not replace
 
-- **Amp Code**
-- **Antigravity CLI**
-- **Claude Code**
-- **Codex**
-- **Cursor**
-- **Gemini CLI**
-- **GitHub Copilot CLI**
-- **Kimi Code**
-- **OpenCode**
-- **Pi**
+CC Safety Net complements your agent's own permission rules and its native sandboxing; it does not stand in for either. Deny rules give you quick, user-configurable blocks. Sandboxing gives OS-level filesystem and network containment. CC Safety Net covers the known-destructive git and filesystem operations that a sandbox still permits inside your project and that pattern matching can be tricked into allowing. Running all three together is the intended setup — see [CC Safety Net vs. sandboxing](/guides/vs-sandboxing).
 
-Install and uninstall commands for each are on the [Installation](/installation) page.
+It is also not a complete guarantee. CC Safety Net is a static pre-execution policy gate, so it cannot see inside arbitrary binaries and offers no protection for commands that bypass an installed integration. Read [Known limitations](/guides/known-limitations) before you rely on it.
 
-## Key capabilities
+## Get started
 
-<CardGroup cols={2}>
-  <Card title="Semantic Analysis" icon="brain">
-    CC Safety Net understands command intent rather than matching against fixed string patterns. It correctly distinguishes `git checkout -b feature` (safe: creates a branch) from `git checkout -- file` (dangerous: discards uncommitted changes) — something wildcard rules cannot do reliably.
-  </Card>
-
-  <Card title="Shell Wrapper Detection" icon="layers">
-    Destructive commands don't have to appear at the top level to be caught. CC Safety Net recursively unwraps `bash -c`, `sh -c`, and similar shell invocations up to ten levels deep, so commands hidden inside wrappers are analyzed the same way as direct calls.
-  </Card>
-
-  <Card title="Interpreter One-Liners" icon="code">
-    Destructive code embedded in `python -c`, `node -e`, `ruby -e`, or `perl -e` one-liners is detected and blocked. An agent cannot sneak `os.system("rm -rf /")` past the hook by wrapping it in a Python call.
-  </Card>
-
-  <Card title="Custom Rules" icon="sliders-horizontal">
-    Beyond the built-in protections, you can define your own blocking rules via rulebooks at the user level (`~/.cc-safety-net/rules/rule.json`) or the project level (`.cc-safety-net/rules/rule.json` in your project root). Project-level overrides win over user-level overrides for the same rule key.
-  </Card>
-
-  <Card title="Audit Logging" icon="scroll">
-    Command decisions are appended as JSON lines to a per-project, per-month path under `~/.cc-safety-net/logs/`, so you have a local audit trail of what the agent tried to do and what happened. Denials are always recorded and allowed command decisions are recorded by default. Recognized secrets such as tokens, passwords, and API keys are redacted before anything is written; redaction is a bounded pattern list, not a classifier. See the [audit log reference](/reference/audit-log) for the schema, retention, and redaction scope.
-  </Card>
-
-  <Card title="Worktree Mode" icon="git-branch">
-    Linked git worktrees are designed to be disposable, isolated workspaces. Enable worktree mode with `workflow.worktree_mode` in `policy.json` or `CC_SAFETY_NET_WORKTREE=1`, and local-discard rules are relaxed inside a confirmed linked worktree so you can work freely there without triggering false positives.
-  </Card>
-</CardGroup>
-
-<Note>
-  CC Safety Net complements — it does not replace — your agent's own permission deny rules and native sandboxing (for example Claude Code's). Each layer protects a different threat surface: deny rules offer quick, user-configurable blocks; sandboxing provides OS-level filesystem and network containment; and CC Safety Net handles known-destructive git and filesystem patterns that sandboxing permits and that pattern matching can be tricked into allowing. Running all three together gives you defense-in-depth.
-</Note>
+Pick your agent on the [Installation](/installation) page, then confirm protection is live with the [Quickstart](/quickstart).

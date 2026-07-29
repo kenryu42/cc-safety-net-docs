@@ -1,6 +1,6 @@
 ---
-title: "Custom Rules: Extra Command Argument Patterns"
-sidebarTitle: "Custom Rules"
+title: "Custom rules: extra command argument patterns"
+sidebarTitle: "Custom rules"
 description: "Define project and user-level custom blocking rules in CC Safety Net using JSON config files. Block commands by matching command, subcommand, and literal argument patterns with a custom reason message."
 ---
 
@@ -26,7 +26,7 @@ Beyond built-in protections, CC Safety Net lets you define custom blocking rules
   ```
 </Tip>
 
-## Config File Locations
+## Config file locations
 
 CC Safety Net loads rulebooks from two scopes and merges them:
 
@@ -74,7 +74,7 @@ npx -y cc-safety-net rule list
 npx -y cc-safety-net rule remove example-rules --delete-source
 ```
 
-Add `--global` (`-g`) to operate on the user scope instead of the project scope.
+Add `--global` (`-g`) to operate on the user scope instead of the project scope. See [CLI commands](/reference/cli-commands) for every `rule` subcommand, its options, and its exit behavior.
 
 ### Lock and cache
 
@@ -85,7 +85,7 @@ What happens when verification fails depends on which side is broken:
 - A **missing lockfile, missing lock entry, missing cache entry, digest mismatch, or unparseable cached rulebook** drops that source. It contributes no rules until you run `rule sync`. Every other verified source and every built-in protection keeps applying, and ordinary commands keep running.
 - A **local source that drifts from its pinned digest** — including one that is missing, unparseable, or schema-invalid on disk — is a warning, not a drop. The digest-verified **cached** rulebook stays enforced, so your pending local edit is provably not active until you run `rule sync`.
 
-Either way the runtime reports itself as `degraded` rather than blocking work. See [Recovery](/configuration/recovery) for the full state model, the exact diagnostic strings, and the repair sequence.
+Either way the runtime reports itself as `degraded` rather than blocking work. See [Configuration recovery](/configuration/recovery) for the full state model, the exact diagnostic strings, and the repair sequence.
 
 ## Transparent wrappers
 
@@ -117,7 +117,7 @@ Rules for the field:
   `transparent_wrappers` lives in `rule.json`, which carries no lock or digest. If a scope's `rule.json` becomes unreadable, that scope's wrappers stop applying — the one place where dropped configuration reduces built-in coverage. A dropped **rulebook** (missing cache entry, missing lock entry, digest mismatch) leaves `rule.json` readable, so wrappers survive it.
 </Warning>
 
-## Quick Start
+## Quick start
 
 Create a starter project rule config:
 
@@ -197,7 +197,7 @@ npx -y cc-safety-net rule test
 
 Now `git add -A`, `git add --all`, and `git add .` will be blocked with your custom message.
 
-## Config Schema
+## Config schema
 
 The top-level `rule.json` selects which rulebooks are active, applies overrides, and declares transparent wrappers. It is separate from `policy.json`, which configures safety levels, built-in protections, allow and deny paths, and audit retention — see [Policy](/configuration/policy) for that file.
 
@@ -234,7 +234,7 @@ An override that changes both the message and the agent-facing intent looks like
 }
 ```
 
-## Rulebook Schema
+## Rulebook schema
 
 Each rulebook lives in its own `rulebook.json` file.
 
@@ -263,14 +263,14 @@ Each rulebook lives in its own `rulebook.json` file.
 </ParamField>
 
 <ParamField body="rules" type="array" required>
-  Custom blocking rules (see Rule Schema below).
+  Custom blocking rules (see Rule schema below).
 </ParamField>
 
 <ParamField body="tests" type="array" required>
-  Rulebook fixtures (see Fixture Schema below). Every rule must have at least one blocked fixture.
+  Rulebook fixtures (see Fixture schema below). Every rule must have at least one blocked fixture.
 </ParamField>
 
-## Rule Schema
+## Rule schema
 
 <ParamField body="name" type="string" required>
   Unique within the rulebook. Must start with a letter, followed by letters, numbers, hyphens, or underscores; max 64 chars.
@@ -296,7 +296,7 @@ Each rulebook lives in its own `rulebook.json` file.
   Agent behavior intent appended to the block message footer. One of `hard_stop`, `use_alternative`, `scope_down`, `manual_only`, or `stop_and_explain`. Defaults to `manual_only`.
 </ParamField>
 
-## Fixture Schema
+## Fixture schema
 
 <ParamField body="command" type="string" required>
   Shell command fixture.
@@ -310,7 +310,7 @@ Each rulebook lives in its own `rulebook.json` file.
   Rule expected to block the command. Required for blocked fixtures.
 </ParamField>
 
-## Matching Behavior
+## Matching behavior
 
 Understanding how CC Safety Net matches commands against your rules helps you write precise, effective rules:
 
@@ -435,9 +435,9 @@ Understanding how CC Safety Net matches commands against your rules helps you wr
   </Accordion>
 </AccordionGroup>
 
-## Block Output Format
+## Block message format
 
-When a custom rule blocks a command, the output is prefixed with the rulebook name and the rule name, so you can tell which rulebook produced the block:
+[What a block looks like](/guides/how-it-works#what-a-block-looks-like) owns the full block message layout. What a custom rule adds is a prefix carrying the rulebook name and the rule name, so you can tell which rulebook produced the block:
 
 ```text
 BLOCKED by CC Safety Net
@@ -449,7 +449,7 @@ Command: git add -A
 
 The prefix is `<rulebook-name>/<rule-name>`. This is also the key you use in `rule.json` `overrides` to disable a rule (`"off"`) or replace its reason.
 
-## Validating Your Rulebooks
+## Validating your rulebooks
 
 After creating or editing rulebooks, validate them with:
 
@@ -463,7 +463,7 @@ npx -y cc-safety-net rule test
 - `rule verify` validates rulebook structure and rule definitions.
 - `rule test` runs every fixture in every active rulebook.
 
-## Migration from Legacy Config
+## Migration from legacy config
 
 Legacy inline config files (`.safety-net.json` and `~/.cc-safety-net/config.json`) are **no longer loaded at runtime**.
 
@@ -503,24 +503,11 @@ npx -y cc-safety-net rule test
 ~/.cc-safety-net/rules/user-rules/rulebook.json   # migrated user rules
 ```
 
-## Error Handling
+## Error handling
 
 Custom-rule configuration that cannot be verified is **dropped, not enforced, and never turned into a denial**. Ordinary commands keep running, every other verified source keeps enforcing, and every built-in protection still applies. The runtime reports itself as `degraded` so the situation is visible.
 
-| Scenario | Behavior |
-| --- | --- |
-| Config file not found | Silent — built-in rules only, state stays `ready` |
-| Malformed, empty, or unsupported-`version` `rule.json` | That whole scope is dropped, **including its `transparent_wrappers`** |
-| Empty legacy config | Silent — built-in rules only |
-| Legacy config with rules and no migrated rule config | Legacy rules are inert until `rule migrate` runs |
-| Invalid legacy config | Inert until fixed or removed |
-| Missing lockfile, missing lock entry, missing cache entry, or digest mismatch | Only that source is dropped; run `rule sync` |
-| Invalid cached rulebook | Only that source is dropped |
-| Local rulebook missing, invalid, or drifted from its digest | Warning only — the digest-verified **cached** rulebook keeps enforcing until you run `rule sync` |
-| Duplicate active rulebook name | The first claim wins, user scope first; the later rulebook contributes nothing |
-| Unknown override key, or a project override naming a user-scoped rule | Only that override is ignored |
-
-Because a dropped source **removes** denials rather than adding them, this class of failure produces no friction on its own. `npx cc-safety-net status` is the cheap habitual check; `npx cc-safety-net doctor` gives the full report, and `npx -y cc-safety-net rule list` exits non-zero when any issue or warning remains. See [Recovery](/configuration/recovery) for the diagnostic strings, the reporting surfaces, and the repair sequence.
+Because a dropped source **removes** denials rather than adding them, this class of failure produces no friction on its own. `npx cc-safety-net status` is the cheap habitual check. See [Configuration recovery](/configuration/recovery) for the full failure-to-fallback matrix, the diagnostic strings, the reporting surfaces, and the repair sequence.
 
 <Warning>
   Custom rule configuration is **not tamper-resistant**. `rule.json`, rulebooks, lockfiles, and caches are best-effort; only the canonical user `policy.json` is a protected path. If you add or modify custom rules manually, always validate them with `npx -y cc-safety-net rule verify` and `npx -y cc-safety-net rule test`.

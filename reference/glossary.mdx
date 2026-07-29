@@ -1,5 +1,5 @@
 ---
-title: "CC Safety Net Glossary"
+title: "CC Safety Net glossary"
 sidebarTitle: "Glossary"
 description: "Definitions for CC Safety Net terms: policy, preset, capability, degraded, decision, rulebook, transparent wrapper, integration model, fail-closed, and segments."
 keywords:
@@ -21,42 +21,44 @@ keywords:
 
 A reference for the terms used throughout the CC Safety Net documentation. If a word in another page is unfamiliar, check here first.
 
+Each entry is a short definition plus a link to the page that owns the term. Read the linked page for the exact behavior — nothing here is authoritative on its own.
+
 ## Core concepts
 
 | Term | Definition |
 | --- | --- |
-| **PreToolUse hook** | A hook that runs before a tool executes. CC Safety Net registers as a PreToolUse hook (or the equivalent event on each agent) to intercept shell commands before they run. See [How It Works](/guides/how-it-works). |
-| **Fail-closed** | When the guard cannot reach a trustworthy verdict, that one tool call is **denied** rather than allowed: an unexpected analysis error, malformed or oversized hook input, an empty command, a parser limit, or an unparseable command under strict mode. Invalid configuration is *not* fail-closed — it degrades instead. See [Design Principles](/guides/design-principles) and [Security Model](/guides/security-model). |
-| **Decision** | The guard's allow-or-deny outcome for a single tool call. Each recorded command decision becomes exactly one audit record carrying the rule ID, the effective safety level, and a fallback flag when the runtime is degraded. See [Audit Log](/reference/audit-log). |
-| **Segment** | A single command split from a compound command by shell operators (`&&`, `\|\|`, `\|`, `;`, newline). Each segment is analyzed independently; if any segment is blocked, the whole command is denied. |
-| **Analysis engine** | The platform-agnostic core that parses a command string and decides whether to block it. Every agent integration feeds the same engine. See [Analysis Engine](/guides/analysis-engine). |
-| **Integration model** | How CC Safety Net executes inside a given coding agent — as a hook subprocess reading JSON on stdin, as a marketplace plugin, as an in-process plugin or extension, or as an event plugin. The model changes only how the agent invokes CC Safety Net, never what the analysis engine decides. See [Integration Architecture](/guides/integration-architecture). |
+| **PreToolUse hook** | A hook that runs before a tool executes. CC Safety Net registers as a PreToolUse hook (or the equivalent event on each agent) to intercept shell commands before they run. See [How it works](/guides/how-it-works). |
+| **Fail-closed** | When the guard cannot reach a trustworthy verdict, that one tool call is **denied** rather than allowed: an unexpected analysis error, malformed or oversized hook input, an empty command, a parser limit, or an unparseable command under strict mode. Invalid configuration is *not* fail-closed — it degrades instead. See [Design principles](/guides/design-principles) and [Security model](/guides/security-model). |
+| **Decision** | The guard's allow-or-deny outcome for a single tool call. Each recorded command decision becomes exactly one audit record carrying the rule ID, the effective safety level, and a fallback flag when the runtime is degraded. See [Audit log](/reference/audit-log). |
+| **Segment** | A single command split from a compound command by shell operators (`&&`, `\|\|`, `\|`, `;`, newline). Each segment is analyzed independently; if any segment is blocked, the whole command is denied. See [Analysis engine](/guides/analysis-engine). |
+| **Analysis engine** | The platform-agnostic core that parses a command string and decides whether to block it. Every agent integration feeds the same engine. See [Analysis engine](/guides/analysis-engine). |
+| **Integration model** | How CC Safety Net executes inside a given coding agent — as a stdin hook subprocess, as an agent-loaded plugin, as an in-process extension, or as an event plugin. The model changes only how the agent invokes CC Safety Net, never what the analysis engine decides. See [Integration architecture](/guides/integration-architecture). |
 
 ## Configuration
 
 | Term | Definition |
 | --- | --- |
 | **Policy** | The settings document `policy.json` — by default `~/.cc-safety-net/policy.json` — holding the safety preset, capability overrides, worktree mode, destructive-command protection, secret protection, and audit retention. It is not where custom rules live. See [Policy](/configuration/policy). |
-| **Policy snapshot** | The effective runtime policy composed on every tool call from the policy file, `rule.json`, lockfiles, and digest-verified rulebook caches. Loading it performs no writes, no network requests, and no caching. It resolves to exactly one of two states, `ready` or `degraded`. See [Recovery](/configuration/recovery). |
+| **Policy snapshot** | The effective runtime policy composed on every tool call from the policy file, `rule.json`, lockfiles, and digest-verified rulebook caches. Loading it performs no writes, no network requests, and no caching. It resolves to exactly one of two states, `ready` or `degraded`. See [Configuration recovery](/configuration/recovery). |
 | **Preset** | The `safety.level` value — `standard`, `strict`, or `paranoid` — that supplies inherited capability defaults. When overrides produce a combination that matches no preset, the reported effective level is `custom`. See [Modes](/configuration/modes). |
 | **Capability** | One individually settable protection behavior inherited from the preset: `fail_closed`, `paranoid_rm`, or `paranoid_interpreters`. `safety.overrides` in the policy file sets a capability up or down; the legacy environment flags can only raise it. See [Modes](/configuration/modes). |
-| **Degraded** | The policy snapshot state entered when a configuration source is rejected: the unverifiable source is dropped or falls back to protective defaults, ordinary work continues, and the state is reported on every diagnostic surface. The other state is `ready`. See [Recovery](/configuration/recovery). |
+| **Degraded** | The policy snapshot state entered when a configuration source is rejected: the unverifiable source is dropped or falls back to protective defaults, ordinary work continues, and the state is reported on every diagnostic surface. The other state is `ready`. See [Configuration recovery](/configuration/recovery). |
 
 ## Command forms
 
 | Term | Definition |
 | --- | --- |
-| **Shell wrapper** | A shell command that wraps another command, such as `bash -c 'git reset --hard'`. CC Safety Net recursively analyzes wrapped commands up to 10 levels deep. |
-| **Interpreter one-liner** | A command like `python -c 'import os; os.system("rm -rf /")'` that executes code inline. Detected and analyzed for dangerous patterns by default. |
-| **Dynamic substitution** | Shell command substitution `$(...)`, process substitution `<(...)`, or variable expansion `$VAR`. Segments containing these are flagged because their output cannot be predicted at analysis time. |
+| **Shell wrapper** | A shell command that wraps another command, such as `bash -c 'git reset --hard'`. CC Safety Net recursively analyzes wrapped commands up to 10 levels deep. See [Blocked commands](/reference/blocked-commands#shell-wrappers-and-interpreter-one-liners). |
+| **Interpreter one-liner** | A command like `python -c 'import os; os.system("rm -rf /")'` that executes code inline. Detected and analyzed for dangerous patterns by default. See [Blocked commands](/reference/blocked-commands#shell-wrappers-and-interpreter-one-liners). |
+| **Dynamic substitution** | Shell command substitution `$(...)`, process substitution `<(...)`, or variable expansion `$VAR`. Segments containing these are flagged because their output cannot be predicted at analysis time. See [Analysis engine](/guides/analysis-engine). |
 
 ## rm and paths
 
 | Term | Definition |
 | --- | --- |
-| **CWD self-target** | An `rm -rf` target that resolves to the current working directory itself (for example `rm -rf .`). Always blocked. |
-| **Effective cwd** | The working directory tracked across `cd` and `pushd` commands within a compound command. Used for `rm -rf` target classification and worktree detection. |
-| **Within-cwd target** | An `rm -rf` target that resolves inside the current working directory. Allowed by default; blocked under paranoid rm mode. |
+| **CWD self-target** | An `rm -rf` target that resolves to the current working directory itself (for example `rm -rf .`). Always blocked. See [Blocked commands](/reference/blocked-commands#filesystem-commands). |
+| **Effective cwd** | The working directory tracked across `cd` and `pushd` commands within a compound command. Used for `rm -rf` target classification and worktree detection. See [Analysis engine](/guides/analysis-engine). |
+| **Within-cwd target** | An `rm -rf` target that resolves inside the current working directory. Allowed by default; blocked under paranoid rm mode. See [Allowed commands](/reference/allowed-commands#filesystem-commands). |
 
 ## Modes
 
@@ -64,16 +66,16 @@ A reference for the terms used throughout the CC Safety Net documentation. If a 
 | --- | --- |
 | **Strict mode** | The `strict` preset, which turns on the `fail_closed` capability so commands that cannot be safely analyzed are denied. Set `safety.level` in the policy file, or raise it with `CC_SAFETY_NET_STRICT=1`. See [Modes](/configuration/modes). |
 | **Paranoid mode** | The `paranoid` preset, which adds the `paranoid_rm` and `paranoid_interpreters` capabilities on top of strict. Set `safety.level` in the policy file, or raise individual capabilities with `CC_SAFETY_NET_PARANOID`, `CC_SAFETY_NET_PARANOID_RM`, and `CC_SAFETY_NET_PARANOID_INTERPRETERS`. See [Modes](/configuration/modes). |
-| **Worktree relaxation** | When worktree mode is on — `workflow.worktree_mode` in the policy file or `CC_SAFETY_NET_WORKTREE=1` — local git discard commands are allowed inside confirmed linked git worktrees, because changes there are disposable. When the worktree cannot be positively verified, the relaxation is not applied. See [Policy](/configuration/policy). |
+| **Worktree relaxation** | When worktree mode is on — `workflow.worktree_mode` in the policy file or `CC_SAFETY_NET_WORKTREE=1` — local git discard commands are allowed inside confirmed linked git worktrees, because changes there are disposable. When the worktree cannot be positively verified, the relaxation is not applied. See [Modes](/configuration/modes#worktree-mode-cc_safety_net_worktree=1). |
 
 ## Rules
 
 | Term | Definition |
 | --- | --- |
-| **Rulebook** | A JSON file holding custom blocking rules, fixtures, and metadata. It is configured as a source in `rule.json`, pinned in the lockfile by SHA-256 digest, and enforced from the verified cache. Rulebook names are claimed globally across the user and project scopes. See [Custom Rules](/configuration/custom-rules). |
-| **Transparent wrapper** | A command declared in `rule.json` under `transparent_wrappers` that analysis looks through to reach the protected command it executes. Wrappers live in `rule.json` rather than in a rulebook, so a dropped rulebook keeps them but an unreadable `rule.json` loses that scope's wrappers. See [Custom Rules](/configuration/custom-rules). |
-| **Lockfile** | A JSON file (`rule.lock`) tracking rulebook source digests and cached content. Used to detect stale or tampered rulebooks. |
+| **Rulebook** | A JSON file holding custom blocking rules, fixtures, and metadata. It is configured as a source in `rule.json`, pinned in the lockfile by SHA-256 digest, and enforced from the verified cache. Rulebook names are claimed globally across the user and project scopes. See [Custom rules](/configuration/custom-rules). |
+| **Transparent wrapper** | A command declared in `rule.json` under `transparent_wrappers` that analysis looks through to reach the protected command it executes. Wrappers live in `rule.json` rather than in a rulebook, so a dropped rulebook keeps them but an unreadable `rule.json` loses that scope's wrappers. See [Custom rules](/configuration/custom-rules). |
+| **Lockfile** | A JSON file (`rule.lock`) tracking rulebook source digests and cached content. Used to detect stale or tampered rulebooks. See [Custom rules](/configuration/custom-rules). |
 
 <Note>
-  Looking for the formal schemas for rulebooks, rules, fixtures, and lockfiles? See the [Custom Rules](/configuration/custom-rules) reference. For the JSON shape returned by `explain --json`, see the [Explain trace reference](/reference/explain-trace).
+  Looking for the formal schemas for rulebooks, rules, fixtures, and lockfiles? See the [Custom rules](/configuration/custom-rules) reference. For the `policy.json` schema, see [Policy](/configuration/policy). For the JSON shape returned by `explain --json`, see [Explain trace](/reference/explain-trace).
 </Note>

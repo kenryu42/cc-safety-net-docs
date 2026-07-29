@@ -1,5 +1,5 @@
 ---
-title: "Troubleshooting CC Safety Net Installation and Behavior"
+title: "Troubleshooting CC Safety Net installation and behavior"
 sidebarTitle: "Troubleshooting"
 description: "Fix common CC Safety Net issues: hook not firing, commands not blocked, false positives, custom rules not enforced, degraded configuration, and status line not showing."
 ---
@@ -24,7 +24,7 @@ bunx cc-safety-net doctor
 Review the output before diving into the individual issues below. Most problems are visible here.
 
 <Note>
-  A `degraded` verdict means a configuration source was rejected and something safe is enforced in its place. It does **not** mean your commands are blocked — invalid configuration never denies ordinary work. See [Configuration Recovery](/configuration/recovery).
+  A `degraded` verdict means a configuration source was rejected and something safe is enforced in its place. It does **not** mean your commands are blocked — invalid configuration never denies ordinary work. See [Configuration recovery](/configuration/recovery).
 </Note>
 
 ## Common issues
@@ -64,11 +64,13 @@ Review the output before diving into the individual issues below. Most problems 
        </Warning>
 
     2. Check the effective level in that output. [Standard mode](/configuration/modes#default-mode) is best-effort: it deliberately allows dynamic executables, command structure assembled through substitution, unverifiable recursive-delete targets such as `rm -rf "$target"`, and metadata-only checks of built-in sensitive paths. If your commands can come from prompt injection or another adversarial context, raise the level to [strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) or [paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1), which fail closed on all of those forms.
-    3. The command may fall into an explicitly allowed category. For example, `rm -rf` within the current working directory is allowed by default because it's scoped to your project. See the [Commands Allowed](/reference/allowed-commands) reference for the full list.
-    4. Run `npx cc-safety-net status`. A `degraded` verdict means a rule source was dropped, so the denials that source contributed are not being enforced. See [Configuration Recovery](/configuration/recovery).
+    3. The command may fall into an explicitly allowed category. For example, `rm -rf` within the current working directory is allowed by default because it's scoped to your project. See the [Allowed commands](/reference/allowed-commands) reference for the full list.
+    4. Run `npx cc-safety-net status`. A `degraded` verdict means a rule source was dropped, so the denials that source contributed are not being enforced. See [Configuration recovery](/configuration/recovery).
     5. If the command runs through a proxy that CC Safety Net does not analyze, register it with `npx -y cc-safety-net rule wrapper add <command>` so analysis looks through it to the real child command.
-    6. If you need the command blocked in your context, create a custom rulebook with `npx -y cc-safety-net rule init` and add a rule to `.cc-safety-net/rules/project-rules/rulebook.json`. See [Custom Rules](/configuration/custom-rules) for the schema.
-    7. If none of the above explains it, a command shape the rules do not block yet is a **coverage gap**, which is a public bug under the project policy — open a GitHub issue describing the command *shape*, not a ready-to-paste payload. Secret leakage, a write outside the intended directory, and package-integrity problems take the private disclosure path instead. Both procedures are in the [security policy](/security).
+    6. If you need the command blocked in your context, create a custom rulebook with `npx -y cc-safety-net rule init` and add a rule to `.cc-safety-net/rules/project-rules/rulebook.json`. See [Custom rules](/configuration/custom-rules) for the schema.
+    7. If none of the above explains it, a command shape the rules do not block yet is a **coverage gap**, which is a public bug under the project policy — open a [GitHub issue](https://github.com/kenryu42/cc-safety-net/issues) describing the command *shape*, not a ready-to-paste payload. Secret leakage, a write outside the intended directory, and supply-chain or package-integrity problems take the private disclosure path instead. Both procedures, and the line between them, are in the [security policy](/security).
+
+       Attach a reviewed `explain` trace from step 1 — never a raw trace, and never real credentials. If the boundary you hit is a documented one, [Known limitations](/guides/known-limitations) says so and names the layer that covers it instead.
   </Accordion>
 
   <Accordion title="CC Safety Net is blocking a command I need">
@@ -87,7 +89,7 @@ Review the output before diving into the individual issues below. Most problems 
   <Accordion title="Custom rules are not being enforced">
     A rule source that cannot be verified is **dropped**, not blocked on. Your commands keep running, the rules that source contributed simply stop applying, and the runtime reports `degraded`. That makes this failure quiet: nothing rubs during a clean session, so check it deliberately after any change to rule configuration and after an upgrade.
 
-    Every other verified scope and every built-in protection keeps enforcing. A full breakdown of each failure and the fallback it produces is in [Configuration Recovery](/configuration/recovery).
+    Every other verified scope and every built-in protection keeps enforcing. A full breakdown of each failure and the fallback it produces is in [Configuration recovery](/configuration/recovery).
 
     **Steps to resolve:**
 
@@ -115,7 +117,7 @@ Review the output before diving into the individual issues below. Most problems 
     3. For `policy.json`, fix the file by hand — the runtime never rewrites it. Rejected sections fall back to *protective* defaults, so the usual symptom is more denials than you configured, not fewer. The quiet exception is an invalid `safety.level`, which falls back to `standard` and therefore *lowers* your protection.
     4. Re-run `npx cc-safety-net status` and confirm the verdict is `ready`.
 
-    See [Configuration Recovery](/configuration/recovery) for every failure row and its fallback.
+    See [Configuration recovery](/configuration/recovery) for every failure row and its fallback.
   </Accordion>
 
   <Accordion title="Status line not showing in Claude Code">
@@ -137,7 +139,7 @@ Review the output before diving into the individual issues below. Most problems 
        bunx cc-safety-net statusline --claude-code
        ```
        If this command fails, the status line will be blank inside Claude Code.
-    5. Note that the status line reflects the `enabledPlugins["cc-safety-net@cc-marketplace"]` entry in `~/.claude/settings.json`. If you run CC Safety Net as a manual hook or for another agent, it may show `❌` even though protection is active. See [Status Line](/configuration/status-line) for what each indicator means.
+    5. Note that the status line reflects the `enabledPlugins["cc-safety-net@cc-marketplace"]` entry in `~/.claude/settings.json`. If you run CC Safety Net as a manual hook or for another agent, it may show `❌` even though protection is active. See [Status line](/configuration/status-line) for what each indicator means.
   </Accordion>
 
   <Accordion title="Getting an update">

@@ -1,6 +1,6 @@
 ---
-title: "CC Safety Net Security Model"
-sidebarTitle: "Security Model"
+title: "CC Safety Net security model"
+sidebarTitle: "Security model"
 description: "How CC Safety Net models trust: the AI-to-shell boundary, what each safety level guarantees, the configuration recovery boundary, and the disclosure classification."
 ---
 
@@ -59,7 +59,7 @@ The rejected candidate is never treated as active. Dropping a source removes the
 
 Policy-file protection and Git-metadata protection are evaluated **before** the configuration snapshot is loaded, so they apply identically in both states and carry no configuration metadata.
 
-The complete contract — every failure row, the fallback it produces, and the recovery commands — lives in [Configuration Recovery](/configuration/recovery).
+The complete contract — every failure row, the fallback it produces, and the recovery commands — lives in [Configuration recovery](/configuration/recovery).
 
 ## Fail-closed enforcement
 
@@ -87,15 +87,15 @@ Fail-closed applies to **that one tool call** when analysis itself cannot comple
   Invalid configuration is deliberately **not** in this list. A rejected rule source is dropped and an unreadable policy file falls back to protective defaults, so ordinary work continues — see [Configuration recovery boundary](#configuration-recovery-boundary).
 </Note>
 
-See [Design Principles](/guides/design-principles#fail-closed-as-the-default) for the rationale.
+See [Design principles](/guides/design-principles#fail-closed-as-the-default) for the rationale.
 
 ## Secret redaction
 
 Before any command or segment text is written to the audit log or returned to the agent, it passes through automatic secret redaction. The redactor scrubs PEM private keys, database URL environment variables, generic secret-bearing env assignments, common secret HTTP headers, URL credentials, and known provider token prefixes (GitHub, Slack, npm, Stripe, PyPI), plus JWTs and AWS access key IDs. Each matched value is replaced with `<redacted>`.
 
-Redaction is conservative and pattern-based — it reduces the risk of leaking secrets that happen to appear in a command's arguments, but it is **bounded to recognized credential shapes**. Absolute filesystem paths, project and directory names, hostnames, IP addresses, usernames, and any credential whose format is not on the pattern list are retained verbatim. New secret formats emerge regularly, so avoid piping real credentials through commands an agent runs. See the [Audit Log reference](/reference/audit-log#secret-redaction) for the full redaction scope.
+Redaction is conservative and pattern-based — it reduces the risk of leaking secrets that happen to appear in a command's arguments, but it is **bounded to recognized credential shapes**. Absolute filesystem paths, project and directory names, hostnames, IP addresses, usernames, and any credential whose format is not on the pattern list are retained verbatim. New secret formats emerge regularly, so avoid piping real credentials through commands an agent runs. See the [Audit log reference](/reference/audit-log#secret-redaction) for the full redaction scope.
 
-The same bound applies to `cc-safety-net explain`: a real trace carries the command text you supplied, its parsed tokens, and absolute paths including your home directory. Review a trace before pasting it anywhere — see [Explain Trace](/reference/explain-trace).
+The same bound applies to `cc-safety-net explain`: a real trace carries the command text you supplied, its parsed tokens, and absolute paths including your home directory. Review a trace before pasting it anywhere — see [Explain trace](/reference/explain-trace).
 
 ## Attack surface
 
@@ -106,7 +106,7 @@ The threat model enumerates the main attack surfaces and their mitigations.
 | **Shell command parser** | Craft a command string that exploits a parser edge case (unusual quoting, nested substitution, operator ambiguity) to hide a destructive payload | Unclosed-quote guard returns the raw string as one segment; variable references are preserved (not expanded) so dynamic substitutions can be detected; strict mode blocks unparseable commands; parser errors trigger fail-closed |
 | **Wrapper and interpreter stripping** | Hide a destructive command behind `sudo`, `env`, `bash -c`, or an interpreter one-liner | Wrappers are stripped iteratively (with an iteration cap); shell wrappers and interpreter code are recursively re-analyzed up to 10 levels; commands you declare in `transparent_wrappers` are unwrapped to their visible child before analysis |
 | **Sensitive-file access** | Read or discover credentials such as `.env`, `~/.ssh/id_*`, or `~/.aws/credentials` through a command, path, search, or patch shape | Sensitive-path protection covers supported command, path, search, and patch shapes plus unknown-tool fallback inspection; user-configured deny paths and their descendants are matched first and never relaxed; metadata-only discovery is additionally blocked in strict and paranoid. Coverage is a bounded pattern set, not a general read boundary |
-| **Path traversal in rm analysis** | Slip a dangerous `rm -rf` target past classification using symlinks or path tricks | Targets are resolved to canonical paths; `$TMPDIR` overrides pointing outside known temp dirs are detected; a residual TOCTOU window remains (see [Known Limitations](/guides/known-limitations#symlink-toctou-risk)) |
+| **Path traversal in rm analysis** | Slip a dangerous `rm -rf` target past classification using symlinks or path tricks | Targets are resolved to canonical paths; `$TMPDIR` overrides pointing outside known temp dirs are detected; a residual TOCTOU window remains (see [Known limitations](/guides/known-limitations#symlink-toctou-risk)) |
 | **Rulebook supply chain** | Serve a malicious rulebook from a GitHub source | Remote rulebooks are SHA-256-verified against the lockfile and schema-validated; a malicious rulebook can add rules but cannot remove built-in blocking |
 | **Secret leakage in audit logs** | Get a secret written to the on-disk audit log | `redactSecrets` runs before any log write; the pattern list is maintained incrementally |
 | **Hook input parsing** | Crash the hook with malformed JSON | `JSON.parse` failures trigger a deny rather than a crash; platform adapters perform additional validation |
@@ -130,7 +130,7 @@ The [security policy](/security) has the submission procedure for both channels.
 ## Related pages
 
 - [Security policy](/security) — how to report a bug or a vulnerability.
-- [Configuration Recovery](/configuration/recovery) — the complete `ready` and `degraded` contract.
-- [Design Principles](/guides/design-principles) — the rationale behind fail-closed and semantic analysis.
-- [Known Limitations](/guides/known-limitations) — residual risks like the symlink TOCTOU window.
-- [Audit Log](/reference/audit-log) — where redacted command records are written.
+- [Configuration recovery](/configuration/recovery) — the complete `ready` and `degraded` contract.
+- [Design principles](/guides/design-principles) — the rationale behind fail-closed and semantic analysis.
+- [Known limitations](/guides/known-limitations) — residual risks like the symlink TOCTOU window.
+- [Audit log](/reference/audit-log) — where redacted command records are written.

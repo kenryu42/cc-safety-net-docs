@@ -1,6 +1,6 @@
 ---
-title: "CC Safety Net Audit Log Reference"
-sidebarTitle: "Audit Log"
+title: "CC Safety Net audit log reference"
+sidebarTitle: "Audit log"
 description: "Reference for CC Safety Net's audit log: file layout, JSONL record schema, what is recorded, retention and pruning, and the bounded scope of secret redaction."
 keywords:
   - "audit log"
@@ -14,6 +14,8 @@ keywords:
 ---
 
 CC Safety Net writes a structured audit trail of the command decisions it makes, so you can review what your agent tried to do and what happened. Logs are JSON Lines (JSONL) — one JSON object per line — and they never leave your machine.
+
+This page is the file format: layout, record schema, scope, retention, and the bound on redaction. To read the log through a UI instead, see the [Dashboard](/guides/dashboard) guide; to read it from the terminal, see [`logs`](/reference/cli-commands#logs).
 
 ## Log layout
 
@@ -142,7 +144,7 @@ The practical consequence: **expired records can sit on disk while CC Safety Net
   `cc-safety-net logs --prune-legacy` deletes every legacy flat `*.jsonl` file in the audit root **immediately and irreversibly**. There is no confirmation prompt, no `--dry-run`, and no `--yes` flag. Membership is decided by file position alone — age, schema validity, and malformed lines are all irrelevant.
 </Warning>
 
-This is not the retention sweep. The retention sweep deletes legacy files only when they are wholly expired; `--prune-legacy` deletes them regardless of age. Nested per-project logs are never entered and are never touched, and the command says so in its output. It exits `0` when every deletion succeeded, `1` if any file could not be removed.
+This is not the retention sweep. The retention sweep deletes legacy files only when they are wholly expired; `--prune-legacy` deletes them regardless of age. Nested per-project logs are never entered and are never touched, and the command says so in its output. For the flag's exit behavior and the combinations it rejects, see [`logs --prune-legacy`](/reference/cli-commands#logs-prune-legacy).
 
 ## Counts versus returned entries
 
@@ -154,7 +156,7 @@ Every surface that reads the log computes its counts over the whole window and t
 | `doctor` activity | 7 days, rolling | Total blocked and session count over the whole window. `doctor` skips allowed decisions entirely, whatever the audit scope | The 3 most recent |
 | `logs` | `--since`, default 30 days | Filtering and suspect-repeat detection run over the whole window | `--limit`, default 20 |
 
-The GUI Activity tab offers window lengths from `7, 30, 90, 180, 365` filtered to those below your retention setting, plus the retention value itself — so the whole log is always reachable and nothing wider than retention is ever offered. At the default 30-day retention the choices are 7 and 30. Requesting a window wider than retention is rejected.
+No surface can look further back than retention. The GUI derives its window choices from your retention value rather than offering a fixed list, so the whole log stays reachable and nothing wider than retention is ever offered — see [Dashboard](/guides/dashboard#windows-are-derived-from-retention) for the choices you get at each retention setting.
 
 ## Secret redaction
 
@@ -179,5 +181,7 @@ Permissions (`0700` on directories, `0600` on files) and the fact that logs stay
 ## Related pages
 
 - [CLI commands](/reference/cli-commands#logs) — the `logs` command, its filters, and its JSON output.
+- [Dashboard](/guides/dashboard#activity) — reading the same records in the GUI Activity feed.
+- [Policy](/configuration/policy#audit-retention) — the `audit.retention_days` field and its validation.
 - [Explain trace](/reference/explain-trace) — the same redaction bound applies to `explain` output.
 - [Security model](/guides/security-model) — where the audit log sits in the overall threat model.

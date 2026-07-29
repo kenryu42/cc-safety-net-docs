@@ -1,6 +1,6 @@
 ---
-title: "CC Safety Net Known Limitations and Pitfalls"
-sidebarTitle: "Known Limitations"
+title: "CC Safety Net known limitations and pitfalls"
+sidebarTitle: "Known limitations"
 description: "What CC Safety Net can't catch: opaque command proxies, in-binary behavior, filesystem containment and network, symlink TOCTOU, interpreter flags, and eval-based execution."
 ---
 
@@ -33,7 +33,7 @@ The residual limit is narrower than "every proxy":
 - A proxy that is **not** listed in `transparent_wrappers` is not unwrapped.
 - A proxy that **rewrites or hides** its child command, rather than executing a visible one, cannot be unwrapped even when it is configured.
 
-In both cases only the top-level fallback dangerous-text scan may catch the command, and that scan is incomplete. One more nuance: `transparent_wrappers` lives in `rule.json`, so a scope whose `rule.json` is unreadable loses that scope's wrappers until it is fixed — see [Configuration Recovery](/configuration/recovery).
+In both cases only the top-level fallback dangerous-text scan may catch the command, and that scan is incomplete. One more nuance: `transparent_wrappers` lives in `rule.json`, so a scope whose `rule.json` is unreadable loses that scope's wrappers until it is fixed — see [Configuration recovery](/configuration/recovery).
 
 ### eval and dynamic execution
 
@@ -68,6 +68,8 @@ This is inherent to any pre-execution command analysis tool; fully closing it wo
 
 ## Out of scope
 
+These are boundaries CC Safety Net does not attempt to cover. Most of them need **containment** rather than semantic analysis, which is a different layer — see [where CC Safety Net cannot help](/guides/vs-sandboxing#where-cc-safety-net-cannot-help) for the sandboxing counterpart of each one.
+
 ### Sensitive-path coverage is bounded, not a general read boundary
 
 CC Safety Net **does** protect sensitive paths. Reads of the built-in sensitive set — `.env` and its variants, `~/.ssh/id_*`, `~/.aws`, `~/.kube/config`, coding-CLI credential files, and more — are blocked, as are user-configured deny paths and all of their descendants. Protection applies across supported command, path, search, and patch shapes, including unknown-tool fallback inspection.
@@ -82,7 +84,7 @@ For a boundary that constrains *all* reads rather than a recognized set, use [sa
 
 ### No complete filesystem containment
 
-CC Safety Net denies a tool call before it runs; it does not enforce filesystem permissions. The hard-stop message is guidance to the agent, not a claim of complete filesystem enforcement. Catastrophic protections (recursive deletion of root or home, the protected Git metadata set, and the canonical user `policy.json`) are always enforced, but when you need complete protection rather than best-effort interception, use a trusted write broker, operating-system permissions, a sandbox, or equivalent runtime enforcement.
+CC Safety Net denies a tool call before it runs; it does not enforce filesystem permissions. The block message is guidance to the agent, not a claim of complete filesystem enforcement. Catastrophic protections (recursive deletion of root or home, the protected Git metadata set, and the canonical user `policy.json`) are always enforced, but when you need complete protection rather than best-effort interception, use a trusted write broker, operating-system permissions, a sandbox, or equivalent runtime enforcement.
 
 ### No network layer
 
@@ -104,14 +106,21 @@ OpenCode's plugin installer can keep serving a stale cached version of `cc-safet
 
 ## What to do if a destructive command slipped through
 
+First, confirm whether you hit a documented boundary or something unexpected:
+
 ```bash
 npx cc-safety-net explain "<the command>"
 ```
 
-The `explain` command shows the full step-by-step analysis of how CC Safety Net evaluated that specific command, including the effective safety level, so you can tell a documented standard-mode relaxation from a real gap.
+The `explain` command shows the full step-by-step analysis of how CC Safety Net evaluated that specific command, including the effective safety level, so you can tell a documented standard-mode relaxation from a real gap. For the wider symptom-by-symptom walkthrough, start at [Troubleshooting](/guides/troubleshooting).
 
 <Warning>
   A real trace is **not** automatically safe to share. Redaction covers recognized credential shapes only; the command text you supplied, its parsed tokens, absolute paths including your home directory, and your policy file path are all carried through. Reproduce with placeholder credentials and review the output before pasting it anywhere.
 </Warning>
 
-A command shape the rules do not block yet is a **coverage gap**, and it belongs in a public GitHub issue — report the shape, not a weaponized payload. Secret leakage, a write outside the intended directory, and package-integrity problems go through private disclosure instead. The [security policy](/security) has both procedures.
+Then route the report:
+
+- A command shape the rules do not block yet is a **coverage gap**. It is a public bug — open a [GitHub issue](https://github.com/kenryu42/cc-safety-net/issues) describing the command *shape*, not a ready-to-paste payload.
+- Secret leakage, a write outside the intended directory, and supply-chain or package-integrity problems take the **private** disclosure path instead.
+
+The [security policy](/security) has both procedures and the full classification.

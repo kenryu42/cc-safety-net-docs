@@ -1,6 +1,6 @@
 ---
-title: "Configuration Recovery: Ready and Degraded State"
-sidebarTitle: "Configuration Recovery"
+title: "Configuration recovery: ready and degraded state"
+sidebarTitle: "Configuration recovery"
 description: "How CC Safety Net behaves when configuration cannot be verified: ready versus degraded state, what stays enforced, how the state is reported, and the exact commands that repair it."
 ---
 
@@ -41,7 +41,7 @@ There is no special recovery mode and no allowlist while degraded, because nothi
   Dropping a source is not security-neutral. It **removes** the denials that source contributed, so a command you deliberately blocked in a dropped rulebook can run again until you repair and re-sync it. Never assume a rulebook named in an error is still protecting you.
 </Warning>
 
-The one thing that stays protected in every state is the canonical user `policy.json`. Policy-file protection and Git-metadata protection run **before** the configuration snapshot is loaded, so they cannot be affected by a broken config. See [Policy file](/configuration/policy) for exactly which operations are blocked.
+The one thing that stays protected in every state is the canonical user `policy.json`. Policy-file protection and Git-metadata protection run **before** the configuration snapshot is loaded, so they cannot be affected by a broken config. See [Policy](/configuration/policy) for exactly which operations are blocked.
 
 ## Failure-to-fallback matrix
 
@@ -89,7 +89,7 @@ Duplicate rulebook names resolve deterministically: the first claim wins, and th
 | The file parses to an object but fails validation | **Field-by-field salvage**: every recognized valid section stays active, and protective defaults replace the rest | `degraded` |
 | The file is valid | Your policy, exactly as written | `ready` |
 
-Field-level salvage means one bad field cannot drop the protections the rest of the file still configures. The protective defaults deliberately err toward more denials: destructive-command protection and secret protection are forced on, allow paths are dropped, and disabling overrides are dropped. See [Policy file](/configuration/policy) for the per-field salvage behavior.
+Field-level salvage means one bad field cannot drop the protections the rest of the file still configures. The protective defaults deliberately err toward more denials: destructive-command protection and secret protection are forced on, allow paths are dropped, and disabling overrides are dropped. See [Policy](/configuration/policy) for the per-field salvage behavior.
 
 The runtime never rewrites `policy.json`. Repair it by hand, or use the repair action in the dashboard.
 
@@ -113,7 +113,7 @@ This is the one place where rejected configuration reduces built-in coverage rat
 | An empty or whitespace-only command on the command route | Denied, in every mode |
 | A command exceeds the recursion depth limit | Denied, in every mode |
 | A command structure exceeds safe validation limits | Denied, in every mode |
-| A command cannot be tokenized while the `fail_closed` capability is on | Denied — see [Strict mode](/configuration/modes) |
+| A command cannot be tokenized while the `fail_closed` capability is on | Denied — see [strict mode](/configuration/modes#strict-mode-cc_safety_net_strict=1) |
 | Worktree relaxation cannot positively confirm a linked worktree | The relaxation is not applied and the stricter default stays |
 
 Invalid configuration is the opposite: rule sources are dropped, `policy.json` is salvaged or replaced with protective defaults, and work continues.
@@ -122,15 +122,15 @@ Invalid configuration is the opposite: rule sources are dropped, `policy.json` i
 
 | Surface | What you see |
 | --- | --- |
-| The next user-visible denial | A `Config warning:` line carrying the full reason, appended to the denial message |
+| The next user-visible denial | A `Config warning:` line carrying the full reason, appended to the block message |
 | Audit records | A `configFallback` flag, set on allowed and denied decisions alike |
-| `cc-safety-net status` | The verdict `ready`, `degraded`, or `not enforcing`, one line per diagnostic under `Not active`, and a pointer to `doctor`. Informational, always exits 0 |
+| `cc-safety-net status` | The verdict `ready`, `degraded`, or `not enforcing`, and one line per diagnostic under `Not active` |
 | `cc-safety-net doctor` | A `config.runtime-degraded` warning finding titled "Runtime is enforcing a fallback configuration", with the full reason as detail |
-| `cc-safety-net rule list` | An `Issues` and a `Warnings` section; exits 1 while either is non-empty. Rule configuration only |
+| `cc-safety-net rule list` | An `Issues` and a `Warnings` section. Rule configuration only |
 | Status line | A `⚠️` marker while the snapshot is degraded |
 | Dashboard | The state in the protection banner |
 
-`doctor` is the only command that reports both rule configuration and `policy.json`.
+`doctor` is the only command that reports both rule configuration and `policy.json`. See [CLI commands](/reference/cli-commands) for each command's options and exit behavior.
 
 Two structural limits are worth knowing:
 
@@ -146,7 +146,7 @@ Two structural limits are worth knowing:
 
 ## Recovering
 
-Every command below is an ordinary tool call, so your agent can run the whole sequence itself while the runtime is degraded.
+Every command below is an ordinary tool call, so your agent can run the whole sequence itself while the runtime is degraded. [CLI commands](/reference/cli-commands) has the full options and exit behavior for each one.
 
 <Steps>
   <Step title="Check the verdict">
@@ -154,7 +154,7 @@ Every command below is an ordinary tool call, so your agent can run the whole se
     npx cc-safety-net status
     ```
 
-    Prints `ready`, `degraded`, or `not enforcing`, plus one line per diagnostic under `Not active`. It always exits 0, so use it as the cheap habitual check rather than a gate.
+    Prints `ready`, `degraded`, or `not enforcing`, plus one line per diagnostic under `Not active`. It is purely informational, so use it as the cheap habitual check rather than a gate.
   </Step>
   <Step title="Get the full report">
     ```bash
@@ -168,14 +168,14 @@ Every command below is an ordinary tool call, so your agent can run the whole se
     npx cc-safety-net rule list
     ```
 
-    Lists active sources, active rules, disabled rules, reason overrides, and transparent wrappers, followed by `Issues` and `Warnings`. It exits 1 while either section is non-empty. Use it to confirm which rules a dropped source took with it.
+    Lists what is actually active, followed by `Issues` and `Warnings`. Use it to confirm which rules a dropped source took with it.
   </Step>
   <Step title="Validate your rule configuration">
     ```bash
     npx cc-safety-net rule verify
     ```
 
-    Validates the user and project `rule.json` against the schema and replays the runtime load, so it catches the same problems the guard would hit. It also flags legacy files that still need migration. Returns 1 on errors.
+    Validates the user and project `rule.json` against the schema and replays the runtime load, so it catches the same problems the guard would hit. It also flags legacy files that still need migration.
   </Step>
   <Step title="Repair and re-sync">
     ```bash
@@ -184,10 +184,10 @@ Every command below is an ordinary tool call, so your agent can run the whole se
 
     Rewrites the lockfile and cache for the scope you are syncing, then reloads that scope exactly the way the guard loads it. If any diagnostic remains, it reports that diagnostic and exits non-zero instead of claiming success — so `Rule config synced.` is a real all-clear for that scope.
 
-    Verification covers only the scope being synchronized. Use `rule sync --check` to validate without writing.
+    Verification covers only the scope being synchronized.
   </Step>
   <Step title="Fix policy.json by hand">
-    The runtime never rewrites `policy.json`. Correct the fields named in the diagnostic yourself, or use the repair action in the dashboard, then rerun `status`. See [Policy file](/configuration/policy) for the full schema and defaults.
+    The runtime never rewrites `policy.json`. Correct the fields named in the diagnostic yourself, or use the repair action in the dashboard, then rerun `status`. See [Policy](/configuration/policy) for the full schema and defaults.
   </Step>
 </Steps>
 
@@ -208,7 +208,7 @@ npx -y cc-safety-net rule migrate
 ## Related pages
 
 <CardGroup cols={2}>
-  <Card title="Policy file" icon="file-lock" href="/configuration/policy">
+  <Card title="Policy" icon="file-lock" href="/configuration/policy">
     The complete `policy.json` contract, defaults, and per-field salvage.
   </Card>
   <Card title="Custom rules" icon="list-checks" href="/configuration/custom-rules">

@@ -1,16 +1,16 @@
 ---
-title: "Get Started with CC Safety Net"
+title: "Get started with CC Safety Net"
 sidebarTitle: "Quickstart"
-description: "Install CC Safety Net, check its status, run doctor, and see a real blocked command. The same first-run path works for all ten supported coding agents."
+description: "Install CC Safety Net, check its status, run doctor, and watch it block a real command. The same first-run path works for every supported coding agent."
 ---
 
-This guide gets CC Safety Net installed, verified, and producing a real blocked command in minutes. The steps below are agent-neutral — they are the same whichever of the ten supported agents you use.
+This guide takes you from installed to a real blocked command in a few minutes. The steps are agent-neutral: they are the same whichever supported agent you use.
 
 <Steps>
   <Step title="Install CC Safety Net for your agent">
-    Every integration installs with `cc-safety-net install`, but each agent has its own underlying mechanism (plugin marketplace, extension, config write, or package install). Follow the section for your agent on the **[Installation](/installation)** page, then come back here.
+    Each integration is wired up differently underneath — a plugin marketplace, an extension, a config file, or a package install. Follow the section for your agent on the **[Installation](/installation)** page, then come back here.
 
-    That page is the single source of truth for install and uninstall commands — this guide avoids duplicating them so the instructions can't drift out of sync.
+    That page is the single source of truth for install and uninstall steps, so this guide does not repeat them and they cannot drift out of sync.
   </Step>
   <Step title="Check the status">
     Get a one-screen summary of what is currently enforcing:
@@ -19,33 +19,41 @@ This guide gets CC Safety Net installed, verified, and producing a real blocked 
     npx cc-safety-net status
     ```
 
-    The verdict line reads `ready` when the policy loaded cleanly, or `degraded` when something in your configuration could not be applied. Below it you get the protections that are on, your effective level, how many custom rules are active, and the policy file path. `status` is purely informational and always exits `0`.
+    The verdict line reads `ready` when your configuration loaded cleanly. `degraded` means something in your configuration could not be applied and a fallback is in force — see [Configuration recovery](/configuration/recovery) for what is still protecting you and how to repair it. If you use Claude Code, the verdict reads `not enforcing` while the plugin is disabled.
 
-    If you use Claude Code, the verdict reads `not enforcing` whenever the `cc-safety-net@cc-marketplace` plugin is not enabled in `~/.claude/settings.json`.
+    `status` is purely informational and always exits `0`. For everything it prints, see the [status command reference](/reference/cli-commands#status).
   </Step>
   <Step title="Run doctor">
-    Where `status` summarizes your policy, `doctor` verifies the wiring end to end:
+    Where `status` summarizes your configuration, `doctor` verifies the wiring end to end:
 
     ```bash
     npx cc-safety-net doctor
     ```
 
-    It checks every supported agent at once, so you don't need to tell it which one you use. A clean run prints a green checkmark next to each item — hook integration, a self-test that confirms blocking works (`git reset --hard` and `rm -rf /` blocked; `rm -rf ./node_modules` allowed), custom-rule validation, and more. See the [doctor command reference](/reference/cli-commands#doctor) for the full list of checks.
-
-    If anything fails, the output explains what went wrong and how to fix it.
+    It checks every supported agent at once, so you do not have to tell it which one you use, and it runs a self-test that confirms blocking actually works. A clean run prints a green checkmark next to each item; anything that fails explains what went wrong and how to fix it. The full check list is in the [doctor command reference](/reference/cli-commands#doctor).
   </Step>
   <Step title="See a real block">
-    With CC Safety Net active, ask your agent to run these two commands and observe the difference:
+    With CC Safety Net active, ask your agent to run these two commands and watch the difference:
 
     ```bash
-    # Should be BLOCKED — discards uncommitted changes permanently
+    # Blocked — discards uncommitted changes permanently
     git checkout -- README.md
 
-    # Should be ALLOWED — creates a new branch, no data loss
+    # Allowed — creates a new branch, no data loss
     git checkout -b test-branch
     ```
 
-    When CC Safety Net blocks the first command, your agent receives a structured block message (see below) and is instructed to ask you for explicit permission before trying anything similar again. The second command runs normally.
+    The first never reaches your shell. Your agent gets a block message instead:
+
+    <pre className="cc-block-message-output"><code>{`BLOCKED by CC Safety Net
+
+Reason: git checkout -- discards uncommitted changes permanently. Use 'git stash' first.
+
+Command: git checkout -- src/main.py
+
+If this operation is truly needed, ask the user for explicit permission and have them run the command manually.`}</code></pre>
+
+    Your agent typically explains what happened, suggests a safer alternative, and asks whether you want to proceed manually. The second command runs normally. For the anatomy of that message and the rest of the decision lifecycle, see [How it works](/guides/how-it-works#what-a-block-looks-like).
   </Step>
   <Step title="Ask why, without running anything">
     If a decision surprises you, `explain` evaluates a command string through the same engine without executing it:
@@ -57,41 +65,27 @@ This guide gets CC Safety Net installed, verified, and producing a real blocked 
     It prints the verdict, the rule that matched, and the effective configuration behind it. Use a placeholder command like the one above while you are exploring.
 
     <Warning>
-      An explain trace echoes the command you passed, its parsed tokens, and absolute paths including your home directory. Credential-shaped values are redacted, but paths, hostnames, and project names are not — review the output before pasting it into an issue or a chat.
+      An explain trace echoes the command you passed, its parsed tokens, and absolute paths including your home directory. Credential-shaped values are redacted, but paths, hostnames, and project names are not — review the output before pasting it into an issue or a chat. See the [explain trace reference](/reference/explain-trace) for the full trace and its sharing caveats.
     </Warning>
   </Step>
 </Steps>
 
-## What a block looks like
-
-When CC Safety Net intercepts a destructive command, it returns a message like this to your agent:
-
-<pre className="cc-block-message-output"><code>{`BLOCKED by CC Safety Net
-
-Reason: git checkout -- discards uncommitted changes permanently. Use 'git stash' first.
-
-Command: git checkout -- src/main.py
-
-If this operation is truly needed, ask the user for explicit permission and have them run the command manually.`}</code></pre>
-
-Your agent sees this message instead of executing the command. It will typically explain what happened, suggest a safer alternative, and ask you whether you want to proceed manually.
-
 ## Next steps
 
 <CardGroup cols={2}>
-  <Card title="Explore modes" icon="toggle-right" href="/configuration/modes">
-    Learn about the standard, strict, and paranoid levels and worktree mode, and when to use each one.
+  <Card title="How it works" icon="workflow" href="/guides/how-it-works">
+    Follow one tool call end to end: interception, ordered checks, the allow or block, and the audit record.
+  </Card>
+
+  <Card title="Blocked commands" icon="ban" href="/reference/blocked-commands">
+    Browse what CC Safety Net stops by default and the reasoning behind each entry.
+  </Card>
+
+  <Card title="Modes" icon="toggle-right" href="/configuration/modes">
+    Compare the `standard`, `strict`, and `paranoid` safety levels and worktree mode, and pick the one that fits your workflow.
   </Card>
 
   <Card title="Custom rules" icon="sliders-horizontal" href="/configuration/custom-rules">
     Define your own blocking rules at the project or user level to enforce team conventions.
-  </Card>
-
-  <Card title="Blocked commands" icon="ban" href="/reference/blocked-commands">
-    Browse the full list of commands CC Safety Net blocks by default and the reasoning behind each.
-  </Card>
-
-  <Card title="How it works" icon="settings" href="/guides/how-it-works">
-    Go deeper on semantic command analysis, shell wrapper detection, and the evaluation lifecycle.
   </Card>
 </CardGroup>

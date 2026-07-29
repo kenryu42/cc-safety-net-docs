@@ -1,12 +1,14 @@
 ---
-title: "CC Safety Net Architecture"
+title: "CC Safety Net architecture"
 sidebarTitle: "Architecture"
 description: "The maintainer-level system map: integration adapters, the policy snapshot, the ordered guard stages from tool input to allow or deny, the internal parsers, and the runtime dependency surface."
 ---
 
-CC Safety Net is a static, pre-execution policy gate. Every supported coding agent hands it a tool call, and every tool call runs through the same guard in the same order. The integrations differ only in how the call arrives — a stdin subprocess hook or an in-process plugin or extension — and the guard itself knows nothing about which agent issued the call.
+This is the third page of the technical sequence and the deepest system-wide view: it is written for maintainers and reviewers, and it is the canonical specification of the guard pipeline that [How it works](/guides/how-it-works) and [Integration architecture](/guides/integration-architecture) summarize from above.
 
-This page is the system map. For the classifier internals see [Analysis Engine](/guides/analysis-engine), for the user-facing lifecycle see [How It Works](/guides/how-it-works), and for which agent uses which execution model see [Integration Architecture](/guides/integration-architecture).
+CC Safety Net is a static, pre-execution policy gate. Every supported coding agent hands it a tool call, and every tool call runs through the same guard in the same order. The integrations differ only in how the call arrives — a stdin hook subprocess or an in-process plugin or extension — and the guard itself knows nothing about which agent issued the call.
+
+The stage order below is specified here and nowhere else; every other page states it in a sentence or two and links back. For each analyzer's exact behavior, continue to [Analysis engine](/guides/analysis-engine).
 
 ## System components
 
@@ -61,7 +63,7 @@ Adapters translate one agent's tool-call payload into a normalised invocation an
 - An adapter grants **command-execution capability only to exact, integration-specific tool names**. An unknown tool never gets shell-command treatment; it still receives policy-file and sensitive-path inspection, but its text is not parsed as a command.
 - Adapters own the `config-state` reporting path. The guard itself never emits that stage.
 
-Per-agent install mechanics, hook flags, and config-file locations live in [Integration Architecture](/guides/integration-architecture).
+Which agent uses which adapter, its hook flag, and where its config lives are all in [Integration architecture](/guides/integration-architecture); the commands that set them up are in [Installation](/installation).
 
 ## The policy snapshot
 
@@ -72,7 +74,7 @@ Per-agent install mechanics, hook flags, and config-file locations live in [Inte
 - It resolves to exactly **two states**: `ready`, where every validated source is enforced, and `degraded`, where a candidate source was rejected and something safe is enforced in its place. A degraded reason names the failing source, states what is not active, and states the repair.
 - Per-rule provenance — rulebook name and version, public source spec, override reason — is registered onto the snapshot, which is what diagnostics and the GUI render.
 
-Invalid configuration never turns into a denial of ordinary work: a rejected source is dropped, not converted into a block. See [Configuration Recovery](/configuration/recovery) for the full state contract and the repair path.
+Invalid configuration never turns into a denial of ordinary work: a rejected source is dropped, not converted into a block. See [Configuration recovery](/configuration/recovery) for the full state contract and the repair path.
 
 ## The ordered guard stages
 
@@ -129,7 +131,7 @@ graph LR
     Blocked -->|no| Allow["Allow"]
 ```
 
-The engine tracks working-directory changes across segments (via `cd` and `pushd`) and propagates environment assignments, so target classification reflects what a real shell would do. Recursion into shell wrappers and interpreter bodies is capped at 10 levels. See [Analysis Engine](/guides/analysis-engine) for each analyzer and the full target-classification order.
+The engine tracks working-directory changes across segments (via `cd` and `pushd`) and propagates environment assignments, so target classification reflects what a real shell would do. Recursion into shell wrappers and interpreter bodies is capped at 10 levels. See [Analysis engine](/guides/analysis-engine) for each analyzer, the safety-level boundaries, and the full target-classification order.
 
 ## Parsers and the runtime dependency surface
 
@@ -159,16 +161,17 @@ The published runtime target is Node.js 18 or newer.
 
 - **One fixed order, every integration.** The stage table above is the whole contract. There is no per-agent branch in the guard.
 - **Always-on protections precede configuration.** Policy-file and Git-metadata protection cannot be disabled, because they deny before the policy that could disable them is read.
-- **Fail-closed on the guard's own failure.** A thrown dependency, an exhausted parser budget, or a violated tool-input bound denies rather than allows, attributed to the stage that failed. Invalid *configuration* is a separate case and does not deny — see [Configuration Recovery](/configuration/recovery).
+- **Fail-closed on the guard's own failure.** A thrown dependency, an exhausted parser budget, or a violated tool-input bound denies rather than allows, attributed to the stage that failed. Invalid *configuration* is a separate case and does not deny — see [Configuration recovery](/configuration/recovery).
 - **No network, no writes at evaluation time.** Runtime evaluation performs no network requests, and the snapshot loader performs no writes. Nothing in the guard inspects or filters egress.
 - **Platform-agnostic core.** Adapters translate formats; the guard and the classifier are shared verbatim.
-- **Bounded, not exhaustive.** This is a static pre-execution policy gate, not an OS sandbox, a privilege boundary, or protection for commands that bypass an installed integration. See [Known Limitations](/guides/known-limitations).
+- **Bounded, not exhaustive.** This is a static pre-execution policy gate, not an OS sandbox, a privilege boundary, or protection for commands that bypass an installed integration. See [Known limitations](/guides/known-limitations).
 
-## Related pages
+## Where to go next
 
-- [Analysis Engine](/guides/analysis-engine) — each analyzer, the recursive-delete classification order, and the mode boundaries.
-- [How It Works](/guides/how-it-works) — the same pipeline told as a user-facing lifecycle.
-- [Design Principles](/guides/design-principles) — why the order and the boundaries are what they are.
-- [Configuration Recovery](/configuration/recovery) — `ready` versus `degraded`, and how to repair a rejected source.
-- [Integration Architecture](/guides/integration-architecture) — how each agent plugs in.
-- [Security Model](/guides/security-model) — trust boundaries and the reporting model.
+The technical guides run from the user-facing lifecycle down to the reasoning behind the design. This page is step 3.
+
+- Back: [Integration architecture](/guides/integration-architecture) — how each agent's call reaches the adapters above, and [How it works](/guides/how-it-works) for the same sequence at user depth.
+- Next: [Analysis engine](/guides/analysis-engine) — stage 12 in detail: each analyzer, the safety-level boundaries, and the recursive-delete classification order.
+- Then: [Design principles](/guides/design-principles) — why the order, the always-on protections, and the owned parsers are what they are.
+
+Related: [Configuration recovery](/configuration/recovery) for `ready` versus `degraded`, [Security model](/guides/security-model) for trust boundaries, and [Known limitations](/guides/known-limitations) for what this design cannot cover.

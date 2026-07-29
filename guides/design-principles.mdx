@@ -1,18 +1,20 @@
 ---
-title: "CC Safety Net Design Principles"
-sidebarTitle: "Design Principles"
+title: "CC Safety Net design principles"
+sidebarTitle: "Design principles"
 description: "The reasoning behind CC Safety Net: semantic analysis over wildcards, a fixed guard order with always-on protections, fail-closed on the tool's own failure, a minimal dependency surface, rulebooks, defense-in-depth, and worktree relaxation."
 ---
 
-CC Safety Net was built in response to a real incident — an AI coding agent deleting an entire home directory. Every design choice flows from one goal: stop destructive commands _before_ an agent executes them, and never create a false sense of security. This page explains the reasoning behind the key decisions so you can trust what the tool does (and understand what it deliberately does not do).
+This is the last page of the technical sequence: it adds no new behavior, and instead gives the rationale and the tradeoffs behind what [Architecture](/guides/architecture) and [Analysis engine](/guides/analysis-engine) specify. Read those first if you want to know *what* happens; read this to know *why*.
+
+CC Safety Net was built in response to a real incident — an AI coding agent deleting an entire home directory. Every design choice flows from one goal: stop destructive commands _before_ an agent executes them, and never create a false sense of security.
 
 ## Semantic analysis over wildcard patterns
 
-AI coding agents support deny rules with wildcard matching, such as a wildcard rule for `git reset --hard`. Wildcard patterns compare the raw command string against a pattern, so any variation in spacing, flag order, or command wrapping can cause a block to silently fail. Reordering flags (`rm -r -f /`), wrapping in a shell (`sh -c "rm -rf /"`), or hiding behind an interpreter all bypass string matching.
+Coding agents support deny rules with wildcard matching, such as a wildcard rule for `git reset --hard`. Wildcard patterns compare the raw command string against a pattern, so any variation in spacing, flag order, or command wrapping can cause a block to silently fail. Reordering flags (`rm -r -f /`), wrapping in a shell (`sh -c "rm -rf /"`), or hiding behind an interpreter all bypass string matching.
 
-CC Safety Net instead parses each command with its own shell parsers, splits it into segments by shell operators, strips wrappers and environment assignments, and then runs per-command analyzers that understand the option grammar of `git`, `rm`, `Remove-Item`, `find`, `xargs`, and `parallel`. This semantic approach catches forms that wildcard matching misses, because it reasons about _what the command does_ rather than _what it looks like_.
+CC Safety Net instead parses each command and hands it to analyzers that understand the real option grammar of `git`, `rm`, `Remove-Item`, `find`, `xargs`, and `parallel`, so the decision reasons about _what the command does_ rather than _what it looks like_.
 
-The tradeoff is complexity: the parser must handle shell syntax correctly, and each supported command needs its own analyzer. The benefit is bypass resistance for the commands that matter most. For the full pipeline, see [Analysis Engine](/guides/analysis-engine).
+The tradeoff is complexity: the parser must handle shell syntax correctly, and each supported command needs its own analyzer. The benefit is bypass resistance for the commands that matter most. The pipeline itself is specified in [Architecture](/guides/architecture#inside-command-analysis), and each analyzer's exact behavior in [Analysis engine](/guides/analysis-engine).
 
 ## One fixed order, with the always-on protections first
 
@@ -34,15 +36,13 @@ When CC Safety Net cannot complete an analysis, it blocks rather than allows:
 
 The reasoning is simple: a safety net that fails open is worse than no safety net, because it creates a false sense of security. Blocking on an unexpected error is annoying but recoverable; allowing a destructive command through is not.
 
-**Invalid configuration is deliberately not part of this.** A rejected configuration source is dropped, not converted into a denial — the runtime reports a `degraded` state and keeps enforcing everything that did validate, including every built-in protection. Turning a typo in a rulebook into a machine that blocks all work would be a denial-of-service on the user, and it would push people to uninstall the tool rather than fix the file. [Configuration Recovery](/configuration/recovery) owns that contract and the repair path.
+**Invalid configuration is deliberately not part of this.** A rejected configuration source is dropped, not converted into a denial — turning a typo in a rulebook into a machine that blocks all work would be a denial-of-service on the user, and it would push people to uninstall the tool rather than fix the file. [Configuration recovery](/configuration/recovery) owns that contract and the repair path.
 
-See [Security Model](/guides/security-model) for how these properties are enforced at each trust boundary.
+See [Security model](/guides/security-model) for how these properties are enforced at each trust boundary.
 
 ## A minimal dependency surface
 
-CC Safety Net carries **one runtime package dependency, `zod`**, used only for configuration validation and loaded lazily, so a tool call that never touches configuration never pays for it. Published bundles additionally embed `shell-quote` for legacy POSIX token projection and display formatting; it lives in `devDependencies` because consumers never resolve it at runtime, but its bundled code is treated as production security surface and audited as such.
-
-Everything structural — segment splitting, quoting, redirection, command substitution, dynamic-word provenance — comes from CC Safety Net's **own bounded POSIX and PowerShell parsers**, not from a third-party grammar. That is a deliberate build-versus-buy decision:
+CC Safety Net keeps its runtime dependency surface to a single lazily loaded package, and everything structural — segment splitting, quoting, redirection, command substitution, dynamic-word provenance — comes from its **own bounded POSIX and PowerShell parsers** rather than a third-party grammar. That is a deliberate build-versus-buy decision:
 
 - A smaller dependency tree means a smaller supply-chain attack surface, and the parser is the component an attacker most wants to confuse.
 - The analysis needs facts a general tokenizer does not carry — which words came from an expansion, which target is anchored to the working directory, which quoting form was used — so an owned parser is the only way to make those facts first-class.
@@ -60,17 +60,17 @@ Earlier versions stored custom rules as inline JSON in a single project file. CC
 - **Scoping** — rulebooks support separate user (global) and project scopes with distinct config directories.
 - **Validation** — rulebook content is schema-validated and fixture-tested before it can influence a blocking decision.
 
-Custom rules are strictly additive: they can only add restrictions, never relax built-in protections. This keeps the trust boundary simple. See [Custom Rules](/configuration/custom-rules) for the authoring workflow.
+Custom rules are strictly additive: they can only add restrictions, never relax built-in protections. This keeps the trust boundary simple. See [Custom rules](/configuration/custom-rules) for the authoring workflow.
 
 ## Graduated levels instead of one setting
 
 Protection is shipped as three presets — standard, strict, and paranoid — rather than a single on/off switch, because the honest answer to "should an unverifiable command be blocked?" depends on where the command came from.
 
-Standard optimises for a human-supervised session: it blocks recognisable destructive commands and sensitive-content access while tolerating unparseable-but-harmless text, so day-to-day work is not interrupted. It is explicitly **best-effort against adversarial or dynamic input** and is not the right setting when commands may originate from prompt injection or another untrusted context.
+Standard optimizes for a human-supervised session: it blocks recognizable destructive commands and sensitive-content access while tolerating unparseable-but-harmless text, so day-to-day work is not interrupted. It is explicitly **best-effort against adversarial or dynamic input** and is not the right setting when commands may originate from prompt injection or another untrusted context.
 
 Strict and paranoid buy certainty with friction. Strict blocks what cannot be verified; paranoid additionally blocks categories that are usually fine but occasionally catastrophic. The design deliberately does *not* try to close standard's gaps by adding more standard-mode parser heuristics — a target that cannot be resolved statically cannot be made safe by guessing harder. The prescribed response to a newly found gap is a strict or paranoid fail-closed fixture, which is why the residual-risk families for standard mode are recorded rather than papered over.
 
-Individual capabilities remain separately settable, and any per-rule override can force a strict-tier rule on under standard. What no override can do is weaken a catastrophic rule or the always-on protections. See [Safety Modes](/configuration/modes) for the levels and [Analysis Engine](/guides/analysis-engine#safety-level-boundaries) for exactly where each boundary falls.
+Individual capabilities remain separately settable, and any per-rule override can force a strict-tier rule on under standard. What no override can do is weaken a catastrophic rule or the always-on protections. See [Safety modes](/configuration/modes) for the levels and [Analysis engine](/guides/analysis-engine#safety-level-boundaries) for exactly where each boundary falls.
 
 ## Defense-in-depth, not a replacement
 
@@ -79,25 +79,21 @@ CC Safety Net does not claim to be a complete security solution. It is positione
 - **Permission deny rules** offer quick, user-configurable blocks. CC Safety Net runs _before_ the permission system, so it inspects every command regardless of how deny rules are configured.
 - **OS-level sandboxing** restricts filesystem and network access but does not understand whether an operation is destructive _within_ those boundaries. A `git reset --hard` inside a sandboxed directory is technically safe from the sandbox's perspective but still a footgun.
 
-The recommendation is to use all three together: deny rules for fast iteration, sandboxing for unknown threats and containment, and CC Safety Net for bypass-resistant protection against known-destructive patterns. See [vs Sandboxing](/guides/vs-sandboxing).
+The recommendation is to use all three together: deny rules for fast iteration, sandboxing for unknown threats and containment, and CC Safety Net for bypass-resistant protection against known-destructive patterns. See [vs sandboxing](/guides/vs-sandboxing).
 
 ## Worktree relaxation
 
 Linked git worktrees create a usability problem: a developer working in a worktree often wants to run `git checkout -- .` or `git reset --hard` to discard local changes _in that worktree_, but the default rules block these as local-discard operations.
 
-Worktree relaxation lifts the block for local discards when all of the following hold:
+Rather than relax the rule generally, [worktree mode](/configuration/modes#worktree-mode-cc_safety_net_worktree=1) lifts the block only for local discards, only inside a directory positively verified as a linked worktree, and only when nothing has redirected the git context. Verification is the load-bearing part of the design: a directory that merely looks like a worktree does not qualify, and if the check cannot complete the command stays blocked.
 
-1. [Worktree mode](/configuration/modes#worktree-mode-cc_safety_net_worktree=1) is enabled (`CC_SAFETY_NET_WORKTREE=1`).
-2. No git context environment override is present (for example `GIT_DIR` or `GIT_WORK_TREE`).
-3. The current directory is positively verified as a linked worktree — the `.git` file, its `commondir` backlink, and the `config.worktree` setting are all checked, so a crafted directory cannot masquerade as a worktree.
-4. The command is not a non-relaxable local discard (dynamic arguments, recursive submodule config, forced branch resets, or `git clean` with more than one `-f`).
+The relaxation is deliberately narrow — every remote-affecting operation (force pushes, branch deletes, stash drops) stays blocked, as do local discards that could reach outside the disposable worktree. The exact conditions and the non-relaxable cases are in [Analysis engine](/guides/analysis-engine#worktree-relaxation); how to turn the mode on is in [Safety modes](/configuration/modes).
 
-Relaxation is conservative: it only lifts the block for local discards in verified linked worktrees, and keeps every remote-affecting operation (force pushes, branch deletes, stash drops) in force.
+## Where to go next
 
-## Related pages
+The technical guides run from the user-facing lifecycle down to the reasoning behind the design. This page is step 5, the last one.
 
-- [Analysis Engine](/guides/analysis-engine) — how the semantic-analysis pipeline is implemented, and where each safety-level boundary falls.
-- [Architecture](/guides/architecture) — the ordered guard stages, the policy snapshot, and the component layout.
-- [Configuration Recovery](/configuration/recovery) — the `ready` and `degraded` contract referenced above.
-- [Security Model](/guides/security-model) — the trust boundaries and attack surface these decisions protect.
-- [Known Limitations](/guides/known-limitations) — what these design choices cannot do.
+- Back: [Analysis engine](/guides/analysis-engine) — the exact classification behavior these tradeoffs produce, and [Architecture](/guides/architecture) for the guard order they justify.
+- Start over: [How it works](/guides/how-it-works) — the same system at user depth.
+
+Related: [Security model](/guides/security-model) for the trust boundaries these decisions protect, [Known limitations](/guides/known-limitations) for what they cannot do, and [Configuration recovery](/configuration/recovery) for the `ready` and `degraded` contract referenced above.

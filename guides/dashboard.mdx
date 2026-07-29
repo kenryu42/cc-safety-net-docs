@@ -1,10 +1,12 @@
 ---
-title: "The CC Safety Net Local Dashboard"
-sidebarTitle: "Dashboard (GUI)"
+title: "The CC Safety Net local dashboard"
+sidebarTitle: "Dashboard"
 description: "Launch the local CC Safety Net dashboard with cc-safety-net gui and use its six views — Overview, Activity, Policy, Rules, Integrations, and Settings — to inspect decisions, edit policy, and manage agent hooks."
 ---
 
 `cc-safety-net gui` opens a local dashboard for reviewing what CC Safety Net has been doing on this machine and for editing your policy without hand-writing JSON. It is a single page served from your own computer, and it is the fastest way to answer "what was blocked, why, and what should I change?"
+
+This page covers what you can do in the dashboard and which actions are destructive. It does not restate the underlying formats: the `policy.json` schema lives in [Policy](/configuration/policy), rulebook authoring in [Custom rules](/configuration/custom-rules), and the audit record schema in [Audit log](/reference/audit-log).
 
 ## Launching the dashboard
 
@@ -73,7 +75,7 @@ Overview summarizes a **retained window**, not a lifetime total. The window is t
 
 ## Activity
 
-Activity lists audited commands from the local log, newest first. Commands are secret-redacted at write time, before anything reaches the log — see the [audit log reference](/reference/audit-log) for the schema and the redaction scope.
+Activity lists audited commands from the local log, newest first. Commands are secret-redacted at write time, before anything reaches the log — and redaction is bounded to recognized credential shapes, so entries can still carry paths, hostnames, and names. See [Audit log](/reference/audit-log#secret-redaction) for the record schema and the exact redaction scope before you share anything from this view.
 
 ### Windows are derived from retention
 
@@ -87,7 +89,7 @@ The window selector is **not a fixed set of choices**. It is computed from your 
 | 90 days | 7, 30, 90 |
 | 365 days | 7, 30, 90, 180, 365 |
 
-Windows are whole local calendar days — today plus the preceding days — so the per-day sparkline buckets on Overview sum exactly to the totals. If you shorten retention, the current selection is re-clamped for you.
+Windows are whole local calendar days — today plus the preceding days — so the per-day sparkline buckets on Overview sum exactly to the totals. A request for a window wider than retention is rejected, and if you shorten retention the current selection is re-clamped for you. See [Audit log](/reference/audit-log#retention) for how retention itself is configured and enforced.
 
 ### Filters
 
@@ -115,7 +117,7 @@ The counts are not capped. Chips, tiles, and the top panels are computed from fu
 
 ### Per-entry actions
 
-Each entry carries a decision badge (`Blocked`, `Allowed`, or `Error`), an agent badge, a rule-ID chip, a relative timestamp, and a button to copy the raw log entry as JSON. Long commands are clamped with a Show more toggle.
+Each entry carries a decision badge (`Blocked`, `Allowed`, or `Error`), an agent badge, a rule-ID chip, a relative timestamp, and a button to copy the raw log entry as JSON. Long commands are clamped with a Show more toggle. The copied entry is the raw audit record — see [Audit log](/reference/audit-log#record-schema) for its fields.
 
 Denied entries offer **Report false positive**, which opens a dialog that prepares a prefilled **public** GitHub issue. Both the command and the log entry are editable before you continue, your project path is replaced with `<project>` and your home directory with `~`, and nothing is submitted until you submit it on GitHub yourself.
 
@@ -125,7 +127,7 @@ Allowed entries offer **Block this in future**, which prefills the prompt compos
 
 Policy is where you choose what CC Safety Net blocks. Everything on this view is a **built-in** protection: the safety preset, the destructive-command rules, and the secret-protection patterns that ship with CC Safety Net. Your own rulebooks are a separate mechanism and are not edited here.
 
-The full field-by-field contract for the file this view writes lives in the [policy reference](/configuration/policy).
+The full field-by-field contract for the file this view writes lives in [Policy](/configuration/policy).
 
 ### Saved versus unsaved
 
@@ -142,19 +144,13 @@ Saving writes the policy file and reports the path it wrote. Saving is refused w
 
 Paste a shell command into **Test a command** to see whether it would be blocked. The test evaluates against your **current unsaved edits**, so you can check a change before committing to it.
 
-The test also enforces your custom rulebook rules, loaded from disk, even though rulebooks are not editable from the dashboard. Treat it as a preview of the real decision, not just of the built-in layer. For the same analysis from the terminal, see `cc-safety-net explain` in the [CLI reference](/reference/cli-commands).
+The test also enforces your custom rulebook rules, loaded from disk, even though rulebooks are not editable from the dashboard. Treat it as a preview of the real decision, not just of the built-in layer. For the same analysis from the terminal, see [`explain`](/reference/cli-commands#explain).
 
 ### Safety preset
 
-Choose the inherited defaults, then customize only what the workspace needs:
+The view offers the three safety presets — labelled **Standard**, **Strict**, and **Paranoid** in the interface — as the inherited defaults you then customize for the workspace. Each is progressively stricter; [Modes](/configuration/modes) is the authority on exactly what each preset and capability changes.
 
-| Preset | Behavior |
-| --- | --- |
-| **Standard** | Blocks recognizable destructive commands and sensitive content access while allowing metadata-only sensitive-path checks. Recommended for normal coding. |
-| **Strict** | Standard, plus blocks dynamic or unparseable commands and metadata-only sensitive-path discovery. Occasional false positives on advanced shell. |
-| **Paranoid** | Strict, plus blocks `rm -rf` inside your project and interpreter one-liners. Expect friction; for untrusted agents or high-stakes repos. |
-
-Environment variables that raise protection are surfaced here as a notice, so a level that looks lower than the behavior you are seeing is explained rather than confusing. An **Advanced overrides** section, collapsed by default, exposes the individual capabilities the preset resolves to — fail closed, paranoid `rm -rf` checks, and paranoid interpreters — so you can raise or lower one without changing preset. Workflow exceptions are configured separately from the safety level. See [Modes](/configuration/modes) for what each capability changes.
+Environment variables that raise protection are surfaced here as a notice, so a level that looks lower than the behavior you are seeing is explained rather than confusing. An **Advanced overrides** section, collapsed by default, exposes the individual capabilities the preset resolves to — fail closed, paranoid `rm -rf` checks, and paranoid interpreters — so you can raise or lower one without changing preset. Workflow exceptions are configured separately from the safety level.
 
 ### Destructive command protection
 
@@ -162,13 +158,13 @@ A master switch plus per-rule toggles. Each rule card carries a `?` popover with
 
 Toggling a rule stores an explicit `on` or `off` override. Setting a rule back to its inherited value **deletes** the override rather than storing a redundant one, and each rule offers `Use inherited setting` to do that directly. A `Restore defaults` action in the panel head clears every override at once.
 
-**Allow paths** live in this panel. Recursive deletes targeting a listed path are not blocked, which is what makes `/tmp` workable. Entries must be absolute or `~/`-prefixed directories. Your home directory — or any path containing it — is rejected, both at validation time and again after symlinks are resolved. Allow paths never relax secret protection or deny paths.
+**Allow paths** live in this panel. Recursive deletes targeting a listed path are not blocked, which is what makes `/tmp` workable. Entries must be absolute or `~/`-prefixed directories, and your home directory is rejected — see [Allow paths](/configuration/policy#allow-paths) for the full validation table and [Allowed commands](/reference/allowed-commands#configured-allow-paths) for what an allow path does and does not relax.
 
 ### Secret protection
 
 A master switch plus per-pattern toggles for the default sensitive paths and the credential locations of coding CLIs. Unchecking a pattern disables that pattern; rechecking it removes the override entirely.
 
-**Deny paths** live in this panel. Configured paths and everything inside them are blocked while secret protection is on. Deny paths depend on the master switch — turning secret protection off stops enforcing them.
+**Deny paths** live in this panel. Configured paths and everything inside them are blocked while secret protection is on. Deny paths depend on the master switch — turning secret protection off stops enforcing them. See [Deny paths](/configuration/policy#deny-paths) for the accepted entry forms.
 
 ### What asks for confirmation
 
@@ -205,7 +201,7 @@ Reset is deliberately **not** on this view. It lives in Settings, under Danger z
 
 ## Rules
 
-Rules covers your custom rulebooks — the rules you author yourself, as distinct from the built-in protections on the Policy view. See [Custom Rules](/configuration/custom-rules) for the rulebook format, scopes, and validation.
+Rules covers your custom rulebooks — the rules you author yourself, as distinct from the built-in protections on the Policy view. See [Custom rules](/configuration/custom-rules) for the rulebook format, scopes, overrides, and validation; this view does not restate them.
 
 <Warning>
   The Rules view is **not** a rulebook editor. CC Safety Net never writes a rulebook from the dashboard. This view shows rules read-only as they are actually enforced, and composes prompt text for you to copy into a coding agent that does the authoring.
@@ -240,7 +236,7 @@ Copying is refused, with a specific message, when rules have not loaded yet, whe
 
 ## Integrations
 
-Integrations installs or removes the CC Safety Net hook for each coding agent on this machine. The **Agents** panel lists the detected CLIs and their hook status; see [Integration Architecture](/guides/integration-architecture) for how each agent is wired.
+Integrations installs or removes the CC Safety Net hook for each coding agent on this machine. The **Agents** panel lists the detected CLIs and their hook status; see [Integration architecture](/guides/integration-architecture) for how each agent is wired and [Installation](/installation) for the equivalent steps outside the GUI.
 
 | Status | Meaning | Action offered |
 | --- | --- | --- |
@@ -263,7 +259,7 @@ Settings covers appearance, file locations, and maintenance.
 
 **Policy JSON.** A read-only mirror of the policy controls, with a copy button. It reflects the controls on the Policy view — it is a mirror for inspecting and sharing, not a second editor.
 
-**Audit log retention.** A whole number of days from 1 to 365, defaulting to 30. By default both allowed and blocked command decisions are recorded, so a long window grows the log. See the [audit log reference](/reference/audit-log) for what is recorded and how retention is enforced. Unlike the Policy view, retention **saves immediately on change** — there is no save bar behind it. It cannot be saved while the Policy view has unsaved changes; save or discard those first.
+**Audit log retention.** How many days of audit records to keep — see [Audit log](/reference/audit-log#retention) for the accepted range, what gets recorded, and how the sweep enforces it. Unlike the Policy view, retention **saves immediately on change** — there is no save bar behind it. It cannot be saved while the Policy view has unsaved changes; save or discard those first.
 
 <Warning>
   Shortening retention is irreversible. Audit entries older than the new window are deleted on the next sweep and cannot be recovered, and the Activity view can then only look back as far as the new value. The dashboard asks you to confirm before shortening, and the confirmation names the logs directory it will prune. Export anything you need first — every entry has a copy-as-JSON button in the Activity feed.
@@ -276,5 +272,5 @@ Settings covers appearance, file locations, and maintenance.
 </Warning>
 
 <Note>
-  For the policy file schema see [Policy configuration](/configuration/policy); for rulebook authoring see [Custom Rules](/configuration/custom-rules); for the audit log format and retention behavior see the [audit log reference](/reference/audit-log); and for `gui` and every other command see the [CLI reference](/reference/cli-commands).
+  For the policy file schema see [Policy](/configuration/policy); for rulebook authoring see [Custom rules](/configuration/custom-rules); for the audit log format and retention behavior see [Audit log](/reference/audit-log); and for `gui` and every other command see [CLI commands](/reference/cli-commands).
 </Note>

@@ -1,7 +1,7 @@
 ---
-title: "Commands Allowed Through by CC Safety Net"
-sidebarTitle: "Allowed Commands"
-description: "Git, filesystem, device, PowerShell, and sensitive-path commands CC Safety Net allows through, and which of those allowances Strict and Paranoid remove."
+title: "Commands allowed through by CC Safety Net"
+sidebarTitle: "Allowed commands"
+description: "Git, filesystem, device, PowerShell, and sensitive-path commands CC Safety Net allows through, and which of those allowances strict and paranoid remove."
 keywords:
   - "allowed commands"
   - "safe commands"
@@ -17,15 +17,17 @@ keywords:
 
 CC Safety Net uses semantic command analysis to distinguish safe variants of potentially dangerous commands from truly destructive ones. These commands are explicitly allowed through.
 
-Some allowances are level-dependent. Rows marked **Standard only** are removed once [Strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) or [Paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) is active. See [Commands Blocked](/reference/blocked-commands) for the matching deny matrix, and [Architecture](/guides/architecture) plus the [Analysis engine](/guides/analysis-engine) for how the decision is made.
+Some allowances are level-dependent. Rows marked **Standard only** are removed once [strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) or [paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) is active.
+
+This page is the allow half of the behavior matrix. See [Blocked commands](/reference/blocked-commands) for the matching deny matrix. It is not an architecture page: for the ordered guard flow see [Architecture](/guides/architecture), and for exactly how the classifier reaches a verdict see the [Analysis engine](/guides/analysis-engine).
 
 <Warning>
-  No level relaxes the catastrophic protections. Root and home recursive deletion, protected Git metadata, and the canonical `policy.json` are blocked in every level, including Standard, and nothing on this page allows them — not `allow_paths`, not worktree mode, not a per-rule `off` override.
+  No level relaxes the catastrophic protections. Root and home recursive deletion, protected Git metadata, and the canonical `policy.json` are blocked in every level, including standard, and nothing on this page allows them — not `allow_paths`, not worktree mode, not a per-rule `off` override.
 </Warning>
 
 ## Git commands
 
-| Command Pattern | Why It's Safe |
+| Command pattern | Why it's safe |
 | --- | --- |
 | `git checkout -b <branch>` | Creates a new branch (no working tree changes) |
 | `git checkout --orphan` | Creates an orphan branch |
@@ -37,7 +39,7 @@ Some allowances are level-dependent. Rows marked **Standard only** are removed o
 
 ## Filesystem commands
 
-| Command Pattern | Why It's Safe | Level |
+| Command pattern | Why it's safe | Level |
 | --- | --- | --- |
 | `rm -rf /tmp/...` | Temp directories are ephemeral | All |
 | `rm -rf /var/tmp/...` | System temp directory | All |
@@ -49,7 +51,7 @@ Some allowances are level-dependent. Rows marked **Standard only** are removed o
 
 Two level-dependent adjustments apply on top of that:
 
-- Dynamic targets (`rm -rf "$target"`, backticks, substitutions) are allowed in Standard and blocked once the fail-closed capability is on. Standard is best-effort against adversarial or dynamically generated command text.
+- Dynamic targets (`rm -rf "$target"`, backticks, substitutions) are allowed in standard and blocked once the fail-closed capability is on. Standard is best-effort against adversarial or dynamically generated command text.
 - With `CC_SAFETY_NET_PARANOID_RM=1`, non-temp recursive forced removal is blocked *even inside the cwd*, so `rm -rf ./cache` no longer passes. Temp targets and configured allow paths still do.
 
 ### Configured allow paths
@@ -60,11 +62,11 @@ Allow paths never widen anything else. They do not relax sensitive-path protecti
 
 ## Standard-only allowances
 
-These shapes are permitted in Standard and denied once [Strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) or [Paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) is active. They are deliberate trade-offs, not oversights: Standard is best-effort against adversarial or dynamic input.
+These shapes are permitted in standard and denied once [strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) or [paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) is active. They are deliberate trade-offs, not oversights: standard is best-effort against adversarial or dynamic input.
 
-| Command Pattern | Why Standard allows it |
+| Command pattern | Why standard allows it |
 | --- | --- |
-| `echo 'unterminated` | Unparseable but safe-looking text — the fallback heuristic scan found nothing destructive. `git reset --hard 'unterminated` is still blocked in Standard by that same scan |
+| `echo 'unterminated` | Unparseable but safe-looking text — the fallback heuristic scan found nothing destructive. `git reset --hard 'unterminated` is still blocked in standard by that same scan |
 | `rm -rf "$target"` | Recursive-delete target that cannot be verified before execution |
 | `Remove-Item $target -Recurse -Force` | PowerShell equivalent of the same unverifiable target |
 | `Get-ChildItem . -Recurse \| Remove-Item -Force` | Unverifiable PowerShell pipeline input |
@@ -73,14 +75,14 @@ These shapes are permitted in Standard and denied once [Strict](/configuration/m
 | `test -f ~/.ssh/id_rsa`, `find ~/.ssh -type f` | Metadata-only discovery of a built-in sensitive path, with no content access |
 
 <Note>
-  Resource-exhaustion limits are not part of this trade-off. A command that exceeds the parser's recursion or structural-validation bounds is denied in **every** level, Standard included.
+  Resource-exhaustion limits are not part of this trade-off. A command that exceeds the parser's recursion or structural-validation bounds is denied in **every** level, standard included.
 </Note>
 
 ## Device commands
 
 `dd`, `mkfs`, and `shred` are analyzed in every level, but only the genuinely destructive shapes are blocked.
 
-| Command Pattern | Why It's Safe |
+| Command pattern | Why it's safe |
 | --- | --- |
 | `dd if=/dev/sda of=./backup.img` | Reading *from* a device into a file. Only `of=/dev/...`, a direct write to a device, is blocked |
 | `dd if=x.iso of=./out.img`, `dd if=/dev/urandom of=random.dat` | The output target is an ordinary file |
@@ -90,14 +92,14 @@ These shapes are permitted in Standard and denied once [Strict](/configuration/m
 
 ## PowerShell commands
 
-| Command Pattern | Why It's Safe |
+| Command pattern | Why it's safe |
 | --- | --- |
 | `Remove-Item . -Recurse -Force -WhatIf` | `-WhatIf` is a dry run, so nothing is deleted. `-WhatIf:$true` and the `-wi` abbreviation behave the same way. `-WhatIf:$false` blocks again |
 | `Remove-Item file.txt` | A simple non-recursive, non-forced delete is outside the destructive rule set |
 | `Remove-Item .\dist -Recurse -Force`, `-Path .\dist`, `-LiteralPath:.\dist`, `.\{dist}`, `'.\dist,old'` | Inside the current working directory (blocked under paranoid rm) |
 | `Remove-Item /tmp/test-dir -Recurse -Force` | Temp target, same taxonomy as `rm`, and configured allow paths behave the same way |
 | `Remove-Item 'file''name.txt'` and backtick-escaped variants | Quoted and escaped simple deletions that do not resolve to a destructive target |
-| `Remove-Item $target -Recurse -Force` | Dynamic target — **Standard only**, blocked in Strict and Paranoid |
+| `Remove-Item $target -Recurse -Force` | Dynamic target — **Standard only**, blocked in strict and paranoid |
 | `Get-ChildItem . -Recurse \| Remove-Item -Force` | Unverifiable pipeline input — **Standard only** |
 
 Selecting `posix` as the shell mode deliberately disables the PowerShell removal rules entirely, while keeping the cross-shell rules such as `git.reset-hard` and `rm.recursive-force-root-or-home`. In `auto` mode, an explicit `Remove-Item` is detected — including after `;`, a newline, `&&`, or `||`.
@@ -106,7 +108,7 @@ Selecting `posix` as the shell mode deliberately disables the PowerShell removal
 
 Sensitive-path protection is a bounded pattern set over supported shapes, so some shapes that mention a sensitive filename are still allowed.
 
-| Command Pattern | Why It's Allowed | Level |
+| Command pattern | Why it's allowed | Level |
 | --- | --- | --- |
 | `find . -name .env` | `-name` supplies a search *pattern*, not a path to read | All |
 | `find src -type f` | No sensitive path root | All |
@@ -116,7 +118,7 @@ Sensitive-path protection is a bounded pattern set over supported shapes, so som
 | Node/Bun inline evaluation containing sensitive path literals | Treated as inert diagnostic data when a bounded lexical scan finds no filesystem or command-execution marker | **Standard only** |
 
 <Warning>
-  Standard never relaxes sensitive **content** access or configured deny paths. `cat ~/.ssh/id_rsa`, `find ~/.ssh -type f -exec cat {} +`, `find ~/.ssh -type f -fprint .env`, `test -f ~/.ssh/id_rsa && cat ~/.ssh/id_rsa`, and `test -f "$(cat ~/.ssh/id_rsa)"` all stay blocked in Standard. Deny paths and their descendants are matched ahead of the built-in rules and are exempt from both Standard-only relaxations.
+  Standard never relaxes sensitive **content** access or configured deny paths. `cat ~/.ssh/id_rsa`, `find ~/.ssh -type f -exec cat {} +`, `find ~/.ssh -type f -fprint .env`, `test -f ~/.ssh/id_rsa && cat ~/.ssh/id_rsa`, and `test -f "$(cat ~/.ssh/id_rsa)"` all stay blocked in standard. Deny paths and their descendants are matched ahead of the built-in rules and are exempt from both Standard-only relaxations.
 </Warning>
 
 ## Worktree mode exceptions
@@ -141,5 +143,5 @@ These commands remain blocked even inside a linked worktree, because they reach 
 Worktree mode is a relaxation of git local-discard rules only. It does not touch filesystem, device, or PowerShell rules, and it never relaxes Git-metadata protection: inside a linked worktree, `rm .git`, `rm -rf <resolved gitDir>`, `rm -rf <commonDir>`, and the redirection `> .git` all still hard-stop, because the marker file's resolved Git directories are protected too.
 
 <Tip>
-  If CC Safety Net is blocking a command you believe is safe, run `npx cc-safety-net explain "<command>"` to see the full analysis and understand why.
+  If CC Safety Net is blocking a command you believe is safe, run `npx cc-safety-net explain "<command>"` to see the full analysis and understand why. See [CLI commands](/reference/cli-commands#explain) for the flags and [Troubleshooting](/guides/troubleshooting) for the wider diagnosis flow.
 </Tip>
