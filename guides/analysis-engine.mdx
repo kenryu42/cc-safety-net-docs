@@ -100,7 +100,7 @@ The git analyzer extracts the subcommand and its options, matches dangerous opti
 | **localDiscard** | Discards only local working-tree state — a candidate for worktree relaxation | `checkout --`, `restore`, `clean -f`, `reset --hard` (no ref), `switch --force`, `rebase --abort`, `merge --abort` |
 | **sharedState** | Affects shared, remote, or recovery state — never relaxed | `push --force`, `branch -D`, `stash drop`/`clear`, `worktree remove --force`, `tag -d`, `reflog delete`, `reset --hard <ref>` |
 
-Option matching handles the real-world grammar of git: long options use prefix matching (so `--forc`, `--force`, and `--force-with-lease` resolve correctly), short options are unbundled (so `-Df` is read as `-D` plus `-f`), and global options that take values (`-c`, `-C`, `--git-dir`, `--work-tree`) are skipped when locating the subcommand. See [Commands blocked](/reference/blocked-commands) for the full list of blocked git patterns.
+Option matching handles the real-world grammar of git: long options use prefix matching (so `--forc`, `--force`, and `--force-with-lease` resolve correctly), short options are unbundled (so `-Df` is read as `-D` plus `-f`), and global options that take values (`-c`, `-C`, `--git-dir`, `--work-tree`) are skipped when locating the subcommand. See [Blocked commands](/reference/blocked-commands) for the full list of blocked git patterns.
 
 <AccordionGroup>
   <Accordion title="Git SSH environment overrides">
@@ -142,14 +142,14 @@ Allow paths must be absolute or `~/`-prefixed directories. They apply in **every
 Both recursive (`-r`/`-R`/`--recursive`) and force (`-f`/`--force`) flags must be present for this classification to run. Path comparison uses canonical (realpath) resolution, so a symlink to `/` is correctly classified as dangerous, and `/tmp-malicious` does not match the `/tmp` temp rule.
 
 <Note>
-  The important distinction for everyday use: `rm -rf ./subdir` (within cwd) is **allowed**, but `rm -rf .` (the cwd itself) is **blocked**. See [Commands allowed](/reference/allowed-commands).
+  The important distinction for everyday use: `rm -rf ./subdir` (within cwd) is **allowed**, but `rm -rf .` (the cwd itself) is **blocked**. See [Allowed commands](/reference/allowed-commands).
 </Note>
 
 ### PowerShell `Remove-Item`
 
 `Remove-Item` and its aliases use the same target taxonomy as `rm`, through a conservative PowerShell subset that preserves native quoting, path separators, connectors, pipelines, and dynamic-word provenance.
 
-- `-WhatIf`, `-WhatIf:$true`, and the `-wi` abbreviation neutralise an otherwise-blocked removal; an explicit `-WhatIf:$false` blocks again.
+- `-WhatIf`, `-WhatIf:$true`, and the `-wi` abbreviation neutralize an otherwise-blocked removal; an explicit `-WhatIf:$false` blocks again.
 - Dynamic forms are strict-only: `Remove-Item $target -Recurse -Force`, a `Get-ChildItem … | Remove-Item -Force` pipeline, a `-Path` with no value, and splatting (`Remove-Item @params -Recurse -Force`) are all allowed in standard and blocked in strict. The exception is `Remove-Item $HOME -Recurse -Force`, which blocks in **standard** because it classifies as a root/home target rather than a dynamic one.
 - Aliases and abbreviated parameters resolve, so `ri . -r -fo` blocks. Invocation-operator forms (`& Remove-Item …`, `& { … }`, `. { … }`) are analyzed, as are `Invoke-Expression` with a literal string and `$(…)` subexpressions.
 - `#` line comments and `<# … #>` block comments (including nested ones) are ignored, but real commands after them still block. Malformed or depth-limited block comments and subexpressions fail closed.
@@ -224,4 +224,4 @@ The technical guides run from the user-facing lifecycle down to the reasoning be
 - Back: [Architecture](/guides/architecture) — the ordered guard stages this classifier is the last part of.
 - Next: [Design principles](/guides/design-principles) — why classification is semantic rather than pattern-based, and why the level boundaries fall where they do.
 
-Related: [Safety modes](/configuration/modes) for selecting a level, [Commands blocked](/reference/blocked-commands) and [Commands allowed](/reference/allowed-commands) for the outcome reference, and [Known limitations](/guides/known-limitations) for what the classifier does not see.
+Related: [Modes](/configuration/modes) for selecting a level, [Blocked commands](/reference/blocked-commands) and [Allowed commands](/reference/allowed-commands) for the outcome reference, and [Known limitations](/guides/known-limitations) for what the classifier does not see.

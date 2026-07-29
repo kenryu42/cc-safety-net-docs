@@ -47,7 +47,7 @@ CC Safety Net keeps its runtime dependency surface to a single lazily loaded pac
 - A smaller dependency tree means a smaller supply-chain attack surface, and the parser is the component an attacker most wants to confuse.
 - The analysis needs facts a general tokenizer does not carry — which words came from an expansion, which target is anchored to the working directory, which quoting form was used — so an owned parser is the only way to make those facts first-class.
 - Parser budgets can be fixed constants rather than configuration, which makes resource exhaustion a bounded, testable failure mode instead of an open-ended one.
-- CC Safety Net runs as a short-lived process on every shell tool call, so startup time matters and fewer dependencies mean faster cold starts.
+- For the agents that run CC Safety Net as a hook subprocess, it starts fresh on every shell tool call, so startup time matters and fewer dependencies mean faster cold starts.
 
 See [Architecture](/guides/architecture#parsers-and-the-runtime-dependency-surface) for the parser budgets and how each dependency is consumed.
 
@@ -68,9 +68,9 @@ Protection is shipped as three presets — standard, strict, and paranoid — ra
 
 Standard optimizes for a human-supervised session: it blocks recognizable destructive commands and sensitive-content access while tolerating unparseable-but-harmless text, so day-to-day work is not interrupted. It is explicitly **best-effort against adversarial or dynamic input** and is not the right setting when commands may originate from prompt injection or another untrusted context.
 
-Strict and paranoid buy certainty with friction. Strict blocks what cannot be verified; paranoid additionally blocks categories that are usually fine but occasionally catastrophic. The design deliberately does *not* try to close standard's gaps by adding more standard-mode parser heuristics — a target that cannot be resolved statically cannot be made safe by guessing harder. The prescribed response to a newly found gap is a strict or paranoid fail-closed fixture, which is why the residual-risk families for standard mode are recorded rather than papered over.
+Strict and paranoid buy certainty with friction. Strict blocks what cannot be verified; paranoid additionally blocks categories that are usually fine but occasionally catastrophic. The design deliberately does *not* try to close standard's gaps by adding more standard-mode parser heuristics — a target that cannot be resolved statically cannot be made safe by guessing harder. The prescribed response to a newly found gap is a strict or paranoid fail-closed fixture, which is why the residual-risk families for standard mode are recorded rather than hidden.
 
-Individual capabilities remain separately settable, and any per-rule override can force a strict-tier rule on under standard. What no override can do is weaken a catastrophic rule or the always-on protections. See [Safety modes](/configuration/modes) for the levels and [Analysis engine](/guides/analysis-engine#safety-level-boundaries) for exactly where each boundary falls.
+Individual capabilities remain separately settable, and any per-rule override can force a strict-tier rule on under standard. What no override can do is weaken a catastrophic rule or the always-on protections. See [Modes](/configuration/modes) for the levels and [Analysis engine](/guides/analysis-engine#safety-level-boundaries) for exactly where each boundary falls.
 
 ## Defense-in-depth, not a replacement
 
@@ -79,7 +79,7 @@ CC Safety Net does not claim to be a complete security solution. It is positione
 - **Permission deny rules** offer quick, user-configurable blocks. CC Safety Net runs _before_ the permission system, so it inspects every command regardless of how deny rules are configured.
 - **OS-level sandboxing** restricts filesystem and network access but does not understand whether an operation is destructive _within_ those boundaries. A `git reset --hard` inside a sandboxed directory is technically safe from the sandbox's perspective but still a footgun.
 
-The recommendation is to use all three together: deny rules for fast iteration, sandboxing for unknown threats and containment, and CC Safety Net for bypass-resistant protection against known-destructive patterns. See [vs sandboxing](/guides/vs-sandboxing).
+Use all three together: deny rules for fast iteration, sandboxing for unknown threats and containment, and CC Safety Net for bypass-resistant protection against known-destructive patterns. See [CC Safety Net vs. sandboxing](/guides/vs-sandboxing).
 
 ## Worktree relaxation
 
@@ -87,7 +87,7 @@ Linked git worktrees create a usability problem: a developer working in a worktr
 
 Rather than relax the rule generally, [worktree mode](/configuration/modes#worktree-mode-cc_safety_net_worktree=1) lifts the block only for local discards, only inside a directory positively verified as a linked worktree, and only when nothing has redirected the git context. Verification is the load-bearing part of the design: a directory that merely looks like a worktree does not qualify, and if the check cannot complete the command stays blocked.
 
-The relaxation is deliberately narrow — every remote-affecting operation (force pushes, branch deletes, stash drops) stays blocked, as do local discards that could reach outside the disposable worktree. The exact conditions and the non-relaxable cases are in [Analysis engine](/guides/analysis-engine#worktree-relaxation); how to turn the mode on is in [Safety modes](/configuration/modes).
+The relaxation is deliberately narrow — every remote-affecting operation (force pushes, branch deletes, stash drops) stays blocked, as do local discards that could reach outside the disposable worktree. The exact conditions and the non-relaxable cases are in [Analysis engine](/guides/analysis-engine#worktree-relaxation); how to turn the mode on is in [Modes](/configuration/modes).
 
 ## Where to go next
 

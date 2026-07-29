@@ -34,7 +34,7 @@ This page is the behavior matrix — *what* is blocked, and where each boundary 
 | [Paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) | Everything strict blocks, plus non-temp recursive forced deletion even inside the current working directory, and every interpreter one-liner regardless of content. |
 
 <Note>
-  A few protections sit outside the level system entirely. Root and home recursive deletion, Git metadata protection, and canonical `policy.json` protection are catastrophic rules: they block in standard, they ignore the master destructive-command switch, and they ignore a per-rule `off` override.
+  A few protections sit outside the level system entirely. Root and home recursive deletion, Git-metadata protection, and canonical `policy.json` protection are catastrophic rules: they block in standard, they ignore the master destructive-command switch, and they ignore a per-rule `off` override.
 </Note>
 
 ## Git commands
@@ -99,10 +99,10 @@ Git accepts `GIT_SSH_COMMAND`, `GIT_SSH`, and `GIT_SSH_VARIANT` to run an arbitr
 `rm -rf` is classified by target, first match wins: unsupported Windows UNC/device targets, root/home, protected Git metadata, temp paths, dynamic targets, configured allow paths, home-as-cwd, the cwd itself, inside the cwd, and finally outside the cwd. Temp paths (`/tmp`, `/var/tmp`, the system temp dir, `$TMPDIR`) and paths inside the current working directory are allowed. See [Allowed commands](/reference/allowed-commands) for the safe variants.
 
 <Warning>
-  Dynamic `rm -rf` targets are **not** categorically blocked in standard. `rm -rf "$target"` is allowed in standard and blocked only once the fail-closed capability is on, that is in [strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) or [paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1). Standard is best-effort against adversarial or dynamically generated command text; use strict or paranoid when commands may originate from prompt injection or another untrusted source.
+  Dynamic `rm -rf` targets are **not** categorically blocked in standard. `rm -rf "$target"` is allowed in standard and blocked only once the fail-closed capability is on, that is, in [strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) or [paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1). Standard is best-effort against adversarial or dynamically generated command text; use strict or paranoid when commands may originate from prompt injection or another untrusted source.
 </Warning>
 
-Because Git metadata is classified before configured allow paths, and dynamic targets are classified before them too, an entry in `destructive_command_protection.allow_paths` never relaxes Git-metadata protection and never applies to an unverifiable target.
+Git metadata and dynamic targets are both classified before configured allow paths, so an entry in `destructive_command_protection.allow_paths` never relaxes Git-metadata protection and never applies to an unverifiable target.
 
 ## Device and disk destruction
 
@@ -184,7 +184,7 @@ Aliases and abbreviated parameters are resolved, so `ri . -r -fo` blocks. Invoca
 
 ## Sensitive paths
 
-Sensitive-path protection is a separate guard stage that runs before command analysis. It applies across the supported **command**, **path**, **search** (grep/glob), and **patch** shapes, and it also inspects unknown tools: for a tool CC Safety Net does not recognize, both the command-candidate extraction and the path-like values are inspected — without ever treating that tool's arbitrary text as a shell command.
+Sensitive-path protection is a separate guard stage that runs before command analysis. It applies across the supported **command**, **path**, **search** (grep/glob), and **patch** shapes, and it also inspects unknown tools. For a tool CC Safety Net does not recognize, it inspects both the command-candidate extraction and the path-like values — without ever treating that tool's arbitrary text as a shell command.
 
 | Shape | What is inspected |
 | --- | --- |

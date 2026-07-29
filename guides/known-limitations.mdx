@@ -4,12 +4,12 @@ sidebarTitle: "Known limitations"
 description: "What CC Safety Net can't catch: opaque command proxies, in-binary behavior, filesystem containment and network, symlink TOCTOU, interpreter flags, and eval-based execution."
 ---
 
-CC Safety Net analyzes the command string your agent attempts to run. It is a strong guardrail against accidental data loss from known-destructive git and filesystem operations, but it is not a complete security solution. This page is an honest list of the **residual** limits that remain today, so you can set correct expectations and know when to reach for [sandboxing](/guides/vs-sandboxing) instead.
+CC Safety Net analyzes the command string your agent attempts to run. It is a strong guardrail against accidental data loss from known-destructive git and filesystem operations, but it is not a complete security solution. This page is an honest list of the **residual** limits that remain today, so you can set correct expectations and know when to use [sandboxing](/guides/vs-sandboxing) instead.
 
 The project's scope is deliberately focused: it is a best-effort, static pre-execution policy gate for supported coding-agent tool calls. It is not an operating-system sandbox, a privilege boundary, or protection for commands that bypass an installed integration.
 
 <Note>
-  Standard mode is best-effort for adversarial or dynamic input, and several items below are relaxations that [strict or paranoid mode](/configuration/modes) closes. Where that is the case, it is called out.
+  Standard mode is best-effort for adversarial or dynamic input, and several items below are relaxations that [strict or paranoid mode](/configuration/modes) closes. Where that is the case, this page says so.
 </Note>
 
 ## Command-string analysis limits
@@ -26,14 +26,14 @@ A tool that runs a shell command on your behalf (for example `rtk git reset --ha
 npx -y cc-safety-net rule wrapper add rtk
 ```
 
-Once configured, analysis looks through the wrapper to the visible child command, so both built-in rules and [custom rules](/configuration/custom-rules) apply to `rtk git reset --hard` exactly as they would to `git reset --hard`. There are no built-in defaults — configure only wrappers you intentionally trust — and reserved commands (`git`, `busybox`, the built-in analyzed commands, shell wrappers, and interpreters) cannot be registered as wrappers.
+Once configured, analysis looks through the wrapper to the visible child command, so both built-in rules and [custom rules](/configuration/custom-rules) apply to `rtk git reset --hard` exactly as they would to `git reset --hard`. There are no built-in defaults — configure only wrappers you intentionally trust. Reserved commands (`git`, `busybox`, the built-in analyzed commands, shell wrappers, and interpreters) cannot be registered as wrappers.
 
 The residual limit is narrower than "every proxy":
 
 - A proxy that is **not** listed in `transparent_wrappers` is not unwrapped.
 - A proxy that **rewrites or hides** its child command, rather than executing a visible one, cannot be unwrapped even when it is configured.
 
-In both cases only the top-level fallback dangerous-text scan may catch the command, and that scan is incomplete. One more nuance: `transparent_wrappers` lives in `rule.json`, so a scope whose `rule.json` is unreadable loses that scope's wrappers until it is fixed — see [Configuration recovery](/configuration/recovery).
+In both cases only the top-level fallback dangerous-text scan may catch the command, and that scan is incomplete. `transparent_wrappers` lives in `rule.json`, so a scope whose `rule.json` is unreadable loses that scope's wrappers until it is fixed — see [Configuration recovery](/configuration/recovery).
 
 ### eval and dynamic execution
 
@@ -56,7 +56,7 @@ If interpreter bypass is a concern in your environment, enable [paranoid interpr
 
 ### Attached short-option values
 
-Bundled short flags (like `-rf`) are correctly split into `{ -r, -f }`. However, the **attached value form** for short options (for example `-Cfoo` where `foo` is the value of `-C`) is handled inconsistently across analyzers. Blocking a flag like `-f` may produce a false positive when it is actually part of an attached option value like `-Cfoo`.
+Bundled short flags (for example `-rf`) are correctly split into `{ -r, -f }`. However, the **attached value form** for short options (for example `-Cfoo` where `foo` is the value of `-C`) is handled inconsistently across analyzers. Blocking a flag like `-f` may produce a false positive when it is actually part of an attached option value like `-Cfoo`.
 
 This is most relevant when writing precise [custom rules](/configuration/custom-rules). When in doubt, use [strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) or [paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) mode for stronger protection.
 

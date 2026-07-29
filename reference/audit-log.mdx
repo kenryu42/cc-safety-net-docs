@@ -32,7 +32,7 @@ Records are written to a per-project, per-month path:
 | `<YYYY-MM>` | The month of the record's timestamp |
 | `<YYYY-MM-DD>-<session-id>` | The record's date plus the agent session id |
 
-The session id is sanitized before it reaches the filename: runs of characters outside `A-Za-z0-9_.-` collapse to `_`, leading and trailing `.`, `-`, and `_` are stripped, and the result is truncated to 128 characters. If sanitizing leaves an empty string, `.`, or `..`, **the write is abandoned entirely** — this is the path-traversal defence, not a formatting nicety.
+The session id is sanitized before it reaches the filename: runs of characters outside `A-Za-z0-9_.-` collapse to `_`, leading and trailing `.`, `-`, and `_` are stripped, and the result is truncated to 128 characters. If sanitizing leaves an empty string, `.`, or `..`, **the write is abandoned entirely** — this is the path-traversal defense, not a formatting nicety.
 
 Directories are created with mode `0700` and the log file is appended with mode `0600`.
 
@@ -102,7 +102,7 @@ If any one of `command`, `segment`, `toolName`, or `cwd` exceeded its cap, the r
 | --- | --- |
 | unset | **Default.** Same as `all` |
 | `all` | Record both allowed and blocked command decisions |
-| `blocked` | Record denials only. This is the privacy-minimising setting |
+| `blocked` | Record denials only. This is the privacy-minimizing setting |
 | anything else | Treated as invalid: falls back to recording denials only, **and** is reported by `doctor` |
 
 An invalid value is not silent. `doctor` raises the finding `environment.audit-scope-invalid` at warning severity — "Audit scope value is invalid" — with the fix hint to set the variable to `all` or `blocked` and restart the integration. The offending value itself is deliberately not echoed back.
@@ -119,7 +119,7 @@ Denials are never suppressed by scope. Scope only ever gates the allow branch.
 
 `audit.retention_days` must be a whole number between 1 and 365; anything else is rejected by validation, and any value that cannot be used at all falls back to the 30-day default. Retention is read straight out of the policy file on its own, so pruning keeps working even when the rest of the policy fails validation.
 
-The same value bounds the `logs --since` ceiling and the windows the GUI Activity tab offers.
+The same value bounds the `logs --since` ceiling and the windows the GUI Activity view offers.
 
 <Warning>
   Shortening retention is **irreversible**. The sweep recomputes its cutoff on every run, so lowering the value makes already-existing records immediately eligible for deletion and they are unlinked — there is no archive, no trash, and no undo. The GUI asks you to confirm before lowering the value for exactly this reason.
@@ -152,7 +152,7 @@ Every surface that reads the log computes its counts over the whole window and t
 
 | Surface | Window | Counts | Entries returned |
 | --- | --- | --- | --- |
-| GUI Activity tab | Whole local calendar days, so the per-day buckets sum exactly to the blocked total | Blocked, allowed, agents, rules, commands, errors, and the per-day series are all computed over the full window | Capped at 500. The cap is split between decisions so a denial storm cannot crowd out "Allowed", and the response flags that the list is short of the counts |
+| GUI Activity view | Whole local calendar days, so the per-day buckets sum exactly to the blocked total | Blocked, allowed, agents, rules, commands, errors, and the per-day series are all computed over the full window | Capped at 500. The cap is split between decisions so a denial storm cannot crowd out "Allowed", and the response flags that the list is short of the counts |
 | `doctor` activity | 7 days, rolling | Total blocked and session count over the whole window. `doctor` skips allowed decisions entirely, whatever the audit scope | The 3 most recent |
 | `logs` | `--since`, default 30 days | Filtering and suspect-repeat detection run over the whole window | `--limit`, default 20 |
 
@@ -174,7 +174,7 @@ Command, segment, tool name, and working directory are passed through secret red
   **Redaction is bounded.** It is a fixed list of patterns, not a classifier. Everything it does not recognize is retained verbatim: absolute filesystem paths, project and directory names, hostnames, IP addresses, usernames, ticket ids, filenames, and any credential whose shape is not on the list. The `reason` field is not redacted at write time at all. Treat the audit log as sensitive local data, and review any excerpt before pasting it into an issue or a chat.
 </Warning>
 
-The GUI acknowledges the residual directly: entries carry unredacted paths, so the client scrubs your home-directory prefix out of false-positive reports before they reach the public issue tracker.
+The GUI acknowledges the residual risk directly: entries carry unredacted paths, so the client scrubs your home-directory prefix out of false-positive reports before they reach the public issue tracker.
 
 Permissions (`0700` on directories, `0600` on files) and the fact that logs stay on your machine are containment, not redaction. They do not make the contents safe to share.
 

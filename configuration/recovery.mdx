@@ -4,7 +4,7 @@ sidebarTitle: "Configuration recovery"
 description: "How CC Safety Net behaves when configuration cannot be verified: ready versus degraded state, what stays enforced, how the state is reported, and the exact commands that repair it."
 ---
 
-CC Safety Net loads a policy snapshot on every tool call, reading your local policy file, rule lockfiles, and digest-verified rulebook caches. That load never writes, never reaches the network, and never caches results, so the snapshot always reflects the configuration currently on disk.
+CC Safety Net loads a policy snapshot on every tool call, reading your local policy file, `rule.json`, rule lockfiles, and digest-verified rulebook caches. That load never writes, never reaches the network, and never caches results, so the snapshot always reflects the configuration currently on disk.
 
 The snapshot has exactly two states: **ready** and **degraded**. This page is the complete contract for both, including what stops being enforced when a source is rejected and how to get back to `ready`.
 
@@ -134,7 +134,7 @@ Invalid configuration is the opposite: rule sources are dropped, `policy.json` i
 
 Two structural limits are worth knowing:
 
-- The `Config warning:` line and the audit `configFallback` flag ride only on decisions made **after** the snapshot loads. Policy-file and Git-metadata denials happen before that, so they carry neither.
+- The `Config warning:` line and the audit `configFallback` flag appear only on decisions made **after** the snapshot loads. Policy-file and Git-metadata denials happen before that, so they carry neither.
 - Diagnostics **name** the rejected file and the condition; they never copy its bytes. A secret that happens to sit inside a malformed config file is not reproduced in the message.
 
 ## What you will and will not notice
@@ -142,7 +142,7 @@ Two structural limits are worth knowing:
 - **A dropped rule source is quiet.** It removes denials rather than adding them, so a clean session produces no friction and no signal at all. This is the case to check deliberately after any change to rule configuration and after every upgrade — an unmigrated legacy config lands here. Make `cc-safety-net status` a habit; run `doctor` for the full report.
 - **An invalid `policy.json` mostly announces itself**, because rejected sections fall back to protective defaults: both protections forced on, allow paths dropped, disabling overrides dropped. You discover it as *more* denials than you configured.
 - **The quiet half of an invalid `policy.json`**: an invalid `safety.level` silently falls back to `standard`, so a typo in `paranoid` **lowers** your preset. Invalid `secret_protection.deny_paths` entries and per-rule overrides that would raise a rule above its default are discarded rather than repaired.
-- Only the status line marker is passive. The `Config warning:` line needs an unrelated denial to ride on, and every other surface waits for you to run a command or open the dashboard.
+- Only the status line marker is passive. The `Config warning:` line needs an unrelated denial to appear on, and every other surface waits for you to run a command or open the dashboard.
 
 ## Recovering
 
