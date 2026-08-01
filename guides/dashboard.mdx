@@ -109,7 +109,9 @@ The refresh button reloads **both** Overview and Activity, so the tiles and the 
 
 The feed renders at most **500 entries**. The cap is split across decision classes — each class is guaranteed half the cap and lends its unused share to the other — so a burst of denials cannot crowd allowed entries out of the view entirely.
 
-The counts are not capped. Chips, tiles, and the top panels are computed from full-window aggregates on the server, independent of what the feed renders. The footer states both, as `Showing X of Y entries from the last N day(s)`, adding `(capped at 500, newest of each decision)` when truncation occurred.
+The counts are not capped by the 500-entry limit. Chips, tiles, and the top panels are computed from full-window aggregates on the server, independent of what the feed renders. The footer states both, as `Showing X of Y entries from the last N day(s)`, adding `(capped at 500, newest of each decision)` when truncation occurred.
+
+There is one case where the counts themselves fall short: when some audit log sources could not be read, the footer appends `N audit log source(s) could not be read, so this list is incomplete.` The aggregates miss those entries too, so treat both the list and the counts as a floor rather than a total until the sources are readable again.
 
 <Note>
   Read the footer before drawing conclusions from a scan of the list. `Showing 500 of 4,120` means the list is a recent slice while every chip and tile still reflects all 4,120 entries.
@@ -138,7 +140,7 @@ Edits accumulate in a draft and apply only when you save.
 - The draft survives a reload within the browser session. Saving, discarding, repairing, or resetting clears it.
 - Leaving the page with unsaved changes prompts you first.
 
-Saving writes the policy file and reports the path it wrote. Saving is refused while the on-disk policy has parse errors, with `Repair policy before saving changes.` — repair first, then save.
+Saving writes the policy file and reports the path it wrote. While the on-disk policy has any error, the form does not show your file: every control renders the built-in default, not the valid values the runtime is still salvaging from disk — only the raw JSON mirror still shows the file's actual contents. Saving is refused in that state, with `Repair policy before saving changes.`, so the defaults on screen cannot be written over your file from here — repair first, then save. After a repair, the form reloads with the settings the repair preserved.
 
 ### Test a command
 
@@ -154,7 +156,22 @@ Environment variables that raise protection are surfaced here as a notice, so a 
 
 ### Destructive command protection
 
-A master switch plus per-rule toggles. Each rule card carries a `?` popover with a concrete example of a command it blocks, and a status line naming where its current value came from — so a rule reading `Off — destructive-command protection disabled` tells you the master switch is winning, not your override.
+A master switch, then the rules grouped into four collapsible tiers:
+
+| Tier | Sub-label |
+| --- | --- |
+| **Always enforced** | Cannot be disabled by any preset, rule override, or allow path |
+| **Available in every preset** | No additional capability required |
+| **Strict tier** | Inherits from Fail closed |
+| **Paranoid tier** | Inherits from Paranoid rm or Paranoid interpreters |
+
+Every tier starts collapsed; searching on the Policy view opens each tier that has a match automatically. The **Always enforced** tier has no switch and no per-rule checkboxes — its header counts its rules as `N protections`, and each rule inside is marked `Always enforced` with a `?` example popover.
+
+The three configurable tiers show `N on · N off` counts in the header, next to a tier switch labelled `All <tier> protections`. That switch is checked while at least one rule in the tier is on, and it is disabled while the master switch is off. Flipping it writes the same per-rule overrides the individual checkboxes use, in bulk — a rule that ends up matching its inherited value keeps no override — so there is no separate stored group setting.
+
+While the master switch is on, the panel summary reads `N active, N disabled`. Turning it off replaces that with `Configurable protection disabled. Catastrophic protections remain active; saved rule settings and allow paths are preserved.` — the Always enforced tier keeps blocking even then.
+
+Each configurable rule card carries a `?` popover with a concrete example of a command it blocks, and a status line naming where its current value came from — so a rule reading `Off — destructive-command protection disabled` tells you the master switch is winning, not your override.
 
 Toggling a rule stores an explicit `on` or `off` override. Setting a rule back to its inherited value **deletes** the override rather than storing a redundant one, and each rule offers `Use inherited setting` to do that directly. A `Restore defaults` action in the panel head clears every override at once.
 
@@ -162,7 +179,13 @@ Toggling a rule stores an explicit `on` or `off` override. Setting a rule back t
 
 ### Secret protection
 
-A master switch plus per-pattern toggles for the default sensitive paths and the credential locations of coding CLIs. Unchecking a pattern disables that pattern; rechecking it removes the override entirely.
+A master switch plus per-pattern checkboxes, grouped by category — from the default sensitive paths (home paths, credential basenames, extensions, and variants) to the **Coding CLI credential** and **Coding CLI config** locations. Each group header is a collapse button showing `N on · N off`, next to a group switch labelled `All <category> protections` that behaves exactly like the destructive tier switches: checked while any rule in the group is on, disabled while the master switch is off, and writing the per-rule overrides in bulk. Groups start collapsed and open automatically during a Policy search.
+
+Rules that protect literal file paths carry a `?` button opening a **Protected paths** popover that lists exactly which paths the rule covers.
+
+Not every rule defaults to on. **Coding CLI config** rules ship **off** — settings and MCP config files carry credentials inline, but agents edit them as routine work, so you opt in per rule. A checkbox stores an override only when it deviates from the rule's default: checking a default-off rule writes an `on` override and unchecking it removes the override, while for a default-on rule unchecking writes `off` and rechecking removes the override.
+
+While the master switch is on, the panel summary reads `N active, N disabled`. When it is off, it reads `Protection disabled. Saved rule settings and deny paths are preserved.`
 
 **Deny paths** live in this panel. Configured paths and everything inside them are blocked while secret protection is on. Deny paths depend on the master switch — turning secret protection off stops enforcing them. See [Deny paths](/configuration/policy#deny-paths) for the accepted entry forms.
 
@@ -184,7 +207,7 @@ Individual rule toggles, preset changes, and adding or removing paths are staged
 Cancel is focused by default in every one of these dialogs.
 
 <Warning>
-  Turning off destructive command protection or secret protection disables the built-in layer wholesale until you turn it back on. Prefer a single rule override, or a lower preset, over the master switch.
+  Turning off destructive command protection or secret protection disables every configurable rule in that layer at once until you turn it back on — only the Always enforced destructive tier keeps blocking. Prefer a single rule override, or a lower preset, over the master switch.
 </Warning>
 
 ### Repair
@@ -242,8 +265,11 @@ Integrations installs or removes the CC Safety Net hook for each coding agent on
 | --- | --- | --- |
 | **Installed** | The hook is configured and active. | `Uninstall` |
 | **Disabled** | The CLI is on this machine but the hook is not configured. | `Enable` |
+| **Not inspected** | The CLI was detected, but its state file could not be read, so its status is unknown. | `Install` |
 | **Not installed** | The CLI is on this machine with no hook. | `Install` |
 | **not detected** | The CLI was not found on this machine. | None |
+
+`Not inspected` carries a tooltip spelling this out: `This runtime's state file could not be read, so its status is unknown.` The CLI itself was found, so installing is still offered.
 
 Detection gates the actions: when a CLI is not detected, no button is offered at all, because there is nothing to install a hook into. Install and uninstall are serialized, so two actions cannot interleave, and the button is disabled while its request is in flight. Failures report `Install failed` or `Uninstall failed` rather than silently reverting.
 
@@ -257,13 +283,15 @@ Settings covers appearance, file locations, and maintenance.
 
 **Files.** Two read-only rows showing where CC Safety Net reads and writes on this machine: the policy file and the audit log directory.
 
-**Policy JSON.** A read-only mirror of the policy controls, with a copy button. It reflects the controls on the Policy view — it is a mirror for inspecting and sharing, not a second editor.
-
-**Audit log retention.** How many days of audit records to keep — see [Audit log](/reference/audit-log#retention) for the accepted range, what gets recorded, and how the sweep enforces it. Unlike the Policy view, retention **saves immediately on change** — there is no save bar behind it. It cannot be saved while the Policy view has unsaved changes; save or discard those first.
+**Audit log retention.** How many days of audit records to keep — see [Audit log](/reference/audit-log#retention) for the accepted range, what gets recorded, and how the sweep enforces it. Unlike the Policy view, retention **saves immediately on change** — there is no save bar behind it. It cannot be saved while the Policy view has unsaved changes; save or discard those first. Unlike the Policy save button, this control is **not** blocked while the on-disk policy has errors — and because the form holds defaults in that state, changing retention writes that all-defaults document, with only your new retention, over the file. Repair the policy before touching retention.
 
 <Warning>
   Shortening retention is irreversible. Audit entries older than the new window are deleted on the next sweep and cannot be recovered, and the Activity view can then only look back as far as the new value. The dashboard asks you to confirm before shortening, and the confirmation names the logs directory it will prune. Export anything you need first — every entry has a copy-as-JSON button in the Activity feed.
 </Warning>
+
+**Policy JSON.** A read-only mirror of the policy controls, with a copy button. It reflects the controls on the Policy view — it is a mirror for inspecting and sharing, not a second editor.
+
+**Version.** A single read-only row showing the CC Safety Net version you are running.
 
 **Danger zone.** A single action, **Reset policy**, which restores the default policy JSON at the configured path.
 

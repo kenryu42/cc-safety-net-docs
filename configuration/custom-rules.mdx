@@ -76,6 +76,12 @@ npx -y cc-safety-net rule remove example-rules --delete-source
 
 Add `--global` (`-g`) to operate on the user scope instead of the project scope. See [CLI commands](/reference/cli-commands) for every `rule` subcommand, its options, and its exit behavior.
 
+### Resource limits
+
+The `rules` array holds at most **64** sources per scope. A `rule.json` with more entries fails validation with the single error `Rule config exceeds CC Safety Net's safe source limit.` — the oversized array is not itemized entry by entry, and the whole scope's config is dropped like any other invalid `rule.json`.
+
+`rule sync` runs under fixed budgets: it processes at most **4** sources concurrently, and one run makes at most **131** GitHub requests and reads at most **64 MiB** of response bytes across all sources. Exceeding a budget stops the run with `Rule synchronization exceeds CC Safety Net's safe resource limits.`
+
 ### Lock and cache
 
 Every configured source is pinned in a `rule.lock` file by a SHA-256 digest, and its rulebook is cached under `.cc-safety-net/cache/rulebooks/`. At runtime CC Safety Net verifies the cached rulebook against the digest, and it never writes, fetches, or caches anything during that verification.
@@ -206,7 +212,7 @@ The top-level `rule.json` selects which rulebooks are active, applies overrides,
 </ParamField>
 
 <ParamField body="rules" type="array">
-  List of rulebook source strings. Defaults to an empty array. Source names must be unique within the file.
+  List of rulebook source strings. Defaults to an empty array. Source names must be unique within the file, and at most 64 sources are allowed — see [Resource limits](#resource-limits).
 </ParamField>
 
 <ParamField body="overrides" type="object">
@@ -233,6 +239,22 @@ An override that changes both the message and the agent-facing intent looks like
   "transparent_wrappers": ["rtk"]
 }
 ```
+
+### Editor support
+
+CC Safety Net publishes a JSON Schema for `rule.json`, generated from the same schema the runtime validates against. Point your editor at it for completion and validation:
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/kenryu42/cc-safety-net/main/assets/cc-safety-net.schema.json",
+  "version": 1,
+  "rules": [],
+  "overrides": {},
+  "transparent_wrappers": []
+}
+```
+
+It covers exactly the `rule.json` fields above — `version`, `rules`, `overrides`, and `transparent_wrappers`. Running `rule verify` adds this `$schema` reference to a valid rules config that lacks one. There is no published schema for `policy.json`.
 
 ## Rulebook schema
 

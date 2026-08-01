@@ -39,6 +39,7 @@ Standard blocks recognizable destructive commands. It is deliberately **not** ad
 - **Unparseable commands are blocked.** `echo 'unterminated` denies with a reason stating the command could not be safely analyzed.
 - **Metadata-only sensitive-path discovery is blocked.** `test -f ~/.ssh/id_rsa` and `find ~/.ssh -type f` are allowed in standard and blocked in strict.
 - The standard-only relaxation that treats sensitive path literals inside Node and Bun inline evaluation as inert diagnostic data is disabled.
+- **Heredocs fail closed.** Before the other analyzers run on a segment, a command containing a heredoc is denied unless it passes the narrow supported gate described under [Heredoc analysis](#heredoc-analysis): exactly one heredoc, on stdin, with a quoted delimiter, no other input redirection, and one of six literal data consumers. An unquoted delimiter denies with "Unquoted heredoc input is not supported safely. Quote the delimiter or ask the user to verify."; every other failure denies with "This heredoc form or stdin consumer is not supported safely. Use a quoted heredoc with a supported consumer (cat, tee, git apply, git commit, gh pr create, gh issue create), or ask the user to verify." In practice, `python3 - <<'PY'` and any unquoted `<<EOF` are denied in strict and paranoid.
 - **Unverifiable destructive targets are blocked.** Five rules are gated on the fail-closed capability, so they are allowed in standard and blocked in strict:
 
 | Rule id | Example | Intent |
@@ -90,6 +91,25 @@ Cwd is tracked across segments of the same command. A `cd` or `pushd` with a lit
 <Note>
   A known limitation: interpreter **long-form flags** (`--eval`, `--execute`, `--require`, and the attached `=value` form) are not recognized in every code path, so the code argument may not always be extracted. See [Known limitations](/guides/known-limitations#interpreter-long-form-flags).
 </Note>
+
+## Heredoc analysis
+
+A heredoc body is text on stdin, and the consumer decides whether that text is data or a program. Before the other analyzers run on a segment, the engine checks the command against a narrow supported gate. The gate passes only when **all** of the following hold:
+
+- The command has exactly one heredoc (`<<` or `<<-`), attached to stdin (fd 0).
+- The delimiter is quoted (`<<'EOF'`), so the body cannot expand substitutions.
+- No other input redirection competes for stdin (`<`, `<<`, `<<-`, `<<<`, `<&`, `<>`).
+- The consumer is a literal `cat`, `tee`, `git apply`, `git commit`, `gh pr create`, or `gh issue create` — no path prefix, no wrapper such as `env`. `cat` and `tee` are additionally rejected when an output process substitution (`>(...)`) is present, because that hands the body to another command.
+
+A command that passes the gate treats the body as inert data in every level: `cat > note.md <<'EOF'` and `git commit -F - <<'EOF'` are allowed even when the body describes destructive commands in prose, and this holds in strict and paranoid too. For `cat`, `tee`, `git commit`, `gh pr create`, and `gh issue create` the body is also masked before sensitive-path extraction, so a commit message containing the word "credentials" does not read as a filename. `git apply` is deliberately not masked there — a patch body names the files it writes, so it stays visible to path extraction. Commands outside the heredoc are still analyzed: `cat <<'EOF' && rm -rf ~` blocks on the `rm`.
+
+A command that fails the gate is denied outright in [strict](#strict) and paranoid. In standard, the body is still analyzed, down one of three paths:
+
+1. A quoted heredoc on stdin feeding a shell that only syntax-checks it (for example `bash -n`) is inert and allowed.
+2. A quoted heredoc on stdin feeding an interpreter (`python`/`python2`/`python3`, `node`, `ruby`, `perl`), where every other word on the command line is a literal starting with `-`, is that interpreter's program: `python3 - <<'PY'` qualifies, `python3 tool.py <<'PY'` does not (there stdin is data for the script). The body is analyzed under the interpreter rules — [paranoid interpreters](/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1) blocks it outright as `interpreter.one-liner-paranoid`, a body containing dangerous code blocks as `interpreter.dangerous-command`, and a clean body is allowed.
+3. Everything else — unquoted delimiters, unknown consumers, `bash` heredoc scripts, interpreter invocations with a script operand — falls through to the raw-text heuristic scan of the joined bodies. A match blocks as `raw-text.dangerous-command`; no match is allowed.
+
+Passing the gate as inert data is not the end of the story when the body lands in a file. When a gate-passing heredoc is written verbatim to a literal path — `cat > setup.sh <<'EOF'`, or `tee setup.sh <<'EOF'` without append — the engine remembers the body under that path, and a later `bash setup.sh`, `sh setup.sh`, `source setup.sh`, or shell startup reference to it (`BASH_ENV`, `ENV`, `--rcfile`, `--init-file`) in the same command is analyzed against the remembered script text, shown in the trace as a `recurse` step with reason `heredoc-file`. So `cat > x.sh <<'EOF' … EOF && bash x.sh` blocks when the body is destructive. Tracking is deliberately narrow: at most 64 files are remembered per analysis (`MAX_TRACKED_HEREDOC_FILES`; exceeding that fails closed on the derived-command work limit), paths under `/dev`, `/proc`, and `/sys` are never tracked, and a later write or redirection to a tracked path invalidates the stored body.
 
 ## Git rule engine
 

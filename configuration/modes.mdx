@@ -39,9 +39,10 @@ Standard never relaxes sensitive **content** access, user-configured deny paths 
 
 ## Strict mode (`CC_SAFETY_NET_STRICT=1`)
 
-Strict mode turns on the `fail_closed` capability. It tightens four distinct things, not just unparseable commands:
+Strict mode turns on the `fail_closed` capability. It tightens five distinct things, not just unparseable commands:
 
 - **Unparseable commands are blocked.** Any command the parser cannot split into tokens is denied — "Command could not be safely analyzed (strict mode)" — even when the fallback text scan finds no dangerous pattern. `echo 'unterminated` is allowed in standard and blocked here.
+- **Heredocs fail closed.** A command containing a heredoc is denied unless it has exactly one heredoc, on stdin, with a quoted delimiter, no other input redirection, and a consumer that is a literal `cat`, `tee`, `git apply`, `git commit`, `gh pr create`, or `gh issue create`. So `python3 - <<'PY'` and any unquoted `<<EOF` are denied here, while `git commit -F - <<'EOF'` still passes. See [Heredoc analysis](/guides/analysis-engine#heredoc-analysis) for the exact gate.
 - **Unverifiable destructive targets are blocked** by the five rules listed below.
 - **Metadata-only sensitive-path discovery is blocked.** `test -f ~/.ssh/id_rsa` and `find ~/.ssh -type f` are allowed in standard and denied in strict.
 - **The standard-only inline-data relaxation is disabled.** In standard, a sensitive path literal inside a Node or Bun inline evaluation is treated as inert diagnostic data when a bounded lexical scan finds no filesystem or command-execution marker. Strict removes that allowance.
@@ -164,7 +165,7 @@ Worktree detection is **fail-closed**: if CC Safety Net cannot positively identi
 | Level | What it adds |
 | --- | --- |
 | `standard` | No capabilities — best-effort protection against recognizable destructive commands |
-| `strict` | `fail_closed`: unparseable commands, unverifiable destructive targets, metadata-only sensitive-path discovery |
+| `strict` | `fail_closed`: unparseable commands, unsupported heredocs, unverifiable destructive targets, metadata-only sensitive-path discovery |
 | `paranoid` | Strict plus `paranoid_rm` (non-temp `rm -rf` even within cwd) and `paranoid_interpreters` (every interpreter one-liner regardless of content) |
 | `custom` | Any capability combination that matches no preset |
 

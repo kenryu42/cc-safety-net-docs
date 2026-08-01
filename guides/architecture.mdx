@@ -60,7 +60,7 @@ graph TD
 
 Adapters translate one agent's tool-call payload into a normalized invocation and translate the guard's decision back into that agent's deny format. Two things are worth knowing at the system level:
 
-- An adapter grants **command-execution capability only to exact, integration-specific tool names**. An unknown tool never gets shell-command treatment; it still receives policy-file and sensitive-path inspection, but its text is not parsed as a command.
+- An adapter grants **command-execution capability only to exact, integration-specific tool names**. An unknown tool never gets shell-command treatment; it still receives policy-file, Git-metadata, and sensitive-path inspection, but its text is not parsed as a command.
 - Adapters own the `config-state` reporting path. The guard itself never emits that stage.
 
 Which agent uses which adapter, its hook flag, and where its config lives are all in [Integration architecture](/guides/integration-architecture); the commands that set them up are in [Installation](/installation).
@@ -88,7 +88,7 @@ Every tool call, on every integration, runs this fixed order. The stage names ar
 | 4 | `command-validation` | Structural command-validation budget exceeded (input length, word count, nesting depth), so the command is denied. | No |
 | 5 | — | Resolve protected Git metadata for the execution working directory. | No |
 | 6 | `policy-protection` | **Policy-file protection** — a write, move, or recursive delete touching the canonical user `policy.json`, its directory, or an ancestor is denied with intent `hard_stop`. | No |
-| 7 | `policy-protection` | **Git-metadata protection** — a delete, move, redirection, write-tool, or patch route targeting the resolved `.git` entry, its directories, or its hooks directories is denied with intent `hard_stop`. | No |
+| 7 | `policy-protection` | **Git-metadata protection** — a delete, move, redirection, write-tool, patch, or unknown-tool route targeting the resolved `.git` entry, its directories, or its hooks directories is denied with intent `hard_stop`. Read-only tools are exempt on the write-tool, patch, and unknown-tool routes. | No |
 | 8 | `config-load` | **Load the policy snapshot** and resolve the effective safety level from policy plus environment. | — |
 | 9 | `secret-protection` | **Sensitive-path protection** — command, path, search, and patch shapes are inspected for built-in sensitive paths and configured deny paths; a match denies with intent `hard_stop` and carries the matched rule id. Skipped entirely when secret protection is disabled in policy. | Yes |
 | 10 | `non-command` | Non-command invocations that survived stages 1–9 are allowed here. | — |
@@ -137,13 +137,16 @@ The engine tracks working-directory changes across segments (via `cd` and `pushd
 
 `parseCommand(source, dialect, limits)` dispatches to CC Safety Net's **own POSIX parser** or its **own PowerShell parser**; the `auto` dialect sniffs which one applies. Both are internal modules, not wrappers around a third-party grammar.
 
-Parser budgets are compile-time constants, not policy settings, so no configuration can raise them:
+Parser and analyzer budgets are compile-time constants, not policy settings, so no configuration can raise them:
 
 | Budget | Value |
 | --- | --- |
 | Maximum input length | 131,072 UTF-16 code units |
 | Maximum words | 16,384 |
 | Maximum nesting depth | 64 |
+| Maximum derived-command work | 16,384 derived tokens |
+
+The first three bound the initial parse. The fourth bounds the work the analyzer *derives* from a command after that parse — child commands reconstructed from `find -exec`, `xargs`, and `parallel`, commands embedded behind wrappers, tracked heredoc files replayed into the analyzer, and PowerShell `Invoke-Expression` sources. Exhausting it denies with the reason "Command analysis exceeds CC Safety Net's derived-command work limit. Reduce nested or embedded command complexity and retry." — a distinct failure from the recursion-depth limit and the structural validation limits in the stage table above.
 
 The analyzer's public contract is deliberately narrow: it returns nothing on allow and a result object on block. It never exposes the parser's internal `complete` / `partial` / `limited` states, so callers cannot branch on parse confidence.
 

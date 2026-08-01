@@ -30,7 +30,7 @@ This page is the behavior matrix — *what* is blocked, and where each boundary 
 | Level | What the blocked matrix looks like |
 | --- | --- |
 | [Standard](/configuration/modes#default-mode) | Every untagged row on this page. Safe-looking unparseable text such as `echo 'unterminated` is permitted, but unparseable text containing a recognizable destructive pattern is still blocked heuristically. Dynamic `rm -rf` targets are **not** categorically blocked. |
-| [Strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) | Everything standard blocks, plus unparseable commands outright, destructive targets that cannot be verified, and metadata-only discovery of built-in sensitive paths. |
+| [Strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) | Everything standard blocks, plus unparseable commands outright, destructive targets that cannot be verified, [heredocs outside a small supported set](#heredocs-in-strict-and-paranoid), and metadata-only discovery of built-in sensitive paths. |
 | [Paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) | Everything strict blocks, plus non-temp recursive forced deletion even inside the current working directory, and every interpreter one-liner regardless of content. |
 
 <Note>
@@ -128,7 +128,7 @@ CC Safety Net resolves the nearest ancestor `.git` entry of the execution direct
 | `rm -rf <dirname(gitDir)>/*` | A glob covering a protected directory |
 | `mv` with a protected source or destination | Move route |
 | `> .git` and other write redirections | Redirection route |
-| `Write` or patch targeting `.git/hooks/new-hook` | Write-tool and patch routes |
+| `Write` or patch targeting `.git/hooks/new-hook` | Write-tool, patch, and unknown-tool routes — read-only tools are exempt |
 | `find .git -delete` | Catastrophic even with `find.delete-git-metadata` set to `off` |
 
 A symlinked `.git` directory and a symlinked hooks directory are protected on **both** the lexical and the canonical alias, and a `.git` marker pointing at a missing Git directory still blocks. A trailing `*` glob in a POSIX shell does not match dot-entries, so `rm -rf ./*` at a repository root does not cover `.git` — but `rm -rf .git/worktrees/*` and PowerShell wildcards do.
@@ -196,7 +196,9 @@ Sensitive-path protection is a separate guard stage that runs before command ana
 
 Reads are blocked for the built-in sensitive set, not just writes: `cat .env`, `env cat .env`, `sudo command cat .env`, `strings id_rsa`, `xxd .env`, `base64 .env`, `dd if=.env`, `cat ~/.ssh/id_rsa`, `bash -c "cat .env"`, and `node -e 'require("child_process").execSync("cat .env")'` are all blocked.
 
-Command-shape extraction is bounded and structural: it fails closed on a structural shell-syntax limit and throws on an invalid parse. Configured deny paths are matched before the built-in rules and are never relaxed by any standard-mode allowance. The whole feature can be disabled with `secretProtection.enabled: false`, and individual built-in rules can be disabled through `disabledRules`.
+Coding CLI files are protected in two tiers. The credential stores of supported agents — for example `~/.claude/.credentials.json`, `~/.codex/auth.json`, `~/.gemini/oauth_creds.json` — are blocked by default. Their settings and MCP configuration files form the **Coding CLI config** tier, which is off by default; an explicit `"on"` override in `secret_protection.overrides` enables a config rule, which then also protects project-level files matched by name, such as any `.mcp.json` or a `settings.local.json` inside a `.claude` directory. Antigravity is the one agent with only a default-off config rule, covering `~/.gemini/config/hooks.json` and `~/.gemini/config/mcp_config.json`. See [Policy](/configuration/policy#rules-that-are-off-by-default) for the rule ids.
+
+Command-shape extraction is bounded and structural: it fails closed on a structural shell-syntax limit and throws on an invalid parse. Configured deny paths are matched before the built-in rules and are never relaxed by any standard-mode allowance. The whole feature can be disabled with `secret_protection.enabled: false`; individual built-in rules can be turned off through `secret_protection.overrides`, and the default-off Coding CLI config rules turned on the same way.
 
 ## Shell wrappers and interpreter one-liners
 
@@ -219,6 +221,22 @@ The analyzed interpreters are `python`, `python2`, `python3`, `node`, `ruby`, an
 ### Blocking all interpreter one-liners
 
 If you want to block interpreter one-liners outright regardless of their content, set `CC_SAFETY_NET_PARANOID_INTERPRETERS=1`. Every `python -c`, `node -e`, `ruby -e`, and `perl -e` one-liner is then blocked, even if it contains no dangerous code — `python -c "print(1)"` is allowed in standard and strict and blocked here. See [Modes](/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1).
+
+## Heredocs in strict and paranoid
+
+Once the fail-closed capability is on — [strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) or [paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) — a command that takes heredoc input is denied unless all of these hold: a single heredoc, on standard input, with a quoted delimiter, no other input redirection, and a consumer on the literal allowlist `cat`, `tee`, `git apply`, `git commit`, `gh pr create`, `gh issue create`. An unquoted delimiter denies with:
+
+```text
+Unquoted heredoc input is not supported safely. Quote the delimiter or ask the user to verify.
+```
+
+Every other unsupported form or consumer denies with:
+
+```text
+This heredoc form or stdin consumer is not supported safely. Use a quoted heredoc with a supported consumer (cat, tee, git apply, git commit, gh pr create, gh issue create), or ask the user to verify.
+```
+
+The full heredoc contract, including how heredoc content is handled in standard mode, is on the [Analysis engine](/guides/analysis-engine) page.
 
 ## Unparseable command text
 

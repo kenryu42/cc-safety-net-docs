@@ -19,7 +19,7 @@ The core trust boundary sits between the AI coding agent and the host shell. CC 
 
 Every command that reaches the shell tool on a supported platform flows through the analysis engine before it is allowed to run. If analysis returns a block reason, the command is denied.
 
-The boundary stops at supported tool names and supported shapes. Adapters grant command-execution capability only to exact, integration-specific tool names; unknown tools keep conservative policy-file and sensitive-path inspection but their text is never treated as a shell command. Commands that bypass an installed integration entirely are outside the boundary.
+The boundary stops at supported tool names and supported shapes. Adapters grant command-execution capability only to exact, integration-specific tool names; unknown tools keep conservative policy-file, Git-metadata, and sensitive-path inspection but their text is never treated as a shell command. Commands that bypass an installed integration entirely are outside the boundary.
 
 ### Secondary boundaries
 
@@ -76,7 +76,7 @@ Fail-closed applies to **that one tool call** when analysis itself cannot comple
     Untrusted recursive tool input is bounded to 64 object levels, 10,000 visited values, 10,000 own keys, 1 MiB per string, and 4 MiB of aggregate string data; hook stdin is capped at 8 MiB of raw bytes. Exceeding any boundary denies the call.
   </Step>
   <Step title="Parser resource exhaustion">
-    Input beyond 131,072 UTF-16 code units, more than 16,384 words, or nesting beyond 64 levels is denied rather than analyzed incompletely. This applies in **every** safety level, standard included.
+    Input beyond 131,072 UTF-16 code units, more than 16,384 words, or nesting beyond 64 levels is denied rather than analyzed incompletely. A separate budget of 16,384 derived tokens bounds the work that nested and embedded commands add after the initial parse — see [Parsers and the runtime dependency surface](/guides/architecture#parsers-and-the-runtime-dependency-surface). Both apply in **every** safety level, standard included.
   </Step>
   <Step title="Strict mode">
     [Strict mode](/configuration/modes#strict-mode-cc_safety_net_strict=1) extends fail-closed to commands the shell parser cannot safely tokenize, so unparseable input is blocked rather than passed through. Standard mode allows safe-looking unparseable text.
@@ -91,7 +91,7 @@ See [Design principles](/guides/design-principles#fail-closed-as-the-default) fo
 
 ## Secret redaction
 
-Before any command or segment text is written to the audit log or returned to the agent, it passes through automatic secret redaction. The redactor scrubs PEM private keys, database URL environment variables, generic secret-bearing env assignments, common secret HTTP headers, URL credentials, and known provider token prefixes (GitHub, Slack, npm, Stripe, PyPI), plus JWTs and AWS access key IDs. Each matched value is replaced with `<redacted>`.
+Before any command or segment text is written to the audit log or returned to the agent, it passes through automatic secret redaction. The redactor scrubs PEM private keys, database URL environment variables, generic secret-bearing env assignments, common secret HTTP headers, URL credentials, presigned-URL signature query parameters (`x-amz-signature`, `x-goog-signature`, `sig`, `signature`), and known provider token prefixes (GitHub, Slack, npm, Stripe, PyPI), plus JWTs and AWS access key IDs. Each matched value is replaced with `<redacted>`.
 
 Redaction is conservative and pattern-based — it reduces the risk of leaking secrets that happen to appear in a command's arguments, but it is **bounded to recognized credential shapes**. Absolute filesystem paths, project and directory names, hostnames, IP addresses, usernames, and any credential whose format is not on the pattern list are retained verbatim. New secret formats emerge regularly, so avoid piping real credentials through commands an agent runs. See the [Audit log reference](/reference/audit-log#secret-redaction) for the full redaction scope.
 

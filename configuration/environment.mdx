@@ -1,7 +1,7 @@
 ---
 title: "CC Safety Net environment variables"
 sidebarTitle: "Environment"
-description: "Complete reference for every CC Safety Net environment variable: safety level, capability toggles, audit scope, debug output, config-directory override, and the policy-versus-environment precedence rules."
+description: "Complete reference for every CC Safety Net environment variable: safety level, capability toggles, audit scope, debug output, config-directory override, update-check opt-out, and the policy-versus-environment precedence rules."
 ---
 
 CC Safety Net reads its configuration from `policy.json` and from environment variables. Mode toggles use the `CC_SAFETY_NET_*` prefix, and older `SAFETY_NET_*` names (without the `CC_` prefix) are still accepted as legacy aliases where noted. Set them in your shell, your agent's launch environment, or your `.env` file before starting your agent.
@@ -16,7 +16,13 @@ This page is the reference for the variables themselves and for how they combine
 
 The three presets expand into the same three capabilities — `fail_closed`, `paranoid_rm`, and `paranoid_interpreters`. See [Modes](/configuration/modes) for what each preset blocks and what each capability changes.
 
-Any value other than `standard`, `strict`, or `paranoid` is ignored and the level configured in `policy.json` is used unchanged. Set `CC_SAFETY_NET_DEBUG=1` to have the rejected value reported on stderr.
+Any value other than `standard`, `strict`, or `paranoid` is ignored and the level configured in `policy.json` is used unchanged. The rejected value is always reported on stderr — no debug flag is required:
+
+```
+CC Safety Net: ignored invalid CC_SAFETY_NET_LEVEL="<value>". Use standard, strict, paranoid.
+```
+
+The reported value is truncated to its first 40 characters. An empty value is treated as unset and produces no warning.
 
 ## Capability toggles
 
@@ -63,7 +69,7 @@ Allowed decisions are recorded only when the tool call routed to a command; allo
 
 | Variable | Legacy alias | Effect |
 | --- | --- | --- |
-| `CC_SAFETY_NET_DEBUG=1` | none | Print diagnostic messages to stderr, including the reason an analysis exception occurred and rejected environment values. |
+| `CC_SAFETY_NET_DEBUG=1` | none | Print diagnostic messages to stderr, such as the reason an analysis exception occurred or a failure to read the Claude settings file for the status line. It does not gate the invalid-`CC_SAFETY_NET_LEVEL` warning — that warning is always printed. |
 
 `CC_SAFETY_NET_DEBUG` does not change which decisions are recorded — that is `CC_SAFETY_NET_AUDIT_SCOPE`. Use it when investigating why a command was allowed or when filing a bug report. The `doctor` command reports whether it is set.
 
@@ -78,6 +84,16 @@ When set, `policy.json` is read from `<path>/policy.json`, user-scope rulebook c
 <Note>
   `CC_SAFETY_NET_HOME` does not relocate the audit log. The audit root resolves independently — see [Audit log](/reference/audit-log#log-layout) for how it is derived.
 </Note>
+
+## Update-check opt-out
+
+| Variable | Legacy alias | Effect |
+| --- | --- | --- |
+| `CC_SAFETY_NET_NO_UPDATE_CHECK=1` | none | Disable the update check that runs during `rule doc`. Any non-empty value counts — this one is not parsed as a boolean, so even `0` disables the check. |
+
+`rule doc` normally checks for a newer release at most once every 24 hours: it polls `https://registry.npmjs.org/cc-safety-net/latest`, caches the result in `$HOME/.cc-safety-net/update-check.json`, and prints an `UPDATE_AVAILABLE:` line on stderr when a newer version exists. That poll is the only outbound network request the CLI makes during `rule doc`.
+
+When `CC_SAFETY_NET_NO_UPDATE_CHECK` is set, the check is skipped entirely: no registry poll, no cache write, and no `UPDATE_AVAILABLE:` line. It does not affect the separate update check that `doctor` and the dashboard run.
 
 ## Checking your active configuration
 

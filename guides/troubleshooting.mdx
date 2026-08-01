@@ -12,7 +12,7 @@ This guide covers the most common issues with CC Safety Net and how to resolve t
 npx cc-safety-net status
 ```
 
-`status` prints the runtime verdict (`ready`, `degraded`, or `not enforcing`), the active protections and safety level, your policy path, and one bullet per outstanding issue. It is informational and always exits 0.
+`status` prints the runtime verdict (`ready` or `degraded`), the active protections and safety level, your policy path, and one bullet per outstanding issue. A disabled Claude Code plugin appears as the first `Not active` item, not as a separate verdict. `status` is informational and always exits 0.
 
 ```bash
 npx cc-safety-net doctor
@@ -44,7 +44,7 @@ Review the output before you work through the individual issues below. Most prob
     7. **Cursor**: check `~/.cursor/hooks.json` for a managed `preToolUse` entry running `npx -y cc-safety-net hook --cursor`. The config is global, so one entry covers Cursor IDE and Cursor CLI across all projects.
     8. **Gemini CLI**: run `gemini extensions list` and confirm the `https://github.com/kenryu42/gemini-safety-net` source is installed and enabled (check both User and Workspace scope — Workspace wins if set). Reinstall with `gemini extensions install https://github.com/kenryu42/gemini-safety-net` and start a new Gemini session.
     9. **GitHub Copilot CLI**: confirm the `cc-safety-net@cc-marketplace` plugin is installed (`/plugin`) and enabled in `enabledPlugins` in `~/.copilot/settings.json`, and that hooks are not disabled via `disableAllHooks: true` in `~/.copilot/config.json`, `.github/copilot/settings.json`, or `.github/copilot/settings.local.json`. Inline hooks require Copilot CLI 1.0.8+ and user hook files require 0.0.422+.
-    10. **Kimi Code**: check `~/.kimi-code/config.toml` (or `$KIMI_CODE_HOME/config.toml`) for a `[[hooks]]` block running `npx -y cc-safety-net hook --kimi-code` on `PreToolUse` `Bash`. Re-run `npx -y cc-safety-net install --kimi-code` if it's missing.
+    10. **Kimi Code**: check `~/.kimi-code/config.toml` (or `$KIMI_CODE_HOME/config.toml`) for a `[[hooks]]` block running `npx -y cc-safety-net hook --kimi-code` on `PreToolUse` `Bash`. Re-run `npx -y cc-safety-net@latest install --kimi-code` if it's missing.
     11. **OpenCode**: check `~/.config/opencode/opencode.json` (or `.jsonc`) for `cc-safety-net` in the `plugin[]` array. OpenCode can cache a stale version — see the [Installation](/installation#opencode-installation) cache-clearance steps.
     12. **Pi**: confirm `pi install npm:cc-safety-net` completed and you restarted Pi so the extension loads. Pi runs CC Safety Net as an in-process extension; run `npx cc-safety-net doctor`, which probes Pi directly.
     13. After making any changes, reload or restart your agent session.
@@ -79,11 +79,12 @@ Review the output before you work through the individual issues below. Most prob
     **Steps to resolve:**
 
     1. Run `npx cc-safety-net explain "<the command>"` to understand exactly why it's being blocked and which rule matched.
-    2. Consider these alternatives depending on your situation:
+    2. If the deny reason is "Command analysis exceeds CC Safety Net's derived-command work limit. Reduce nested or embedded command complexity and retry.", no rule matched — the command exhausted the fixed work budget for commands the analyzer derives from yours: shell one-liners inside `find -exec`, `xargs`, or `parallel`, commands embedded behind wrappers, and similar nested forms. The budget is a compile-time constant, so no configuration raises it. Split the command into simpler separate commands and retry.
+    3. Consider these alternatives depending on your situation:
        - **Working in a linked git worktree?** Turn on worktree mode with `workflow.worktree_mode` in `policy.json` or `CC_SAFETY_NET_WORKTREE=1`. This relaxes local-discard rules when the command is proven to run inside a linked worktree, which is designed to be a disposable, isolated workspace.
        - **Need a safer variant?** For example, `git push --force-with-lease` is allowed and provides the same outcome as `--force` with an added safety check. `git clean -n` (dry-run) is allowed and lets you preview what would be removed.
        - **Command is genuinely needed?** Run it manually outside the agent. This is always an option, and CC Safety Net will tell the agent to ask you to do exactly this when a block fires.
-    3. If none of the above apply, you can add a custom allow path by structuring the situation so the agent asks you to run the command directly.
+    4. If none of the above apply, you can add a custom allow path by structuring the situation so the agent asks you to run the command directly.
   </Accordion>
 
   <Accordion title="Custom rules are not being enforced">
@@ -145,21 +146,17 @@ Review the output before you work through the individual issues below. Most prob
   <Accordion title="Getting an update">
     Keep CC Safety Net up to date to get the latest blocking rules and bug fixes.
 
+    **Update every installed integration:**
+
+    ```bash
+    npx -y cc-safety-net@latest update
+    ```
+
+    `update` detects the integrations already installed on your machine — including disabled ones — and refreshes each one in place. An integration whose agent CLI cannot be found is reported as skipped. The `@latest` tag matters: a bare `cc-safety-net` spec can re-run an older cached copy from the npx cache instead of the current release. Pressing `u` in the interactive installer runs the same update.
+
     **Claude Code (plugin marketplace):**
 
-    Go to `/plugin` → select `Marketplaces` → choose `cc-marketplace` → enable auto-update. Alternatively, re-run the install command to pull the latest version:
-
-    ```bash
-    /plugin install cc-safety-net@cc-marketplace
-    ```
-
-    **npm / npx:**
-
-    If you're invoking CC Safety Net via `npx`, use the `@latest` tag to always run the newest version:
-
-    ```bash
-    npx cc-safety-net@latest doctor
-    ```
+    To update automatically instead, go to `/plugin` → select `Marketplaces` → choose `cc-marketplace` → enable auto-update.
 
     If you have a local install, update it with your package manager.
 

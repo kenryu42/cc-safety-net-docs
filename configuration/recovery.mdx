@@ -23,7 +23,7 @@ A single warning is enough to move the runtime to `degraded`. The distinction be
 Both produce `degraded`.
 
 <Note>
-  `cc-safety-net status` can print a third verdict, `not enforcing`. That is not a snapshot state — it is what `status` shows when the Claude Code plugin is disabled, meaning CC Safety Net is not wired into the agent at all.
+  `ready` and `degraded` are the only verdicts `cc-safety-net status` prints — the verdict is read straight from the snapshot state. A disabled Claude Code plugin does not change the verdict; `status` reports it as the first item under `Not active`: "plugin cc-safety-net@cc-marketplace is disabled in Claude Code; nothing is enforced in Claude Code until it is re-enabled. Other integrations are not affected."
 </Note>
 
 ## Invalid configuration does not block your work
@@ -91,7 +91,7 @@ Duplicate rulebook names resolve deterministically: the first claim wins, and th
 
 Field-level salvage means one bad field cannot drop the protections the rest of the file still configures. The protective defaults deliberately err toward more denials: destructive-command protection and secret protection are forced on, allow paths are dropped, and disabling overrides are dropped. See [Policy](/configuration/policy) for the per-field salvage behavior.
 
-The runtime never rewrites `policy.json`. Repair it by hand, or use the repair action in the dashboard.
+The runtime never rewrites `policy.json`. Repair it by hand, or use the repair action in the dashboard. Note that while the file has errors, the dashboard form shows the full defaults rather than the salvaged values, and saving is refused until you repair — the repair action itself preserves every recognized valid setting, replacing the whole file with defaults only when the JSON cannot be parsed.
 
 ## Transparent wrappers are the one coverage gap
 
@@ -124,7 +124,7 @@ Invalid configuration is the opposite: rule sources are dropped, `policy.json` i
 | --- | --- |
 | The next user-visible denial | A `Config warning:` line carrying the full reason, appended to the block message |
 | Audit records | A `configFallback` flag, set on allowed and denied decisions alike |
-| `cc-safety-net status` | The verdict `ready`, `degraded`, or `not enforcing`, and one line per diagnostic under `Not active` |
+| `cc-safety-net status` | The verdict `ready` or `degraded`, and one line per diagnostic under `Not active` |
 | `cc-safety-net doctor` | A `config.runtime-degraded` warning finding titled "Runtime is enforcing a fallback configuration", with the full reason as detail |
 | `cc-safety-net rule list` | An `Issues` and a `Warnings` section. Rule configuration only |
 | Status line | A `⚠️` marker while the snapshot is degraded |
@@ -154,7 +154,7 @@ Every command below is an ordinary tool call, so your agent can run the whole se
     npx cc-safety-net status
     ```
 
-    Prints `ready`, `degraded`, or `not enforcing`, plus one line per diagnostic under `Not active`. It is purely informational, so use it as the cheap habitual check rather than a gate.
+    Prints `ready` or `degraded`, plus one line per diagnostic under `Not active`. A disabled Claude Code plugin appears as the first `Not active` item, not as a separate verdict. It is purely informational, so use it as the cheap habitual check rather than a gate.
   </Step>
   <Step title="Get the full report">
     ```bash
@@ -168,14 +168,14 @@ Every command below is an ordinary tool call, so your agent can run the whole se
     npx cc-safety-net rule list
     ```
 
-    Lists what is actually active, followed by `Issues` and `Warnings`. Use it to confirm which rules a dropped source took with it.
+    Lists what is actually active, followed by `Issues` and `Warnings`. Use it to confirm which rules a dropped source took with it. It exits non-zero only when the policy has errors; warnings alone print under `Warnings` and exit `0`.
   </Step>
   <Step title="Validate your rule configuration">
     ```bash
     npx cc-safety-net rule verify
     ```
 
-    Validates the user and project `rule.json` against the schema and replays the runtime load, so it catches the same problems the guard would hit. It also flags legacy files that still need migration.
+    Validates the user and project `rule.json` against the schema and replays the runtime load, so it catches the same problems the guard would hit. It also flags legacy files that still need migration. One write to expect: when a valid `rule.json` has no `$schema` key, `rule verify` adds one and prints `Added $schema to <scope> config.` — otherwise it changes nothing.
   </Step>
   <Step title="Repair and re-sync">
     ```bash

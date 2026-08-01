@@ -60,6 +60,20 @@ Absolute or `~/`-prefixed directories listed under `destructive_command_protecti
 
 Allow paths never widen anything else. They do not relax sensitive-path protection or deny paths. They cannot cover root, home, or protected Git metadata — an allow path containing a repository still blocks `rm -rf` of that repository's `.git`. Because dynamic targets are classified first, an allow path never applies to an unverifiable target. Entries equal to or containing `$HOME` are rejected at validation and again after canonicalization, and symlink escapes out of an allow path are not covered.
 
+## Heredoc data consumers
+
+A quoted heredoc on stdin whose consumer only stores or publishes the body is data, not a program, so the body is never scanned as command text. The consumer must be a literal `cat`, `tee`, `git apply`, `git commit`, `gh pr create`, or `gh issue create`; the heredoc must be the command's only input redirection; and `cat`/`tee` must not feed an output process substitution (`>(...)`). This allowance holds in **every** level, strict and paranoid included.
+
+| Command pattern | Why it's safe |
+| --- | --- |
+| `cat > note.md <<'EOF'` | The body is written to a file, never executed |
+| `tee note.md <<'EOF'` | Same — the body is stored, not run |
+| `git apply <<'PATCH'` | A patch body is applied as text, not executed |
+| `git commit -F - <<'EOF'` | The body becomes the commit message, even when it describes destructive commands in prose |
+| `gh pr create --body-file - <<'EOF'`, `gh issue create -F - <<'EOF'` | The body is published as PR or issue text |
+
+The delimiter must be quoted (`<<'EOF'`): an unquoted `<<EOF` body can expand substitutions, so it stays scannable in standard and is denied once fail-closed is on. Commands outside the heredoc are still analyzed — `cat <<'EOF' && rm -rf ~` blocks on the `rm`. For `cat`, `tee`, `git commit`, `gh pr create`, and `gh issue create` the body is also masked before sensitive-path extraction, so prose mentioning a secret filename does not block the commit; `git apply` bodies stay visible to path extraction, because a patch names the files it writes. See [Heredoc analysis](/guides/analysis-engine#heredoc-analysis) for the full gate and for what standard does with heredocs that fail it.
+
 ## Standard-only allowances
 
 These shapes are permitted in standard and denied once [strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) or [paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) is active. They are deliberate trade-offs, not oversights: standard is best-effort against adversarial or dynamic input.
@@ -113,9 +127,16 @@ Sensitive-path protection is a bounded pattern set over supported shapes, so som
 | `find . -name .env` | `-name` supplies a search *pattern*, not a path to read | All |
 | `find src -type f` | No sensitive path root | All |
 | `custom-tool README.md`, `make FOO=bar`, `xxd README.md` | Benign operands on an unlisted command | All |
+| `cat .env.example` (also `.env.sample`, `.env.template`, `.env.defaults`) | Env templates hold placeholder values, not secrets — exempted before every other sensitive-path rule | All |
+| `cat node_modules/x/fixture.pem` | Vendored directories suppress the extension rules and the broad key-basename rule | All |
 | `test -f ~/.ssh/id_rsa` | Metadata-only existence check, no content access | **Standard only** |
 | `find ~/.ssh -type f` | Metadata-only listing, no content access | **Standard only** |
 | Node/Bun inline evaluation containing sensitive path literals | Treated as inert diagnostic data when a bounded lexical scan finds no filesystem or command-execution marker | **Standard only** |
+
+Two of those allowances have precise boundaries worth knowing:
+
+- **Env templates.** The exact basenames `.env.example`, `.env.sample`, `.env.template`, and `.env.defaults` — plus any name that starts with `.env.example.` or `.env.sample.`, such as `.env.example.local` — are exempted before any other sensitive-path rule runs, so they stay readable and writable even inside a protected home directory. The prefix form does not extend to the other two templates: `.env.template.local`, like every other `.env.*` name, blocks under `secret.pattern.env-variant`.
+- **Vendored directories.** When any path segment is `node_modules` or `__pycache__`, or the adjacent pair `vendor/bundle` or `vendor/cache` appears (a lone `vendor` segment does not count), exactly two rule groups are suppressed: the extension rules (`.pem`, `.p12`, `.key`, …) and the broad extensionless key-basename rule `secret.pattern.ssh-key-basename` (`*_rsa`, `*_dsa`, `*_ed25519`, `*_ecdsa`). Every other rule still applies there — `node_modules/x/.env` and `node_modules/x/id_rsa` block as usual. `.git` is **not** in the skip set, so key material inside a `.git` tree (for example `.git/hooks/deploy_key_rsa`) matches the rules like anywhere else.
 
 <Warning>
   Standard never relaxes sensitive **content** access or configured deny paths. `cat ~/.ssh/id_rsa`, `find ~/.ssh -type f -exec cat {} +`, `find ~/.ssh -type f -fprint .env`, `test -f ~/.ssh/id_rsa && cat ~/.ssh/id_rsa`, and `test -f "$(cat ~/.ssh/id_rsa)"` all stay blocked in standard. Deny paths and their descendants are matched ahead of the built-in rules and are exempt from both Standard-only relaxations.

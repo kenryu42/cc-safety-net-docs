@@ -1,7 +1,7 @@
 ---
 title: "CC Safety Net CLI commands reference"
 sidebarTitle: "CLI commands"
-description: "Reference for every CC Safety Net CLI command: status, doctor, logs, explain, rule, install, uninstall, hook, gui, and statusline, with their options and exit behavior."
+description: "Reference for every CC Safety Net CLI command: status, doctor, logs, explain, rule, install, update, uninstall, hook, gui, and statusline, with their options and exit behavior."
 keywords:
   - "cli"
   - "command line"
@@ -12,6 +12,7 @@ keywords:
   - "explain"
   - "rule"
   - "install"
+  - "update"
   - "hook"
   - "gui"
   - "statusline"
@@ -25,7 +26,7 @@ This page is the command surface reference — commands, subcommands, options, a
 
 ## Command overview
 
-The CLI registers ten commands. This is the order they appear in `cc-safety-net --help`.
+The CLI registers eleven commands. This is the order they appear in `cc-safety-net --help`.
 
 | Command | Usage | What it does |
 | --- | --- | --- |
@@ -35,6 +36,7 @@ The CLI registers ten commands. This is the order they appear in `cc-safety-net 
 | [`explain`](#explain) | `explain [options] <command>` | Trace how a command is analyzed |
 | [`rule`](#rule) | `rule <subcommand>` | Manage rule config, rulebook sources, and transparent wrappers |
 | [`install`](#install) | `install [coding cli]` | Install CC Safety Net into a coding agent CLI |
+| [`update`](#update) | `update` | Update every installed integration in place |
 | [`uninstall`](#uninstall) | `uninstall [coding cli]` | Remove CC Safety Net from a coding agent CLI |
 | [`hook`](#hook) | `hook <coding cli>` | Run as an agent's runtime hook, reading JSON from stdin |
 | [`gui`](#gui) | `gui [options]` | Open the local policy editor GUI |
@@ -56,17 +58,22 @@ npx cc-safety-net status
 
 ### Verdicts
 
-The headline verdict is one of three values:
+The headline verdict is one of two values:
 
 | Verdict | Meaning |
 | --- | --- |
 | `ready` | The policy snapshot loaded cleanly with no loader errors, no warnings, and no policy fallback |
 | `degraded` | The snapshot loaded, but with a loader error, a warning, or a fallback policy. The reasons are listed under `Not active` |
-| `not enforcing` | The Claude Code plugin is not enabled, so nothing is intercepting commands. This verdict replaces the snapshot state entirely |
 
-`not enforcing` is reported whenever `~/.claude/settings.json` is missing, has no `enabledPlugins`, does not list `cc-safety-net@cc-marketplace`, or fails to parse. The check defaults to disabled, so an unreadable settings file reads as not enforcing rather than as ready.
+A disabled Claude Code plugin is no longer a verdict of its own. It is reported as the **first** bullet in the `Not active` list, scoped to that one integration:
 
-The verdict is taken from the policy snapshot and is never re-derived from your configuration; the plugin check is the only thing layered on top.
+```text
+plugin cc-safety-net@cc-marketplace is disabled in Claude Code; nothing is enforced in Claude Code until it is re-enabled. Other integrations are not affected.
+```
+
+The plugin counts as disabled whenever `~/.claude/settings.json` is missing, fails to parse, has no `enabledPlugins`, or does not set `cc-safety-net@cc-marketplace` to `true` — the check defaults to disabled, so an unreadable settings file reads as disabled rather than as enabled.
+
+The verdict is taken from the policy snapshot and is never re-derived from your configuration; the plugin check only adds that bullet, never changes the verdict.
 
 ### Output
 
@@ -89,7 +96,7 @@ When `NO_COLOR` is set or stdout is not a TTY, the output degrades to ASCII: `ok
 ### Exit code
 
 <Note>
-  `status` **always exits `0`**, including when the verdict is `degraded` or `not enforcing`. It is purely informational, so it never fails a script. Use `doctor` when you want a non-zero exit code on problems.
+  `status` **always exits `0`**, including when the verdict is `degraded`. It is purely informational, so it never fails a script. Use `doctor` when you want a non-zero exit code on problems.
 </Note>
 
 ## doctor
@@ -123,6 +130,8 @@ bunx cc-safety-net doctor
 
 `doctor` exits non-zero when it detects a failure — no agent configured, a failed hook inspection, a failed self-test, or an invalid user or project config.
 
+When some audit log files cannot be read, the Recent Activity section ends with `Warning: <n> audit log sources could not be read; this summary is incomplete` (`source` when it is one), so a quiet week is not mistaken for a complete one.
+
 ## logs
 
 `logs` reads back the [audit log](/reference/audit-log): one record per allowed-or-blocked command decision.
@@ -149,6 +158,7 @@ By default `logs` prints the 20 most recent **denials** from the last 30 days fo
 | `--suspect` | | Only denials that look like false positives |
 | `--all` | | Include `allow` entries as well as denials |
 | `--prune-legacy` | | Permanently delete legacy root-level log files |
+| `--dry-run` | | With `--prune-legacy`, report what would be deleted and delete nothing |
 | `--json` | | Output entries as JSON |
 | `-h`, `--help` | | Show help |
 
@@ -157,9 +167,13 @@ By default `logs` prints the 20 most recent **denials** from the last 30 days fo
 **Mutually exclusive combinations.** Both are rejected with an explicit message and exit code `1`:
 
 - `--id` cannot be combined with `--agent`, `--rule`, `--session`, `--project`, `--suspect`, `--since`, or `--limit`.
-- `--prune-legacy` cannot be combined with `--id`, `--agent`, `--rule`, `--session`, `--project`, `--suspect`, `--all`, `--since`, or `--limit`. `--json` is the only flag allowed alongside it.
+- `--prune-legacy` cannot be combined with `--id`, `--agent`, `--rule`, `--session`, `--project`, `--suspect`, `--all`, `--since`, or `--limit`. `--json` and `--dry-run` are the only flags allowed alongside it.
+
+`--dry-run` on its own is also rejected: it prints `--dry-run requires --prune-legacy` and exits `1`.
 
 An unrecognized option prints `Unknown option: <arg>` and exits `1`.
+
+When an audit log file cannot be read or a record is malformed, `logs` prints one warning to stderr — `warning: <n> audit log sources could not be read; these results are incomplete` (`source` when it is one) — and leaves stdout and the exit code untouched.
 
 ### Machine-readable output
 
@@ -169,16 +183,19 @@ An unrecognized option prints `Unknown option: <arg>` and exits `1`.
 | `logs --id <id> --json` | An array with zero or one entry |
 | `logs --json` with no audit log directory | `[]` |
 | `logs --prune-legacy --json` | A single compact object: `{"removedFiles":n,"removedBytes":n,"failedFiles":n}` |
+| `logs --prune-legacy --dry-run --json` | A single compact object: `{"dryRun":true,"files":n,"bytes":n}` |
 
 Human output prints one row per entry — id, timestamp, decision, agent, rule id, and the command truncated to 50 characters, with `↳` marking a segment that differs from the full command. `--id` instead prints a labeled detail block covering every field on the record.
 
 ### logs --prune-legacy
 
 <Warning>
-  `logs --prune-legacy` deletes every legacy root-level `*.jsonl` file in the audit root **immediately and irreversibly**. There is no confirmation prompt, no `--dry-run`, and no `--yes`. Age and content are irrelevant — membership is decided by file position alone.
+  `logs --prune-legacy` deletes every legacy root-level `*.jsonl` file in the audit root **immediately and irreversibly**. There is no confirmation prompt and no `--yes` — add `--dry-run` first when you want to see what would go. Age and content are irrelevant — membership is decided by file position alone.
 </Warning>
 
 Nested per-project audit logs are never touched, and the command says so afterwards. It exits `0` when every deletion succeeded and `1` if any file could not be removed. Running it again when there is nothing left to delete is a no-op.
+
+With `--dry-run`, nothing is deleted. The command prints `Would remove <n> legacy audit log files (<size>).` — or `No legacy audit log files found.` — then `Nested v2 audit logs are not included.`, and, when there is something to delete, `Run the same command without --dry-run to delete them.` It always exits `0`. With `--json` it prints the single compact object `{"dryRun":true,"files":n,"bytes":n}` instead.
 
 See [Audit log](/reference/audit-log#log-layout) for the difference between the legacy layout and the current one.
 
@@ -199,7 +216,7 @@ bunx cc-safety-net explain "git reset --hard"
 | `--cwd <path>` | Analyze as if run from this working directory |
 | `-h`, `--help` | Show help |
 
-`--` ends flag parsing; everything after it is the command. A single remaining argument is used verbatim so shell operators survive; multiple arguments are re-quoted. An empty command is a usage error and exits `1`.
+`--` ends flag parsing; everything after it is the command. A single remaining argument is used verbatim so shell operators survive; multiple arguments are re-quoted.
 
 **Examples:**
 
@@ -209,7 +226,13 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 npx cc-safety-net explain --cwd /tmp "git status"
 ```
 
-`explain` always exits `0` for a parsed command, whether the verdict is blocked or allowed — read the `result` field rather than the exit code.
+Once the flags parse, `explain` always exits `0`, whether the verdict is blocked or allowed — read the `result` field rather than the exit code. Only flag validation fails:
+
+- An unknown option prints `Error: unknown option "<arg>"`, then `Usage: cc-safety-net explain [--json] [--cwd <path>] <command>` and `Pass -- before a command that starts with dashes.`, and exits `1`.
+- `--cwd` without a path prints `Error: --cwd requires a path`; a path that does not exist prints `Error: --cwd path does not exist: <path>`. Both exit `1`.
+- An empty command prints `Error: No command provided` plus the usage line and exits `1`.
+
+The top-level parser honors `--` the same way: it stops looking for `--help` and `--version` at the first `--`, so `explain -- --help` explains the literal command `--help` instead of printing help.
 
 <Warning>
   Explain output is not automatically safe to share. It echoes the command you supplied, its parsed tokens, and absolute paths including your home directory. See [Explain trace](/reference/explain-trace#before-you-share-a-trace) before pasting a trace into an issue or a chat.
@@ -302,7 +325,7 @@ List the active rulebooks and their resolved sources across both user and projec
 npx -y cc-safety-net rule list
 ```
 
-`rule list` reads both scopes at once, so `--global` is rejected. It exits `1` when there are **errors or warnings**, not just errors.
+`rule list` reads both scopes at once, so `--global` is rejected. It exits `1` only on policy **errors**; warnings are printed but exit `0`.
 
 ### rule wrapper
 
@@ -324,22 +347,35 @@ Registered wrappers show up in [explain traces](/reference/explain-trace) as `tr
 
 ### rule test
 
-Run every fixture defined in every active rulebook, or in a single source, and confirm rules block and allow as expected:
+Run the fixtures defined in your configured rulebooks and confirm rules block and allow as expected:
 
 ```bash
 npx -y cc-safety-net rule test
+npx -y cc-safety-net rule test --global
 npx -y cc-safety-net rule test project-rules
 ```
 
+With a source argument, only that source is tested. With no source, `rule test` reads one scope's `rule.json` — the project scope by default, the user scope with `--global` — and tests the sources configured there. It does not sweep both scopes at once.
+
+When the selected scope has no rulebook sources configured, it prints `No rulebooks configured; nothing to test.` and exits `0`.
+
 ### rule verify
 
-Validate the rule config files in both scopes, including legacy paths and schema-kind detection. Use it in CI or after editing a config by hand:
+Validate the rule config files in both scopes, including legacy paths and schema-kind detection. Use it after editing a config by hand:
 
 ```bash
 npx -y cc-safety-net rule verify
 ```
 
 Exits `0` when everything is valid, non-zero when it is not.
+
+`rule verify` is not a pure check — it can modify the files it validates. When a scope's `rule.json` validates cleanly but has no `$schema` key, the command rewrites that file: it inserts
+
+```json
+"$schema": "https://raw.githubusercontent.com/kenryu42/cc-safety-net/main/assets/cc-safety-net.schema.json"
+```
+
+as the first key and prints `Added $schema to user config.` or `Added $schema to project config.`. This happens only for a valid rules-schema config in the user or project scope — never for a legacy config or a config with errors — and no flag turns it off. The rewrite re-serializes the whole file with two-space indentation, so in CI the command can leave a tracked file modified. Commit the `$schema` key up front if you need `rule verify` to be read-only.
 
 ### rule migrate
 
@@ -359,6 +395,14 @@ Print the rulebook authoring guide to stdout. Pipe it to your agent to let it he
 ```bash
 npx -y cc-safety-net rule doc
 ```
+
+After the guide prints, `rule doc` checks the npm registry for a newer version — at most once every 24 hours, with the result cached in `~/.cc-safety-net/update-check.json`. When a newer version exists, it writes exactly one line to stderr:
+
+```text
+UPDATE_AVAILABLE: cc-safety-net v<latest> is available (running v<current>). Ask the user once whether to run `npx -y cc-safety-net@latest update`; continue the current task either way and do not raise this again.
+```
+
+The guide itself goes to stdout, so piping stays clean, and the same version is not announced again for 7 days. Set `CC_SAFETY_NET_NO_UPDATE_CHECK` to disable the check entirely. A failed registry check is silent, and the exit code stays `0` either way.
 
 ## install
 
@@ -394,12 +438,40 @@ There are three installation mechanisms behind that table:
 - **Config-file writes** — Antigravity CLI, Cursor, and Kimi Code. These three are the only agent configs CC Safety Net edits directly.
 - **Plugin file** — Amp Code. After a change, restart Amp or run `plugins: reload`.
 
+Before a config-file install (Antigravity CLI, Cursor, or Kimi Code) writes anything, it clears stale copies of `cc-safety-net` from the `npx` cache — every entry under the npm cache's `_npx` directory (`$npm_config_cache` if set, otherwise `~/.npm` on macOS and Linux, `%LOCALAPPDATA%\npm-cache` on Windows) whose `node_modules` contains `cc-safety-net` is removed. Those three configs run the hook through `npx`, so this makes the freshly installed hook resolve the latest version instead of a cached one.
+
 ### Selecting a target
 
 - **No flag, interactive terminal:** an arrow-key multi-select prompt appears. Each target is probed for availability, so an agent that is not installed shows `CLI not installed`, one already set up shows `already installed`, and one that is not configured shows `not installed` during uninstall.
 - **With flags:** exactly one target flag must be given. Zero or more than one raises `Choose exactly one install|uninstall target:` followed by the full flag list. Unknown `-` arguments and stray positionals are errors too.
 
+The selector's key bindings are printed in its footer. During install that footer reads:
+
+```text
+Space: select  Enter: confirm  u: update installed  Up/Down: move  q/Esc: cancel
+```
+
+`Space` toggles the highlighted target, `Enter` confirms (with nothing selected it only rings the terminal bell), and `Up`/`Down` — or `k`/`j` — move between selectable rows. Pressing `u` (or `U`) during install leaves the selector and runs the [`update`](#update) flow instead; the uninstall footer omits that binding. Quitting with `q` or `Esc` prints `Cancelled: nothing was installed.` (or `Cancelled: nothing was uninstalled.`) and exits `0` — quitting is a decision, not a failure. `Ctrl-C` instead raises `SIGINT`, so the process ends the way an interrupted program normally does.
+
 Selected targets always run in catalog install order, not the order you picked them. A failure exits `1` with a hint specific to the error — a permissions problem, a missing path, or a path component that is not a directory.
+
+## update
+
+`update` refreshes every installed integration in place. It never installs anything new — an agent you have not set up is left alone.
+
+```bash
+npx -y cc-safety-net update
+```
+
+Targets are found by reading each agent's config and state files: an integration qualifies when it is detected as installed, **even when it is currently disabled**. GitHub Copilot CLI is the exception — it qualifies only when a CC Safety Net plugin checkout exists in Copilot's `installed-plugins` directory, because its disabled state is indistinguishable from a kill-switch with nothing installed, and update must never turn into an install. Installations still on the legacy `safety-net@cc-marketplace` plugin id — in Claude Code or Codex — are also picked up, so updating migrates them to the current id.
+
+Each target then runs the same operation as `install`, in catalog install order, with the messages switched to `Updated …` or `… up to date`. For the native-plugin targets — Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, OpenCode, and Pi — the vendor binary is probed first: a missing binary prints `<Agent> not found; skipped` (for example `Codex not found; skipped`) and the run continues. The config-file and plugin-file targets — Amp Code, Antigravity CLI, Cursor, and Kimi Code — need no binary and always refresh.
+
+When nothing qualifies, `update` prints ``No installed integrations found. Run `cc-safety-net install` to set one up.`` and exits `0`.
+
+`update` takes no target flags and no arguments — only `-h`/`--help`. Any other option prints `Unknown update option: <flag>`, a positional prints `Unexpected argument for update: <arg>`, and both exit `1`. A failure while updating a target exits `1` with the same error hints as `install`; otherwise the exit code is `0`.
+
+You can also reach the update flow from the interactive `install` selector by pressing `u`.
 
 ## uninstall
 
@@ -416,7 +488,7 @@ For the config-file targets, uninstall removes only the entries CC Safety Net ma
 
 `hook` runs CC Safety Net as an agent's runtime hook. It reads the agent's hook input as JSON from stdin and emits that agent's deny format. You do not normally run it by hand: your agent's plugin or config wires it up. It is the command behind the protection.
 
-`hook` requires an integration flag. Without one it prints an error, shows help, and exits `1`.
+`hook` requires exactly one integration flag. Zero flags — or more than one — prints `hook requires exactly one integration flag. Try: cc-safety-net hook --kimi-code`, shows the command help, and exits `1`.
 
 | Flag | Agent | Hook event | Legacy flags |
 | --- | --- | --- | --- |
@@ -504,4 +576,4 @@ npx cc-safety-net explain --help
 npx cc-safety-net help doctor
 ```
 
-An unrecognized command prints `Unknown option: <name>` plus a pointer to `cc-safety-net --help`, and exits `1`.
+An unrecognized command prints `Unknown command: <name>` — or `Unknown option: <name>` when it starts with `-` — followed by `Run 'cc-safety-net --help' for usage.`, and exits `1`. `help <name>` for an unknown command prints `Unknown command: <name>` and `Run 'cc-safety-net --help' for available commands.` instead. All of these failure-path messages, including the help text they show, go to stderr.

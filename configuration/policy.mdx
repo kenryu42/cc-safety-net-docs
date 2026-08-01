@@ -42,7 +42,7 @@ Reading stays allowed. A read-only command whitelist covers `[`, `cat`, `file`, 
 
 You have two supported options:
 
-- **The dashboard.** `cc-safety-net gui` gives you a form over the same document, writes it with the correct permissions, and can repair a file that no longer validates. It is the lower-risk option, and the only one that repairs a broken file for you.
+- **The dashboard.** `cc-safety-net gui` gives you a form over the same document, writes it with the correct permissions, and can repair a file that no longer validates. It is the lower-risk option, and the only one that repairs a broken file for you. One caveat while the file has an error: the form renders the full defaults, not the valid values still in your file, and saving is refused until you repair. Repair itself keeps every recognized valid setting and discards only the invalid fields — but if you would rather not trust the round trip, fix the file by hand and check the result with `status`.
 - **Direct JSON editing.** Open the file in an editor and edit it by hand. The runtime picks up the change on the next tool call — there is nothing to restart.
 
 After a hand edit, confirm the result:
@@ -130,7 +130,7 @@ The root object is **strict**: an unrecognized top-level key is an error, as is 
 </ParamField>
 
 <ParamField body="secret_protection.overrides" type="object" default="{}">
-  Per-rule state, keyed by registered secret-protection rule id. The **only** accepted value is `"off"` — there is no `"on"`, because every secret rule is on whenever secret protection is enabled.
+  Per-rule state, keyed by registered secret-protection rule id, with the value `"on"` or `"off"`. Most secret rules are on whenever secret protection is enabled, so `"off"` is the usual direction. The [Coding CLI config tier](#rules-that-are-off-by-default) is off by default, and an explicit `"on"` is how you opt into one of those rules.
 </ParamField>
 
 <ParamField body="secret_protection.deny_paths" type="string[]" default="[]">
@@ -197,21 +197,41 @@ An id that is not registered is rejected with `unknown destructive command rule 
 
 ## Secret protection
 
-Secret protection blocks reads and writes of credential-bearing files. `secret_protection.overrides` disables individual built-in rules by id, and `"off"` is the only accepted value:
+Secret protection blocks reads and writes of credential-bearing files. `secret_protection.overrides` addresses individual built-in rules by id, with the value `"on"` or `"off"`. `"off"` disables a rule that is on by default; `"on"` opts into a rule from the default-off tier:
 
 ```json
 {
   "version": 1,
   "secret_protection": {
     "overrides": {
-      "secret.ext-pattern.sql": "off"
+      "secret.ext-pattern.kdbx": "off",
+      "secret.cli.claude-code.config": "on"
     },
     "deny_paths": ["config/secrets", "~/work/vault"]
   }
 }
 ```
 
-An unregistered id is rejected with `unknown secret protection rule id "<id>"`, and any other value with `secret_protection.overrides.<id> must be "off"`.
+An unregistered id is rejected with `unknown secret protection rule id "<id>"`, and any other value with `secret_protection.overrides.<id> must be "on" or "off"`.
+
+### Rules that are off by default
+
+Most built-in secret rules are on whenever secret protection is enabled. One tier is not: the **Coding CLI config** rules, which cover the settings and MCP configuration files of supported coding agents. Those files can carry credentials inline, but agents also edit them as routine work, so the tier ships off and you opt in per rule with an explicit `"on"` override. The ten default-off ids:
+
+- `secret.cli.claude-code.config`
+- `secret.cli.codex.config`
+- `secret.cli.gemini.config`
+- `secret.cli.copilot-cli.config`
+- `secret.cli.kimi-code.config`
+- `secret.cli.opencode.config`
+- `secret.cli.pi.config`
+- `secret.cli.amp.config`
+- `secret.cli.cursor.config`
+- `secret.cli.antigravity`
+
+Each of those agents also has a **Coding CLI credential** rule covering its credential stores — `secret.cli.claude-code`, `secret.cli.codex`, `secret.cli.gemini`, `secret.cli.copilot-cli`, `secret.cli.kimi-code`, `secret.cli.opencode`, `secret.cli.pi`, `secret.cli.amp`, `secret.cli.cursor` — and those are on by default like every other secret rule. Antigravity is the exception: `secret.cli.antigravity` is its only rule, it sits in the default-off config tier, and it covers just `~/.gemini/config/hooks.json` and `~/.gemini/config/mcp_config.json`.
+
+A config rule you turn on protects the agent's user-level config files, and it also protects project-level files matched by name rather than location: any `.mcp.json`, a `settings.local.json` inside a `.claude` directory, `opencode.json` or `opencode.jsonc` anywhere, `mcp.json` inside a `.cursor` or `.kimi-code` directory, `settings.json` inside a `.gemini` directory, and `settings.json` or `settings.jsonc` inside a `.amp` directory.
 
 ### Deny paths
 

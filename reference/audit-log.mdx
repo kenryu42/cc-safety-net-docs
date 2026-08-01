@@ -141,7 +141,7 @@ The practical consequence: **expired records can sit on disk while CC Safety Net
 ### Deleting legacy logs
 
 <Warning>
-  `cc-safety-net logs --prune-legacy` deletes every legacy flat `*.jsonl` file in the audit root **immediately and irreversibly**. There is no confirmation prompt, no `--dry-run`, and no `--yes` flag. Membership is decided by file position alone — age, schema validity, and malformed lines are all irrelevant.
+  `cc-safety-net logs --prune-legacy` deletes every legacy flat `*.jsonl` file in the audit root **immediately and irreversibly**. There is no confirmation prompt and no `--yes` flag; the only preview is `--dry-run`, which reports exactly the set that would be deleted and deletes nothing. Membership is decided by file position alone — age, schema validity, and malformed lines are all irrelevant.
 </Warning>
 
 This is not the retention sweep. The retention sweep deletes legacy files only when they are wholly expired; `--prune-legacy` deletes them regardless of age. Nested per-project logs are never entered and are never touched, and the command says so in its output. For the flag's exit behavior and the combinations it rejects, see [`logs --prune-legacy`](/reference/cli-commands#logs-prune-legacy).
@@ -156,6 +156,8 @@ Every surface that reads the log computes its counts over the whole window and t
 | `doctor` activity | 7 days, rolling | Total blocked and session count over the whole window. `doctor` skips allowed decisions entirely, whatever the audit scope | The 3 most recent |
 | `logs` | `--since`, default 30 days | Filtering and suspect-repeat detection run over the whole window | `--limit`, default 20 |
 
+When `logs` scans the log, every source it has to drop — an unreadable directory, an unreadable file, or a malformed record — is counted, and one warning goes to stderr: `warning: N audit log sources could not be read; these results are incomplete` (`source` when N is 1). No paths are named, and stdout and the exit code are unchanged, so `--json` output stays parseable. A missing logs directory is an empty history, not a dropped one, and produces no warning.
+
 No surface can look further back than retention. The GUI derives its window choices from your retention value rather than offering a fixed list, so the whole log stays reachable and nothing wider than retention is ever offered — see [Dashboard](/guides/dashboard#windows-are-derived-from-retention) for the choices you get at each retention setting.
 
 ## Secret redaction
@@ -167,6 +169,7 @@ Command, segment, tool name, and working directory are passed through secret red
 - PEM private key blocks (`-----BEGIN ... PRIVATE KEY-----`)
 - Secret-bearing HTTP headers (`Authorization`, `Cookie`, `X-API-KEY`, `API-KEY`)
 - URL credentials (`scheme://user:pass@host` and `scheme://token@host`) and `-u user:pass`
+- Presigned-URL signature query parameters — the values of `x-amz-signature`, `x-goog-signature`, `sig`, and `signature`, matched case-insensitively when the parameter name follows the start of the text, whitespace, `?`, `&`, `;`, or `|`
 - A fixed list of provider token formats (`ghp_...`, `gho_...`, `xoxb-...`, `npm_...`, `sk_live_...`, `rk_live_...`, `pypi-...`, and similar)
 - JWTs (`eyJ...`) and AWS access key ids (`AKIA...` / `ASIA...`)
 
