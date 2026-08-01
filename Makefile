@@ -1,4 +1,4 @@
-.PHONY: check install preview
+.PHONY: check install preview drift
 
 MINT := ./node_modules/.bin/mint
 
@@ -15,3 +15,27 @@ preview: $(MINT)
 
 check: $(MINT)
 	bun run check
+
+# Read-only. Lists the source commits the docs have not absorbed, oldest first.
+# SOURCE-SYNC.json records the last source commit the docs reflect.
+drift:
+	@src=$$(jq -r .path SOURCE-SYNC.json); \
+	sha=$$(jq -r .sha SOURCE-SYNC.json); \
+	branch=$$(jq -r .branch SOURCE-SYNC.json); \
+	if ! git -C "$$src" rev-parse --quiet --verify "$$sha^{commit}" >/dev/null; then \
+	  echo "error: source repo not found at $$src, or sha $$sha is unknown there." >&2; exit 1; \
+	fi; \
+	count=$$(git -C "$$src" rev-list --count "$$sha..$$branch"); \
+	if [ "$$count" -eq 0 ]; then \
+	  echo "Docs are current with $$branch at $$sha."; \
+	else \
+	  echo "Docs are synced to $$sha; $$count commit(s) on $$branch are not absorbed:"; \
+	  echo; \
+	  git -C "$$src" log --oneline --reverse "$$sha..$$branch"; \
+	  echo; \
+	  echo "Files touched:"; \
+	  git -C "$$src" diff --stat "$$sha..$$branch" -- ':!tests' ':!*.lock' | tail -1; \
+	  echo; \
+	  echo "Inspect one commit:  git -C $$src show <sha>"; \
+	  echo "Breaking changes:    make drift | grep '!:'"; \
+	fi
