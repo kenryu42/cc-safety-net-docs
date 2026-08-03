@@ -184,21 +184,13 @@ Aliases and abbreviated parameters are resolved, so `ri . -r -fo` blocks. Invoca
 
 ## Sensitive paths
 
-Sensitive-path protection is a separate guard stage that runs before command analysis. It applies across the supported **command**, **path**, **search** (grep/glob), and **patch** shapes, and it also inspects unknown tools. For a tool CC Safety Net does not recognize, it inspects both the command-candidate extraction and the path-like values — without ever treating that tool's arbitrary text as a shell command.
-
-| Shape | What is inspected |
-| --- | --- |
-| `command` | Path targets extracted from the parsed command, including segments, pipes, redirection targets (including legacy-ordered ones), command substitutions, and `VAR=value` assignment values |
-| `path` | The extracted path-like tool values (read, write, edit tool inputs) |
-| `search` (`grep`, `glob`) | File operands, distinguished from pattern-supplying flags |
-| `patch` | The extracted path-like tool values |
-| unknown tool | Both the command-candidate extraction **and** the path values |
+Sensitive-path protection is a separate guard stage that runs before command analysis. It applies across the supported **command**, **path**, **search** (grep/glob), and **patch** shapes, and it also inspects unknown tools — without ever treating an unknown tool's arbitrary text as a shell command.
 
 Reads are blocked for the built-in sensitive set, not just writes: `cat .env`, `env cat .env`, `sudo command cat .env`, `strings id_rsa`, `xxd .env`, `base64 .env`, `dd if=.env`, `cat ~/.ssh/id_rsa`, `bash -c "cat .env"`, and `node -e 'require("child_process").execSync("cat .env")'` are all blocked.
 
-Coding CLI files are protected in two tiers. The credential stores of supported agents — for example `~/.claude/.credentials.json`, `~/.codex/auth.json`, `~/.gemini/oauth_creds.json` — are blocked by default. Their settings and MCP configuration files form the **Coding CLI config** tier, which is off by default; an explicit `"on"` override in `secret_protection.overrides` enables a config rule, which then also protects project-level files matched by name, such as any `.mcp.json` or a `settings.local.json` inside a `.claude` directory. Antigravity is the one agent with only a default-off config rule, covering `~/.gemini/config/hooks.json` and `~/.gemini/config/mcp_config.json`. See [Policy](/configuration/policy#rules-that-are-off-by-default) for the rule ids.
+Command-shape extraction is bounded and structural: it fails closed on a structural shell-syntax limit and throws on an invalid parse. Configured deny paths are matched before the built-in rules and are never relaxed by any standard-mode allowance.
 
-Command-shape extraction is bounded and structural: it fails closed on a structural shell-syntax limit and throws on an invalid parse. Configured deny paths are matched before the built-in rules and are never relaxed by any standard-mode allowance. The whole feature can be disabled with `secret_protection.enabled: false`; individual built-in rules can be turned off through `secret_protection.overrides`, and the default-off Coding CLI config rules turned on the same way.
+The full catalog — every rule id and family, the protected paths, the two Coding CLI tiers, the match order, and the exemptions — is in the [Secret protection reference](/reference/secret-protection). The whole feature can be disabled with `secret_protection.enabled: false`, and individual rules turned on or off through `secret_protection.overrides` — see [Policy](/configuration/policy#secret-protection).
 
 ## Shell wrappers and interpreter one-liners
 
