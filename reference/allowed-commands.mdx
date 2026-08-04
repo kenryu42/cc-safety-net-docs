@@ -87,6 +87,9 @@ These shapes are permitted in standard and denied once [strict](/configuration/m
 | `$(printf r)m -rf /` | Dynamic executable — the command head is assembled through substitution |
 | `git reset $(printf --hard)` | Dynamic structure — the arguments are assembled through substitution |
 | `test -f ~/.ssh/id_rsa`, `find ~/.ssh -type f` | Metadata-only discovery of a built-in sensitive path, with no content access |
+| `W='rm -rf ~'; echo "$W"` | Dangerous text inside a cleanly parsed quoted-literal assignment — the block defers to use time when the variable is only ever used as quoted argument data |
+
+The quoted-assignment deferral is narrow. The assignment itself executes nothing, and a quoted expansion stays one argv word, so it cannot split into a command plus flags. Any reference the analyzer cannot prove is such a data use keeps the assignment-time block: an unquoted expansion (`env $W`), any expansion in command position (even quoted), a reference inside a command substitution, or a reference in an unquoted heredoc body. Handing the value to a shell is caught downstream instead: `eval "$W"`, `bash -c "$W"`, and `echo "$W" | sh` all deny because the shell execution source cannot be verified.
 
 <Note>
   Resource-exhaustion limits are not part of this trade-off. A command that exceeds the parser's recursion or structural-validation bounds is denied in **every** level, standard included.
