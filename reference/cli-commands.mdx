@@ -171,7 +171,7 @@ By default `logs` prints the 20 most recent **denials** from the last 30 days fo
 
 `--dry-run` on its own is also rejected: it prints `--dry-run requires --prune-legacy` and exits `1`.
 
-An unrecognized option prints `Unknown option: <arg>` and exits `1`.
+An unrecognized option prints `Unknown option for logs: <arg>` and exits `1`.
 
 When an audit log file cannot be read or a record is malformed, `logs` prints one warning to stderr — `warning: <n> audit log sources could not be read; these results are incomplete` (`source` when it is one) — and leaves stdout and the exit code untouched.
 
@@ -228,8 +228,8 @@ npx cc-safety-net explain --cwd /tmp "git status"
 
 Once the flags parse, `explain` always exits `0`, whether the verdict is blocked or allowed — read the `result` field rather than the exit code. Only flag validation fails:
 
-- An unknown option prints `Error: unknown option "<arg>"`, then `Usage: cc-safety-net explain [--json] [--cwd <path>] <command>` and `Pass -- before a command that starts with dashes.`, and exits `1`.
-- `--cwd` without a path prints `Error: --cwd requires a path`; a path that does not exist prints `Error: --cwd path does not exist: <path>`. Both exit `1`.
+- An unknown option prints `Unknown option for explain: <arg>`; `--cwd` without a value prints `--cwd requires a value`. Either parse error is followed by `Usage: cc-safety-net explain [--json] [--cwd <path>] <command>` and `Pass -- before a command that starts with dashes.`, and exits `1`.
+- A `--cwd` path that does not exist prints `Error: --cwd path does not exist: <path>` and exits `1`.
 - An empty command prints `Error: No command provided` plus the usage line and exits `1`.
 
 The top-level parser honors `--` the same way: it stops looking for `--help` and `--version` at the first `--`, so `explain -- --help` explains the literal command `--help` instead of printing help.
@@ -251,7 +251,7 @@ Running `rule` with no subcommand prints help and exits `1`. `rule --help` print
 | Flag | Description | Valid with |
 | --- | --- | --- |
 | `-g`, `--global` | Use the user-scope rule config instead of the project scope | Every subcommand except `list` and `migrate` |
-| `--check` | Check without changing lock or cache state | Every subcommand except `migrate`; meaningful for `init`, `add`, `remove`, `update`, `sync`, and `test` |
+| `--check` | Check without changing lock or cache state | Every subcommand except `migrate`; meaningful for `init`, `add`, `remove`, `update`, and `sync` |
 | `--cleanup` | Delete legacy files after `rule migrate` verifies them | `migrate` only |
 | `--delete-source` | Delete a clean local source directory when removing it | `remove` only |
 | `--example` | Create an inactive example rulebook | `init` only |
@@ -344,20 +344,6 @@ npx -y cc-safety-net rule wrapper remove rtk
 - `add` de-duplicates; `remove` filters. Scope follows `-g`/`--global`.
 
 Registered wrappers show up in [explain traces](/reference/explain-trace) as `transparent-wrapper` steps.
-
-### rule test
-
-Run the fixtures defined in your configured rulebooks and confirm rules block and allow as expected:
-
-```bash
-npx -y cc-safety-net rule test
-npx -y cc-safety-net rule test --global
-npx -y cc-safety-net rule test project-rules
-```
-
-With a source argument, only that source is tested. With no source, `rule test` reads one scope's `rule.json` — the project scope by default, the user scope with `--global` — and tests the sources configured there. It does not sweep both scopes at once.
-
-When the selected scope has no rulebook sources configured, it prints `No rulebooks configured; nothing to test.` and exits `0`.
 
 ### rule verify
 
@@ -469,7 +455,7 @@ Each target then runs the same operation as `install`, in catalog install order,
 
 When nothing qualifies, `update` prints ``No installed integrations found. Run `cc-safety-net install` to set one up.`` and exits `0`.
 
-`update` takes no target flags and no arguments — only `-h`/`--help`. Any other option prints `Unknown update option: <flag>`, a positional prints `Unexpected argument for update: <arg>`, and both exit `1`. A failure while updating a target exits `1` with the same error hints as `install`; otherwise the exit code is `0`.
+`update` takes no target flags and no arguments — only `-h`/`--help`. Any other option prints `Unknown option for update: <flag>`, a positional prints `Unexpected argument for update: <arg>`, and both exit `1`. A failure while updating a target exits `1` with the same error hints as `install`; otherwise the exit code is `0`.
 
 You can also reach the update flow from the interactive `install` selector by pressing `u`.
 
@@ -533,7 +519,7 @@ npx cc-safety-net gui --no-open
 | `--no-open` | Start the server and print the URL without launching a browser |
 | `-h`, `--help` | Show help |
 
-`--no-open` is the only argument `gui` accepts. Any other argument prints `Usage: cc-safety-net gui [--no-open]` and exits `1`.
+`--no-open` is the only argument `gui` accepts. Any other argument prints an error — `Unknown option for gui: <arg>` for an option, `Unexpected argument for gui: <arg>` for a positional — then `Usage: cc-safety-net gui [--no-open]`, and exits `1`.
 
 The server always starts first and the URL is always printed as `CC Safety Net policy GUI: <url>`, with or without the flag — `--no-open` suppresses only the browser launch. A failed browser launch is not fatal: `gui` prints the URL to open manually and the server keeps running.
 

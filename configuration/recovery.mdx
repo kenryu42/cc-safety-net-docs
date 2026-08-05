@@ -57,7 +57,6 @@ The one thing that stays protected in every state is the canonical user `policy.
 | Lockfile local source path escapes the config directory | That one rulebook | Every other rulebook and all built-ins |
 | `rule.json` is malformed, empty, or has an unsupported `version` | That whole scope, **including its `transparent_wrappers`** | The other scope's verified rules and all built-ins |
 | The policy filesystem cannot be read safely | That scope | The other scope's verified rules and all built-ins |
-| Legacy inline rules config still awaiting migration | The legacy file's rules, which are inert until migrated | Everything else |
 
 Every one of these messages names the file or source it rejected and, where a repair exists, tells you to run `cc-safety-net rule sync`.
 
@@ -65,15 +64,12 @@ Every one of these messages names the file or source it rejected and, where a re
 
 | Failure | What is ignored | What stays enforced |
 | --- | --- | --- |
-| A configured local rulebook's source directory is missing | The missing local copy | The digest-verified cached rulebook keeps enforcing |
-| A local rulebook is unparseable or fails the schema | The invalid local edit | The digest-verified cached rulebook keeps enforcing |
-| A local rulebook drifted from its pinned digest | The pending local edit, until you run `rule sync` | The cached rulebook **as it was before the edit** |
 | Two active rulebooks claim the same name | The later rulebook, whose rules are not active | The first claim, resolved user scope first |
 | Unknown override key in `rule.json` | Only that one override | Every other override and every rule keeps its configured state |
 | A project override targets a user-scoped rule | Only that one override | The rule keeps its user-configured state |
 
 <Warning>
-  The drift case is the easiest to misread. When a local rulebook differs from its pinned digest, the **cached** version is what enforces — not the file you just edited. Your edit stays pending until `cc-safety-net rule sync` succeeds.
+  The local rulebook source is deliberately absent from both tables. Runtime load reads only the digest-verified cache, so editing a local rulebook, breaking it, or deleting its source directory produces **no warning at all** — the cached rulebook, as it was at the last successful sync, is what enforces, not the file you just edited. Your edit becomes active only when `cc-safety-net rule sync` succeeds.
 </Warning>
 
 Duplicate rulebook names resolve deterministically: the first claim wins, and the user scope is loaded first, so a name claimed by your user scope shadows the project one. The later rulebook contributes nothing rather than partially shadowing rules. Because this is resolved rather than fatal, `rule sync` for one scope still succeeds when the other scope already uses that name.
@@ -139,7 +135,8 @@ Two structural limits are worth knowing:
 
 ## What you will and will not notice
 
-- **A dropped rule source is quiet.** It removes denials rather than adding them, so a clean session produces no friction and no signal at all. This is the case to check deliberately after any change to rule configuration and after every upgrade — an unmigrated legacy config lands here. Make `cc-safety-net status` a habit; run `doctor` for the full report.
+- **A dropped rule source is quiet.** It removes denials rather than adding them, so a clean session produces no friction and no signal at all. This is the case to check deliberately after any change to rule configuration and after every upgrade. Make `cc-safety-net status` a habit; run `doctor` for the full report.
+- **A local rulebook edit and an unmigrated legacy config are quieter still.** Neither produces any runtime diagnostic: the digest-verified cache keeps enforcing the pre-edit rulebook, and a legacy file is simply not loaded. `rule sync` promotes the edit; `rule verify` flags the legacy file.
 - **An invalid `policy.json` mostly announces itself**, because rejected sections fall back to protective defaults: both protections forced on, allow paths dropped, disabling overrides dropped. You discover it as *more* denials than you configured.
 - **The quiet half of an invalid `policy.json`**: an invalid `safety.level` silently falls back to `standard`, so a typo in `paranoid` **lowers** your preset. Invalid `secret_protection.deny_paths` entries and per-rule overrides that would raise a rule above its default are discarded rather than repaired.
 - Only the status line marker is passive. The `Config warning:` line needs an unrelated denial to appear on, and every other surface waits for you to run a command or open the dashboard.
@@ -195,7 +192,7 @@ Repeat `status` after each repair. The runtime reloads on the next tool call, so
 
 ## Legacy inline rules are inert until migrated
 
-Legacy inline config files — `~/.cc-safety-net/config.json` and `.safety-net.json` — are no longer loaded at runtime. A legacy file that still contains rules produces an error, which means **its rules are not enforced at all** while the rest of the runtime keeps working. It is the classic silent degradation after an upgrade: nothing breaks, and nothing is protected by those rules either.
+Legacy inline config files — `~/.cc-safety-net/config.json` and `.safety-net.json` — are no longer loaded at runtime, and the runtime emits no diagnostic about them: **their rules are not enforced at all** while everything else keeps working, and the snapshot stays `ready`. It is the classic silent degradation after an upgrade: nothing breaks, nothing is protected by those rules, and nothing reports it during a session. `cc-safety-net rule verify` is the surface that flags a legacy file still awaiting migration.
 
 Migrate it:
 

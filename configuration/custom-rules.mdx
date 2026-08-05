@@ -7,7 +7,7 @@ description: "Define project and user-level custom blocking rules in CC Safety N
 Beyond built-in protections, CC Safety Net lets you define custom blocking rules to enforce team conventions or project-specific safety policies. Rules live in a **rulebook-based layout** and are merged from user and project scopes, so you can maintain personal defaults alongside per-project overrides without duplication.
 
 <Warning>
-  **Breaking change** — Legacy inline config files (`.safety-net.json` and `~/.cc-safety-net/config.json`) are no longer loaded at runtime. If they contain rules, **those rules are inert until you migrate** — they stop being enforced, and the runtime reports itself as `degraded`. Ordinary commands keep working. Run `npx -y cc-safety-net rule migrate` to convert legacy rules into the new rulebook layout. See [Migration](#migration-from-legacy-config) below.
+  **Breaking change** — Legacy inline config files (`.safety-net.json` and `~/.cc-safety-net/config.json`) are no longer loaded at runtime. If they contain rules, **those rules are inert until you migrate** — they stop being enforced. The runtime ignores legacy files silently; `rule verify` is what warns about them. Ordinary commands keep working. Run `npx -y cc-safety-net rule migrate` to convert legacy rules into the new rulebook layout. See [Migration](#migration-from-legacy-config) below.
 </Warning>
 
 <Tip>
@@ -88,10 +88,10 @@ Every configured source is pinned in a `rule.lock` file by a SHA-256 digest, and
 
 What happens when verification fails depends on which side is broken:
 
-- A **missing lockfile, missing lock entry, missing cache entry, digest mismatch, or unparseable cached rulebook** drops that source. It contributes no rules until you run `rule sync`. Every other verified source and every built-in protection keeps applying, and ordinary commands keep running.
-- A **local source that drifts from its pinned digest** — including one that is missing, unparseable, or schema-invalid on disk — is a warning, not a drop. The digest-verified **cached** rulebook stays enforced, so your pending local edit is provably not active until you run `rule sync`.
+- A **missing lockfile, missing lock entry, missing cache entry, digest mismatch, or unparseable cached rulebook** drops that source. It contributes no rules until you run `rule sync`. Every other verified source and every built-in protection keeps applying, and ordinary commands keep running. A dropped source puts the runtime in `degraded` rather than blocking work.
+- A **local source that drifts from its pinned digest** — including one that is missing, unparseable, or schema-invalid on disk — is not a failure state at all. The runtime reads only the digest-verified **cached** rulebook and never re-reads the local copy, so your pending local edit is simply not active until you run `rule sync`. A full `rule sync` and `rule verify` still reject an invalid or symlinked local source.
 
-Either way the runtime reports itself as `degraded` rather than blocking work. See [Configuration recovery](/configuration/recovery) for the full state model, the exact diagnostic strings, and the repair sequence.
+See [Configuration recovery](/configuration/recovery) for the full state model, the exact diagnostic strings, and the repair sequence.
 
 ## Transparent wrappers
 
@@ -198,7 +198,6 @@ After editing rulebooks, run:
 ```bash
 npx -y cc-safety-net rule sync
 npx -y cc-safety-net rule verify
-npx -y cc-safety-net rule test
 ```
 
 Now `git add -A`, `git add --all`, and `git add .` will be blocked with your custom message.
@@ -288,8 +287,8 @@ Each rulebook lives in its own `rulebook.json` file.
   Custom blocking rules (see Rule schema below).
 </ParamField>
 
-<ParamField body="tests" type="array" required>
-  Rulebook fixtures (see Fixture schema below). Every rule must have at least one blocked fixture.
+<ParamField body="tests" type="array">
+  Optional rulebook fixtures (see Fixture schema below). Fixtures document intended behavior; they are shape-validated only, never executed.
 </ParamField>
 
 ## Rule schema
@@ -319,6 +318,8 @@ Each rulebook lives in its own `rulebook.json` file.
 </ParamField>
 
 ## Fixture schema
+
+Fixtures are optional documentation of intended behavior. They are shape-validated only; CC Safety Net does not execute them.
 
 <ParamField body="command" type="string" required>
   Shell command fixture.
@@ -478,12 +479,10 @@ After creating or editing rulebooks, validate them with:
 ```bash
 npx -y cc-safety-net rule sync
 npx -y cc-safety-net rule verify
-npx -y cc-safety-net rule test
 ```
 
 - `rule sync` rebuilds the lock/cache for configured rulebook sources.
 - `rule verify` validates rulebook structure and rule definitions.
-- `rule test` runs every fixture in every active rulebook.
 
 ## Migration from legacy config
 
@@ -492,10 +491,10 @@ Legacy inline config files (`.safety-net.json` and `~/.cc-safety-net/config.json
 | Legacy file state | New behavior |
 | --- | --- |
 | Empty legacy file | Silently ignored — built-in rules only |
-| Legacy file with rules | Its rules are **inert** until migrated with `rule migrate`; the runtime reports `degraded` |
+| Legacy file with rules | Its rules are **inert** until migrated with `rule migrate`; the runtime ignores the file silently |
 | Invalid legacy file | Same — inert until fixed and migrated, or removed |
 
-Legacy rules are never enforced from their old location, and they never block work either: the legacy source is dropped and named in the diagnostics. This is the quietest failure class, because dropping a source only removes denials. Check `npx cc-safety-net status` after an upgrade.
+Legacy rules are never enforced from their old location, and they never block work either. The runtime does not inspect legacy files at all, so nothing surfaces at guard time — `npx -y cc-safety-net rule verify` is what warns about a leftover legacy file. Run it after an upgrade.
 
 ```bash
 # Convert legacy inline rules into the rulebook layout
@@ -506,7 +505,6 @@ npx -y cc-safety-net rule migrate --cleanup
 
 # Validate the migrated rules
 npx -y cc-safety-net rule verify
-npx -y cc-safety-net rule test
 ```
 
 **Before** — single inline config with rules embedded:
@@ -532,5 +530,5 @@ Custom-rule configuration that cannot be verified is **dropped, not enforced, an
 Because a dropped source **removes** denials rather than adding them, this class of failure produces no friction on its own. `npx cc-safety-net status` is the cheap habitual check. See [Configuration recovery](/configuration/recovery) for the full failure-to-fallback matrix, the diagnostic strings, the reporting surfaces, and the repair sequence.
 
 <Warning>
-  Custom rule configuration is **not tamper-resistant**. `rule.json`, rulebooks, lockfiles, and caches are best-effort; only the canonical user `policy.json` is a protected path. If you add or modify custom rules manually, always validate them with `npx -y cc-safety-net rule verify` and `npx -y cc-safety-net rule test`.
+  Custom rule configuration is **not tamper-resistant**. `rule.json`, rulebooks, lockfiles, and caches are best-effort; only the canonical user `policy.json` is a protected path. If you add or modify custom rules manually, always validate them with `npx -y cc-safety-net rule verify`.
 </Warning>
