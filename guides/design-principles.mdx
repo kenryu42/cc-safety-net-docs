@@ -1,7 +1,7 @@
 ---
 title: "Design principles"
 sidebarTitle: "Design principles"
-description: "The reasoning behind CC Safety Net: semantic analysis over wildcards, a fixed guard order with always-on protections, fail-closed on the tool's own failure, a minimal dependency surface, rulebooks, defense-in-depth, and worktree relaxation."
+description: "The reasoning behind CC Safety Net: semantic analysis over wildcards, a fixed guard order with always-on protections, fail-closed on the tool's own failure, denials that keep the agent on task, a minimal dependency surface, rulebooks, defense-in-depth, and worktree relaxation."
 ---
 
 This is the last page of the technical sequence: it adds no new behavior, and instead gives the rationale and the tradeoffs behind what [Architecture](/guides/architecture) and [Analysis engine](/guides/analysis-engine) specify. Read those first if you want to know *what* happens; read this to know *why*.
@@ -39,6 +39,14 @@ The reasoning is simple: a safety net that fails open is worse than no safety ne
 **Invalid configuration is deliberately not part of this.** A rejected configuration source is dropped, not converted into a denial — turning a typo in a rulebook into a machine that blocks all work would be a denial-of-service on the user, and it would push people to uninstall the tool rather than fix the file. [Configuration recovery](/configuration/recovery) owns that contract and the repair path.
 
 See [Security model](/guides/security-model) for how these properties are enforced at each trust boundary.
+
+## Denials that keep the agent on task
+
+A denial is not an error state. It is delivered to the agent as an ordinary tool result, inside the loop the agent is already running, and that framing drives how every block message is written. An agent that receives a bare "permission denied" tends toward one of two failure modes: it retries near-variants of the blocked command until something slips through, or it declares the whole task failed because one step was refused. Both are worse than the block itself — the first is probing behavior that burns turns and might eventually find a real gap, the second turns a safety intervention into a work stoppage.
+
+Each message is therefore built to hand the agent a productive next move. The reason states in plain language what the command would have done and, where one exists, names the safer alternative. And every rule carries an **intent** that selects the closing instruction: report the block and continue with the rest of the task, switch to the named alternative, retry with a narrower explicit target, hand the operation to the user, or restructure the command instead of brute-forcing variants. Even the fail-closed denial for an internal error carries an intent — restructure, don't retry — so an unexpected failure of the tool itself still routes the agent toward a useful response.
+
+The instruction is deliberately advisory. Nothing forces the agent to obey it; enforcement comes from the guard, which blocks a disobedient retry just the same. The message exists to make the compliant path the easiest one, so that in the common case the session absorbs a block and keeps moving. The message anatomy and the full intent table are in [How it works](/guides/how-it-works#what-a-block-looks-like).
 
 ## A minimal dependency surface
 
