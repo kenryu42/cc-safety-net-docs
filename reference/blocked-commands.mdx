@@ -88,6 +88,7 @@ Git accepts `GIT_SSH_COMMAND`, `GIT_SSH`, and `GIT_SSH_VARIANT` to run an arbitr
 | `rm -rf` while the cwd is your home | Anchoring recursive deletion at home is unsafe — change into a project directory first | All |
 | `rm -rf "$target"` and other dynamic targets | A target built from a variable, backtick, or substitution cannot be verified before it runs | **Strict**, paranoid |
 | `rm -rf ./cache` (non-temp path inside the cwd) | Recursive forced deletion is restricted even inside the working directory | **Paranoid** ([`CC_SAFETY_NET_PARANOID_RM=1`](/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1)) |
+| `cleanup() { rm -rf ../outside; }; cleanup` | A called shell function body is analyzed at the call site — the definition alone executes nothing | All |
 | `find ... -delete` | Permanently removes files matching criteria (use `-print` to preview) | All |
 | `find .git -delete` | Selects protected Git metadata for deletion | All (catastrophic) |
 | `find -exec rm -rf ...` | Recursive-force delete inside a find exec block | All |
@@ -97,6 +98,8 @@ Git accepts `GIT_SSH_COMMAND`, `GIT_SSH`, and `GIT_SSH_VARIANT` to run an arbitr
 | `parallel <shell> -c` | Can execute arbitrary commands | All |
 
 `rm -rf` is classified by target, first match wins: unsupported Windows UNC/device targets, root/home, protected Git metadata, temp paths, dynamic targets, configured allow paths, home-as-cwd, the cwd itself, inside the cwd, and finally outside the cwd. Temp paths (`/tmp`, `/var/tmp`, the system temp dir, `$TMPDIR`) and paths inside the current working directory are allowed. See [Allowed commands](/reference/allowed-commands) for the safe variants.
+
+Hiding a destructive command in a POSIX function does not change any of this: the body is analyzed where the function is called, with the caller's cwd, and calls resolve through quoting (`'cleanup'`), `time`/`!` prefixes, and `eval`. A definition that is never called is inert. See [POSIX shell functions](/guides/analysis-engine#posix-shell-functions) for call resolution and scoping.
 
 <Warning>
   Dynamic `rm -rf` targets are **not** categorically blocked in standard. `rm -rf "$target"` is allowed in standard and blocked only once the fail-closed capability is on, that is, in [strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) or [paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1). Standard is best-effort against adversarial or dynamically generated command text; use strict or paranoid when commands may originate from prompt injection or another untrusted source.

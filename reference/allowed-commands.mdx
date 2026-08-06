@@ -46,6 +46,7 @@ This page is the allow half of the behavior matrix. See [Blocked commands](/refe
 | `rm -rf $TMPDIR/...` | User's temp directory (unless `$TMPDIR` is overridden to a non-temp path) | All |
 | `rm -rf ./subdir` (within cwd) | Limited to a path inside the current working directory | All except [paranoid rm](/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1) |
 | `rm -rf "$target"` (dynamic target) | Standard does not categorically block targets it cannot verify | **Standard only** |
+| `cleanup() { rm -rf ../outside; }` (definition only) | A function definition alone executes nothing — the body is analyzed only where the function is called | All |
 
 `rm -rf` is classified by target, first match wins. Root/home targets (`/`, `~`, `$HOME`), protected Git metadata, the cwd itself (`rm -rf .`), the case where your cwd *is* your home, and any path outside the cwd are blocked in every level. Temp paths and paths inside the cwd are allowed. Note the distinction: `rm -rf ./subdir` is allowed, but `rm -rf .` (the cwd itself) is blocked.
 
@@ -88,6 +89,7 @@ These shapes are permitted in standard and denied once [strict](/configuration/m
 | `git reset $(printf --hard)` | Dynamic structure — the arguments are assembled through substitution |
 | `test -f ~/.ssh/id_rsa`, `find ~/.ssh -type f` | Metadata-only discovery of a built-in sensitive path, with no content access |
 | `W='rm -rf ~'; echo "$W"` | Dangerous text inside a cleanly parsed quoted-literal assignment — the block defers to use time when the variable is only ever used as quoted argument data |
+| `f() { rm -rf "$1"; }; f ~` | Positional parameters stay unbound inside a called function body, so the target is dynamic — the same trade-off as `rm -rf "$target"` |
 
 The quoted-assignment deferral is narrow. The assignment itself executes nothing, and a quoted expansion stays one argv word, so it cannot split into a command plus flags. Any reference the analyzer cannot prove is such a data use keeps the assignment-time block: an unquoted expansion (`env $W`), any expansion in command position (even quoted), a reference inside a command substitution, or a reference in an unquoted heredoc body. Handing the value to a shell is caught downstream instead: `eval "$W"`, `bash -c "$W"`, and `echo "$W" | sh` all deny because the shell execution source cannot be verified.
 

@@ -1,7 +1,7 @@
 ---
 title: "How the analysis engine works"
 sidebarTitle: "Analysis engine"
-description: "Inside the analysis engine: safety-level boundaries, wrapper and interpreter recursion, git rules, recursive-delete target classification, device commands, and custom rule matching."
+description: "Inside the analysis engine: safety-level boundaries, wrapper and interpreter recursion, shell function calls, git rules, recursive-delete target classification, device commands, and custom rule matching."
 ---
 
 This is the fourth page of the technical sequence and the narrowest: it assumes the guard pipeline from [Architecture](/guides/architecture) and documents only the exact classification behavior and edge cases of the destructive-command classifier — the level of detail you need when reading `explain` output or writing precise [custom rules](/configuration/custom-rules).
@@ -92,6 +92,24 @@ Cwd is tracked across segments of the same command. A `cd` or `pushd` with a lit
 <Note>
   A known limitation: interpreter **long-form flags** (`--eval`, `--execute`, `--require`, and the attached `=value` form) are not recognized in every code path, so the code argument may not always be extracted. See [Known limitations](/guides/known-limitations#interpreter-long-form-flags).
 </Note>
+
+## POSIX shell functions
+
+A POSIX function definition — `name() { ... }` — is parsed as a definition, not as executed code. The body executes only where the function is called, so that is where it is analyzed: at each call site, with the caller's effective cwd and shell state. `cleanup() { rm -rf ../outside; }` on its own is allowed; add the call — `cleanup() { rm -rf ../outside; }; cleanup` — and the command blocks on the body. State changes made inside a called body carry forward: `cleanup() { cd ..; }; cleanup && rm -rf build` blocks because the `rm` is anchored one directory up.
+
+Call resolution follows the shell's own rules:
+
+- A call resolves past leading environment assignments (`X=1 cleanup`), the `time` keyword with its `-p` option and `--` terminator, and the `!` negation — including combined, `time -p -- ! cleanup`. Quoting or escaping the name (`'cleanup'`, `"cleanup"`, `\cleanup`) suppresses alias expansion but never a function lookup, so those call the function too.
+- Shapes a real shell would not run as the keyword form do not resolve: `X=1 time cleanup`, `time "--" cleanup`, and `!cleanup` (no space) are not treated as calls.
+- The latest definition before the call wins, matching the shell's redefinition semantics.
+- A definition made inside a subshell (`( ... )`) does not escape it, while a brace group (`{ ...; }`) runs in the same shell, so its definitions do.
+- Definitions stay visible to `eval` and `trap`, which run in the same shell — `cleanup() { rm -rf ../outside; }; eval cleanup` blocks — but are not inherited by a child shell, so `sh -c cleanup` resolves no function.
+
+Positional parameters stay unbound inside the body: `f() { rm -rf "$1"; }; f ~` is a dynamic target, allowed in standard and blocked once the fail-closed capability is on — exactly like `rm -rf "$X"`. The [quoted-assignment deferral](#standard) applies inside called bodies too: in `W='rm -rf ~'; f() { $W; }; f` the unquoted command-position use keeps the assignment-time block, while `f() { echo "$W"; }; f` stays allowed as quoted argument data.
+
+The pre-analysis guard stages see through calls as well: policy-file protection and sensitive-path extraction evaluate executed brace groups and called function bodies at each call site.
+
+Two structural bounds fail closed in every level, standard included: self-recursion (`loop() { loop; }; loop`) denies on the recursion depth limit, and branching call chains deny on the derived-command work budget or on the projection's cap of 256 inlined call sites. A heredoc attached inside a function body is not supported safely — it makes the command unparseable, so it falls to the heuristic scan in standard and is denied outright in strict.
 
 ## Heredoc analysis
 
