@@ -1,12 +1,12 @@
 ---
 title: "How CC Safety Net integrates with each agent"
 sidebarTitle: "Integration architecture"
-description: "The four integration models behind CC Safety Net's ten agents: stdin hook subprocesses, agent-loaded plugins, the in-process Pi extension, and the Amp Code event plugin."
+description: "The four integration models behind CC Safety Net's twelve agents: stdin hook subprocesses, agent-loaded plugins, the in-process Pi extension, and the Amp Code event plugin."
 ---
 
 This is the second page of the technical sequence — it is for anyone wiring up or debugging an integration. It goes one level below [How it works](/guides/how-it-works) to cover per-agent wiring and runtime execution models, and nothing else.
 
-CC Safety Net supports ten coding agents, and it does not plug into all of them the same way. There are four integration models. Knowing which one your agent uses helps you debug a hook that is not firing and know where its configuration lives.
+CC Safety Net supports twelve coding agents, and it does not plug into all of them the same way. There are four integration models. Knowing which one your agent uses helps you debug a hook that is not firing and know where its configuration lives.
 
 For the commands that install or remove each integration, see [Installation](/installation). Every model on this page feeds the same guard, specified once in [Architecture](/guides/architecture).
 
@@ -14,14 +14,14 @@ For the commands that install or remove each integration, see [Installation](/in
 
 | Model | Agents | How it works |
 | --- | --- | --- |
-| **Stdin hook subprocess** | Antigravity CLI, Claude Code, Cursor, Gemini CLI, GitHub Copilot CLI, Kimi Code | The agent runs `cc-safety-net hook <flag>` as a short-lived process for each tool call, writing the call as JSON to its stdin. CC Safety Net analyzes it and prints an agent-specific deny object on stdout, exiting 0. |
-| **Agent-loaded plugin** | Codex, OpenCode | The agent loads CC Safety Net as a plugin of its own package format. There is no `hook` flag for these agents. |
+| **Stdin hook subprocess** | Antigravity CLI, Claude Code, Cursor, Gemini CLI, GitHub Copilot CLI, Hermes Agent, Kimi Code | The agent runs `cc-safety-net hook <flag>` as a short-lived process for each tool call, writing the call as JSON to its stdin. CC Safety Net analyzes it and prints an agent-specific deny object on stdout, exiting 0. |
+| **Agent-loaded plugin** | Codex, OpenClaw, OpenCode | The agent loads CC Safety Net as a plugin of its own package format. There is no `hook` flag for these agents. |
 | **In-process extension** | Pi | Pi loads CC Safety Net's extension directly into the Pi process and calls it in memory — no subprocess, no stdin or stdout. |
 | **Event plugin** | Amp Code | Amp loads a managed plugin file and delivers each `tool.call` event to it, in process. |
 
 ## Stdin hook subprocess agents
 
-For these six agents, the protection is the runtime `hook <flag>` command, which reads JSON from stdin. Each agent names its pre-execution event and its command tool differently, and each expects a different deny shape on stdout:
+For these seven agents, the protection is the runtime `hook <flag>` command, which reads JSON from stdin. Each agent names its pre-execution event and its command tool differently, and each expects a different deny shape on stdout:
 
 | Agent | Runtime flag | Hook event | Command tool | Deny output shape |
 | --- | --- | --- | --- | --- |
@@ -30,6 +30,7 @@ For these six agents, the protection is the runtime `hook <flag>` command, which
 | Cursor | `-cu` / `--cursor` | `preToolUse` | `Shell` | `{ "permission": "deny", "user_message": …, "agent_message": … }` |
 | Gemini CLI | `-gc` / `--gemini-cli` | `BeforeTool` | `run_shell_command` | `{ "decision": "deny", "reason": …, "systemMessage": … }` |
 | GitHub Copilot CLI | `-cp` / `--copilot-cli` | `PreToolUse` | `bash`, `Bash` | `{ "permissionDecision": "deny", "permissionDecisionReason": … }` |
+| Hermes Agent | `-ha` / `--hermes-agent` | `pre_tool_call` | `terminal` | `{ "action": "block", "message": … }` |
 | Kimi Code | `-kc` / `--kimi-code` | `PreToolUse` | `Bash` | `hookSpecificOutput.permissionDecision: "deny"` |
 
 <Note>
@@ -50,7 +51,7 @@ Separately, three agents keep legacy **top-level** forms that skip the `hook` wo
 
 ### Where each hook agent's config lives
 
-Three of the six have their config written directly by CC Safety Net. The other three are wired through their own plugin or extension distribution channel, which then invokes the stdin hook:
+Four of the seven have their files written directly by CC Safety Net — three as hook config entries, and Hermes Agent as a managed plugin. The other three are wired through their own plugin or extension distribution channel, which then invokes the stdin hook:
 
 | Agent | Config location and load mechanism |
 | --- | --- |
@@ -59,7 +60,22 @@ Three of the six have their config written directly by CC Safety Net. The other 
 | Cursor | Written directly: a managed `preToolUse` entry in `~/.cursor/hooks.json` running `npx -y cc-safety-net hook --cursor` with `timeout: 30` and `failClosed: true`. The config is global, so it covers Cursor IDE and Cursor CLI across all projects |
 | Gemini CLI | Extension `gemini-safety-net`, loaded from the `gemini-safety-net` repository — not a `cc-marketplace` plugin |
 | GitHub Copilot CLI | Plugin `cc-safety-net@cc-marketplace`, or hook files under `~/.copilot/hooks` / inline hooks in Copilot config. Hook support is version-gated, so which of those sources works depends on your Copilot CLI version — see [Installation](/installation#github-copilot-cli-installation). `disableAllHooks: true` disables all hooks |
+| Hermes Agent | Written directly: a managed Python plugin at `~/.hermes/plugins/cc-safety-net/` (`__init__.py` plus `plugin.yaml`; the Hermes home is `$HERMES_HOME` when set), then enabled with `hermes plugins enable cc-safety-net --no-allow-tool-override`. Enablement is recorded in Hermes' own `config.yaml` under `plugins.enabled` |
 | Kimi Code | Written directly: a `[[hooks]]` block in `~/.kimi-code/config.toml` (or `$KIMI_CODE_HOME/config.toml`) running `npx -y cc-safety-net hook --kimi-code` |
+
+### How Hermes Agent reaches the hook
+
+Hermes does not run the hook command from a hook config. CC Safety Net installs a managed Python plugin that Hermes loads in process, and the plugin registers a `pre_tool_call` handler. For each supported tool call, the handler runs `npx -y cc-safety-net hook --hermes-agent` and writes the call as JSON to its stdin. Empty stdout means the call is allowed. A `{ "action": "block", "message": … }` object blocks it, and Hermes shows the message to the model as the tool result.
+
+The plugin forwards four tools: `terminal` for command analysis, `write_file` and `patch` for protected writes, and `read_file` for protected reads. Calls to any other Hermes tool are not forwarded and get no decision.
+
+Hermes ignores a plugin callback that raises, so the plugin turns every failure into an explicit block itself: `npx` missing from PATH, a spawn failure, a timeout (30 seconds, killing the analyzer's whole process group), a non-zero exit, or unreadable or unexpected output. A Hermes session directory the plugin cannot read also blocks — analyzing the wrong directory would clear every path-scoped protection.
+
+Two directory details matter here. For `terminal` calls the plugin reads Hermes' own per-session cwd record — the session's `cd` state — so the analyzed directory is the one the command actually runs in, and a `terminal` call with an unusable `workdir` fails closed. And the analyzer subprocess is started from the home directory rather than Hermes' working directory, so `npx` can never resolve a repository-local `cc-safety-net` in place of the real one.
+
+Every managed file starts with a header line marking it as CC Safety Net's; the installer refuses to overwrite a file without it. Uninstall runs `hermes plugins disable cc-safety-net` before removing the files, because Hermes only resolves a plugin that is still on disk. In both directions the plugin change is inert until Hermes restarts. See [Installation](/installation#hermes-agent-installation) for the setup and removal commands.
+
+Unlike Pi, `doctor` detects Hermes Agent entirely from disk: the managed plugin directory plus the `plugins.enabled` list in Hermes' `config.yaml`. No runtime probe is involved.
 
 ## Agent-loaded plugins
 
@@ -68,6 +84,20 @@ Three of the six have their config written directly by CC Safety Net. The other 
 Codex loads CC Safety Net as the `cc-safety-net@cc-marketplace` plugin from the `cc-marketplace` marketplace. The plugin registers a `PreToolUse` hook that runs the shared `hook --coding-cli` entry point, so Codex has no `hook` flag of its own.
 
 Codex will not run an untrusted hook, so the plugin's hook stays inert until it is marked trusted inside Codex. See [Installation](/installation#codex-installation) for that step.
+
+### OpenClaw
+
+OpenClaw loads CC Safety Net **in process** as a native OpenClaw plugin. The plugin ships as a packaged directory of three files: the runtime entry `index.js` — a self-contained bundle with every dependency inlined, because a local directory install gets no `node_modules` — plus the `openclaw.plugin.json` manifest OpenClaw validates before loading any code, and a `package.json` whose `openclaw.extensions` points at the entry. There is no `hook` flag and no JSON-over-stdio.
+
+The plugin registers a `before_tool_call` handler matched to the `exec` tool. Only `exec` is covered — no other OpenClaw tool is forwarded to the guard. The handler returns either no decision (allow) or `{ block: true, blockReason }`; it never rewrites tool parameters.
+
+It resolves the agent's workspace directory through OpenClaw's runtime API and uses it as both the policy and execution directory; a `workdir` in the call is resolved contained within that workspace. CC Safety Net fails closed on a malformed event, a missing or empty command, a workspace it cannot resolve, a `workdir` outside the workspace, or a call already cancelled. An `exec` call whose `host` is anything other than `auto` or `gateway` is also blocked, because only those values are proven to execute on the local Gateway filesystem the workspace describes. A call with `host: "auto"` (or no `host` at all) is analyzed as a local Gateway call — the plugin never checks where OpenClaw actually routes it.
+
+OpenClaw owns its plugin state, so installation drives OpenClaw's own CLI: `openclaw plugins install <packaged dir> --force`, then `openclaw plugins enable cc-safety-net`. Before any `--force` command, CC Safety Net verifies the target extension directory holds only its own managed files, so it can never overwrite or delete a plugin that is not provably its own. After installing, it runs `openclaw plugins inspect cc-safety-net --runtime --json` and treats only a `loaded` status as success — an enabled plugin whose bundle is broken installs cleanly and then silently protects nothing.
+
+The installed copy lives at `<state dir>/extensions/cc-safety-net/`, where the state dir is `OPENCLAW_STATE_DIR` when set, else the directory holding `OPENCLAW_CONFIG_PATH`, else `~/.openclaw`. Enablement lives in OpenClaw's own config (`openclaw.json` in the state dir, or `OPENCLAW_CONFIG_PATH`): the global `plugins.enabled` switch, the `plugins.allow` and `plugins.deny` lists, and the per-plugin `plugins.entries.cc-safety-net.enabled` entry all take part. If `plugins.allow` is set, it must also list `cc-safety-net`.
+
+Restart the OpenClaw Gateway after installing or uninstalling. The manifest activates the plugin at startup (`activation: { onStartup: true }`), so a running Gateway does not pick up the change. See [Installation](/installation#openclaw-installation) for the setup and removal commands.
 
 ### OpenCode
 
@@ -100,7 +130,7 @@ Because there is no hook config file to inspect, the `doctor` command detects Pi
 
 ## The Amp Code event plugin
 
-Amp Code loads CC Safety Net as a system plugin: a single self-contained file at `~/.config/amp/plugins/cc-safety-net.ts`, copied out of the npm package rather than fetched from a URL. The plugin subscribes to Amp's `tool.call` event through the `@ampcode/plugin` API and returns either `allow` or `reject-and-continue` with a message. Like Pi and OpenCode, it runs in process.
+Amp Code loads CC Safety Net as a system plugin: a single self-contained file at `~/.config/amp/plugins/cc-safety-net.ts`, copied out of the npm package rather than fetched from a URL. The plugin subscribes to Amp's `tool.call` event through the `@ampcode/plugin` API and returns either `allow` or `reject-and-continue` with a message. Like Pi, OpenClaw, and OpenCode, it runs in process.
 
 The file carries a managed header identifying it as CC Safety Net's, which is what marks it as safe for CC Safety Net to replace. See [Installation](/installation#amp-code-installation) for how that header is enforced when the artifact is written or removed.
 

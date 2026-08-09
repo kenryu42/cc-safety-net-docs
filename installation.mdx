@@ -1,10 +1,10 @@
 ---
 title: "Install CC Safety Net for your coding agent"
 sidebarTitle: "Installation"
-description: "Install and uninstall CC Safety Net across all ten supported coding agents: Amp Code, Antigravity CLI, Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot CLI, Kimi Code, OpenCode, and Pi."
+description: "Install and uninstall CC Safety Net across all twelve supported coding agents: Amp Code, Antigravity CLI, Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot CLI, Hermes Agent, Kimi Code, OpenClaw, OpenCode, and Pi."
 ---
 
-CC Safety Net installs as a plugin, extension, or hook directly inside your coding agent — no separate process or daemon required. It runs on **Windows, macOS, and Linux**, detecting the host OS for correct path handling and command resolution (for example, case-insensitive paths on Windows, and `cmd.exe`/PowerShell resolution via `COMSPEC`/`PATHEXT`). **Node.js 18 or higher** must be available on your system before you begin (this is why examples use `npx` for CLI subcommands).
+CC Safety Net installs as a plugin, extension, or hook directly inside your coding agent — no separate process or daemon required. It runs on **Windows, macOS, and Linux**, detecting the host OS for correct path handling and command resolution (for example, case-insensitive paths on Windows, and `cmd.exe`/PowerShell resolution via `COMSPEC`/`PATHEXT`). The two exceptions are the **Hermes Agent** and **OpenClaw** integrations, which are macOS and Linux only — both target the POSIX home-directory layout (`~/.hermes`, `~/.openclaw`) and have no Windows path handling. **Node.js 18 or higher** must be available on your system before you begin (this is why examples use `npx` for CLI subcommands).
 
 Every integration is installed and removed through the same two commands: `cc-safety-net install [coding cli]` and `cc-safety-net uninstall [coding cli]`, plus `cc-safety-net update` to refresh everything already installed. This page is the single source of truth for those commands.
 
@@ -58,7 +58,9 @@ For scripted, non-interactive installs, pass exactly one target flag. Passing ze
 | [Cursor](#cursor-installation) | `npx -y cc-safety-net@latest install --cursor` | `npx -y cc-safety-net@latest uninstall --cursor` |
 | [Gemini CLI](#gemini-cli-installation) | `npx -y cc-safety-net@latest install --gemini-cli` | `npx -y cc-safety-net@latest uninstall --gemini-cli` |
 | [GitHub Copilot CLI](#github-copilot-cli-installation) | `npx -y cc-safety-net@latest install --copilot-cli` | `npx -y cc-safety-net@latest uninstall --copilot-cli` |
+| [Hermes Agent](#hermes-agent-installation) | `npx -y cc-safety-net@latest install --hermes-agent` | `npx -y cc-safety-net@latest uninstall --hermes-agent` |
 | [Kimi Code](#kimi-code-installation) | `npx -y cc-safety-net@latest install --kimi-code` | `npx -y cc-safety-net@latest uninstall --kimi-code` |
+| [OpenClaw](#openclaw-installation) | `npx -y cc-safety-net@latest install --openclaw` | `npx -y cc-safety-net@latest uninstall --openclaw` |
 | [OpenCode](#opencode-installation) | `npx -y cc-safety-net@latest install --opencode` | `npx -y cc-safety-net@latest uninstall --opencode` |
 | [Pi](#pi-installation) | `npx -y cc-safety-net@latest install --pi` | `npx -y cc-safety-net@latest uninstall --pi` |
 
@@ -201,6 +203,32 @@ npx -y cc-safety-net@latest uninstall --copilot-cli
 
 Hook support in Copilot CLI is version-gated. Inline hook definitions in Copilot config files require Copilot CLI **1.0.8** or later, and user hook files under `~/.copilot/hooks` require **0.0.422** or later. The plugin handles this for you; if you configure hooks manually and hit issues, run `npx cc-safety-net doctor` — it reports the detected Copilot version and which hook sources are supported.
 
+## Hermes Agent installation
+
+```bash
+npx -y cc-safety-net@latest install --hermes-agent
+```
+
+This writes a managed Python plugin — `__init__.py` and `plugin.yaml` — to `$HERMES_HOME/plugins/cc-safety-net/` (`~/.hermes` when `HERMES_HOME` is unset), then runs `hermes plugins enable cc-safety-net --no-allow-tool-override`. The files alone are inert: Hermes loads a user plugin only when its own config lists it as enabled, which is why install runs the enable command even when the files are already up to date.
+
+Because the plugin shells out through `npx`, install first clears cached `cc-safety-net` copies from the npm `_npx` cache so the plugin resolves the current release; uninstall does not touch the cache. The cache locations are listed in the [Antigravity CLI section](#antigravity-cli-installation).
+
+<Note>
+  Restart Hermes after installing, updating, or uninstalling so the change takes effect.
+</Note>
+
+On each `pre_tool_call`, the plugin sends the tool call to `npx -y cc-safety-net hook --hermes-agent` (short flag `-ha`) over JSON stdin, with a 30-second timeout. It protects the `terminal`, `read_file`, `write_file`, and `patch` tools; other Hermes tools are not forwarded. The plugin fails closed: when `npx` is missing, the analysis cannot start, times out, exits non-zero, or returns unreadable output, the tool call is blocked with an explicit message instead of slipping through.
+
+```bash
+npx -y cc-safety-net@latest uninstall --hermes-agent
+```
+
+Uninstall runs `hermes plugins disable cc-safety-net` *before* removing the plugin files — Hermes only resolves a plugin that is still on disk, and a config entry left enabled would auto-load any future plugin of the same name. If the `hermes` CLI fails or is missing, the files are removed anyway and a warning notes that `cc-safety-net` may still be listed in the Hermes config. Uninstall also removes the Python `__pycache__` bytecode directory and reclaims the plugin directory only when nothing else is left in it.
+
+Install and uninstall both refuse to touch the plugin directory if it is a symlink or not a regular directory, and refuse to overwrite or remove any managed file that is a symlink, not a regular file, or does not carry the CC Safety Net managed header. Move or remove it yourself and rerun the command.
+
+This integration is macOS and Linux only.
+
 ## Kimi Code installation
 
 ```bash
@@ -220,6 +248,30 @@ Optionally install the `/cc-safety-net` skill so you can author rules interactiv
 ```bash
 npx skill add kenryu42/cc-safety-net
 ```
+
+## OpenClaw installation
+
+```bash
+npx -y cc-safety-net@latest install --openclaw
+```
+
+This installs the plugin through OpenClaw's own CLI: it runs `openclaw plugins install <packaged plugin dir> --force` followed by `openclaw plugins enable cc-safety-net`, where the packaged plugin directory ships inside the npm package. It then verifies the plugin actually loaded by running `openclaw plugins inspect cc-safety-net --runtime --json`: an enabled plugin whose runtime is broken installs cleanly and then silently protects nothing, so anything other than a `loaded` status fails the install and points you at `openclaw plugins inspect cc-safety-net --runtime` for details.
+
+Because `--force` overwrites (and on uninstall deletes) whatever holds the `cc-safety-net` extension id, both commands first check that the extension directory holds only a CC Safety Net managed plugin — or nothing at all — and refuse to run otherwise. Move or remove the directory and rerun the command.
+
+```bash
+npx -y cc-safety-net@latest uninstall --openclaw
+```
+
+<Note>
+  Restart the OpenClaw Gateway after installing, updating, or uninstalling so the change takes effect. If `plugins.allow` is set in `openclaw.json`, it must also list `cc-safety-net` — an allowlist that omits it keeps the plugin from loading even when it is enabled.
+</Note>
+
+OpenClaw loads CC Safety Net as an in-process plugin rather than a hook subprocess, so there is no runtime hook flag. The plugin registers a `before_tool_call` handler for the `exec` tool only — OpenClaw's file tools are not covered. Each `exec` call is analyzed against the agent's workspace directory, and the plugin fails closed when that workspace cannot be resolved, when `workdir` resolves outside it, or when the call names an execution host other than `auto` or `gateway` (for example `sandbox` or `node`).
+
+OpenClaw's state directory is `OPENCLAW_STATE_DIR` when set, otherwise the directory holding `OPENCLAW_CONFIG_PATH`, otherwise `~/.openclaw`; the config file is `OPENCLAW_CONFIG_PATH` when set, otherwise `openclaw.json` in the state directory. Install and doctor resolve paths in that same order, so a relocated OpenClaw install is handled instead of reported as absent.
+
+This integration is macOS and Linux only.
 
 ## OpenCode installation
 

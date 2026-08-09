@@ -110,7 +110,7 @@ bunx cc-safety-net doctor
 
 | Section | Description |
 | --- | --- |
-| Hook Integration | Verifies configuration for each supported agent: Claude Code, Amp Code, Antigravity CLI, Codex, Cursor, Gemini CLI, GitHub Copilot CLI, Kimi Code, OpenCode, and Pi |
+| Hook Integration | Verifies configuration for each supported agent: Claude Code, Amp Code, Antigravity CLI, Codex, Cursor, Gemini CLI, GitHub Copilot CLI, Hermes Agent, Kimi Code, OpenClaw, OpenCode, and Pi |
 | Guard Engine Verification | Runs a synthetic self-test to confirm blocking works (`git reset --hard` and `rm -rf /` blocked; `rm -rf ./node_modules` allowed) |
 | Configuration | Validates user and project rule config and lists effective and shadowed rules |
 | Environment | Shows the state of the CC Safety Net environment variables |
@@ -403,7 +403,7 @@ npx -y cc-safety-net install --claude-code
 
 ### Targets
 
-Ten targets are accepted, listed here in the order they are installed:
+Twelve targets are accepted, listed here in the order they are installed:
 
 | Flag | Agent | How it installs |
 | --- | --- | --- |
@@ -414,17 +414,19 @@ Ten targets are accepted, listed here in the order they are installed:
 | `--cursor` | Cursor | Writes the hook entry into `~/.cursor/hooks.json` |
 | `--gemini-cli` | Gemini CLI | Runs Gemini CLI's extension install command |
 | `--copilot-cli` | GitHub Copilot CLI | Runs Copilot CLI's own plugin marketplace commands |
+| `--hermes-agent` | Hermes Agent | Writes a managed Python plugin to `~/.hermes/plugins/cc-safety-net` (or under `$HERMES_HOME`) and enables it with `hermes plugins enable` |
 | `--kimi-code` | Kimi Code | Writes a `[[hooks]]` block into `~/.kimi-code/config.toml` (or `$KIMI_CODE_HOME/config.toml`) |
+| `--openclaw` | OpenClaw | Installs and enables the bundled plugin through OpenClaw's own `openclaw plugins` commands |
 | `--opencode` | OpenCode | Runs OpenCode's global plugin install |
 | `--pi` | Pi | Runs Pi's package install |
 
 There are three installation mechanisms behind that table:
 
-- **Native plugin or extension commands** — Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, OpenCode, and Pi. CC Safety Net shells out to the agent's own plugin manager and cleans up superseded plugin ids along the way.
+- **Native plugin or extension commands** — Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, OpenClaw, OpenCode, and Pi. CC Safety Net shells out to the agent's own plugin manager and cleans up superseded plugin ids along the way. OpenClaw's install also verifies afterwards that OpenClaw reports the plugin as loaded, then asks you to restart the OpenClaw Gateway.
 - **Config-file writes** — Antigravity CLI, Cursor, and Kimi Code. These three are the only agent configs CC Safety Net edits directly.
-- **Plugin file** — Amp Code. After a change, restart Amp or run `plugins: reload`.
+- **Plugin files** — Amp Code and Hermes Agent. After a change, restart Amp or run `plugins: reload`; for Hermes Agent, the install also runs `hermes plugins enable`, and a change needs a Hermes restart.
 
-Before a config-file install (Antigravity CLI, Cursor, or Kimi Code) writes anything, it clears stale copies of `cc-safety-net` from the `npx` cache — every entry under the npm cache's `_npx` directory (`$npm_config_cache` if set, otherwise `~/.npm` on macOS and Linux, `%LOCALAPPDATA%\npm-cache` on Windows) whose `node_modules` contains `cc-safety-net` is removed. Those three configs run the hook through `npx`, so this makes the freshly installed hook resolve the latest version instead of a cached one.
+Before a config-file install (Antigravity CLI, Cursor, or Kimi Code) or a Hermes Agent install writes anything, it clears stale copies of `cc-safety-net` from the `npx` cache — every entry under the npm cache's `_npx` directory (`$npm_config_cache` if set, otherwise `~/.npm` on macOS and Linux, `%LOCALAPPDATA%\npm-cache` on Windows) whose `node_modules` contains `cc-safety-net` is removed. Those four integrations run the hook through `npx`, so this makes the freshly installed hook resolve the latest version instead of a cached one.
 
 ### Selecting a target
 
@@ -451,7 +453,7 @@ npx -y cc-safety-net update
 
 Targets are found by reading each agent's config and state files: an integration qualifies when it is detected as installed, **even when it is currently disabled**. GitHub Copilot CLI is the exception — it qualifies only when a CC Safety Net plugin checkout exists in Copilot's `installed-plugins` directory, because its disabled state is indistinguishable from a kill-switch with nothing installed, and update must never turn into an install. Installations still on the legacy `safety-net@cc-marketplace` plugin id — in Claude Code or Codex — are also picked up, so updating migrates them to the current id.
 
-Each target then runs the same operation as `install`, in catalog install order, with the messages switched to `Updated …` or `… up to date`. For the native-plugin targets — Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, OpenCode, and Pi — the vendor binary is probed first: a missing binary prints `<Agent> not found; skipped` (for example `Codex not found; skipped`) and the run continues. The config-file and plugin-file targets — Amp Code, Antigravity CLI, Cursor, and Kimi Code — need no binary and always refresh.
+Each target then runs the same operation as `install`, in catalog install order, with the messages switched to `Updated …` or `… up to date`. For the targets whose install drives the agent's own CLI — Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Hermes Agent, OpenClaw, OpenCode, and Pi — the vendor binary is probed first: a missing binary prints `<Agent> not found; skipped` (for example `Codex not found; skipped`) and the run continues. The config-file and plugin-file targets — Amp Code, Antigravity CLI, Cursor, and Kimi Code — need no binary and always refresh.
 
 When nothing qualifies, `update` prints ``No installed integrations found. Run `cc-safety-net install` to set one up.`` and exits `0`.
 
@@ -461,7 +463,7 @@ You can also reach the update flow from the interactive `install` selector by pr
 
 ## uninstall
 
-`uninstall` is the mirror of `install`: same ten target flags, same selection rules, same ordering.
+`uninstall` is the mirror of `install`: same twelve target flags, same selection rules, same ordering.
 
 ```bash
 npx -y cc-safety-net uninstall
@@ -483,9 +485,10 @@ For the config-file targets, uninstall removes only the entries CC Safety Net ma
 | `-cu`, `--cursor` | Cursor | `preToolUse` | — |
 | `-gc`, `--gemini-cli` | Gemini CLI | `BeforeTool` | `cc-safety-net -gc` and `cc-safety-net --gemini-cli` as top-level forms |
 | `-cp`, `--copilot-cli` | GitHub Copilot CLI | `PreToolUse` | `cc-safety-net -cp` and `cc-safety-net --copilot-cli` as top-level forms |
+| `-ha`, `--hermes-agent` | Hermes Agent | `pre_tool_call` | — |
 | `-kc`, `--kimi-code` | Kimi Code | `PreToolUse` | — |
 
-Amp Code, Codex, OpenCode, and Pi have no `hook` flag of their own. Amp Code, OpenCode, and Pi load CC Safety Net in process as a plugin or extension; Codex's plugin invokes the shared `hook --coding-cli` entry point above. See [Integration architecture](/guides/integration-architecture) for how each agent plugs in.
+Amp Code, Codex, OpenClaw, OpenCode, and Pi have no `hook` flag of their own. Amp Code, OpenClaw, OpenCode, and Pi load CC Safety Net in process as a plugin or extension; Codex's plugin invokes the shared `hook --coding-cli` entry point above. See [Integration architecture](/guides/integration-architecture) for how each agent plugs in.
 
 <Note>
   There is no `hook install` or `hook uninstall` subcommand. Installation is handled by the top-level [`install`](#install) and [`uninstall`](#uninstall) commands.

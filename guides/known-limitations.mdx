@@ -1,7 +1,7 @@
 ---
 title: "Known limitations and pitfalls"
 sidebarTitle: "Known limitations"
-description: "What CC Safety Net can't catch: opaque command proxies, in-binary behavior, filesystem containment and network, symlink TOCTOU, interpreter flags, and eval-based execution."
+description: "What CC Safety Net can't catch: opaque command proxies, in-binary behavior, filesystem containment and network, symlink TOCTOU, interpreter flags, eval-based execution, and the Hermes Agent and OpenClaw coverage boundaries."
 ---
 
 CC Safety Net analyzes the command string your agent attempts to run. It is a strong guardrail against accidental data loss from known-destructive git and filesystem operations, but it is not a complete security solution. This page is an honest list of the **residual** limits that remain today, so you can set correct expectations and know when to use [sandboxing](/guides/vs-sandboxing) instead.
@@ -100,15 +100,43 @@ Blocking prompt-injection-driven exfiltration, authenticating users, and enforci
 
 Tamper resistance covers the canonical user `policy.json` only. `rule.json`, rulebooks, lockfiles, and caches are best-effort against agent modification: in the `ready` state an agent can already remove a rulebook entry from `rule.json`, and removal is not drift, so nothing gates it. Protecting `rule.json` is a deferred product decision.
 
+## Hermes Agent and OpenClaw coverage boundaries
+
+The Hermes Agent and OpenClaw integrations cover a defined set of tools and execution hosts. Everything outside that set either gets no decision or is blocked outright. The boundaries are listed here.
+
+### Hermes Agent sees a fixed tool list
+
+The managed Hermes plugin registers a single `pre_tool_call` hook and forwards exactly four tools to analysis: `patch`, `read_file`, `terminal`, and `write_file`. A call to any other Hermes tool is not forwarded and gets no decision.
+
+A `!command` you type yourself also stays outside: bang-shell input does not raise `pre_tool_call`, so it goes to Hermes' own command guard instead. CC Safety Net sees model-generated tool calls only, not every subprocess Hermes starts. And if Hermes never loads the plugin, nothing blocks — only `npx cc-safety-net doctor` reports a plugin that is present but not enabled.
+
+### OpenClaw covers exec on the local Gateway host
+
+The OpenClaw plugin registers `before_tool_call` for the canonical `exec` tool only. `apply_patch` and OpenClaw's read/write/edit file tools are not protected.
+
+Execution hosts split three ways:
+
+- An `exec` call with no `host`, `host: "auto"`, or `host: "gateway"` is analysed as a local Gateway call, with paths resolved against the agent workspace.
+- An explicit `host: "sandbox"` or `host: "node"` is blocked as unsupported rather than analysed, because no test proves a correct path mapping for those hosts.
+- The configured `tools.exec.host` default never changes the analysis: the plugin reads only the call's own `host` parameter, so a call with no `host` is analysed as a local Gateway call even when the default routes it to `node` or `sandbox`.
+
+The residual gap is the `auto` case: when a sandbox runtime is active, an `auto` call runs in the sandbox filesystem while path rules are still evaluated against the Gateway workspace. Command rules are unaffected; path rules can be evaluated against the wrong filesystem.
+
+The Codex-native relay is untested and therefore unclaimed: the live end-to-end tests drive OpenClaw's own agent runtime, so they prove nothing about a Codex-native shell, patch, or MCP call.
+
+### Windows is not supported for either integration
+
+Both integrations assume the POSIX state layout. Relocated state is handled the way the hosts resolve it — `HERMES_HOME` for Hermes, then `OPENCLAW_STATE_DIR` and the directory of `OPENCLAW_CONFIG_PATH` for OpenClaw, falling back to `~/.hermes` and `~/.openclaw`. The Windows defaults are not: install and detection target the POSIX path there, so the Hermes install writes the plugin to a directory Hermes does not read, and OpenClaw's own CLI installs correctly while `doctor` misreports the state.
+
 ## Platform-specific issues
 
 ### OpenCode stale cache
 
 OpenCode's plugin installer can keep serving a stale cached version of `cc-safety-net` after a new release is published. If updates do not take effect, clear the cache and reinstall — see the [OpenCode installation steps](/installation#opencode-installation). Run `npx cc-safety-net doctor` to confirm the detected plugin version.
 
-### Stale npx cache (Antigravity CLI, Cursor, Kimi Code)
+### Stale npx cache (Antigravity CLI, Cursor, Hermes Agent, Kimi Code)
 
-The Antigravity CLI, Cursor, and Kimi Code hooks run through `npx -y cc-safety-net`, so npx's own cache can also keep serving an old release. Installing any of those three targets first removes every npx cache entry that contains `cc-safety-net` (the `_npx/*/node_modules/cc-safety-net` entries), so a plain reinstall picks up the new release — no manual cache clearing needed. Installs for other targets do not touch this cache.
+The Antigravity CLI, Cursor, and Kimi Code hooks and the Hermes Agent plugin run through `npx -y cc-safety-net`, so npx's own cache can also keep serving an old release. Installing any of those four targets first removes every npx cache entry that contains `cc-safety-net` (the `_npx/*/node_modules/cc-safety-net` entries), so a plain reinstall picks up the new release — no manual cache clearing needed. Installs for other targets do not touch this cache.
 
 ## What to do if a destructive command slipped through
 
