@@ -4,9 +4,9 @@ sidebarTitle: "How it works"
 description: "The lifecycle of a single tool call: agent request, integration interception, ordered protection and analysis, the allow or block response, the audit record, and where to look when a decision surprises you."
 ---
 
-CC Safety Net sits between your coding agent and your machine. It runs *before* any shell command executes, inspects what the command would actually do, and either lets it through or returns a block the agent can act on. This page follows one tool call from end to end.
+CC Safety Net sits between your coding agent and the protected tools. It inspects each supported tool operation before that operation runs. It then allows the operation or returns a block that the agent can act on. This page follows one tool call from end to end.
 
-This is step 1 of the technical progression, written for people using CC Safety Net rather than maintaining it. When you want the per-agent wiring underneath, continue to [Integration architecture](/guides/integration-architecture).
+For the integration that connects each agent to CC Safety Net, see [Integration architecture](/guides/integration-architecture).
 
 ## The lifecycle of one tool call
 
@@ -17,8 +17,8 @@ This is step 1 of the technical progression, written for people using CC Safety 
   <Step title="The integration intercepts it">
     CC Safety Net's integration for that agent receives the call before the tool executes and before the operating system ever sees it. Some agents call CC Safety Net as a short-lived subprocess hook; others load it in-process as a plugin or extension. Either way the same guard runs. See [Integration architecture](/guides/integration-architecture) for which agent uses which model.
   </Step>
-  <Step title="Ordered protection and analysis">
-    The tool input is read under strict bounds, parsed once, and then walked through a fixed sequence of checks — described in [What gets checked, in order](#what-gets-checked-in-order) below. The order never varies and does not depend on which agent made the call.
+  <Step title="CC Safety Net checks the operation">
+    CC Safety Net reads the tool input with limits on its depth, size, and number of fields. It parses the input once, then runs the fixed sequence in [What gets checked, in order](#what-gets-checked-in-order). The order does not depend on the agent.
   </Step>
   <Step title="An allow or a block comes back">
     A safe call is allowed and executes normally. A blocked call never runs; the agent receives a block message naming the reason, the offending command, and what it should do next. See [What a block looks like](#what-a-block-looks-like).
@@ -46,14 +46,14 @@ For the maintainer-level view of the same sequence, including stage names and ev
 
 ## Why intent, not string matching
 
-CC Safety Net reasons about what a command *does*, not what it *looks like*. A command is parsed into its executable, subcommand, flags, and arguments, and the analyzer for that executable understands its real option grammar.
+CC Safety Net analyzes what a command *does*, not what it *looks like*. It parses the executable, subcommand, flags, and arguments. The analyzer for that executable applies its option grammar.
 
 | Command | What it does | Outcome |
 | --- | --- | --- |
 | `git checkout -b feature` | Creates a new branch | **Allowed** |
 | `git checkout -- file` | Discards uncommitted changes in a file | **Blocked** |
 
-Both begin with `git checkout`. A pattern-matching deny rule either blocks both or neither. Because the decision is structural rather than textual, it also survives reordered flags (`rm -r -f /`), shell wrapping (`sh -c "rm -rf /"`), and interpreter one-liners (`python -c 'import os; os.system("rm -rf /")'`) — nested commands are unwrapped and re-analyzed up to 10 levels deep.
+Both begin with `git checkout`. A simple prefix rule cannot distinguish these outcomes without duplicating Git option logic. Structural analysis also handles reordered flags (`rm -r -f /`), shell wrappers (`sh -c "rm -rf /"`), and interpreter one-liners (`python -c 'import os; os.system("rm -rf /")'`). CC Safety Net unwraps and re-analyzes nested commands up to 10 levels deep.
 
 This page does not list every rule. See [Blocked commands](/reference/blocked-commands) for the full behavior matrix of what is stopped, and [Allowed commands](/reference/allowed-commands) for what deliberately is not.
 
@@ -73,7 +73,7 @@ If this operation is truly needed, ask the user for explicit permission and have
 
 When they apply, the message also carries the matched `Rule:` id, the `Tool:` name, the specific `Segment:` that triggered the block, and a `Config warning:` if a fallback configuration is in force. Command and segment text is excerpted, and everything in the message is secret-redacted before it leaves the process.
 
-A block is feedback, not a stop: the message arrives as an ordinary tool result, so the session keeps going, and the text is written to steer the agent back onto the task rather than into retrying variants. The closing line is the part your agent acts on. It is chosen from the blocked rule's intent:
+A block does not end the agent session. The message arrives as a normal tool result and directs the agent back to the task instead of retrying variants. The rule's intent selects the closing instruction:
 
 | Intent | What the agent is told to do |
 | --- | --- |
@@ -87,7 +87,7 @@ Why the messages are written this way — and why the instruction is advisory wh
 
 ## The audit record
 
-Every decision is written to a local audit log on your machine, so you can go back and see what your agent tried to do and what happened to it. Denials are always recorded, and allowed decisions are recorded by default. Read it with:
+CC Safety Net always records denials in a local audit log. It records allowed command decisions by default. Read the log with:
 
 ```bash
 npx cc-safety-net logs
@@ -113,6 +113,4 @@ Where the log lives, what each record contains, how long records are kept, and e
 
 CC Safety Net analyzes the tool call your agent attempts to make, so it cannot see behavior hidden inside arbitrary binaries, unconfigured or opaque command proxies, or network activity. It is a static pre-execution policy gate — not an OS sandbox, not a privilege boundary, and no protection at all for commands that bypass an installed integration. See [Known limitations](/guides/known-limitations) for the full list and the recommended mitigations.
 
-<Note>
-  Next in the technical progression: [Integration architecture](/guides/integration-architecture) for how each agent is wired, then [Architecture](/guides/architecture) for the system component view and the ordered stage table, [Analysis engine](/guides/analysis-engine) for each analyzer and the recursive-delete classification order, and [Design principles](/guides/design-principles) for the reasoning behind these choices.
-</Note>
+Next, see [Integration architecture](/guides/integration-architecture) for how each agent connects to CC Safety Net.

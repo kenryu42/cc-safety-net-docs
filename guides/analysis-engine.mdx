@@ -95,7 +95,9 @@ Cwd is tracked across segments of the same command. A `cd` or `pushd` with a lit
 
 ## POSIX shell functions
 
-A POSIX function definition — `name() { ... }` — is parsed as a definition, not as executed code. The body executes only where the function is called, so that is where it is analyzed: at each call site, with the caller's effective cwd and shell state. `cleanup() { rm -rf ../outside; }` on its own is allowed; add the call — `cleanup() { rm -rf ../outside; }; cleanup` — and the command blocks on the body. State changes made inside a called body carry forward: `cleanup() { cd ..; }; cleanup && rm -rf build` blocks because the `rm` is anchored one directory up.
+A POSIX function definition, such as `name() { ... }`, is parsed as a definition instead of executed code. CC Safety Net analyzes the body at each call site with the caller's effective working directory and shell state.
+
+`cleanup() { rm -rf ../outside; }` is allowed because it only defines the function. Add the call, as in `cleanup() { rm -rf ../outside; }; cleanup`, and the command blocks on the body. State changes inside a called body carry forward. For example, `cleanup() { cd ..; }; cleanup && rm -rf build` blocks because `rm` is anchored one directory up.
 
 Call resolution follows the shell's own rules:
 
@@ -120,7 +122,9 @@ A heredoc body is text on stdin, and the consumer decides whether that text is d
 - No other input redirection competes for stdin (`<`, `<<`, `<<-`, `<<<`, `<&`, `<>`).
 - The consumer is a literal `cat`, `tee`, `git apply`, `git commit`, `gh pr create`, or `gh issue create` — no path prefix, no wrapper such as `env`. `cat` and `tee` are additionally rejected when an output process substitution (`>(...)`) is present, because that hands the body to another command.
 
-A command that passes the gate treats the body as inert data in every level: `cat > note.md <<'EOF'` and `git commit -F - <<'EOF'` are allowed even when the body describes destructive commands in prose, and this holds in strict and paranoid too. For `cat`, `tee`, `git commit`, `gh pr create`, and `gh issue create` the body is also masked before sensitive-path extraction, so a commit message containing the word "credentials" does not read as a filename. `git apply` is deliberately not masked there — a patch body names the files it writes, so it stays visible to path extraction. Commands outside the heredoc are still analyzed: `cat <<'EOF' && rm -rf ~` blocks on the `rm`.
+A command that passes the gate treats the body as inert data at every level. For example, `cat > note.md <<'EOF'` and `git commit -F - <<'EOF'` are allowed even when the body describes destructive commands.
+
+For `cat`, `tee`, `git commit`, `gh pr create`, and `gh issue create`, the body is also masked before sensitive-path extraction. A commit message that contains the word "credentials" is not treated as a filename. `git apply` bodies remain visible because a patch names the files that it writes. Commands outside the heredoc are still analyzed. For example, `cat <<'EOF' && rm -rf ~` blocks on `rm`.
 
 A command that fails the gate is denied outright in [strict](#strict) and paranoid. In standard, the body is still analyzed, down one of three paths:
 
@@ -207,7 +211,7 @@ Both recursive (`-r`/`-R`/`--recursive`) and force (`-f`/`--force`) flags must b
 
 All three also appear in the unparseable-text heuristic scan, so `dd of=/dev/…`, `mkfs /dev/…`, and `shred <arg>` inside otherwise unparseable text block as `raw-text.dangerous-command` — except when the text starts with `echo ` or `rg `. None of the three is catastrophic, so they follow the master-switch and per-rule-override precedence.
 
-## find, xargs, and parallel
+## Dynamic-target analyzers for `find`, `xargs`, and `parallel`
 
 | Command | What is blocked |
 | --- | --- |
@@ -245,7 +249,7 @@ When no built-in analyzer matches, custom rules run as a fallback. They are stri
 
 See [Custom rules](/configuration/custom-rules) for the full authoring guide and matching semantics.
 
-## Tracing a decision
+## Inspect a classification
 
 To see exactly how the engine evaluated a specific command, run `explain`:
 

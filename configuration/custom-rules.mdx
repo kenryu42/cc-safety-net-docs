@@ -4,10 +4,10 @@ sidebarTitle: "Custom rules"
 description: "Define project and user-level custom blocking rules in CC Safety Net using JSON config files. Block commands by matching command, subcommand, and literal argument patterns with a custom reason message."
 ---
 
-Beyond built-in protections, CC Safety Net lets you define custom blocking rules to enforce team conventions or project-specific safety policies. Rules live in a **rulebook-based layout** and are merged from user and project scopes, so you can maintain personal defaults alongside per-project overrides without duplication.
+Use custom blocking rules to enforce team conventions or project-specific safety policies. Rules use a **rulebook-based layout** and merge from user and project scopes. This lets you keep personal defaults with project overrides.
 
 <Warning>
-  **Breaking change** — Legacy inline config files (`.safety-net.json` and `~/.cc-safety-net/config.json`) are no longer loaded at runtime. If they contain rules, **those rules are inert until you migrate** — they stop being enforced. The runtime ignores legacy files silently; `rule verify` is what warns about them. Ordinary commands keep working. Run `npx -y cc-safety-net rule migrate` to convert legacy rules into the new rulebook layout. See [Migration](#migration-from-legacy-config) below.
+  **Breaking change** — Legacy inline configuration files (`.safety-net.json` and `~/.cc-safety-net/config.json`) are no longer loaded at runtime. If they contain rules, **those rules are inert until you migrate**. The runtime ignores legacy files silently. `rule verify` warns about them. Ordinary commands keep working. Run `npx -y cc-safety-net rule migrate` to convert legacy rules into the rulebook layout. See [Migrate legacy configuration](#migrate-legacy-configuration).
 </Warning>
 
 <Tip>
@@ -26,7 +26,7 @@ Beyond built-in protections, CC Safety Net lets you define custom blocking rules
   ```
 </Tip>
 
-## Config file locations
+## Rule configuration file locations
 
 CC Safety Net loads rulebooks from two scopes and merges them:
 
@@ -35,7 +35,7 @@ CC Safety Net loads rulebooks from two scopes and merges them:
 
 Local rulebook sources are referenced by bare names like `project-rules`. GitHub rulebook sources use `owner/repo#ref/<rulebook-name>` and point to `.cc-safety-net/rules/<rulebook-name>/rulebook.json` in that repository.
 
-**Merging behavior:**
+### Scope merge behavior
 
 - Rulebooks from both scopes are combined, user scope first.
 - **Duplicate active rulebook names resolve by first claim.** The user scope is loaded first, so a name it claims shadows the project rulebook of the same name; the later rulebook contributes no rules at all rather than partially shadowing the first. The collision is reported as a warning, which puts the runtime in the `degraded` state — rename one of them and run `rule sync`. Because the collision is resolved rather than fatal, `rule sync` for one scope still succeeds on a name the other scope already uses.
@@ -89,7 +89,7 @@ Every configured source is pinned in a `rule.lock` file by a SHA-256 digest, and
 What happens when verification fails depends on which side is broken:
 
 - A **missing lockfile, missing lock entry, missing cache entry, digest mismatch, or unparseable cached rulebook** drops that source. It contributes no rules until you run `rule sync`. Every other verified source and every built-in protection keeps applying, and ordinary commands keep running. A dropped source puts the runtime in `degraded` rather than blocking work.
-- A **local source that drifts from its pinned digest** — including one that is missing, unparseable, or schema-invalid on disk — is not a failure state at all. The runtime reads only the digest-verified **cached** rulebook and never re-reads the local copy, so your pending local edit is simply not active until you run `rule sync`. A full `rule sync` and `rule verify` still reject an invalid or symlinked local source.
+- A **local source that drifts from its pinned digest** — including one that is missing, unparseable, or schema-invalid on disk — is not a failure state. The runtime reads only the digest-verified **cached** rulebook and never re-reads the local copy. Your pending local edit is not active until you run `rule sync`. A full `rule sync` and `rule verify` still reject an invalid or symlinked local source.
 
 See [Configuration recovery](/configuration/recovery) for the full state model, the exact diagnostic strings, and the repair sequence.
 
@@ -123,7 +123,7 @@ Rules for the field:
   `transparent_wrappers` lives in `rule.json`, which carries no lock or digest. If a scope's `rule.json` becomes unreadable, that scope's wrappers stop applying — the one place where dropped configuration reduces built-in coverage. A dropped **rulebook** (missing cache entry, missing lock entry, digest mismatch) leaves `rule.json` readable, so wrappers survive it.
 </Warning>
 
-## Quick start
+## Create your first custom rule
 
 Create a starter project rule config:
 
@@ -200,9 +200,11 @@ npx -y cc-safety-net rule sync
 npx -y cc-safety-net rule verify
 ```
 
+`rule sync` makes the edited rulebook active. `rule verify` then checks the active configuration.
+
 Now `git add -A`, `git add --all`, and `git add .` will be blocked with your custom message.
 
-## Config schema
+## `rule.json` schema
 
 The top-level `rule.json` selects which rulebooks are active, applies overrides, and declares transparent wrappers. It is separate from `policy.json`, which configures safety levels, built-in protections, allow and deny paths, and audit retention — see [Policy](/configuration/policy) for that file.
 
@@ -239,7 +241,7 @@ An override that changes both the message and the agent-facing intent looks like
 }
 ```
 
-### Editor support
+### `rule.json` editor support
 
 CC Safety Net publishes a JSON Schema for `rule.json`, generated from the same schema the runtime validates against. Point your editor at it for completion and validation:
 
@@ -284,17 +286,17 @@ Each rulebook lives in its own `rulebook.json` file.
 </ParamField>
 
 <ParamField body="rules" type="array" required>
-  Custom blocking rules (see Rule schema below).
+  Custom blocking rules. See [Rule schema](#rule-schema).
 </ParamField>
 
 <ParamField body="tests" type="array">
-  Optional rulebook fixtures (see Fixture schema below). Fixtures document intended behavior; they are shape-validated only, never executed.
+  Optional rulebook fixtures. See [Fixture schema](#fixture-schema). Fixtures document intended behavior. CC Safety Net validates their shape but does not run them.
 </ParamField>
 
 ## Rule schema
 
 <ParamField body="name" type="string" required>
-  Unique within the rulebook. Must start with a letter, followed by letters, numbers, hyphens, or underscores; max 64 chars.
+  Unique within the rulebook. Must start with a letter, followed by letters, numbers, hyphens, or underscores. Maximum of 64 characters.
 </ParamField>
 
 <ParamField body="command" type="string" required>
@@ -302,7 +304,7 @@ Each rulebook lives in its own `rulebook.json` file.
 </ParamField>
 
 <ParamField body="subcommand" type="string">
-  Subcommand to match (e.g., `add`, `install`). If omitted, matches any.
+  Subcommand to match, for example `add` or `install`. If omitted, matches any subcommand.
 </ParamField>
 
 <ParamField body="block_args" type="array" required>
@@ -310,7 +312,7 @@ Each rulebook lives in its own `rulebook.json` file.
 </ParamField>
 
 <ParamField body="reason" type="string" required>
-  Message shown when blocked. Max 256 chars.
+  Message shown when blocked. Maximum of 256 characters.
 </ParamField>
 
 <ParamField body="intent" type="string">
@@ -335,14 +337,14 @@ Fixtures are optional documentation of intended behavior. They are shape-validat
 
 ## Matching behavior
 
-Understanding how CC Safety Net matches commands against your rules helps you write precise, effective rules:
+CC Safety Net uses these matching rules:
 
 - **Command normalization**: Commands are reduced to their basename before matching. `/usr/local/bin/npm` matches a rule with `"command": "npm"`.
 - **Subcommand detection**: The subcommand is the first non-option argument following the command. In `git --no-pager add -A`, the subcommand is `add`.
 - **Argument matching**: Arguments in `block_args` are matched literally. No regex or glob support.
 - **Short option expansion**: Bundled short flags are unbundled before matching. `-Ap` is treated as `-A` and `-p`.
 - **Long option matching**: Long options use exact string matching. `--all-files` does **not** match `--all`.
-- **ANY semantics**: A command is blocked if any single argument in `block_args` is present.
+- **Any-argument matching**: A command is blocked if any single argument in `block_args` is present.
 - **Additive only**: Custom rules can only add new restrictions. They cannot bypass built-in protections.
 
 <Note>
@@ -472,7 +474,7 @@ Command: git add -A
 
 The prefix is `<rulebook-name>/<rule-name>`. This is also the key you use in `rule.json` `overrides` to disable a rule (`"off"`) or replace its reason.
 
-## Validating your rulebooks
+## Validate your rulebooks
 
 After creating or editing rulebooks, validate them with:
 
@@ -481,10 +483,10 @@ npx -y cc-safety-net rule sync
 npx -y cc-safety-net rule verify
 ```
 
-- `rule sync` rebuilds the lock/cache for configured rulebook sources.
-- `rule verify` validates rulebook structure and rule definitions.
+- `rule sync` rebuilds the lock and cache for configured rulebook sources.
+- `rule verify` checks configuration, lock and cache state, local rulebooks, and shareable GitHub-source rulebook directories. It does not fetch remote content.
 
-## Migration from legacy config
+## Migrate legacy configuration
 
 Legacy inline config files (`.safety-net.json` and `~/.cc-safety-net/config.json`) are **no longer loaded at runtime**.
 
@@ -523,7 +525,7 @@ npx -y cc-safety-net rule verify
 ~/.cc-safety-net/rules/user-rules/rulebook.json   # migrated user rules
 ```
 
-## Error handling
+## Invalid custom-rule configuration
 
 Custom-rule configuration that cannot be verified is **dropped, not enforced, and never turned into a denial**. Ordinary commands keep running, every other verified source keeps enforcing, and every built-in protection still applies. The runtime reports itself as `degraded` so the situation is visible.
 

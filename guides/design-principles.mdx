@@ -26,7 +26,7 @@ Sensitive-path protection sits on the other side of the line, after the snapshot
 
 The concrete stage table lives in [Architecture](/guides/architecture#the-ordered-guard-stages).
 
-## Fail-closed as the default
+## Fail closed when analysis cannot complete
 
 When CC Safety Net cannot complete an analysis, it blocks rather than allows:
 
@@ -42,7 +42,9 @@ See [Security model](/guides/security-model) for how these properties are enforc
 
 ## Denials that keep the agent on task
 
-A denial is not an error state. It is delivered to the agent as an ordinary tool result, inside the loop the agent is already running, and that framing drives how every block message is written. An agent that receives a bare "permission denied" tends toward one of two failure modes: it retries near-variants of the blocked command until something slips through, or it declares the whole task failed because one step was refused. Both are worse than the block itself — the first is probing behavior that burns turns and might eventually find a real gap, the second turns a safety intervention into a work stoppage.
+A denial is not an error state. It reaches the agent as a normal tool result in the active session. This behavior determines how CC Safety Net writes each block message.
+
+A bare "permission denied" can make an agent retry similar commands or stop the full task. Repeated variants can find an unprotected form and use agent turns. Stopping the full task turns one safety action into a work stoppage.
 
 Each message is therefore built to hand the agent a productive next move. The reason states in plain language what the command would have done and, where one exists, names the safer alternative. And every rule carries an **intent** that selects the closing instruction: report the block and continue with the rest of the task, switch to the named alternative, retry with a narrower explicit target, hand the operation to the user, or restructure the command instead of brute-forcing variants. Even the fail-closed denial for an internal error carries an intent — restructure, don't retry — so an unexpected failure of the tool itself still routes the agent toward a useful response.
 
@@ -87,7 +89,7 @@ CC Safety Net does not claim to be a complete security solution. It is positione
 - **Permission deny rules** offer quick, user-configurable blocks. CC Safety Net runs _before_ the permission system, so it inspects every command regardless of how deny rules are configured.
 - **OS-level sandboxing** restricts filesystem and network access but does not understand whether an operation is destructive _within_ those boundaries. A `git reset --hard` inside a sandboxed directory is technically safe from the sandbox's perspective but still a footgun.
 
-Use all three together: deny rules for fast iteration, sandboxing for unknown threats and containment, and CC Safety Net for bypass-resistant protection against known-destructive patterns. See [CC Safety Net vs. sandboxing](/guides/vs-sandboxing).
+Use these layers together: deny rules for fast iteration, sandboxing for unknown threats and containment, and CC Safety Net for bypass-resistant protection against known-destructive patterns. See [CC Safety Net vs. sandboxing](/guides/vs-sandboxing).
 
 ## Worktree relaxation
 

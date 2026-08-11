@@ -21,34 +21,34 @@ keywords:
 
 CC Safety Net blocks these commands because they can permanently destroy data — uncommitted changes, stashed work, remote history, or a whole disk. The tables below cover the default built-in rules; [custom rules](/configuration/custom-rules) can extend them.
 
-Every row blocks in all three safety levels unless it is explicitly tagged **strict** or **paranoid**. Those rows only block once the matching level or capability is active. See [Modes](/configuration/modes) for how to turn them on.
+By default, every untagged row blocks at all three safety levels. Rows marked **Strict** or **Paranoid** need that safety level or capability. Policy can disable some non-catastrophic rules. See [Modes](/configuration/modes) for how to activate each level.
 
 This page is the behavior matrix — *what* is blocked, and where each boundary falls. It is not an architecture page: for the ordered guard flow see [Architecture](/guides/architecture), and for exactly how the classifier reaches a verdict see the [Analysis engine](/guides/analysis-engine). For the safe variants that pass through, see [Allowed commands](/reference/allowed-commands).
 
 ## What each safety level adds
 
-| Level | What the blocked matrix looks like |
+| Level | Additional blocks |
 | --- | --- |
-| [Standard](/configuration/modes#default-mode) | Every untagged row on this page. Safe-looking unparseable text such as `echo 'unterminated` is permitted, but unparseable text containing a recognizable destructive pattern is still blocked heuristically. Dynamic `rm -rf` targets are **not** categorically blocked. |
+| [Standard](/configuration/modes#default-mode) | Blocks all untagged rows. Safe-looking unparseable text such as `echo 'unterminated` is permitted, but unparseable text containing a recognizable destructive pattern is still blocked heuristically. Dynamic `rm -rf` targets are **not** categorically blocked. |
 | [Strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) | Everything standard blocks, plus unparseable commands outright, destructive targets that cannot be verified, [heredocs outside a small supported set](#heredocs-in-strict-and-paranoid), and metadata-only discovery of built-in sensitive paths. |
 | [Paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) | Everything strict blocks, plus non-temp recursive forced deletion even inside the current working directory, and every interpreter one-liner regardless of content. |
 
 <Note>
-  A few protections sit outside the level system entirely. Root and home recursive deletion, Git-metadata protection, and canonical `policy.json` protection are catastrophic rules: they block in standard, they ignore the master destructive-command switch, and they ignore a per-rule `off` override.
+  Some catastrophic protections do not depend on the selected safety level. Root and home recursive deletion, Git-metadata protection, and canonical `policy.json` protection ignore the master destructive-command switch and per-rule `off` overrides.
 </Note>
 
 ## Git commands
 
 These git operations are blocked because they discard uncommitted work, destroy recovery history, or rewrite shared state.
 
-| Command pattern | Why it's blocked |
+| Command pattern | Why CC Safety Net blocks it |
 | --- | --- |
 | `git checkout -- <files>` | Discards uncommitted changes permanently |
 | `git checkout --force` / `-f` | Force-discards uncommitted changes |
 | `git checkout <ref> -- <path>` | Overwrites working tree with ref version |
 | `git checkout <ref> <path>` | May overwrite working tree when Git disambiguates ref vs pathspec |
 | `git checkout --pathspec-from-file` | Can overwrite multiple files from a file list |
-| `git restore <files>` | Discards uncommitted changes (use `--staged` to only unstage) |
+| `git restore <files>` | Discards uncommitted changes. Use `--staged` to unstage files only |
 | `git restore --worktree` / `-W` | Explicitly discards working tree changes |
 | `git switch --discard-changes` | Discards uncommitted changes when switching branches |
 | `git switch --force` / `-f` | Discards uncommitted changes (force switch) |
@@ -62,7 +62,7 @@ These git operations are blocked because they discard uncommitted work, destroy 
 | `git tag -d` / `--delete` | Permanently deletes tags |
 | `git reflog delete` | Removes recovery history |
 | `git stash drop` | Permanently deletes stashed changes |
-| `git stash clear` | Deletes ALL stashed changes |
+| `git stash clear` | Deletes all stashed changes |
 | `git worktree remove --force` | Force-deletes worktree without checking for changes |
 
 Git commands that mutate a branch with both a force flag and a create/reset flag (for example `git checkout -Bf`, `git switch -Cf --discard-changes`) are treated as forced branch resets and blocked.
@@ -97,7 +97,7 @@ Git accepts `GIT_SSH_COMMAND`, `GIT_SSH`, and `GIT_SSH_VARIANT` to run an arbitr
 | `parallel rm -rf` | Dynamic input makes targets unpredictable | All |
 | `parallel <shell> -c` | Can execute arbitrary commands | All |
 
-`rm -rf` is classified by target, first match wins: unsupported Windows UNC/device targets, root/home, protected Git metadata, temp paths, dynamic targets, configured allow paths, home-as-cwd, the cwd itself, inside the cwd, and finally outside the cwd. Temp paths (`/tmp`, `/var/tmp`, the system temp dir, `$TMPDIR`) and paths inside the current working directory are allowed. See [Allowed commands](/reference/allowed-commands) for the safe variants.
+`rm -rf` targets use a first-match classification order: unsupported Windows UNC or device targets, root or home, protected Git metadata, temp paths, dynamic targets, configured allow paths, home as the working directory, the working directory itself, inside the working directory, and outside the working directory. Temp paths are allowed at all levels. Other paths inside the working directory are allowed unless paranoid `rm` is active. See [Allowed commands](/reference/allowed-commands) for safe variants.
 
 Hiding a destructive command in a POSIX function does not change any of this: the body is analyzed where the function is called, with the caller's cwd, and calls resolve through quoting (`'cleanup'`), `time`/`!` prefixes, and `eval`. A definition that is never called is inert. See [POSIX shell functions](/guides/analysis-engine#posix-shell-functions) for call resolution and scoping.
 
@@ -109,7 +109,7 @@ Git metadata and dynamic targets are both classified before configured allow pat
 
 ## Device and disk destruction
 
-`dd`, `mkfs`, and `shred` are analyzed as ordinary top-level commands in every safety level. They are not catastrophic, so the master destructive-command switch and a per-rule `off` override still apply to them.
+CC Safety Net analyzes `dd`, `mkfs`, and `shred` at every safety level. These rules are not catastrophic, so the master destructive-command switch and a per-rule `off` override still apply.
 
 | Command pattern | Why it's blocked |
 | --- | --- |
@@ -219,7 +219,15 @@ If you want to block interpreter one-liners outright regardless of their content
 
 ## Heredocs in strict and paranoid
 
-Once the fail-closed capability is on — [strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) or [paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) — a command that takes heredoc input is denied unless all of these hold: a single heredoc, on standard input, with a quoted delimiter, no other input redirection, and a consumer on the literal allowlist `cat`, `tee`, `git apply`, `git commit`, `gh pr create`, `gh issue create`. An unquoted delimiter denies with:
+When the fail-closed capability is active, a heredoc command is allowed only when all these conditions are true:
+
+- The command has one heredoc.
+- The heredoc is on standard input.
+- The delimiter is quoted.
+- The command has no other input redirection.
+- The consumer is a literal `cat`, `tee`, `git apply`, `git commit`, `gh pr create`, or `gh issue create`.
+
+The fail-closed capability is active in [strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) and [paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1). An unquoted delimiter denies with:
 
 ```text
 Unquoted heredoc input is not supported safely. Quote the delimiter or ask the user to verify.

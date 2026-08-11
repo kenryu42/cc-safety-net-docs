@@ -13,9 +13,9 @@ keywords:
   - "secret redaction"
 ---
 
-CC Safety Net writes a structured audit trail of the command decisions it makes, so you can review what your agent tried to do and what happened. Logs are JSON Lines (JSONL) — one JSON object per line — and they never leave your machine.
+CC Safety Net writes a structured audit trail of command decisions. Use it to review what your agent tried to do and what happened. Logs use JSON Lines (JSONL), with one JSON object per line. CC Safety Net stores these logs on your machine.
 
-This page is the file format: layout, record schema, scope, retention, and the bound on redaction. To read the log through a UI instead, see the [Dashboard](/guides/dashboard) guide; to read it from the terminal, see [`logs`](/reference/cli-commands#logs).
+This page defines the file layout, record schema, scope, retention, and redaction limits. To read the log in a UI, see [Dashboard](/guides/dashboard). To read it in the terminal, see [`logs`](/reference/cli-commands#logs).
 
 ## Log layout
 
@@ -36,13 +36,13 @@ The session id is sanitized before it reaches the filename: runs of characters o
 
 Directories are created with mode `0700` and the log file is appended with mode `0600`.
 
-Every failure in the write path is swallowed. Audit logging can never change, delay, or block a decision.
+Write failures are ignored. Audit logging cannot change an allow or block decision.
 
 <Note>
   Flat files directly in `~/.cc-safety-net/logs/` are the **legacy** layout from earlier versions. They are still read by `logs` and still swept by retention, and they are what [`logs --prune-legacy`](#deleting-legacy-logs) targets. New records are never written there.
 </Note>
 
-## A record is one decision, not a transcript
+## Each record contains one decision
 
 Each line records exactly one allowed-or-blocked command decision: the command, the segment that drove the decision, the reason, and the rule that matched.
 
@@ -136,7 +136,7 @@ Nothing runs on a timer. The retention sweep is triggered by activity:
 
 The sweep traverses at most once per UTC day per audit root, throttled by a zero-byte `.last-prune` marker in the audit root. It never throws, never creates the audit root, never follows symlinks, and leaves any file shape it does not recognize untouched. Empty month directories and empty project directories are reclaimed, except the current month, which is left alone to avoid racing an in-flight write. Legacy flat files are deleted only when both the file's timestamp and every record inside it prove it wholly expired; a file with mixed ages is never rewritten or split.
 
-The practical consequence: **expired records can sit on disk while CC Safety Net is idle**, because nothing sweeps until something happens. `logs --id` searches what is physically present, so it can still return a record that is past its retention window but that pruning has not reached yet.
+**Expired records can remain on disk while CC Safety Net is idle** because nothing starts the sweep. `logs --id` searches records that are present on disk. It can return a record past its retention window if pruning has not reached it.
 
 ### Deleting legacy logs
 
@@ -146,9 +146,9 @@ The practical consequence: **expired records can sit on disk while CC Safety Net
 
 This is not the retention sweep. The retention sweep deletes legacy files only when they are wholly expired; `--prune-legacy` deletes them regardless of age. Nested per-project logs are never entered and are never touched, and the command says so in its output. For the flag's exit behavior and the combinations it rejects, see [`logs --prune-legacy`](/reference/cli-commands#logs-prune-legacy).
 
-## Counts versus returned entries
+## Counts and returned entries
 
-Every surface that reads the log computes its counts over the whole window and then caps the list of entries it hands back. The two numbers are not the same and should not be read as the same.
+Counts cover the full window. Entry lists are capped, so the two numbers can differ.
 
 | Surface | Window | Counts | Entries returned |
 | --- | --- | --- | --- |
@@ -177,9 +177,9 @@ Command, segment, tool name, and working directory are passed through secret red
   **Redaction is bounded.** It is a fixed list of patterns, not a classifier. Everything it does not recognize is retained verbatim: absolute filesystem paths, project and directory names, hostnames, IP addresses, usernames, ticket ids, filenames, and any credential whose shape is not on the list. The `reason` field is not redacted at write time at all. Treat the audit log as sensitive local data, and review any excerpt before pasting it into an issue or a chat.
 </Warning>
 
-The GUI acknowledges the residual risk directly: entries carry unredacted paths, so the client scrubs your home-directory prefix out of false-positive reports before they reach the public issue tracker.
+Before the GUI sends a false-positive report, it removes your home-directory prefix. Other paths can remain in the report.
 
-Permissions (`0700` on directories, `0600` on files) and the fact that logs stay on your machine are containment, not redaction. They do not make the contents safe to share.
+Permissions (`0700` on directories and `0600` on files) and local storage limit access. They do not redact the log or make it safe to share.
 
 ## Related pages
 

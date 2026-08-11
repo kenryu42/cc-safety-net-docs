@@ -35,12 +35,12 @@ The CLI registers eleven commands. This is the order they appear in `cc-safety-n
 | [`logs`](#logs) | `logs [options]` | Browse audit log entries recorded by the hooks |
 | [`explain`](#explain) | `explain [options] <command>` | Trace how a command is analyzed |
 | [`rule`](#rule) | `rule <subcommand>` | Manage rule config, rulebook sources, and transparent wrappers |
-| [`install`](#install) | `install [coding cli]` | Install CC Safety Net into a coding agent CLI |
+| [`install`](#install) | `install [TARGET_FLAG]` | Install CC Safety Net into a coding agent CLI |
 | [`update`](#update) | `update` | Update every installed integration in place |
-| [`uninstall`](#uninstall) | `uninstall [coding cli]` | Remove CC Safety Net from a coding agent CLI |
-| [`hook`](#hook) | `hook <coding cli>` | Run as an agent's runtime hook, reading JSON from stdin |
+| [`uninstall`](#uninstall) | `uninstall [TARGET_FLAG]` | Remove CC Safety Net from a coding agent CLI |
+| [`hook`](#hook) | `hook INTEGRATION_FLAG` | Run as an agent's runtime hook, reading JSON from stdin |
 | [`gui`](#gui) | `gui [options]` | Open the local policy editor GUI |
-| [`statusline`](#statusline) | `statusline <coding cli>` | Print a one-line status indicator for shell integration |
+| [`statusline`](#statusline) | `statusline --claude-code` | Print a one-line status indicator for shell integration |
 
 `doctor` also answers to the alias `--doctor`. Command lookup is case-insensitive.
 
@@ -128,7 +128,7 @@ bunx cc-safety-net doctor
 | `--skip-update-check` | Skip the npm registry version check |
 | `-h`, `--help` | Show help |
 
-`doctor` exits non-zero when it detects a failure — no agent configured, a failed hook inspection, a failed self-test, or an invalid user or project config.
+`doctor` exits with a nonzero code when it detects a failure. Failures include no configured agent, a failed hook inspection, a failed self-test, or invalid user or project configuration.
 
 When some audit log files cannot be read, the Recent Activity section ends with `Warning: <n> audit log sources could not be read; this summary is incomplete` (`source` when it is one), so a quiet week is not mistaken for a complete one.
 
@@ -226,7 +226,7 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 npx cc-safety-net explain --cwd /tmp "git status"
 ```
 
-Once the flags parse, `explain` always exits `0`, whether the verdict is blocked or allowed — read the `result` field rather than the exit code. Only flag validation fails:
+After successful option parsing, `explain` exits `0` for blocked and allowed results. Read the `result` field instead of the exit code. Only option validation fails:
 
 - An unknown option prints `Unknown option for explain: <arg>`; `--cwd` without a value prints `--cwd requires a value`. Either parse error is followed by `Usage: cc-safety-net explain [--json] [--cwd <path>] <command>` and `Pass -- before a command that starts with dashes.`, and exits `1`.
 - A `--cwd` path that does not exist prints `Error: --cwd path does not exist: <path>` and exits `1`.
@@ -259,20 +259,20 @@ Running `rule` with no subcommand prints help and exits `1`. `rule --help` print
 
 ### rule init
 
-Create a rule config for the current scope. If one already exists it is rewritten canonically, preserving `rules`, `overrides`, and `transparent_wrappers`. The rulebook cache directory is created if missing.
+Create a rule configuration for the current scope. If the file exists, the command rewrites it in the canonical format and preserves `rules`, `overrides`, and `transparent_wrappers`. The command creates the rulebook cache directory if needed.
 
 ```bash
 npx -y cc-safety-net rule init
 npx -y cc-safety-net rule init --global
 ```
 
-`rule init` on its own writes an **inert** config — it has no rules in it. Pass `--example` to also write a starter rulebook named `example-rules`:
+`rule init` on its own writes an **inert** configuration that contains no rules. Pass `--example` to also write a starter rulebook named `example-rules`:
 
 ```bash
 npx -y cc-safety-net rule init --example
 ```
 
-The example rulebook is written only when `example-rules/rulebook.json` does not already exist, and it is **inactive**: the file lands on disk but the config does not reference it. Add it with `rule add example-rules` if you want it to take effect.
+The example rulebook is written only when `example-rules/rulebook.json` does not exist. It is **inactive** because the configuration does not reference it. Add it with `rule add example-rules` to make it active.
 
 ### rule add
 
@@ -376,7 +376,7 @@ npx -y cc-safety-net rule migrate --cleanup
 
 ### rule doc
 
-Print the rulebook authoring guide to stdout. Pipe it to your agent to let it help you author or validate rulebooks:
+Print the rulebook authoring guide to stdout. Pipe the guide to an agent for rulebook authoring or validation:
 
 ```bash
 npx -y cc-safety-net rule doc
@@ -394,7 +394,7 @@ The guide itself goes to stdout, so piping stays clean, and the same version is 
 
 `install` puts CC Safety Net into a coding agent CLI. The set of targets comes from CC Safety Net's integration catalog, so it is the same list the GUI and `doctor` use.
 
-This section documents the command surface. For the per-agent walkthrough, the post-install steps each agent needs, and the legacy plugin-identifier migration, see [Installation](/installation).
+For per-agent steps, post-install actions, and legacy plugin-identifier migration, see [Installation](/installation).
 
 ```bash
 npx -y cc-safety-net install
@@ -420,7 +420,9 @@ Twelve targets are accepted, listed here in the order they are installed:
 | `--opencode` | OpenCode | Runs OpenCode's global plugin install |
 | `--pi` | Pi | Runs Pi's package install |
 
-There are three installation mechanisms behind that table:
+### Installation mechanisms
+
+CC Safety Net uses three installation mechanisms:
 
 - **Native plugin or extension commands** — Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, OpenClaw, OpenCode, and Pi. CC Safety Net shells out to the agent's own plugin manager and cleans up superseded plugin ids along the way. OpenClaw's install also verifies afterwards that OpenClaw reports the plugin as loaded, then asks you to restart the OpenClaw Gateway.
 - **Config-file writes** — Antigravity CLI, Cursor, and Kimi Code. These three are the only agent configs CC Safety Net edits directly.
@@ -431,7 +433,7 @@ Before a config-file install (Antigravity CLI, Cursor, or Kimi Code) or a Hermes
 ### Selecting a target
 
 - **No flag, interactive terminal:** an arrow-key multi-select prompt appears. Each target is probed for availability, so an agent that is not installed shows `CLI not installed`, one already set up shows `already installed`, and one that is not configured shows `not installed` during uninstall.
-- **With flags:** exactly one target flag must be given. Zero or more than one raises `Choose exactly one install|uninstall target:` followed by the full flag list. Unknown `-` arguments and stray positionals are errors too.
+- **With a target flag:** provide exactly one target flag. More than one raises `Choose exactly one install|uninstall target:` followed by the full flag list. Unknown `-` arguments and stray positional arguments are also errors.
 
 The selector's key bindings are printed in its footer. During install that footer reads:
 
@@ -463,7 +465,7 @@ You can also reach the update flow from the interactive `install` selector by pr
 
 ## uninstall
 
-`uninstall` is the mirror of `install`: same twelve target flags, same selection rules, same ordering.
+`uninstall` accepts the same twelve target flags and uses the same selection rules and target order as `install`.
 
 ```bash
 npx -y cc-safety-net uninstall
@@ -508,14 +510,14 @@ At runtime the hook reads Cursor's `Shell` tool calls, takes the session id from
 
 ## gui
 
-`gui` starts the local policy editor and opens it in your browser. This section covers the command surface only — for what the dashboard's views do and which actions ask for confirmation, see the [Dashboard](/guides/dashboard) guide.
+`gui` starts the local policy editor and opens it in your browser. For dashboard views and confirmation behavior, see [Dashboard](/guides/dashboard).
 
 ```bash
 npx cc-safety-net gui
 npx cc-safety-net gui --no-open
 ```
 
-**Options:**
+### Options
 
 | Flag | Description |
 | --- | --- |
@@ -534,19 +536,19 @@ The server binds `127.0.0.1` on an ephemeral port and mints a fresh token for ea
 
 ```bash
 bunx cc-safety-net statusline --claude-code
-# -cc is a short alias for --claude-code
+# -cc is the short form of --claude-code
 bunx cc-safety-net statusline -cc
 ```
 
 The line shows `🛡️ CC Safety Net ❌` when the plugin is disabled. Otherwise it shows the level as an emoji — `✅` standard, `🔒` strict, `👁️` paranoid, `🔧` customised — plus `🌳` when worktree relaxations are active and a trailing `⚠️` when the policy snapshot is degraded.
 
-`statusline` reads piped stdin. Claude Code's JSON status payload is discarded, while any other piped text is kept and prefixed in front of the indicators as `<stdin> | <status>`.
+`statusline` reads standard input when input is piped to it. It discards Claude Code's JSON status payload. It keeps other piped text and prefixes it to the indicators as `<stdin> | <status>`.
 
-`statusline` and [`status`](#status) load the same policy snapshot and the same environment modes, so they never disagree on facts — only on presentation. Use `status` when you are reading; use `statusline` when a program is.
+`statusline` and [`status`](#status) use the same policy snapshot and environment modes. Their output formats differ. Use `status` for a terminal report. Use `statusline` for a program or status bar.
 
 See the [Status line](/configuration/status-line) configuration page for setup instructions and what each indicator means.
 
-## Version and help flags
+## Global options
 
 Check the installed version or get usage information at any time. `--version` has a `-V` short alias, and `--help` has a `-h` short alias.
 

@@ -4,9 +4,9 @@ sidebarTitle: "Architecture"
 description: "The maintainer-level system map: integration adapters, the policy snapshot, the ordered guard stages from tool input to allow or deny, the internal parsers, and the runtime dependency surface."
 ---
 
-This is the third page of the technical sequence and the deepest system-wide view: it is written for maintainers and reviewers, and it is the canonical specification of the guard pipeline that [How it works](/guides/how-it-works) and [Integration architecture](/guides/integration-architecture) summarize from above.
+This page is the maintainer-level specification of the guard pipeline. [How it works](/guides/how-it-works) gives the user view. [Integration architecture](/guides/integration-architecture) shows how each agent reaches the guard.
 
-CC Safety Net is a static, pre-execution policy gate. Every supported coding agent hands it a tool call, and every tool call runs through the same guard in the same order. The integrations differ only in how the call arrives — a stdin hook subprocess or an in-process plugin or extension — and the guard itself knows nothing about which agent issued the call.
+CC Safety Net is a static pre-execution policy gate. Each supported coding agent sends it a tool call. The guard checks each call in the same order. Integrations differ only in how the call arrives: a standard-input hook subprocess or an in-process plugin or extension.
 
 The stage order below is specified here and nowhere else; every other page states it in a sentence or two and links back. For each analyzer's exact behavior, continue to [Analysis engine](/guides/analysis-engine).
 
@@ -74,13 +74,13 @@ Which agent uses which adapter, its hook flag, and where its config lives are al
 - It resolves to exactly **two states**: `ready`, where every validated source is enforced, and `degraded`, where a candidate source was rejected and something safe is enforced in its place. A degraded reason names the failing source, states what is not active, and states the repair.
 - Per-rule provenance — rulebook name and version, public source spec, override reason — is registered onto the snapshot, which is what diagnostics and the GUI render.
 
-Invalid configuration never turns into a denial of ordinary work: a rejected source is dropped, not converted into a block. See [Configuration recovery](/configuration/recovery) for the full state contract and the repair path.
+A rejected policy or rule source does not, by itself, deny an ordinary tool call. The runtime drops the source instead of converting it into a block. See [Configuration recovery](/configuration/recovery) for the state contract and repair path.
 
 ## The ordered guard stages
 
-Every tool call, on every integration, runs this fixed order. The stage names are the ones that appear as `failureStage` in the audit log.
+Every tool call, on every integration, runs this fixed order. Operations that deny report the shown `failureStage` value in the audit log.
 
-| # | Stage | What happens | Weakenable by policy? |
+| # | Reported `failureStage` | What happens | Weakenable by policy? |
 | --- | --- | --- | --- |
 | 1 | `policy-protection` | Extract the command from the tool input under traversal bounds (depth, node count, key count, per-string and aggregate byte size). Exceeding a bound fails closed. | No |
 | 2 | — | Build semantic facts from the invocation — one parse, reused by every later stage. | No |
@@ -98,7 +98,7 @@ Every tool call, on every integration, runs this fixed order. The stage names ar
 Three placement facts follow directly from that order:
 
 - **Stages 6 and 7 run before stage 8.** Policy-file protection and Git-metadata protection deny *before* any configuration is loaded. They are always on, they carry no config state, and no preset, override, or master switch can weaken them.
-- **Sensitive-path protection runs after the snapshot and before command analysis.** It is the one of the three hard-stop protections that policy controls, through the master switch, per-pattern overrides, and deny paths.
+- **Sensitive-path protection runs after the snapshot and before command analysis.** It is the only one of the three hard-stop protections that policy controls, through the master switch, per-pattern overrides, and deny paths.
 - **Only decisions made after stage 8 report a safety level.** Denials from the input bounds, policy-file protection, or Git-metadata protection intentionally carry no `level` and no config-fallback metadata, because neither was known yet.
 
 Every dependency call inside the guard is wrapped, so a thrown error becomes a fail-closed deny attributed to the stage that threw. When a tool-input bound is the cause, command-substitution-sourced text is stripped from the evidence so oversized input is never echoed back.

@@ -15,27 +15,27 @@ keywords:
   - "worktree mode"
 ---
 
-CC Safety Net uses semantic command analysis to distinguish safe variants of potentially dangerous commands from truly destructive ones. These commands are explicitly allowed through.
+CC Safety Net uses semantic command analysis to distinguish permitted forms from destructive ones. The analyzer permits the command forms on this page.
 
 Some allowances are level-dependent. Rows marked **Standard only** are removed once [strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) or [paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) is active.
 
-This page is the allow half of the behavior matrix. See [Blocked commands](/reference/blocked-commands) for the matching deny matrix. It is not an architecture page: for the ordered guard flow see [Architecture](/guides/architecture), and for exactly how the classifier reaches a verdict see the [Analysis engine](/guides/analysis-engine).
+This page is the allowed-command reference. For blocked forms, see [Blocked commands](/reference/blocked-commands). For the ordered guard flow, see [Architecture](/guides/architecture). For classifier behavior, see [Analysis engine](/guides/analysis-engine).
 
 <Warning>
-  No level relaxes the catastrophic protections. Root and home recursive deletion, protected Git metadata, and the canonical `policy.json` are blocked in every level, including standard, and nothing on this page allows them — not `allow_paths`, not worktree mode, not a per-rule `off` override.
+  Catastrophic protections apply at every safety level. Root and home recursive deletion, protected Git metadata, and the canonical `policy.json` always block. The forms on this page, `allow_paths`, worktree mode, and per-rule `off` overrides do not relax them.
 </Warning>
 
 ## Git commands
 
 | Command pattern | Why it's safe |
 | --- | --- |
-| `git checkout -b <branch>` | Creates a new branch (no working tree changes) |
+| `git checkout -b <branch>` | Creates and switches to a new branch |
 | `git checkout --orphan` | Creates an orphan branch |
 | `git restore --staged` | Only unstages files, doesn't discard changes |
 | `git restore --help` / `--version` | Help/version output only |
 | `git branch -d` | Safe delete with merge check |
 | `git clean -n` / `--dry-run` | Preview only, no files deleted |
-| `git push --force-with-lease` | Safe force push (checks remote state first) |
+| `git push --force-with-lease` | Checks the expected remote state before it rewrites history |
 
 ## Filesystem commands
 
@@ -149,7 +149,7 @@ Two of those allowances have precise boundaries worth knowing:
 
 ## Worktree mode exceptions
 
-With [`CC_SAFETY_NET_WORKTREE=1`](/configuration/modes#worktree-mode-cc_safety_net_worktree=1), CC Safety Net relaxes local-discard rules when the command is confirmed to run inside a linked git worktree. Linked worktrees are designed as isolated, disposable workspaces — discarding changes inside one doesn't affect the main working tree. Worktree detection is fail-closed: if CC Safety Net cannot verify that the current directory is a linked worktree, the command remains blocked.
+With [`CC_SAFETY_NET_WORKTREE=1`](/configuration/modes#worktree-mode-cc_safety_net_worktree=1), CC Safety Net permits selected local-discard commands after it verifies a linked Git worktree. If verification fails, the command remains blocked.
 
 The following commands are allowed inside a linked worktree when worktree mode is active:
 

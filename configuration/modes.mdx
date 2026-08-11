@@ -1,5 +1,5 @@
 ---
-title: "Modes: strict, paranoid, and worktree"
+title: "Safety levels and worktree mode"
 sidebarTitle: "Modes"
 description: "What CC Safety Net's standard, strict, and paranoid safety levels block, plus worktree mode. Set a level in policy.json or with environment variables to tune behavior for your workflow."
 ---
@@ -59,7 +59,7 @@ These five rules activate only when `fail_closed` is on:
 
 Invalid hook input JSON, analyzer exceptions, and parser resource-limit failures are **already fail-closed in every mode** — those are not what strict adds.
 
-**How to enable:**
+### Enable the strict safety level
 
 ```bash
 export CC_SAFETY_NET_LEVEL=strict
@@ -71,7 +71,9 @@ The legacy toggle `CC_SAFETY_NET_STRICT=1` sets the same capability and is still
 export CC_SAFETY_NET_STRICT=1
 ```
 
-**When to use:** Enable strict mode when commands may come from an adversarial or untrusted context, or when you want maximum protection and can tolerate occasional false positives on unusual or exotic command syntax.
+### When to use the strict safety level
+
+Enable strict mode when commands can come from an adversarial or untrusted context. You can also use it when you want maximum protection and can accept occasional false positives for unusual command syntax.
 
 <Note>
   Individual strict-tier rules can be turned off through `destructive_command_protection.overrides` in [policy.json](/configuration/policy), and any strict-tier rule can be force-enabled under standard with an `"on"` override. Strict is still strict for fail-closed outcomes that have no destructive-command rule id, such as parser fail-closed and sensitive-path outcomes.
@@ -98,19 +100,19 @@ Interpreter one-liners can hide destructive commands inside strings that are har
 
 So `python -c "print(1)"` is allowed in standard and strict, and blocked here.
 
-**How to enable the paranoid level:**
+### Enable the paranoid safety level
 
 ```bash
 export CC_SAFETY_NET_LEVEL=paranoid
 ```
 
-**How to enable all paranoid checks at once with the legacy toggle:**
+### Enable both paranoid checks without fail-closed behavior
 
 ```bash
 export CC_SAFETY_NET_PARANOID=1
 ```
 
-**How to enable individual paranoid checks:**
+### Enable individual paranoid checks
 
 ```bash
 export CC_SAFETY_NET_PARANOID_RM=1
@@ -121,9 +123,9 @@ Setting `CC_SAFETY_NET_PARANOID=1` is equivalent to enabling both `CC_SAFETY_NET
 
 ## Worktree mode (`CC_SAFETY_NET_WORKTREE=1`)
 
-Linked git worktrees are designed as disposable, isolated workspaces. Discarding changes inside one does not risk the main working tree, making the usual local-discard restrictions unnecessarily strict in that context. Worktree mode relaxes those rules — but only when CC Safety Net can positively confirm that the current working directory is inside a linked worktree.
+Linked Git worktrees can provide isolated workspaces. Worktree mode relaxes selected local-discard rules only when CC Safety Net confirms that the current working directory is inside a linked worktree.
 
-**How to enable:**
+### Enable worktree mode
 
 ```bash
 export CC_SAFETY_NET_WORKTREE=1
@@ -131,7 +133,7 @@ export CC_SAFETY_NET_WORKTREE=1
 
 You can also set `workflow.worktree_mode: true` in [policy.json](/configuration/policy). The two are combined as a logical OR — either one enables worktree mode.
 
-### What's allowed inside a linked worktree
+### Commands allowed in a linked worktree
 
 When worktree mode is active and the cwd is confirmed to be a linked worktree, the following commands are permitted:
 
@@ -141,7 +143,7 @@ When worktree mode is active and the cwd is confirmed to be a linked worktree, t
 - `git clean -f` (and combined short flags like `-fd`)
 - `git switch --discard-changes` and `git switch -f / --force`
 
-### What remains blocked even in worktrees
+### Commands blocked in linked worktrees
 
 These commands affect shared refs or other worktrees and are **never relaxed**, regardless of worktree mode:
 
@@ -150,7 +152,7 @@ These commands affect shared refs or other worktrees and are **never relaxed**, 
 - `git stash drop` / `git stash clear` — the stash is shared across worktrees
 - `git worktree remove --force` — could delete another worktree
 
-### Detection and fail-closed behavior
+### Linked-worktree detection
 
 Worktree detection is **fail-closed**: if CC Safety Net cannot positively identify the cwd as a linked worktree, the stricter default rules remain in effect. Specifically:
 
@@ -160,7 +162,7 @@ Worktree detection is **fail-closed**: if CC Safety Net cannot positively identi
 - Relaxation is disabled if `--git-dir` / `--work-tree` is passed, or if `GIT_DIR` / `GIT_WORK_TREE` / `GIT_COMMON_DIR` / `GIT_INDEX_FILE` is set in the environment.
 - Certain local discards are never relaxed even inside a confirmed worktree: commands with dynamic arguments containing `$`, `*`, `?`, or `[`; forced branch resets (`git checkout -B`/`-Bf` or `git switch -C`/`-Cf` with `-f` or `--discard-changes`); `git clean` with more than one `-f`; and any command using `--recurse-submodules` (or a recursive-submodule config).
 
-## Summary
+## Safety level summary
 
 | Level | What it adds |
 | --- | --- |

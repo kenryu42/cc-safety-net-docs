@@ -1,7 +1,7 @@
 ---
 title: "Known limitations and pitfalls"
 sidebarTitle: "Known limitations"
-description: "What CC Safety Net can't catch: opaque command proxies, in-binary behavior, filesystem containment and network, symlink TOCTOU, interpreter flags, eval-based execution, and the Hermes Agent and OpenClaw coverage boundaries."
+description: "What CC Safety Net cannot catch: opaque command proxies, in-binary behavior, filesystem containment and network, symlink TOCTOU, interpreter flags, eval-based execution, and the Hermes Agent and OpenClaw coverage boundaries."
 ---
 
 CC Safety Net analyzes the command string your agent attempts to run. It is a strong guardrail against accidental data loss from known-destructive git and filesystem operations, but it is not a complete security solution. This page is an honest list of the **residual** limits that remain today, so you can set correct expectations and know when to use [sandboxing](/guides/vs-sandboxing) instead.
@@ -12,7 +12,7 @@ The project's scope is deliberately focused: it is a best-effort, static pre-exe
   Standard mode is best-effort for adversarial or dynamic input, and several items below are relaxations that [strict or paranoid mode](/configuration/modes) closes. Where that is the case, this page says so.
 </Note>
 
-## Command-string analysis limits
+## Command-analysis limits
 
 ### Behavior inside binaries
 
@@ -46,7 +46,7 @@ bash -c "$(cat destructive.sh)"
 
 CC Safety Net recursively scans `bash -c` and interpreter code arguments, but if the code is fetched from a remote source or assembled from variables, the destructive payload is invisible to command-string analysis. This is a fundamental limit of the approach.
 
-## Parser edge cases
+## Parser limits
 
 ### Interpreter long-form flags
 
@@ -66,7 +66,7 @@ This is most relevant when writing precise [custom rules](/configuration/custom-
 
 This is inherent to any pre-execution command analysis tool; fully closing it would require running inside the kernel or intercepting syscalls, which is out of scope for a hook. The [paranoid rm](/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1) mode (`CC_SAFETY_NET_PARANOID_RM=1`) provides a stricter stance for operators who want to block more aggressively.
 
-## Out of scope
+## Out-of-scope protections
 
 These are boundaries CC Safety Net does not attempt to cover. Most of them need **containment** rather than semantic analysis, which is a different layer — see [where CC Safety Net cannot help](/guides/vs-sandboxing#where-cc-safety-net-cannot-help) for the sandboxing counterpart of each one.
 
@@ -116,9 +116,9 @@ The OpenClaw plugin registers `before_tool_call` for the canonical `exec` tool o
 
 Execution hosts split three ways:
 
-- An `exec` call with no `host`, `host: "auto"`, or `host: "gateway"` is analysed as a local Gateway call, with paths resolved against the agent workspace.
-- An explicit `host: "sandbox"` or `host: "node"` is blocked as unsupported rather than analysed, because no test proves a correct path mapping for those hosts.
-- The configured `tools.exec.host` default never changes the analysis: the plugin reads only the call's own `host` parameter, so a call with no `host` is analysed as a local Gateway call even when the default routes it to `node` or `sandbox`.
+- An `exec` call with no `host`, `host: "auto"`, or `host: "gateway"` is analyzed as a local Gateway call, with paths resolved against the agent workspace.
+- An explicit `host: "sandbox"` or `host: "node"` is blocked as unsupported rather than analyzed, because no test proves a correct path mapping for those hosts.
+- The configured `tools.exec.host` default never changes the analysis: the plugin reads only the call's own `host` parameter, so a call with no `host` is analyzed as a local Gateway call even when the default routes it to `node` or `sandbox`.
 
 The residual gap is the `auto` case: when a sandbox runtime is active, an `auto` call runs in the sandbox filesystem while path rules are still evaluated against the Gateway workspace. Command rules are unaffected; path rules can be evaluated against the wrong filesystem.
 
@@ -128,7 +128,7 @@ The Codex-native relay is untested and therefore unclaimed: the live end-to-end 
 
 Both integrations assume the POSIX state layout. Relocated state is handled the way the hosts resolve it — `HERMES_HOME` for Hermes, then `OPENCLAW_STATE_DIR` and the directory of `OPENCLAW_CONFIG_PATH` for OpenClaw, falling back to `~/.hermes` and `~/.openclaw`. The Windows defaults are not: install and detection target the POSIX path there, so the Hermes install writes the plugin to a directory Hermes does not read, and OpenClaw's own CLI installs correctly while `doctor` misreports the state.
 
-## Platform-specific issues
+## Resolve stale integration caches
 
 ### OpenCode stale cache
 

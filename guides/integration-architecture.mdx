@@ -4,13 +4,13 @@ sidebarTitle: "Integration architecture"
 description: "The four integration models behind CC Safety Net's twelve agents: stdin hook subprocesses, agent-loaded plugins, the in-process Pi extension, and the Amp Code event plugin."
 ---
 
-This is the second page of the technical sequence — it is for anyone wiring up or debugging an integration. It goes one level below [How it works](/guides/how-it-works) to cover per-agent wiring and runtime execution models, and nothing else.
+Use this page when you configure or debug an integration. It describes how each agent calls CC Safety Net and receives a decision. For the user-facing lifecycle, see [How it works](/guides/how-it-works).
 
 CC Safety Net supports twelve coding agents, and it does not plug into all of them the same way. There are four integration models. Knowing which one your agent uses helps you debug a hook that is not firing and know where its configuration lives.
 
 For the commands that install or remove each integration, see [Installation](/installation). Every model on this page feeds the same guard, specified once in [Architecture](/guides/architecture).
 
-## The four integration models
+## Integration models by agent
 
 | Model | Agents | How it works |
 | --- | --- | --- |
@@ -37,7 +37,7 @@ For these seven agents, the protection is the runtime `hook <flag>` command, whi
   Because these agents use different events and deny formats, CC Safety Net emits the correct shape per agent. Gemini CLI, for example, expects a `decision`/`systemMessage` object with exit 0 rather than Claude Code's `hookSpecificOutput`. You do not need to configure the output format — the flag you pass selects it.
 </Note>
 
-### The shared Coding CLI hook
+### Use the shared Coding CLI hook
 
 `hook --coding-cli` (short flag `-cc`) is the canonical name of the Claude-shaped hook. It is called "Coding CLI" rather than "Claude Code" because both the Claude Code plugin and the Codex plugin invoke this same binary entry point.
 
@@ -49,7 +49,7 @@ Separately, three agents keep legacy **top-level** forms that skip the `hook` wo
   The `statusline` command is unrelated to the hook and still requires `--claude-code` or `-cc`. See [Status line](/configuration/status-line).
 </Note>
 
-### Where each hook agent's config lives
+### Hook configuration locations
 
 Four of the seven have their files written directly by CC Safety Net — three as hook config entries, and Hermes Agent as a managed plugin. The other three are wired through their own plugin or extension distribution channel, which then invokes the stdin hook:
 
@@ -141,7 +141,7 @@ Amp reads plugins at startup, so a newly written or removed plugin file has no e
 - A system plugin protects only the machine it is installed on. Tool calls executed on a remote executor such as an Amp Orb run without it.
 - Amp does not define the execution order of multiple plugins subscribed to the same `tool.call` event. CC Safety Net evaluates the input it receives and cannot re-evaluate an input that another plugin rewrites after CC Safety Net has already allowed it.
 
-## Verifying the wiring
+## Verify the integration
 
 `npx cc-safety-net doctor` reports the detected integration and config path for every agent, and runs a self-test wherever protection is active. See [CLI commands](/reference/cli-commands) for its options and exit behavior.
 

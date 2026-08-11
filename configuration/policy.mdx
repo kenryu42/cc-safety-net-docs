@@ -8,7 +8,7 @@ description: "Full reference for CC Safety Net's policy.json: location, schema, 
 
 It is separate from `rule.json` and rulebooks, which define your own custom blocking rules — see [Custom rules](/configuration/custom-rules) for that schema.
 
-## Where the file lives
+## Policy file location
 
 | Setup | Path |
 | --- | --- |
@@ -21,7 +21,7 @@ There is exactly one policy file. **There is no project-scoped `policy.json`** �
 
 When the dashboard writes the file it creates the directory with `0700` and the file with `0600`.
 
-## The policy file is protected from your agent
+## Policy file protection
 
 The canonical user `policy.json` is a protected path in **every** runtime state, ready or degraded. Policy-file protection runs before the configuration snapshot is loaded, so a broken config cannot weaken it. These operations hard-stop:
 
@@ -38,12 +38,12 @@ Reading stays allowed. A read-only command whitelist covers `[`, `cat`, `file`, 
   Because your agent cannot write this file, ask it to *show* you the change instead. Apply policy edits yourself in an editor, or through the dashboard.
 </Warning>
 
-## Editing the file
+## Edit the policy file
 
-You have two supported options:
+Choose one of these options:
 
-- **The dashboard.** `cc-safety-net gui` gives you a form over the same document, writes it with the correct permissions, and can repair a file that no longer validates. It is the lower-risk option, and the only one that repairs a broken file for you. One caveat while the file has an error: the form renders the full defaults, not the valid values still in your file, and saving is refused until you repair. Repair itself keeps every recognized valid setting and discards only the invalid fields — but if you would rather not trust the round trip, fix the file by hand and check the result with `status`.
-- **Direct JSON editing.** Open the file in an editor and edit it by hand. The runtime picks up the change on the next tool call — there is nothing to restart.
+- **Use the dashboard.** Run `cc-safety-net gui`. The dashboard writes the file with the correct permissions and can repair a file that does not validate. While the file has an error, the form shows the full defaults instead of the valid values from your file. You cannot save until you repair the file. Repair keeps each recognized valid setting and discards invalid fields. If you do not want this repair behavior, edit the file by hand and check it with `status`.
+- **Edit the JSON directly.** Open the file in an editor and change it by hand. The runtime reads the change on the next tool call. You do not need to restart anything.
 
 After a hand edit, confirm the result:
 
@@ -53,7 +53,7 @@ npx cc-safety-net status
 
 A `degraded` verdict means part of your file was rejected. `npx cc-safety-net doctor` names exactly which fields. The runtime **never** rewrites `policy.json` on its own, so an invalid file stays exactly as you left it until you fix it or use the dashboard repair action.
 
-## A complete policy file
+## Complete policy example
 
 Every field, with its default value:
 
@@ -141,7 +141,7 @@ The root object is **strict**: an unrecognized top-level key is an error, as is 
   Days of audit history to keep before the sweep deletes it. Must be an integer between `1` and `365`.
 </ParamField>
 
-## Safety preset and capability overrides
+## Safety level and capability overrides
 
 `safety.level` picks a preset; `safety.overrides` then sets individual capabilities explicitly. This is the only place a capability can be turned **down** — environment flags can only raise.
 
@@ -268,13 +268,15 @@ Pruning is opportunistic: it runs at most one traversal per audit root per UTC d
   Out-of-range values therefore do two things at once: the schema **rejects** them, degrading the runtime, while the sweep **clamps** them. `"retention_days": 1000` both shows up as a diagnostic and prunes at 365 days.
 </Note>
 
-## When the file is invalid
+## Invalid policy behavior
 
-An invalid `policy.json` never blocks ordinary work. It moves the runtime to `degraded` and falls back:
+An invalid `policy.json` never blocks ordinary work. It moves the runtime to `degraded` and uses a fallback.
 
-- **Readable but invalid** — the file is salvaged field by field. Every recognized valid section stays active and protective defaults replace only the rest.
-- **Empty, unparseable, or not a JSON object** — built-in protective defaults are used for the whole file.
-- **Missing entirely** — built-in defaults are used, with no diagnostic. The runtime stays `ready`.
+| File state | Runtime behavior |
+| --- | --- |
+| Readable but invalid | Salvages the file field by field. Each recognized valid section stays active. Protective defaults replace the other sections. |
+| Empty, unparseable, or not a JSON object | Uses built-in protective defaults for the full file. |
+| Missing | Uses built-in defaults with no diagnostic. The runtime stays `ready`. |
 
 Salvage is deliberately protective, which is why a broken file usually produces *more* denials than you configured:
 

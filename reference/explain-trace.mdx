@@ -1,5 +1,5 @@
 ---
-title: "The explain --json trace reference"
+title: "Explain JSON trace reference"
 sidebarTitle: "Explain trace"
 description: "Schema for the JSON returned by cc-safety-net explain --json: ExplainResult fields, the TraceStep variants that describe each analysis step, and what a trace reveals before you share it."
 keywords:
@@ -13,9 +13,9 @@ keywords:
   - "why blocked"
 ---
 
-The `explain --json` command returns a structured trace of every analysis step CC Safety Net performs on a command. This page documents that JSON shape and what a trace reveals before you share it, for anyone scripting against the trace or building tooling on top of it.
+The `explain --json` command returns a structured trace of command analysis. This page defines the JSON shape for scripts and other tools. It also explains what a trace can reveal before you share it.
 
-For the command's flags and exit behavior, see [CLI commands](/reference/cli-commands#explain). If you are diagnosing an unexpected block rather than reading the schema, start at [Troubleshooting](/guides/troubleshooting) — it walks the symptom-to-cause flow and points back here for the details.
+For flags and exit behavior, see [CLI commands](/reference/cli-commands#explain). For help with an unexpected block, see [Troubleshooting](/guides/troubleshooting).
 
 ```bash
 npx cc-safety-net explain --json "git checkout -- file.txt"
@@ -47,9 +47,9 @@ The top-level object returned by `explain --json`.
 
 The four configuration fields — `effectiveLevel`, `selectedPreset`, `effectiveCapabilities`, and `destructiveCommandRuleOverrides` — are built once and included in every return path, so they are present even when you explain an empty command.
 
-### effectiveCapabilities
+### `effectiveCapabilities`
 
-A record keyed by capability name — `fail_closed`, `paranoid_rm`, and `paranoid_interpreters` — where each value is:
+`effectiveCapabilities` is a record keyed by `fail_closed`, `paranoid_rm`, and `paranoid_interpreters`. Each value contains:
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -59,9 +59,9 @@ A record keyed by capability name — `fail_closed`, `paranoid_rm`, and `paranoi
 
 See [Modes](/configuration/modes) for what each capability changes.
 
-### ruleActivation
+### `ruleActivation`
 
-Present **only** when the relevant rule declares an activation capability — that is, when the rule is one that a level or capability can switch on and off. The relevant rule is the rule that matched, or, when nothing matched, the rule a *mode-gated candidate* would have matched. That second case is what lets `explain` tell you "this would have been blocked, but that rule is off at your level."
+`ruleActivation` is present only when the relevant rule declares an activation capability. The relevant rule is either the matched rule or a mode-gated candidate. A mode-gated candidate is a rule that would match if its required level or capability were active.
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -75,20 +75,20 @@ Present **only** when the relevant rule declares an activation capability — th
 
 In human output this renders as a single line: `Rule activation: <id> — on|off via <source>`.
 
-## ExplainTrace
+## `ExplainTrace`
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `steps` | `TraceStep[]` | Top-level steps, starting with the global `parse` |
+| `steps` | `TraceStep[]` | Top-level steps. Most traces start with the global `parse` step. Protection short circuits can omit it. |
 | `segments` | `object[]` | Per-segment entries, each with an `index` and its own `steps` array |
 
 The trace is passive: recording it never changes a decision, and ordinary guard evaluation never builds one. It exists only for `explain`.
 
 **Bounds.** The recorder caps what it keeps: at most 512 events, 2,048 characters per text value, 128 items per list, 128 properties per object, and 16 levels of nesting. Events beyond the cap are counted rather than stored, and every recorded value is deep-frozen. The count of dropped events is not exposed in `ExplainTrace` — only `steps` and `segments` are.
 
-## TraceStep variants
+## `TraceStep` variants
 
-Each step is discriminated by its `type` field. Parse the `type` first, then read that variant's fields.
+Use `type` to select the variant before you read its other fields.
 
 | `type` | Key fields | When it appears |
 | --- | --- | --- |
@@ -111,13 +111,13 @@ Each step is discriminated by its `type` field. Parse the `type` first, then rea
 | `segment-skipped` | `index`, `reason` | A segment was skipped because a prior segment already blocked |
 | `error` | `message`, `partial?` | An analysis error was captured; `partial` marks partial output |
 
-### recurse reasons
+### `recurse` reasons
 
-`recurse.reason` is one of eight values, not just the wrapper cases: `shell-wrapper`, `interpreter`, `busybox`, `shell-eval`, `shell-trap`, `shell-stdin`, `shell-heredoc`, `heredoc-file`.
+`recurse.reason` has one of eight values: `shell-wrapper`, `interpreter`, `busybox`, `shell-eval`, `shell-trap`, `shell-stdin`, `shell-heredoc`, or `heredoc-file`.
 
 `heredoc-file` is recorded when a command runs a script file whose content the analysis already knows — a quoted heredoc body written to that path earlier in the same command via `cat >` or `tee` — and the stored body is re-analyzed as the script; see [Heredoc analysis](/guides/analysis-engine#heredoc-analysis).
 
-### transparent-wrapper steps
+### `transparent-wrapper` steps
 
 `transparent-wrapper` is a segment-scoped step recorded when a command you registered with `rule wrapper add` is seen through. One step is emitted per candidate child — the primary child plus each alternative — each carrying:
 
@@ -128,9 +128,9 @@ Each step is discriminated by its `type` field. Parse the `type` first, then rea
 
 The step is recorded immediately before recursing into those tokens, so it always precedes the analysis of the wrapped command. Human output renders it as a numbered `Transparent wrapper` step showing `Wrapper:` and `Tokens:`.
 
-Manage the wrapper list with [`rule wrapper add|remove|list`](/reference/cli-commands#rule-wrapper).
+Manage wrappers with the `rule wrapper add`, `rule wrapper remove`, and `rule wrapper list` commands. See [`rule wrapper`](/reference/cli-commands#rule-wrapper).
 
-## Reading a trace
+## Trace order
 
 A typical trace flows from `parse` → per-segment `env-strip` / `leading-tokens-stripped` → detection (`shell-wrapper` / `interpreter` / `busybox` / `transparent-wrapper`) → `rule-check` or `custom-rules-check` → a decision. Recursion appears as `recurse` steps with increasing `depth` — except `busybox` dispatch, which records a `recurse` step but does not consume recursion depth, so a chain of busybox wrappers repeats the same `depth` value. When you only need the verdict, read `result` (plus `reason`, `segment`, and `ruleId`) at the top level instead of walking the trace.
 
@@ -148,7 +148,7 @@ Three protections short-circuit before the evaluator runs: policy-file protectio
 
 For example, explaining a command that contains a `--token=…` assignment redacts the token, but a path like `/srv/acme-prod/customer-dump.sql` in the same command is returned in full, along with any hostname, IP address, or account name in the command text.
 
-You are welcome to include `explain` output in a vulnerability report — but redaction is a best-effort control, not a guarantee, and a redaction bypass is itself treated as a reportable vulnerability. Review before you paste.
+You can include `explain` output in a vulnerability report. Redaction is a best-effort control, not a guarantee. A redaction bypass is a reportable vulnerability. Review the complete output before you paste it.
 
 ## Related pages
 
