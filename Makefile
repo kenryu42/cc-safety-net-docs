@@ -1,4 +1,4 @@
-.PHONY: check install preview drift
+.PHONY: check install preview drift sitemap
 
 MINT := ./node_modules/.bin/mint
 
@@ -13,7 +13,13 @@ install:
 preview: $(MINT)
 	bun run preview
 
+# Root sitemap.xml overrides Mintlify's generated one to add hreflang
+# alternates; regenerate after any navigation change in docs.json.
+sitemap:
+	bun scripts/generate-sitemap.ts
+
 check: $(MINT)
+	bun scripts/generate-sitemap.ts --check
 	bun run check
 
 # Read-only. Lists the source commits the docs have not absorbed, oldest first.
