@@ -1,0 +1,99 @@
+---
+title: "CC Safety Net への貢献"
+sidebarTitle: "貢献"
+description: "CC Safety Net に貢献する方法を説明します。Bun 1.3.14 と Node.js 18 以降を使うセットアップ、bun run check の対象、ローカルプラグインのテスト、コード規約、pull request のチェックリストを含みます。"
+---
+
+大きな変更を始める前に、issue を作成してください。このページでは、開発環境のセットアップとプロジェクト規約を説明します。完全なガイドについては、ソースリポジトリの [CONTRIBUTING.md](https://github.com/kenryu42/cc-safety-net/blob/main/CONTRIBUTING.md) を参照してください。
+
+## 実装前に提案する
+
+CC Safety Net の範囲は明確です。**コーディングエージェントによる、データ損失につながる意図しない誤操作を防止すること**です。一般的なセキュリティ強化ツールや攻撃防止ツールではありません。新しい検出ルール、コマンド分類、アーキテクチャ変更、設定項目を実装する前に、issue を作成して議論してください。typo の修正や、解決方法が明確な小さい bug fix は、直接 pull request にできます。
+
+## 開発環境をセットアップする
+
+- **Bun 1.3.14** — 必須の build および test runtime であり、唯一対応する package manager です（[インストールガイド](https://bun.sh/docs/installation)）。`package.json` の `packageManager` に固定されています。
+- **Node.js 18 以降** — build artifact が対応する runtime です。公開 CLI またはプラグインの実行に Bun は不要です。
+- **Claude Code** または **OpenCode** — プラグインをローカルで読み込み、動作を確認する場合にのみ必要です。プロジェクトの build や test suite の実行には不要です。
+
+```bash
+git clone https://github.com/kenryu42/cc-safety-net.git
+cd cc-safety-net
+bun install
+bun run build
+bun run check
+```
+
+`bun run check` が唯一の gate です。次の処理をこの順番で実行します。Biome lint と format、TypeScript typecheck、`knip` dead-code detection、`jscpd` duplicate detection、coverage を含む test suite、coverage threshold check です。sub-command を個別に実行する代わりに、変更が完了したときに一度実行してください。pull request を作成する前に、error なしで成功することを確認してください。
+
+反復作業中は、個別のコマンドも使用できます。
+
+```bash
+bun run lint          # Biome lint + format
+bun run typecheck     # TypeScript
+bun run knip          # Dead-code detection
+bun test              # Full test suite
+bun test tests/engine                        # One directory or file
+bun test --test-name-pattern "checkout"      # Tests matching a pattern
+bun run build         # Build for distribution
+```
+
+## ローカルプラグインをテストする
+
+build してからローカルプラグインを読み込み、実際のブロックをテストします。
+
+- **Claude Code**：インストール済みの safety-net プラグインを無効にし、Claude Code を終了します。次に、リポジトリのルートで `claude --plugin-dir .` を実行します。
+- **OpenCode**：`~/.config/opencode/opencode.json` の `plugin[]` 配列を、build 済みの `file://.../cc-safety-net/dist/index.js` に向けます。競合を防ぐため npm の `cc-safety-net` 項目を削除し、OpenCode を再起動します。`/status` を実行し、プラグイン名が `dist` と表示されることを確認します。
+
+安全な除外専用 pathspec で既知のブロックを確認します。`git checkout -- ':(exclude,top)**'` はブロックされる必要があります。保護が無効な場合も、この pathspec は file を選択しません。
+
+## コード規約に従う
+
+| 規約 | ルール |
+| --- | --- |
+| Build／test runtime | Bun 1.3.14 |
+| 公開 runtime | Node.js 18+ |
+| Package manager | bun のみ（`bun install`、`bun run`） |
+| Formatter／linter | Biome |
+| 型 | 型推論を使用します。export または明確さのために必要な場合のみ、明示的な annotation を追加します。`type \| undefined` より `type \| null` を推奨します |
+| ファイル名 | `kebab-case`。`docs/` 内のファイルも小文字の kebab-case にします |
+| 関数／型の命名 | 関数は `camelCase`、型は `PascalCase` |
+| 定数 | `SCREAMING_SNAKE_CASE`（例：reason constant） |
+| Import | package 内では relative import |
+| Test | `src/` と同じ構造で `tests/` に配置します。`src/` 内に併置しません |
+| Build output | `dist/` は無視します。lefthook の pre-commit hook が再 build します |
+
+### スタイルガイド
+
+- コードが実際に composable または再利用可能な場合を除き、1 つの関数に保ちます。
+- `try`／`catch`、`any` 型、`else` branch を避け、early return を使用します。
+- `for` loop より functional array method（`flatMap`、`filter`、`map`）を使用します。`filter` には type guard を使い、後続処理でも型推論が維持されるようにします。
+- `let` より `const` を使用します。再代入ではなく、ternary または early return を使います。
+- 1 回だけ使う値は名前を付けずに inline 化し、不要な destructuring を避けます。
+
+### 範囲を厳守する
+
+このプロジェクトで最も多い失敗は、過剰設計です。要求を満たす最小の変更を実装してください。それ以上を追加する場合は、その追加によって防ぐ具体的な失敗を示してください。各チェックは、実際に反証可能である必要があります。最初の実在する項目より先に schema、validator、registry、harness を作らないでください。process を強制するコードより、文書化された process を推奨します。
+
+### Knip
+
+`knip.ts` の `ignoreIssues` に項目を追加しないでください。knip が未使用の export を報告した場合は、根本原因を修正します。不要なコードを削除するか export を外し、test 専用 export には `/** @internal */` JSDoc comment を付けます（knip は `--production` mode で動作するため test file は除外されます）。barrel file から未使用の名前を削除します。
+
+## Pull request を準備する
+
+- コードが上記の規約に従っている。
+- `bun run check` が error なしで成功する。
+- 新しいルールの test が追加され、coverage が 90% 以上である。
+- 対応するエージェントを 1 つ以上使ってローカルでテストしている。例：Codex、Claude Code、Gemini CLI、GitHub Copilot CLI、Kimi Code、Pi。全 12 種類は[インストール](/ja/installation#特定のエージェントをインストールする)ページに記載されています。
+- 必要なドキュメント（`README.md`、`AGENTS.md`）が更新されている。
+- `package.json` の version が変更されていない。
+
+version bump と release は maintainer だけが実行します。`package.json` または `plugin.json` の version を直接変更しないでください。
+
+## 開発の支援を得る
+
+- `bunx cc-safety-net doctor` でセットアップを確認します。
+- `bunx cc-safety-net explain "<command>"` で、コマンドを解析する手順を確認します。
+- ソースリポジトリの `CLAUDE.md` または `AGENTS.md` でアーキテクチャと規約を確認し、コードを review する前に `REVIEW.md` を読みます。
+- コードパターンについては `src/analyzer/` の既存実装を確認し、test utility については `tests/helpers.ts` を確認します。
+- bug または feature request は issue を作成します。

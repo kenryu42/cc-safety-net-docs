@@ -1,0 +1,167 @@
+---
+title: "安装和行为故障排除"
+sidebarTitle: "故障排除"
+description: "修复 hook 未运行、危险命令未被阻止、误报、自定义规则未生效、配置降级和状态行不显示等常见问题。"
+---
+
+使用本指南修复常见的 CC Safety Net 安装和行为问题。先运行 `status` 查看快速判定，再运行 `doctor` 查看完整报告。
+
+## 先运行诊断
+
+```bash
+npx cc-safety-net status
+```
+
+`status` 输出运行时判定（`ready` 或 `degraded`）、活动保护和安全级别、策略路径，以及每个未解决问题的一个项目符号。已禁用的 Claude Code 插件显示为第一个 `Not active` 项，而不是单独的判定。`status` 只提供信息，并且总是以状态码 0 退出。
+
+```bash
+npx cc-safety-net doctor
+bunx cc-safety-net doctor
+```
+
+`doctor` 对每个受支持的智能体运行全面健康检查，包括 hook 集成、确认阻止有效的自检、自定义规则验证、活动模式标志、近期活动、系统版本和更新检查。它是同时报告规则配置和 `policy.json` 的唯一命令。各项检查见 [doctor 命令参考](/zh-Hans/reference/cli-commands)。处理下面各个问题前，请先检查输出。大多数问题会在此处显示。
+
+<Note>`degraded` 表示某个配置源被拒绝，并已使用安全的回退值。它**不**表示命令会被阻止，无效配置绝不会拒绝普通工作。详情见[配置恢复](/zh-Hans/configuration/recovery)。</Note>
+
+## 常见问题
+
+<AccordionGroup>
+  <Accordion title="Hook 未运行，命令未经检查就执行">
+    如果运行本应被阻止的命令时没有任何干预而直接执行，则说明你的智能体未正确注册 hook。
+
+    **解决步骤：**
+
+    1. 运行 `npx cc-safety-net doctor`，查看确切配置路径和失败原因。
+    2. 再次运行你的智能体对应的安装命令。对于有效的托管安装，此操作是幂等的，并会修复缺失或禁用的托管项。如果安装程序报告无法识别、符号链接或由其他程序管理的配置或文件，请按其手动恢复消息操作，不要覆盖它。完整命令表见[安装](/zh-Hans/installation)。
+    3. **Amp Code**：确认 `~/.config/amp/plugins/cc-safety-net.ts` 存在且仍有 CC Safety Net 托管标头。Amp 在启动时读取插件，因此更改后请重启 Amp 或运行 `plugins: reload`。
+    4. **Antigravity CLI**：检查 `~/.gemini/config/hooks.json` 是否有托管的 `PreToolUse` 项，运行 `npx -y cc-safety-net hook --agy-cli`。
+    5. **Claude Code**：在 `/plugin` 中确认 `cc-safety-net` 已安装并启用。若不存在，运行 `/plugin install cc-safety-net@cc-marketplace`，再运行 `/reload-plugins`。
+    6. **Codex**：运行 `codex plugin list`，确认 `cc-safety-net@cc-marketplace` 显示 `installed, enabled`。然后在 TUI 中运行 `/hooks`，选择 **cc-safety-net PreToolUse hook**，按 `t` 信任它。若仍不运行，确认 `~/.codex/config.toml`（或 `$CODEX_HOME/config.toml`）的 `[features]` 下有 `plugin_hooks = true`。
+    7. **Cursor**：检查 `~/.cursor/hooks.json` 是否有运行 `npx -y cc-safety-net hook --cursor` 的托管全局 `preToolUse` 项。
+    8. **Gemini CLI**：运行 `gemini extensions list`，确认 `https://github.com/kenryu42/gemini-safety-net` 来源已安装并启用，同时检查 User 和 Workspace scope，后者优先。使用 `gemini extensions install https://github.com/kenryu42/gemini-safety-net` 重新安装，然后开始新的 Gemini 会话。
+    9. **GitHub Copilot CLI**：确认 `/plugin` 中已安装插件、`~/.copilot/settings.json` 的 `enabledPlugins` 已启用它，并确认 `~/.copilot/config.json`、`.github/copilot/settings.json` 或 `.github/copilot/settings.local.json` 中没有 `disableAllHooks: true`。内联 hook 要求 1.0.8+，用户 hook 文件要求 0.0.422+。
+    10. **Hermes Agent**：确认托管插件文件位于 `$HERMES_HOME/plugins/cc-safety-net`（未设置 `HERMES_HOME` 时为 `~/.hermes/plugins/cc-safety-net`），并运行 `hermes plugins enable cc-safety-net --no-allow-tool-override`，然后重启 Hermes。Hermes 仅在其 `config.yaml` 中列出插件时才加载用户插件。`doctor` 只读取插件文件和 Hermes 配置，不会询问运行中的 Hermes 是否已加载插件，因此更改后必须重启并重新测试。
+    11. **Kimi Code**：检查 `~/.kimi-code/config.toml`（或 `$KIMI_CODE_HOME/config.toml`）是否有 `[[hooks]]` 块，对 `PreToolUse` `Bash` 运行 `npx -y cc-safety-net hook --kimi-code`。如果缺失，请重新运行 `npx -y cc-safety-net@latest install --kimi-code`。
+    12. **OpenClaw**：插件通过 OpenClaw 自己的 CLI 安装和启用。重新运行 `npx -y cc-safety-net@latest install --openclaw` 会运行 `openclaw plugins install <plugin dir> --force` 和 `openclaw plugins enable cc-safety-net`，然后确认插件已加载（详情由 `openclaw plugins inspect cc-safety-net --runtime` 显示）。随后重启 OpenClaw Gateway。若 `openclaw.json` 设置了 `plugins.allow`，其中也必须包含 `cc-safety-net`。`doctor` 只读取插件目录和 `openclaw.json`，不会询问运行中的 Gateway，因此停止的 Gateway 不会报告为失败。
+    13. **OpenCode**：检查 `~/.config/opencode/opencode.json`（或 `.jsonc`）的 `plugin[]` 是否包含 `cc-safety-net`。旧缓存的处理步骤见[安装](/zh-Hans/installation)。
+    14. **Pi**：确认 `pi install npm:cc-safety-net` 完成，然后重启 Pi。运行 `npx cc-safety-net doctor` 可直接探测 Pi。
+    15. 更改后重新加载或重启智能体会话。
+
+    如果不确定智能体使用哪种机制，请参阅[集成架构](/zh-Hans/guides/integration-architecture)。
+  </Accordion>
+
+  <Accordion title="破坏性命令未被阻止">
+    如果预期被阻止的命令通过，请按此列表检查。多数情况是已记录的允许行为，或实际安全级别低于预期，并非覆盖缺口。
+
+    **解决步骤：**
+
+    1. 运行 `npx cc-safety-net explain "<the command>"`，查看 CC Safety Net 对该命令的完整逐步分析。输出会列出已检查的规则、有效安全级别；如果某条规则存在但未在当前级别启用，规则激活行会说明这一点。
+       <Warning>
+         真实跟踪不会自动变得可安全分享。遮盖只覆盖可识别的凭证形式；其中仍包含命令文本、解析后的 token、包括主目录在内的绝对路径，以及策略文件路径。请用**占位凭证**复现，并在粘贴到任何位置前检查输出。
+       </Warning>
+
+    2. 确认输出中的有效级别。`standard` 会允许动态可执行文件、通过替换构造的结构、`rm -rf "$target"` 等无法验证的目标和敏感路径元数据检查。对不可信输入使用 [`strict` 或 `paranoid`](/zh-Hans/configuration/modes)。
+    3. 检查命令是否属于明确允许的形式，例如默认允许当前工作目录内的 `rm -rf`。见[被允许的命令](/zh-Hans/reference/allowed-commands)。
+    4. 运行 `npx cc-safety-net status`。`degraded` 判定表示某个规则来源已被丢弃，因此该来源提供的拒绝不会执行。详情见[配置恢复](/zh-Hans/configuration/recovery)。
+    5. 如果命令通过 CC Safety Net 不分析的代理运行，请用 `npx -y cc-safety-net rule wrapper add <command>` 注册它，使分析可以穿过代理查看真实子命令。
+    6. 如果需要在你的环境中阻止该命令，请运行 `npx -y cc-safety-net rule init` 创建自定义 rulebook，并向 `.cc-safety-net/rules/project-rules/rulebook.json` 添加规则。schema 见[自定义规则](/zh-Hans/configuration/custom-rules)。
+    7. 如果以上内容都无法解释，则这是规则尚未阻止的命令形式，即项目策略中的公开 bug。请提交 [GitHub issue](https://github.com/kenryu42/cc-safety-net/issues)，说明命令*形式*，不要提供可直接粘贴的载荷。机密泄漏、预期目录外写入以及供应链或软件包完整性问题使用[安全策略](/zh-Hans/security)中的私密渠道。附上第 1 步中经过检查的 `explain` 跟踪，绝不要附原始跟踪或真实凭证。如果遇到的是已记录的边界，[已知限制](/zh-Hans/guides/known-limitations)会说明该边界及应改用的保护层。
+  </Accordion>
+
+  <Accordion title="CC Safety Net 阻止了我需要的命令">
+    内置规则按设计是保守的。如果需要的命令被阻止，你有多个选择。
+
+    **解决步骤：**
+
+    1. 使用 `explain` 确认匹配的规则和原因。
+    2. 如果拒绝原因是 `Command analysis exceeds CC Safety Net's derived-command work limit. Reduce nested or embedded command complexity and retry.`，则没有规则匹配。命令耗尽了分析器对派生命令的固定工作预算，包括 `find -exec`、`xargs` 或 `parallel` 内的 shell 单行命令、包装器后的嵌入命令及类似嵌套形式。预算是编译时常量，配置无法提高它。请将命令拆成多个更简单的独立命令，然后重试。
+    3. 根据情况考虑以下替代方案：
+       - **在 linked Git worktree 中工作？** 在 `policy.json` 中启用 `workflow.worktree_mode`，或设置 `CC_SAFETY_NET_WORKTREE=1`。当命令已证明在设计为可丢弃隔离工作区的 linked worktree 内运行时，此模式会放宽本地丢弃规则。
+       - **需要更安全的变体？** `git push --force-with-lease` 可提供与 `--force` 相同的结果，但增加安全检查。`git clean -n` 是 dry-run，可先预览将删除的内容。
+       - **确实需要该命令？** 在智能体外手动运行。这始终可用，阻止触发时 CC Safety Net 也会要求智能体让你这样做。
+  </Accordion>
+
+  <Accordion title="自定义规则未生效">
+    无法验证的规则源会被**丢弃**。命令会继续运行，但该来源的规则不再应用，运行时报告 `degraded`。在干净会话中，此失败可能不会主动显示，因此每次规则配置更改和升级后都应检查。其他已验证 scope 和所有内置保护继续执行。每项失败及其回退见[配置恢复](/zh-Hans/configuration/recovery)。
+
+    **解决步骤：**
+
+    1. 运行 `npx cc-safety-net status` 查看判定，再运行 `npx cc-safety-net doctor` 查看完整原因；输出会指出被拒绝的来源和条件。
+    2. 运行 `npx -y cc-safety-net rule list`，查看实际启用的来源和规则以及所有 issue 和 warning。然后运行 `npx -y cc-safety-net rule verify` 验证 rulebook 结构。
+    3. 检查文件位置：用户 scope 是 `~/.cc-safety-net/rules/rule.json`（由 `rule init --global` 创建），项目 scope 是项目根目录中的 `.cc-safety-net/rules/rule.json`。
+    4. 确认 `rule.json` 和 rulebook JSON 文件都是有效 JSON。常见错误包括末尾逗号和未加引号的 key。无法读取的 `rule.json` 会丢弃整个 scope，包括它的 `transparent_wrappers`。
+    5. 确认 `rule.json` 包含 `"version": 1`，每个 `rulebook.json` 包含 `"rulebook_version": 1`。两者都是必填字段。
+    6. 如果编辑本地 rulebook 后仍显示旧行为，则 digest 验证缓存仍在执行，而且不会显示 warning。运行 `npx -y cc-safety-net rule sync` 提升本地更改。
+    7. 如果以前使用旧内联配置（`.safety-net.json` 或 `~/.cc-safety-net/config.json`），运行 `npx -y cc-safety-net rule migrate` 转换为新布局。迁移前，旧文件中的规则不会生效。
+    8. 更改 rulebook 来源后运行 `npx -y cc-safety-net rule sync` 重建 lock 和缓存，然后再次运行 `rule verify`。`rule sync` 会像防护一样重新加载 scope，并以准确的剩余诊断失败，而不会报告错误的成功。
+
+    运行时为 `degraded` 时也可以运行所有这些命令，不可配置不会导致命令被阻止。
+  </Accordion>
+
+  <Accordion title="status 或状态行显示 degraded">
+    `degraded` 表示某个配置候选被拒绝，并且当前在执行安全替代值，例如丢弃的规则来源、重复的 rulebook 名称，或回退到挽救值或保护性默认值的无效 `policy.json`。普通工作绝不会因此被拒绝。
+
+    **解决步骤：**
+
+    1. 运行 `npx cc-safety-net doctor`。`config.runtime-degraded` finding 会包含完整原因，并指出被拒绝的文件和条件。
+    2. 对于规则来源，请按诊断修复，然后重新运行 `npx -y cc-safety-net rule sync`。
+    3. 对于 `policy.json`，请手动修复文件，运行时绝不会重写它。被拒绝的部分会回退到*保护性*默认值，因此常见现象是拒绝比配置的更多，而不是更少。唯一较弱的例外是无效的 `safety.level` 会回退到 `standard`，从而*降低*保护。
+    4. 再次运行 `npx cc-safety-net status`，确认判定为 `ready`。
+
+    每种失败及其回退值见[配置恢复](/zh-Hans/configuration/recovery)。
+  </Accordion>
+
+  <Accordion title="Claude Code 中没有状态行">
+    状态行要求 `~/.claude/settings.json` 中有 `statusLine` 项。若未显示，该项可能缺失、格式错误或指向错误的运行时。检查该文件：
+
+    **解决步骤：**
+
+    1. 打开 `~/.claude/settings.json`，确认存在 `statusLine` 项。它应采用以下一种形式：
+       ```json
+       { "statusLine": { "type": "command", "command": "bunx cc-safety-net statusline --claude-code" } }
+       ```
+       ```json
+       { "statusLine": { "type": "command", "command": "npx -y cc-safety-net statusline --claude-code" } }
+       ```
+    2. 此文件的更改会立即生效，无需重启 Claude Code。
+    3. `claude x` 变体只兼容原生版 Claude Code。如果通过 npm 安装 Claude Code，请改用 `npx` 或 `bunx`。
+    4. 直接在终端测试状态行命令，确认它会生成输出：
+       ```bash
+       bunx cc-safety-net statusline --claude-code
+       ```
+       如果此命令失败，Claude Code 中的状态行会为空。
+    5. 状态行反映 `~/.claude/settings.json` 中的 `enabledPlugins["cc-safety-net@cc-marketplace"]` 项。如果 CC Safety Net 作为手动 hook 或用于其他智能体，它可能显示 `❌`，即使保护已启用。各指标含义见[状态行](/zh-Hans/configuration/status-line)。
+  </Accordion>
+
+  <Accordion title="更新 CC Safety Net">
+    请保持 CC Safety Net 为最新版本，以获得最新的阻止规则和 bug 修复。
+
+    **更新每个已安装的集成：**
+
+    ```bash
+    npx -y cc-safety-net@latest update
+    ```
+
+    `update` 检测所有已安装集成（包括已禁用的集成）并原地刷新。找不到智能体 CLI 的集成会报告为 skipped。`@latest` 防止 npx 使用旧缓存。在交互式安装程序中按 `u` 会运行相同更新。
+
+    **Claude Code（插件市场）：** 要自动更新，请转到 `/plugin` → `Marketplaces` → `cc-marketplace`，启用 auto-update。本地安装请用包管理器更新。
+
+    **查看当前版本：**
+
+    ```bash
+    npx cc-safety-net --version
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## 收集诊断并报告问题
+
+```bash
+npx cc-safety-net doctor --json
+```
+
+`--json` 会生成结构化输出，在一个快照中包含环境、已安装版本、hook 配置和自检结果。
+
+<Warning>分享 `doctor` 或 `explain` 输出前必须检查内容。它包含绝对文件系统路径，包括主目录、项目和目录名称以及配置路径。遮盖只覆盖可识别的凭证形式，因此请使用占位凭证复现问题，并在粘贴前阅读输出。</Warning>
+
+覆盖缺口、误报、安装问题和文档问题可以提交到 [GitHub issue](https://github.com/kenryu42/cc-safety-net/issues)。机密泄漏、预期目录外写入以及供应链或软件包完整性问题应使用[安全策略](/zh-Hans/security)中的私密渠道。

@@ -1,0 +1,128 @@
+---
+title: "Status line：リアルタイムの mode indicator"
+sidebarTitle: "Status line"
+description: "bunx、npx、または claude x を使い、Claude Code の status line に CC Safety Net の有効な安全レベル、worktree の緩和、degraded config warning を表示します。"
+---
+
+CC Safety Net は、状態を 1 行の emoji indicator として Claude Code の status line に表示できます。これにより、保護が有効かどうかとそのレベルを、別の diagnostic command を実行せずに常に確認できます。
+
+status line は **Claude Code 専用**です。Claude Code プラグインが有効かどうかを判定するため、`~/.claude/settings.json`（または `$CLAUDE_SETTINGS_PATH`）の `enabledPlugins["cc-safety-net@cc-marketplace"]` 項目を読み取ります。別のエージェント用に CC Safety Net をインストールした場合、または marketplace plugin ではなく手動の Claude Code hook としてインストールした場合、この indicator は該当しません。
+
+## Status line を設定する
+
+`~/.claude/settings.json` に `statusLine` 項目を追加します。環境に合う runner を選択してください。
+
+<Tabs>
+  <Tab title="Bun（推奨）">
+    ```json
+    {
+      "statusLine": {
+        "type": "command",
+        "command": "bunx cc-safety-net statusline --claude-code"
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="Claude X">
+    ```json
+    {
+      "statusLine": {
+        "type": "command",
+        "command": "BUN_BE_BUN=1 claude x cc-safety-net statusline --claude-code"
+      }
+    }
+    ```
+
+    <Note>
+      `claude x` コマンドは、Claude Code のネイティブインストールにのみ対応します。Claude Code を npm でインストールした場合は、代わりに `bunx` または `npx` を使用してください。
+    </Note>
+  </Tab>
+  <Tab title="NPM">
+    ```json
+    {
+      "statusLine": {
+        "type": "command",
+        "command": "npx -y cc-safety-net statusline --claude-code"
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="既存コマンドから pipe">
+    status line コマンドがすでにある場合は、両方の出力を一緒に表示するため、末尾で CC Safety Net に pipe します。
+
+    ```json
+    {
+      "statusLine": {
+        "type": "command",
+        "command": "your-existing-command | bunx cc-safety-net statusline --claude-code"
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Status line indicator
+
+出力は、正確に次の形式の 1 行です。
+
+```text
+🛡️ CC Safety Net <level><worktree><degraded>
+```
+
+Claude Code プラグインが無効な場合、行全体の代わりに次の 1 つの indicator が表示されます。
+
+```text
+🛡️ CC Safety Net ❌
+```
+
+### レベル indicator
+
+レベル emoji は常に 1 つだけ表示されます。設定した環境変数ではなく、`policy.json` と環境を組み合わせた後の**有効な**安全レベルを報告します。
+
+| 表示 | 有効レベル | 意味 |
+| --- | --- | --- |
+| ✅ | `standard` | 有効な機能なし。既定の preset |
+| 🔒 | `strict` | `fail_closed` 機能のみ |
+| 👁️ | `paranoid` | `fail_closed`、`paranoid_rm`、`paranoid_interpreters` |
+| 🔧 | `custom` | その他の組み合わせ |
+
+`custom` indicator は、2 つの場合に表示されます。1 つ目は、有効な機能がどの preset にも一致しない場合です。例として、既定レベルに `CC_SAFETY_NET_PARANOID=1` を加えると、2 つの paranoid 機能は有効になりますが `fail_closed` は無効のままです。2 つ目は、`destructive_command_protection.overrides` のルールごとの項目が、レベルから決まる状態とは異なる状態に destructive-command rule を変更した場合です。
+
+各レベルがブロックする内容については[安全レベル](/ja/configuration/modes)を、有効レベルを決定する優先順位については[環境変数](/ja/configuration/environment)を参照してください。
+
+### Worktree と degraded indicator
+
+次の indicator は、レベル emoji の後にこの順番で追加されます。
+
+| 表示 | 意味 |
+| --- | --- |
+| 🌳 | Worktree mode が有効。`policy.json` の `workflow.worktree_mode` または `CC_SAFETY_NET_WORKTREE=1` |
+| ⚠️ | runtime が **degraded**。1 つ以上の設定 source を検証できず、fallback によって評価を実行中 |
+
+⚠️ marker は、設定が degraded であることを知らせる唯一の passive signal です。失敗した source は示しません。diagnostic を確認するには `npx cc-safety-net status` を実行し、完全な report を確認するには `npx cc-safety-net doctor` を実行してください。`ready` と `degraded` の意味および修復方法については、[設定の復旧](/ja/configuration/recovery)を参照してください。
+
+### プラグイン無効 indicator
+
+| 表示 | 意味 |
+| --- | --- |
+| ❌ | Claude Code プラグイン `cc-safety-net@cc-marketplace` が `~/.claude/settings.json` で有効になっていない |
+
+これは、`status` が `Not active` の最初の項目として報告する条件と同じです。無効なプラグインは Claude Code 連携だけに影響するため、verdict は `ready` または `degraded` のままです。`statusline` コマンドは最初にこの条件を確認し、行の残りを置き換えます。そのため、`❌` と一緒にレベル、worktree、degraded の indicator は表示されません。
+
+<Note>
+  `❌` 状態は、Claude Code marketplace plugin が無効であることだけを意味します。CC Safety Net を手動の Claude Code hook として使用する場合、または別のエージェントで使用する場合は、保護が有効でも status line に `❌` が表示される可能性があります。status line は、`~/.claude/settings.json` の `enabledPlugins` 項目だけを反映します。
+</Note>
+
+## Status line と `status` コマンドの違い
+
+両方のコマンドは、policy snapshot と解決済みの環境を読み込みます。設定状態を異なる形式で表示します。`status` は、verdict と問題ごとの diagnostic を複数行の terminal report として出力します。status line は、1 行の emoji indicator を出力し、diagnostic は表示しません。
+
+理由を知る必要がある場合は `status` を使用します。常に一目で確認できる marker が必要な場合は status line を使用します。`status` と `statusline` の完全な syntax、output、終了動作については、[CLI コマンド](/ja/reference/cli-commands)を参照してください。
+
+<Note>
+  `~/.claude/settings.json` の変更はすぐに有効になります。Claude Code の再起動は不要です。`statusline` コマンドでは、`--claude-code` の短い alias として `-cc` を使用できます。
+</Note>
+
+<Note>
+  別のコマンドを `statusline` に pipe すると、その出力に `<piped output> | 🛡️ CC Safety Net …` が prefix として付きます。Claude Code は自身の status payload をコマンドに pipe するため、stdin から pipe された JSON は出力せずに破棄します。
+</Note>

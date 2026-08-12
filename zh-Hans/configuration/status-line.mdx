@@ -1,0 +1,128 @@
+---
+title: "状态行：实时模式指示器"
+sidebarTitle: "状态行"
+description: "使用 bunx、npx 或 claude x，在 Claude Code 状态行中显示 CC Safety Net 的有效安全级别、worktree 放宽和 degraded 配置警告。"
+---
+
+CC Safety Net 可以在 Claude Code 的状态行中将其状态显示为单行表情符号指示器，有效安全级别一目了然。这使你可以持续了解保护是否正在实施以及处于什么级别，而无需运行单独的诊断命令。
+
+状态行**仅适用于 Claude Code**。它从 `~/.claude/settings.json`（或 `$CLAUDE_SETTINGS_PATH`）读取 `enabledPlugins["cc-safety-net@cc-marketplace"]` 条目，以确定 Claude Code 插件是否启用。如果你为其他智能体安装了 CC Safety Net，或将它安装为手动 Claude Code hook 而不是 marketplace 插件，则此指示器与你无关。
+
+## 配置状态行
+
+将 `statusLine` 条目添加到你的 `~/.claude/settings.json` 中。选择适合你环境的运行器：
+
+<Tabs>
+<Tab title="Bun（推荐）">
+    ```json
+    {
+      "statusLine": {
+        "type": "command",
+        "command": "bunx cc-safety-net statusline --claude-code"
+      }
+    }
+    ```
+</Tab>
+<Tab title="Claude X">
+    ```json
+    {
+      "statusLine": {
+        "type": "command",
+        "command": "BUN_BE_BUN=1 claude x cc-safety-net statusline --claude-code"
+      }
+    }
+    ```
+
+<Note>
+`claude x` 命令仅与本机 Claude Code 安装兼容。如果你通过 npm 安装了 Claude Code，请改用 `bunx` 或 `npx`。
+</Note>
+</Tab>
+<Tab title="NPM">
+    ```json
+    {
+      "statusLine": {
+        "type": "command",
+        "command": "npx -y cc-safety-net statusline --claude-code"
+      }
+    }
+    ```
+</Tab>
+<Tab title="与现有命令通过管道连接">
+如果你已有状态行命令，请在末尾通过管道连接 CC Safety Net，以便一起显示两者的输出：
+
+    ```json
+    {
+      "statusLine": {
+        "type": "command",
+        "command": "your-existing-command | bunx cc-safety-net statusline --claude-code"
+      }
+    }
+    ```
+</Tab>
+</Tabs>
+
+## 状态行指示器
+
+输出恰好是具有以下形状的一行：
+
+```text
+🛡️ CC Safety Net <level><worktree><degraded>
+```
+
+当 Claude Code 插件被禁用时，整行会折叠为单个指示器：
+
+```text
+🛡️ CC Safety Net ❌
+```
+
+### 级别指示器
+
+始终只显示一个级别表情符号。它报告 `policy.json` 与环境变量组合后的**有效**安全级别，而不是你设置的某个环境变量。
+
+| 显示 | 有效级别 | 含义 |
+| --- | --- | --- |
+| ✅ | `standard` | 未启用任何能力 — 默认预设 |
+| 🔒 | `strict` | 仅启用 `fail_closed` 能力 |
+| 👁️ | `paranoid` | `fail_closed`、`paranoid_rm` 和 `paranoid_interpreters` |
+| 🔧 | `custom` | 任何其他组合 |
+
+`custom` 指示器在两种情况下出现：启用的能力不匹配任何预设（例如，在默认级别上设置 `CC_SAFETY_NET_PARANOID=1`，这会启用两项 paranoid 能力，但不会启用 `fail_closed`）；或者 `destructive_command_protection.overrides` 中的单项规则条目改变了安全级别原本给该破坏性命令规则设置的状态。
+
+有关每个级别阻止的内容，请参阅[模式](/zh-Hans/configuration/modes)，有关产生有效级别的优先级规则，请参阅[环境](/zh-Hans/configuration/environment)。
+
+### worktree 和 `degraded` 指示器
+
+它们按以下顺序附加在级别表情符号之后：
+
+| 显示 | 含义 |
+| --- | --- |
+| 🌳 |worktree 模式处于活动状态 - `policy.json` 或 `CC_SAFETY_NET_WORKTREE=1` 中的 `workflow.worktree_mode` |
+| ⚠️ | 运行时为 **`degraded`**：至少一个配置源无法验证，因此评估使用回退配置 |
+
+⚠️ 标记是配置处于 `degraded` 状态的唯一被动信号。它不说明哪个源失败。运行 `npx cc-safety-net status` 查看诊断，或运行 `npx cc-safety-net doctor` 获取完整报告。请参阅[配置恢复](/zh-Hans/configuration/recovery)，了解 `ready` 和 `degraded` 的含义及各自的修复方法。
+
+### 插件禁用指示器
+
+| 显示 | 含义 |
+| --- | --- |
+| ❌ | `~/.claude/settings.json` 中未启用 Claude Code 插件 `cc-safety-net@cc-marketplace` |
+
+这与 `status` 在 `Not active` 下报告的第一项是同一条件。结论仍为 `ready` 或 `degraded`，因为禁用插件只影响 Claude Code 集成。`statusline` 命令先检查此条件，并替换该行的其余部分。因此，`❌` 旁边不会显示级别、worktree 或 `degraded` 指示器。
+
+<Note>
+`❌` 状态专门表示 Claude Code marketplace 插件已禁用。如果你将 CC Safety Net 作为手动 Claude Code hook（而不是 marketplace 插件）运行，或将它用于其他智能体，即使保护已启用，状态行也可能显示 `❌`。它只反映 `~/.claude/settings.json` 中的 `enabledPlugins` 条目。
+</Note>
+
+## 状态行与 `status` 命令的区别
+
+这两个命令都会加载策略快照和已解析的环境。它们以不同的格式显示配置状态。 `status` 打印一份多行终端报告，其中每个问题都有一个结论和一个诊断。状态行打印一行表情符号指示符，但不打印任何诊断信息。
+
+当你想知道*为什么*时，请使用 `status`；当你需要持久的一目了然标记时，请使用状态行。有关完整的 `status` 和 `statusline` 语法、输出和退出行为，请参阅 [CLI 命令](/zh-Hans/reference/cli-commands)。
+
+<Note>
+对 `~/.claude/settings.json` 的更改立即生效 - 无需重新启动 Claude Code。 `statusline` 命令接受 `-cc` 作为 `--claude-code` 的短别名。
+</Note>
+
+<Note>
+当你通过管道将另一个命令输入 `statusline` 时，其输出前缀为 `<piped output> | 🛡️ CC Safety Net …`。在 stdin 上传输的 JSON 会被丢弃而不是回显，因为 Claude Code 将其自己的状态负载传输到命令中。
+</Note>

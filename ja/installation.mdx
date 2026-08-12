@@ -1,0 +1,329 @@
+---
+title: "コーディングエージェントに CC Safety Net をインストールする"
+sidebarTitle: "インストール"
+description: "Amp Code、Antigravity CLI、Claude Code、Codex、Cursor、Gemini CLI、GitHub Copilot CLI、Hermes Agent、Kimi Code、OpenClaw、OpenCode、Pi に CC Safety Net をインストールまたはアンインストールします。"
+---
+
+CC Safety Net は、コーディングエージェント内のプラグイン、拡張機能、または hook として動作します。常駐サービスや daemon は不要です。一部の連携は、確認ごとに短時間だけ動作する hook subprocess を開始します。
+
+多くの連携は **Windows、macOS、Linux** で動作します。path 処理とコマンド解決のために host OS を検出します。Windows では、大文字と小文字を区別しない path、および `COMSPEC` と `PATHEXT` による `cmd.exe` または PowerShell の解決を含みます。
+
+**Hermes Agent** と **OpenClaw** の連携は、macOS と Linux だけで動作します。POSIX home directory path の `~/.hermes` と `~/.openclaw` を使用し、Windows path をサポートしません。
+
+開始前に **Node.js 18 以降**をインストールしてください。例では `npx` を使用して CLI subcommand を実行します。
+
+1 つの連携をインストールするには `cc-safety-net install <target-flag>`、削除するには `cc-safety-net uninstall <target-flag>`、すべてを更新するには `cc-safety-net update` を使います。
+
+## 対話形式でインストールする
+
+```bash
+npx -y cc-safety-net@latest install
+```
+
+対象 flag なしで installer を実行すると、マシンで検出したコーディング CLI の対話式 multi-select が開きます。
+
+選択画面では、`Space` で対象を選択し、`Enter` で確定します。`u` は代わりにすべてのインストール済み連携を更新し、`q` または `Esc` は変更せず終了します。`@latest` qualifier は重要です。qualifier なしの `cc-safety-net` spec は、現在の release ではなく npx cache にある以前の copy を再実行する場合があります。そのため、このページのすべての install、uninstall、update コマンドは version を固定します。
+
+同じ形式でアンインストールできます。
+
+```bash
+npx -y cc-safety-net@latest uninstall
+```
+
+CLI を頻繁に使う場合は、グローバルにインストールすると、同じコマンド用の短い alias `ccsn` を使えます。
+
+```bash
+npm install -g cc-safety-net
+ccsn doctor
+```
+
+この alias は global install に含まれます。`npx` で実行する場合は完全な `cc-safety-net` 名を使用します。
+
+## インストール済み連携を更新する
+
+```bash
+npx -y cc-safety-net@latest update
+```
+
+`update` は、無効な連携を含むマシン上のインストール済み連携を検出し、各連携の install path を update mode で再実行します。対象の agent CLI が見つからない連携は skipped と報告します。何もインストールされていない場合は、先に `cc-safety-net install` を実行するよう表示します。対話式 installer で `u` を押すと、同じ update を実行します。
+
+`update` は major version 間の upgrade path でもあります。v1 のインストールで実行すると、すべてのインストール済み連携を現在の v2 release に移行します。v1 の inline 設定でカスタムルールを定義していた場合は、[以前の設定の移行](/ja/configuration/custom-rules#レガシー構成を移行する)を完了してください。その後、`npx cc-safety-net doctor` で runtime が `ready` であることを確認します。
+
+## 特定のエージェントをインストールする
+
+script による非対話式 install では、対象 flag を正確に 1 つ渡します。対象 flag が 0 個または複数の場合は error です。対話式 terminal で対象 flag を渡さない場合、installer selector が始まります。
+
+| エージェント | インストール | アンインストール |
+| --- | --- | --- |
+| [Amp Code](#amp-code) | `npx -y cc-safety-net@latest install --amp` | `npx -y cc-safety-net@latest uninstall --amp` |
+| [Antigravity CLI](#antigravity-cli) | `npx -y cc-safety-net@latest install --agy-cli` | `npx -y cc-safety-net@latest uninstall --agy-cli` |
+| [Claude Code](#claude-code) | `npx -y cc-safety-net@latest install --claude-code` | `npx -y cc-safety-net@latest uninstall --claude-code` |
+| [Codex](#codex) | `npx -y cc-safety-net@latest install --codex` | `npx -y cc-safety-net@latest uninstall --codex` |
+| [Cursor](#cursor) | `npx -y cc-safety-net@latest install --cursor` | `npx -y cc-safety-net@latest uninstall --cursor` |
+| [Gemini CLI](#gemini-cli) | `npx -y cc-safety-net@latest install --gemini-cli` | `npx -y cc-safety-net@latest uninstall --gemini-cli` |
+| [GitHub Copilot CLI](#github-copilot-cli) | `npx -y cc-safety-net@latest install --copilot-cli` | `npx -y cc-safety-net@latest uninstall --copilot-cli` |
+| [Hermes Agent](#hermes-agent) | `npx -y cc-safety-net@latest install --hermes-agent` | `npx -y cc-safety-net@latest uninstall --hermes-agent` |
+| [Kimi Code](#kimi-code) | `npx -y cc-safety-net@latest install --kimi-code` | `npx -y cc-safety-net@latest uninstall --kimi-code` |
+| [OpenClaw](#openclaw) | `npx -y cc-safety-net@latest install --openclaw` | `npx -y cc-safety-net@latest uninstall --openclaw` |
+| [OpenCode](#opencode) | `npx -y cc-safety-net@latest install --opencode` | `npx -y cc-safety-net@latest uninstall --opencode` |
+| [Pi](#pi) | `npx -y cc-safety-net@latest install --pi` | `npx -y cc-safety-net@latest uninstall --pi` |
+
+すべての install コマンドは冪等です。すでに設定済みのエージェントに再実行しても安全であり、管理対象の項目は 1 つだけ残ります。
+
+## Amp Code
+
+```bash
+npx -y cc-safety-net@latest install --amp
+```
+
+自己完結型プラグイン artifact を npm package から `~/.config/amp/plugins/cc-safety-net.ts` にコピーします。hosted plugin、URL、global npm dependency は不要です。再実行すると管理対象 artifact をその場で更新します。
+
+```bash
+npx -y cc-safety-net@latest uninstall --amp
+```
+
+<Note>
+  install、update、uninstall 後は、変更を有効にするため Amp を再起動するか `plugins: reload` を実行してください。
+</Note>
+
+`~/.config/amp/plugins/cc-safety-net.ts` が symlink、directory、または CC Safety Net managed header がない regular file の場合、install と uninstall はどちらも変更を拒否します。自身でファイルを移動または削除してから、コマンドを再実行してください。
+
+プラグインが保護するのは、インストールしたマシンだけです。Amp Orb などの remote executor で実行するツール呼び出しは対象外です。
+
+## Antigravity CLI
+
+```bash
+npx -y cc-safety-net@latest install --agy-cli
+```
+
+`~/.gemini/config/hooks.json` に管理対象 `PreToolUse` 項目を書き込み、各 `run_command` tool call で `npx -y cc-safety-net hook --agy-cli` を実行します。
+
+hook は `npx` で動作するため、install は最初に npm cache の `_npx` directory から cache 済みの `cc-safety-net` copy を削除し、hook が現在の release を解決できるようにします。場所は `$npm_config_cache` が設定されていればその path、未設定なら macOS と Linux では `~/.npm`、Windows では `%LOCALAPPDATA%\npm-cache` です。uninstall は cache を変更しません。
+
+```bash
+npx -y cc-safety-net@latest uninstall --agy-cli
+```
+
+Antigravity CLI 内で対話形式にルールを作成するには、任意で `/cc-safety-net` skill をインストールします。
+
+```bash
+npx skill add kenryu42/cc-safety-net
+```
+
+## Claude Code
+
+```bash
+npx -y cc-safety-net@latest install --claude-code
+```
+
+`kenryu42/cc-marketplace` から `cc-marketplace` marketplace を追加し、`cc-safety-net@cc-marketplace` plugin をインストールします。無効な copy がすでにある場合は有効にします。
+
+```bash
+npx -y cc-safety-net@latest uninstall --claude-code
+```
+
+**自動更新を有効にする**
+
+CC Safety Net を自動で最新に保つには、Claude Code 内で `/plugin` を実行し、**Marketplaces** に移動し、**cc-marketplace** を選択して **auto-update** を有効にします。
+
+<Note>
+  plugin は共有 Coding CLI hook の `cc-safety-net hook --coding-cli`（短い flag は `-cc`）を呼び出します。これは正規の flag 名であり、Codex plugin と共有します。`hook --claude-code` は以前の alias としてだけ使用できます。新しい設定では使用しないでください。
+</Note>
+
+## Codex
+
+```bash
+npx -y cc-safety-net@latest install --codex
+```
+
+`kenryu42/cc-marketplace` から `cc-marketplace` marketplace を追加し、`cc-safety-net@cc-marketplace` plugin をインストールします。
+
+**hook を信頼する**
+
+Codex は信頼されていない hook を実行しません。Codex を起動し、`/hooks` を開き、**cc-safety-net PreToolUse hook** を選択して `t` を押し、信頼済みにします。
+
+```bash
+npx -y cc-safety-net@latest uninstall --codex
+```
+
+<Note>
+  信頼した後も hook が動作しない場合は、`~/.codex/config.toml`（または `$CODEX_HOME/config.toml`）で plugin hook support が有効であることを確認してください。
+
+  ```toml
+  [features]
+  plugin_hooks = true
+  ```
+</Note>
+
+## Cursor
+
+```bash
+npx -y cc-safety-net@latest install --cursor
+```
+
+グローバルな `~/.cursor/hooks.json` の管理対象 `preToolUse` エントリに次を書き込みます。
+
+```json
+{ "command": "npx -y cc-safety-net hook --cursor", "timeout": 30, "failClosed": true }
+```
+
+設定は global であるため、すべてのプロジェクトにある Cursor IDE と Cursor CLI の session を保護します。`failClosed` により、hook が判定を返せない場合はツール呼び出しを拒否します。
+
+hook は `npx` で動作するため、install は最初に npm `_npx` cache から cache 済みの `cc-safety-net` copy を消去し、hook が現在の release を解決できるようにします。uninstall は cache を変更しません。cache の場所は、[Antigravity CLI の節](#antigravity-cli)にあります。
+
+```bash
+npx -y cc-safety-net@latest uninstall --cursor
+```
+
+## Gemini CLI
+
+```bash
+npx -y cc-safety-net@latest install --gemini-cli
+```
+
+Gemini Safety Net extension を `https://github.com/kenryu42/gemini-safety-net` からインストールします。無効な copy がすでにある場合は再度有効にします。Gemini CLI は `cc-marketplace` plugin ではありません。extension は extension id `gemini-safety-net` を持つ独自の repository にあります。
+
+```bash
+npx -y cc-safety-net@latest uninstall --gemini-cli
+```
+
+extension と hook を読み込むため、install 後に Gemini CLI を再起動するか、新しい session を開始してください。
+
+## GitHub Copilot CLI
+
+```bash
+npx -y cc-safety-net@latest install --copilot-cli
+```
+
+未登録の場合は `cc-marketplace` marketplace を追加し、`cc-safety-net@cc-marketplace` plugin をインストールします。`~/.copilot/settings.json` の `enabledPlugins` で明示的に無効であれば `true` に変更します。
+
+```bash
+npx -y cc-safety-net@latest uninstall --copilot-cli
+```
+
+<Note>
+  変更を有効にするため、plugin の install または削除後に Copilot CLI を再起動してください。
+</Note>
+
+Copilot CLI の hook support には version 条件があります。Copilot 設定ファイル内の inline hook definition には Copilot CLI **1.0.8** 以降、`~/.copilot/hooks` 内の user hook file には **0.0.422** 以降が必要です。plugin がこれを処理します。hook を手動で設定して問題が発生した場合は、`npx cc-safety-net doctor` を実行してください。検出した Copilot version と、対応する hook source を報告します。
+
+## Hermes Agent
+
+```bash
+npx -y cc-safety-net@latest install --hermes-agent
+```
+
+管理対象 Python plugin の `__init__.py` と `plugin.yaml` を `$HERMES_HOME/plugins/cc-safety-net/`（`HERMES_HOME` が未設定の場合は `~/.hermes/plugins/cc-safety-net/`）に書き込み、`hermes plugins enable cc-safety-net --no-allow-tool-override` を実行します。ファイルだけでは動作しません。Hermes は自身の設定に有効と記載された user plugin だけを読み込むため、ファイルが最新の場合も install は enable コマンドを実行します。
+
+plugin は `npx` を介して subprocess を実行するため、install は最初に npm `_npx` cache から cache 済みの `cc-safety-net` copy を消去します。uninstall は cache を変更しません。cache の場所は、[Antigravity CLI の節](#antigravity-cli)にあります。
+
+<Note>
+  変更を有効にするため、install、update、uninstall 後に Hermes を再起動してください。
+</Note>
+
+各 `pre_tool_call` で、plugin は JSON stdin を使って tool call を `npx -y cc-safety-net hook --hermes-agent`（短い flag は `-ha`）に送り、30 秒で timeout します。`terminal`、`read_file`、`write_file`、`patch` tool を保護します。その他の Hermes tool は転送しません。plugin は fail-closed です。`npx` がない、解析を開始できない、timeout する、non-zero で終了する、または読めない出力を返す場合、tool call を通過させず、明示的なメッセージでブロックします。
+
+```bash
+npx -y cc-safety-net@latest uninstall --hermes-agent
+```
+
+uninstall は、plugin file を削除する*前*に `hermes plugins disable cc-safety-net` を実行します。Hermes は disk 上に残る plugin だけを解決し、有効な設定項目が残ると、同じ名前の将来の plugin を自動的に読み込むためです。`hermes` CLI が失敗するか存在しない場合も file は削除し、Hermes config に `cc-safety-net` が残っている可能性があることを warning で示します。uninstall は Python `__pycache__` bytecode directory も削除し、他に何も残っていない場合だけ plugin directory を削除します。
+
+plugin directory が symlink または regular directory ではない場合、install と uninstall は変更を拒否します。また、managed file が symlink、regular file 以外、または CC Safety Net managed header がない場合、上書きまたは削除を拒否します。自身で移動または削除してから、コマンドを再実行してください。
+
+この連携は macOS と Linux だけに対応します。
+
+## Kimi Code
+
+```bash
+npx -y cc-safety-net@latest install --kimi-code
+```
+
+`~/.kimi-code/config.toml`（または `$KIMI_CODE_HOME/config.toml`）に `[[hooks]]` block を書き込み、各 `PreToolUse` `Bash` call で `npx -y cc-safety-net hook --kimi-code` を実行します。
+
+hook は `npx` で動作するため、install は最初に npm `_npx` cache から cache 済みの `cc-safety-net` copy を消去します。uninstall は cache を変更しません。cache の場所は、[Antigravity CLI の節](#antigravity-cli)にあります。
+
+```bash
+npx -y cc-safety-net@latest uninstall --kimi-code
+```
+
+Kimi Code 内で対話形式にルールを作成するには、任意で `/cc-safety-net` skill をインストールします。
+
+```bash
+npx skill add kenryu42/cc-safety-net
+```
+
+## OpenClaw
+
+```bash
+npx -y cc-safety-net@latest install --openclaw
+```
+
+OpenClaw 自身の CLI で plugin をインストールします。npm package 内に含まれる plugin directory を使って `openclaw plugins install <packaged plugin dir> --force` を実行し、続けて `openclaw plugins enable cc-safety-net` を実行します。その後、`openclaw plugins inspect cc-safety-net --runtime --json` で plugin が実際に読み込まれたことを確認します。runtime が壊れた有効な plugin は正常にインストールされた後に保護しないため、`loaded` 以外の status は install を失敗させ、詳細確認用の `openclaw plugins inspect cc-safety-net --runtime` を示します。
+
+`--force` は `cc-safety-net` extension id の対象を上書きし、uninstall 時に削除するため、両方のコマンドは extension directory が CC Safety Net managed plugin だけを含むか、空であることを最初に確認します。それ以外の場合は実行を拒否します。directory を移動または削除してから、コマンドを再実行してください。
+
+```bash
+npx -y cc-safety-net@latest uninstall --openclaw
+```
+
+<Note>
+  変更を有効にするため、install、update、uninstall 後に OpenClaw Gateway を再起動してください。`openclaw.json` に `plugins.allow` がある場合、`cc-safety-net` も記載する必要があります。allowlist にない場合、有効でも plugin は読み込まれません。
+</Note>
+
+OpenClaw は CC Safety Net を hook subprocess ではなく process 内 plugin として読み込むため、runtime hook flag はありません。plugin は `exec` tool だけの `before_tool_call` handler を登録し、OpenClaw の file tool は保護しません。各 `exec` call は agent の workspace directory に対して解析します。workspace を解決できない場合、`workdir` が workspace 外に解決される場合、または `auto` と `gateway` 以外の execution host（例えば `sandbox` または `node`）を指定する場合は fail-closed です。
+
+OpenClaw の state directory は、`OPENCLAW_STATE_DIR` が設定されていればその directory、そうでなければ `OPENCLAW_CONFIG_PATH` を含む directory、どちらもなければ `~/.openclaw` です。config file は、`OPENCLAW_CONFIG_PATH` が設定されていればその file、そうでなければ state directory 内の `openclaw.json` です。install と doctor は同じ順序で path を解決するため、移動した OpenClaw install を absent と誤報しません。
+
+この連携は macOS と Linux だけに対応します。
+
+## OpenCode
+
+```bash
+npx -y cc-safety-net@latest install --opencode
+```
+
+OpenCode は古い cache 済み plugin version を提供し続ける場合があります。そのため、install コマンドは `opencode plugin -g -f cc-safety-net@latest` を実行する前に、必ず `~/.cache/opencode/packages/cc-safety-net@latest` を消去します。
+
+```bash
+npx -y cc-safety-net@latest uninstall --opencode
+```
+
+uninstall は `~/.config/opencode/opencode.json`（または `.jsonc`）の `plugin` array から `cc-safety-net` を削除し、cache package をもう一度消去します。
+
+更新済み cache から plugin を読み込むため、install または update 後に OpenCode を再起動してください。
+
+## Pi
+
+```bash
+npx -y cc-safety-net@latest install --pi
+```
+
+`pi install npm:cc-safety-net` を実行します。Pi 設定が CC Safety Net を無効にする `extensions` filter を固定している場合、`~/.pi/agent/settings.json` でその filter を消去します。
+
+```bash
+npx -y cc-safety-net@latest uninstall --pi
+```
+
+Pi は CC Safety Net を hook subprocess ではなく process 内 extension として読み込みます。extension は `bash` tool とカスタム `Shell` tool（例えば pi-grok-cli）をインターセプトし、各 call の作業ディレクトリを解決し、rulebook 管理用の `/cc-safety-net` builtin command を登録します。詳細は、[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
+
+## 以前のプラグイン ID から移行する
+
+該当するすべての場所で、現在の plugin identifier は `cc-safety-net@cc-marketplace` です。以前の release にあった 2 つの identifier が既存のマシンに残る場合があります。
+
+| 以前の identifier | エージェント | 動作 |
+| --- | --- | --- |
+| `safety-net@cc-marketplace` | Claude Code、Codex | install 中に検出し、現在の plugin を配置した後に自動的に uninstall する |
+| `copilot-safety-net` | GitHub Copilot CLI | install 中に検出し、自動的に uninstall する |
+
+手動で削除する必要はありません。エージェント用の通常の install コマンドを実行すると、その一部として移行します。新しい設定では以前の identifier を使用しないでください。
+
+## インストールを確認する
+
+```bash
+npx cc-safety-net doctor
+```
+
+`doctor` は、すべての対応エージェントについて完全な health check を実行します。hook 連携、ブロック機能を確認するセルフテスト、カスタムルールの検証、有効な mode flag、最近の activity、system version、update check が対象です。各チェックの動作と使用できる flag については、[doctor コマンドのリファレンス](/ja/reference/cli-commands)を参照してください。
+
+失敗したチェックには、問題の説明と推奨される修正が表示されます。

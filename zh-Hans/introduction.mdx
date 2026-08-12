@@ -1,0 +1,33 @@
+---
+title: "CC Safety Net 的作用"
+sidebarTitle: "简介"
+description: "CC Safety Net 是一个执行前防护层。它检查编码智能体将要运行的操作，并阻止会破坏未提交工作或暴露机密的操作。"
+---
+
+一条命令（例如 `rm -rf ~/` 或 `git checkout -- .`）就可能清除数小时的未提交工作。一件[有记录的 Reddit 事件](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/)显示，Claude CLI 删除了整个主目录。
+
+`CLAUDE.md` 或 `AGENTS.md` 中的指令可以提供帮助，但智能体可能误解或忽略这些指令。CC Safety Net 添加强制执行前检查。
+
+## 它拦截什么
+
+CC Safety Net 安装到你的编码智能体中。它会在智能体的工具调用到达你的计算机之前运行。
+
+它检查 shell 命令以及文件写入、编辑、搜索和补丁操作。然后，它允许操作，或给出直接原因并阻止操作。阻止结果会作为普通工具结果返回，因此智能体可以[在不执行被阻止操作的情况下继续任务](/zh-Hans/guides/design-principles#让智能体继续任务的拒绝方式)。
+
+决定基于意图，而不是拼写。`git checkout -b feature` 创建分支，因此允许执行；`git checkout -- file` 丢弃未提交的更改，因此会被阻止。两条命令都以相同的两个单词开头。
+
+对于集成会转发的工具操作，相同的检查也会保护受支持的凭证文件，包括 SSH 密钥、`.env` 文件、云凭证存储和编码 CLI 令牌。CC Safety Net 会在智能体访问文件之前阻止匹配的已转发读取和写入。各集成的工具覆盖范围不同；请参阅[集成覆盖边界](/zh-Hans/guides/known-limitations#hermes-agent-和-openclaw-覆盖边界)和[机密保护参考](/zh-Hans/reference/secret-protection)。
+
+每个智能体使用不同的集成。有些智能体将 CC Safety Net 作为短期子进程运行。另一些智能体将它加载到智能体进程中。安装程序会为你的智能体配置正确的集成。一个工具调用的完整生命周期见[工作原理](/zh-Hans/guides/how-it-works)。
+
+## 它不能替代什么
+
+CC Safety Net 是对智能体权限规则和原生沙箱的补充。它不能替代这些措施。
+
+拒绝规则提供快速且可由用户配置的阻止。沙箱提供操作系统级的文件系统和网络隔离。CC Safety Net 处理已知具有破坏性的 Git 和文件系统操作，这些操作可能在沙箱内的项目中被允许。请一起使用这些保护层。见 [CC Safety Net 与沙箱的比较](/zh-Hans/guides/vs-sandboxing)。
+
+CC Safety Net 不能提供完整保护。它是一个静态执行前策略门。它无法查看任意二进制文件的内部，也无法保护绕过已安装集成的命令。在依赖它之前，请阅读[已知限制](/zh-Hans/guides/known-limitations)。
+
+## 开始使用
+
+在[安装](/zh-Hans/installation)页面选择你的智能体，然后使用[快速开始](/zh-Hans/quickstart)确认保护已启用。

@@ -1,0 +1,86 @@
+---
+title: "CC Safety Net 快速入门"
+sidebarTitle: "快速入门"
+description: "安装 CC Safety Net、检查状态、运行 doctor，并查看它阻止一条真实命令。每个受支持的编码智能体都使用相同的首次运行流程。"
+---
+
+使用本指南安装 CC Safety Net 并测试一次真实的阻止。每个受支持的智能体都使用相同的步骤。
+
+<Steps>
+  <Step title="为你的智能体安装 CC Safety Net">
+    每个智能体通过插件市场、扩展、配置文件或软件包进行安装。请按照**[安装](/zh-Hans/installation)**页面中与你的智能体对应的部分操作，然后返回此页面。
+  </Step>
+  <Step title="检查状态">
+    在一个屏幕中汇总当前启用的保护：
+
+    ```bash
+    npx cc-safety-net status
+    ```
+
+    配置正常加载时，判定行显示 `ready`。`degraded` 表示配置中的某些内容无法应用，当前正在使用回退值。请参阅[配置恢复](/zh-Hans/configuration/recovery)，了解哪些保护仍然有效以及如何修复。这是仅有的两个判定。如果你使用 Claude Code 且插件已禁用，它会作为 `Not active` 下的第一项出现，而不会更改判定。
+
+    `status` 只提供信息，并且总是以状态码 `0` 退出。有关其全部输出，请参阅 [status 命令参考](/zh-Hans/reference/cli-commands)。
+  </Step>
+  <Step title="运行 doctor">
+    `status` 汇总配置，而 `doctor` 则端到端验证连接：
+
+    ```bash
+    npx cc-safety-net doctor
+    ```
+
+    它会一次检查所有受支持的智能体，因此你不必指定所使用的智能体。它还会运行自检，以确认阻止功能正常。没有问题时，每个项目旁都会显示绿色对勾；任何失败项都会说明问题和修复方法。完整检查列表见 [doctor 命令参考](/zh-Hans/reference/cli-commands)。
+  </Step>
+  <Step title="查看一次真实的阻止">
+    启用 CC Safety Net 后，让智能体运行以下安全的检查命令：
+
+    ```bash
+    # 此仅排除 pathspec 不选择任何文件
+    git checkout -- ':(exclude,top)**'
+    ```
+
+    此命令不会到达 shell。智能体会收到阻止消息。即使保护未启用，这个仅排除 Git pathspec 也不会选择任何文件，因此不会更改 tracked file。
+
+    <pre className="cc-block-message-output"><code>{`BLOCKED by CC Safety Net
+
+Reason: git checkout -- discards uncommitted changes permanently. Use 'git stash' first.
+
+Command: git checkout -- ':(exclude,top)**'
+
+If this operation is truly needed, ask the user for explicit permission and have them run the command manually.`}</code></pre>
+
+    该消息说明阻止原因，并向智能体提供更安全的后续操作。有关消息结构和判定生命周期的其余部分，请参阅[工作原理](/zh-Hans/guides/how-it-works)。
+  </Step>
+  <Step title="只询问原因，不运行任何操作">
+    如果某个判定出乎你的预期，`explain` 会通过同一引擎评估命令字符串，但不会执行命令：
+
+    ```bash
+    npx cc-safety-net explain "git checkout -- ':(exclude,top)**'"
+    ```
+
+    它会输出判定、匹配的规则和有效配置。探索时，请使用不含敏感信息的示例命令。
+
+    <Warning>
+      explain 跟踪会回显你传入的命令、解析后的 token，以及包括主目录在内的绝对路径。系统会遮盖凭证形式的值，但不会遮盖路径、主机名或项目名称。将输出粘贴到 issue 或聊天前，请先检查它。有关完整跟踪及其分享注意事项，请参阅 [explain 跟踪参考](/zh-Hans/reference/explain-trace)。
+    </Warning>
+  </Step>
+</Steps>
+
+## 后续步骤
+
+<CardGroup cols={2}>
+  <Card title="工作原理" icon="workflow" href="/zh-Hans/guides/how-it-works">
+    端到端跟踪一次工具调用：拦截、有序检查、允许或阻止，以及审计记录。
+  </Card>
+
+  <Card title="被阻止的命令" icon="ban" href="/zh-Hans/reference/blocked-commands">
+    查看 CC Safety Net 默认阻止的内容以及每项阻止背后的原因。
+  </Card>
+
+  <Card title="模式" icon="toggle-right" href="/zh-Hans/configuration/modes">
+    比较 `standard`、`strict` 和 `paranoid` 安全级别以及 worktree 模式，并选择适合你的工作流的模式。
+  </Card>
+
+  <Card title="自定义规则" icon="sliders-horizontal" href="/zh-Hans/configuration/custom-rules">
+    在项目或用户级别定义自己的阻止规则，以执行项目约定。
+  </Card>
+</CardGroup>

@@ -1,0 +1,280 @@
+---
+title: "解析エンジンの仕組み"
+sidebarTitle: "解析エンジン"
+description: "解析エンジンの内部：安全レベルの境界、ラッパーとインタープリターの再帰、シェル関数の呼び出し、git ルール、再帰削除対象の分類、デバイスコマンド、カスタムルールの照合。"
+---
+
+これは技術ガイドの 4 ページ目で、最も範囲が狭いページです。[アーキテクチャ](/ja/guides/architecture)で説明したガードパイプラインを前提に、破壊的コマンド分類器の正確な分類動作とエッジケースだけを説明します。`explain` の出力を読む場合や、正確な[カスタムルール](/ja/configuration/custom-rules)を書く場合に必要な詳細を扱います。
+
+分類器はガードの**最後の**段階です。その前に、上限付きのツール入力抽出、パーサー予算、ポリシーファイルと Git メタデータの保護、ポリシースナップショットの読み込み、機密パス保護がすでに完了しています。これらは[順序付きガードステージ](/ja/guides/architecture#the-ordered-guard-stages)で規定されています。上限付き解析と常時有効なポリシーファイルおよび Git メタデータのガードは、すべての安全レベルでフェイルクローズします。無効なポリシースナップショットには保護的な fallback を適用し、機密パス保護は解決済みポリシーに従います。破壊的コマンド分類器は、前段ですでに行われた判定を緩和できません。
+
+ディスパッチフロー（セグメントへ分割し、環境変数の代入とラッパーを除去し、先頭コマンドを特定して、対応する解析器へ渡す）は、[アーキテクチャ](/ja/guides/architecture#inside-command-analysis)に図示しています。このページでは、その続きとして、各解析器が受け取ったセグメントを処理する方法と、安全レベルによって境界が変わる位置を説明します。
+
+<span id="safety-level-boundaries"></span>
+
+## 安全レベルの境界
+
+3 つの安全レベルは、3 つの機能を組み合わせたプリセットです。各境界を正しく理解すれば、どの操作がブロックされるかを予測できます。
+
+| Level | Fail closed | Paranoid `rm` | Paranoid interpreters |
+| --- | --- | --- | --- |
+| `standard` | オフ | オフ | オフ |
+| `strict` | **オン** | オフ | オフ |
+| `paranoid` | **オン** | **オン** | **オン** |
+
+3 つのプリセットのいずれにも一致しない機能の組み合わせは、有効レベル `custom` として報告されます。
+
+### Standard
+
+Standard は、認識できる破壊的コマンドをブロックします。意図的に**敵対的入力への完全な対策とはしておらず**、動的入力または敵対的入力に対しては best-effort です。
+
+- **安全に見える解析不能なテキストは許可します。** `echo 'unterminated` は許可されます。
+- **認識できる破壊的テキストは、解析不能でもブロックします。** `git reset --hard 'unterminated` は raw-text heuristic scan によってブロックされます。このスキャンは `rm -rf`、`git reset --hard`/`--merge`、`git clean -f`、`git checkout --force`、`git push --force`/`--delete`、`git branch -D`、`git tag -d`、`git stash drop`/`clear`、`git checkout --`、`git restore`、`find -delete`、`dd of=/dev/`、`mkfs /dev/`、`shred <arg>` を認識します。
+- **quote されたリテラル代入内の危険なテキストは、使用時まで判定を延期します。** `W='rm -rf ~'; echo "$W"` は許可されます。代入自体は何も実行せず、引数位置で quote された展開は 1 つの argv word のままなので、コマンドとフラグに分割されません。quote されていない参照、コマンド位置での参照、置換内の参照、quote されていない heredoc 本文内の参照など、より危険な使用では代入時のブロックを維持します。値を shell へ渡す操作（`eval "$W"`、`bash -c "$W"`、`echo "$W" | sh`）も、shell の実行元を検証できないため拒否します。Strict では判定を延期しません。[Standard だけで許可される操作](/ja/reference/allowed-commands#standard-のみの許可)を参照してください。
+- **動的な `rm -rf` の対象は、一律にはブロックしません。** `rm -rf "$target"` は standard では許可し、fail-closed 機能が有効な場合だけブロックします。
+- Standard は、動的な実行ファイル、置換で組み立てたガード対象のコマンド構造、その他の検証不能な再帰削除対象、組み込み機密パスに対する単独のメタデータ確認も意図的に許可します。
+- Standard でも、**機密情報の内容へのアクセス**、**設定済み deny path**、壊滅的操作に対する保護は緩和しません。
+
+### Strict
+
+[Strict mode](/ja/configuration/modes#strict-mode)は fail-closed 機能を有効にします。解析不能な場合の扱いを厳しくするだけではありません。
+
+- **解析不能なコマンドをブロックします。** `echo 'unterminated` は、コマンドを安全に解析できなかったという理由で拒否されます。
+- **メタデータだけを調べる機密パス探索をブロックします。** `test -f ~/.ssh/id_rsa` と `find ~/.ssh -type f` は standard では許可され、strict ではブロックされます。
+- Node と Bun の inline evaluation 内にある機密パスのリテラルを、実行されない診断データとして扱う standard 固有の緩和を無効にします。
+- **ヒアドキュメントはフェールクローズされます。** 他のアナライザーがセグメント上で実行される前に、ヒアドキュメントを含むコマンドは、[ヒアドキュメント分析](#heredoc-analysis) で説明されている狭いサポート対象ゲートを通過しない限り拒否されます。つまり、引用符で囲まれた標準入力上の 1 つのヒアドキュメント、他の入力リダイレクトなし、および 6 つのリテラル データ コンシューマの 1 つです。引用符で囲まれていない区切り文字は、「引用符で囲まれていないヒアドキュメント入力は安全にサポートされていません。区切り文字を引用するか、ユーザーに検証を依頼してください。」で拒否されます。他のすべての失敗は、「このヒアドキュメント フォームまたは標準入力コンシューマは安全にサポートされていません。サポートされているコンシューマ (cat、tee、git apply、git commit、gh pr create、gh issue create) で引用符で囲まれたヒアドキュメントを使用するか、ユーザーに検証を依頼してください。」と拒否されます。実際には、`python3 - <<'PY'` と引用符で囲まれていない `<<EOF` は厳密かつ偏執的に拒否されます。
+- **検証できない破壊的なターゲットはブロックされます。** 5 つのルールがフェールクローズ機能でゲートされているため、標準では許可され、厳密ではブロックされます。
+
+| ルール ID | 例 | intent |
+| --- | --- | --- |
+| `rm.recursive-force-dynamic-target` | `rm -rf "$target"` | `scope_down` |
+| `powershell.remove-item-recursive-force-dynamic-target` | `Remove-Item $target -Recurse -Force` | `scope_down` |
+| `powershell.remove-item-pipeline-dynamic-target` | `Get-ChildItem . -Recurse \| Remove-Item -Force` | `scope_down` |
+| `shell.dynamic-executable` | `$(printf r)m -rf /` | `manual_only` |
+| `shell.dynamic-structure` | `git reset $(printf --hard)` | `stop_and_explain` |
+
+strict tier の各ルールは個別に無効化できます。ただし、破壊的コマンドのルール ID がない fail-closed 結果（パーサーの fail-closed 結果と機密パスの結果）には、**strict の動作がそのまま適用されます**。
+
+### Paranoid
+
+[Paranoid mode](/ja/configuration/modes#paranoid-mode)は、strict に 2 つの機能を追加します。
+
+- [Paranoid `rm`](/ja/configuration/modes#paranoid-rm-check)は、現在の作業ディレクトリの*内側*でも、一時ディレクトリ以外を対象にした再帰的な強制削除をブロックします。`rm -rf ./cache` と `Remove-Item ./cache -Recurse -Force` はどちらもブロックされます。一時ディレクトリと設定済み allow path は引き続き許可されます。
+- [Paranoid interpreters](/ja/configuration/modes#paranoid-interpreters)は、内容に関係なく、`python -c "print(1)"` を含むすべてのインタープリターの 1 行コードをブロックします。
+
+### ルールごとのオーバーライドとレベル
+
+壊滅的でないルールには、最初に master switch `destructive_command_protection`、次に解決済みの preset capability、最後にルールごとの `"on"` / `"off"` override を適用します。strict tier または paranoid tier のルールは、`"on"` override を使って standard でも強制的に有効化できます。
+
+**壊滅的操作に対するルールは、master switch と `"off"` override の両方を無視します。** 対象は `rm.recursive-force-root-or-home`、`rm.git-metadata`、`powershell.remove-item-root-or-home`、`powershell.remove-item-recursive-force-root-or-home`、`powershell.remove-item-git-metadata`、`find.delete-git-metadata` です。これらは常時有効なポリシーファイルガードと同じ扱いです。
+
+## シェルラッパーとインタープリターの 1 行コード
+
+ラッパーとインタープリターへの再帰は**最大 10 階層**です。1 つのセグメントがブロックされると、コマンド全体を拒否します。
+
+環境割り当てとラッパーがセグメントから削除された後、コマンド名が次の 2 つのセットに対してチェックされます。
+
+- **シェルラッパー**：`bash`、`sh`、`zsh`、`ksh`、`dash`、`fish`、`csh`、`tcsh`。`-c` の後の引数を抽出し、再帰的に解析します。
+- **インタープリター**：`python`、`python2`、`python3`、`node`、`ruby`、`perl`。コード引数（`-c` の後、または node/ruby/perl では `-e` の後）を抽出し、埋め込まれた破壊的操作をスキャンします。
+
+既定では、インタープリターのコードから埋め込まれた破壊的コマンドを探します。`python -c 'import os; os.system("rm -rf /")'` は、埋め込まれた `rm -rf /` が原因でブロックされます。1 行コードという形式だけではブロックしません。[Paranoid interpreters mode](/ja/configuration/modes#paranoid-interpreters)では、内容に関係なくすべての 1 行コードをブロックします。
+
+`busybox` のディスパッチは特別に処理します。サブコマンドをコマンド位置へ移して再解析します。`awk`/`gawk`/`mawk` のプログラムでは、`system()` 呼び出しと backtick command substitution をスキャンします。
+
+### 透明なラッパー
+
+標準ラッパー（`sudo`、`env`、`command`、`builtin`）は常に除去します。**transparent wrapper** として宣言した proxy command も除去します。宣言方法と制約は[カスタムルール](/ja/configuration/custom-rules#transparent-wrappers)を参照してください。ここでは、エンジンがラッパーを展開する方法を説明します。
+
+展開時は、ラッパーのフラグと環境変数の代入より後にある最初の*保護可能な*子コマンド、または明示的な `--` の直後にある token を探します。展開後は、組み込み解析と**カスタムルール**の両方を子コマンドに適用します。`rtk git reset --hard` は組み込みルールでブロックし、`rtk docker system prune` は対応するカスタムルールに一致します。保護可能な子コマンドがない場合は展開しません。
+
+宣言されていない proxy と、見えている子コマンドをそのまま実行せずに書き換えるか隠す proxy は展開できません。検出できる可能性があるのは、最上位で実行する危険テキストの fallback scan だけです。
+
+同じコマンドの各セグメントにわたって cwd を追跡します。リテラルの対象を持つ `cd` または `pushd` は、後続の `rm` と `find` の解析に使う有効な cwd を更新します。`$` または backtick を含む動的な対象への `cd` は、cwd を不明にします。`rm` の解析では、cwd の基準がないものとして扱います。
+
+<Note>
+既知の制限：インタープリターの**長形式フラグ**（`--eval`、`--execute`、`--require`、値を付けた `=value` 形式）は、すべての code path で認識されるわけではありません。そのため、コード引数を抽出できない場合があります。[既知の制限](/ja/guides/known-limitations#インタープリターの長形式フラグ)を参照してください。
+</Note>
+
+## POSIX シェル関数
+
+`name() { ... }` などの POSIX 関数定義は、実行コードではなく定義として解析します。CC Safety Net は、呼び出し元で有効な作業ディレクトリと shell state を使い、各呼び出し位置で関数本体を解析します。
+
+`cleanup() { rm -rf ../outside; }` は関数を定義するだけなので許可されます。`cleanup() { rm -rf ../outside; }; cleanup` のように呼び出しを追加すると、関数本体のコマンドによってブロックされます。呼び出した本体内の state change は、後続処理へ引き継ぎます。例えば `cleanup() { cd ..; }; cleanup && rm -rf build` は、`rm` の基準が 1 つ上のディレクトリになるためブロックされます。
+
+呼び出し解決はシェル独自のルールに従います。
+
+- 呼び出しは、先頭の環境変数の代入（`X=1 cleanup`）、`time` keyword とその `-p` option および `--` terminator、`!` による否定を解決します。組み合わせた `time -p -- ! cleanup` も対象です。名前を quote または escape した形式（`'cleanup'`、`"cleanup"`、`\cleanup`）は alias expansion を抑制しますが、function lookup は抑制しないため、関数を呼び出します。
+- 実際の shell で実行されない形式である `X=1 time cleanup`、`time "--" cleanup`、space のない `!cleanup` は、呼び出しとして扱いません。keyword form が解決されないためです。
+- 呼び出しより前にある最新の定義を優先します。これは shell の再定義 semantics と一致します。
+- subshell（`( ... )`）内の定義は外へ出ません。brace group（`{ ...; }`）は同じ shell 内で実行されるため、その定義は外でも有効です。
+- 定義は、同じ shell で動く `eval` と `trap` からも参照できます。`cleanup() { rm -rf ../outside; }; eval cleanup` はブロックされます。一方、子 shell には継承されないため、`sh -c cleanup` は関数を解決しません。
+
+関数本体では位置 parameter を bind しません。`f() { rm -rf "$1"; }; f ~` は動的な対象として扱います。standard では許可し、fail-closed 機能が有効な場合はブロックします。これは `rm -rf "$X"` と同じです。[quote された代入の判定延期](#standard)は、呼び出した関数本体内にも適用します。`W='rm -rf ~'; f() { $W; }; f` は、quote されていないコマンド位置で値を使うため、代入時のブロックを維持します。`f() { echo "$W"; }; f` は、quote された引数データとして許可します。
+
+解析前のガードステージも関数呼び出しを確認します。ポリシーファイル保護と機密パス抽出は、各呼び出し位置で実行する brace group と関数本体を評価します。
+
+standard を含むすべてのレベルで、2 つの構造境界がフェイルクローズします。自己再帰（`loop() { loop; }; loop`）は再帰深度の上限で拒否します。分岐する呼び出し chain は、派生コマンドの作業予算または 256 個の inline call-site projection の上限で拒否します。関数本体に付属する heredoc は安全にサポートされません。コマンドが解析不能になるため、standard では heuristic scan の対象となり、strict ではすべて拒否します。
+
+<span id="heredoc-analysis"></span>
+
+## ヒアドキュメントの分析
+
+heredoc 本文は標準入力上のテキストです。そのテキストをデータとして扱うかプログラムとして扱うかは、読み取り側が決めます。他の解析器がセグメントを処理する前に、エンジンは狭く定義した対応条件を確認します。次の条件を**すべて**満たす場合だけ通過します。
+
+- コマンドに含まれる heredoc（`<<` または `<<-`）は、標準入力（fd 0）に接続した 1 つだけです。
+- delimiter は quote されています（`<<'EOF'`）。そのため、本文内で substitution を展開できません。
+- stdin (`<`、`<<`、`<<-`、`<<<`、`<&`、`<>`) と競合する他の入力リダイレクトはありません。
+- 読み取り側はリテラルの `cat`、`tee`、`git apply`、`git commit`、`gh pr create`、`gh issue create` のいずれかです。path prefix と `env` などのラッパーは使えません。出力 process substitution（`>(...)`）がある場合は本文が別のコマンドへ渡るため、`cat` と `tee` も拒否します。
+
+条件を満たしたコマンドは、すべてのレベルで本文を実行されないデータとして扱います。例えば、`cat > note.md <<'EOF'` と `git commit -F - <<'EOF'` は、本文に破壊的コマンドが書かれていても許可します。
+
+`cat`、`tee`、`git commit`、`gh pr create`、`gh issue create` では、機密パスを抽出する前に本文も mask します。これにより、「credentials」という単語を含む commit message を filename として扱いません。`git apply` の本文は patch が書き込む filename を含むため、mask しません。heredoc の外にあるコマンドは引き続き解析します。例えば `cat <<'EOF' && rm -rf ~` は、`rm` によってブロックされます。
+
+条件を満たさないコマンドは、[strict](#strict) と paranoid ではすべて拒否します。standard では、次の 3 経路のいずれかで本文を解析します。
+
+1. syntax check だけを行う shell（`bash -n` など）の標準入力へ渡す、quote 済み heredoc は実行されないデータとして許可します。
+2. インタープリター（`python`/`python2`/`python3`、`node`、`ruby`、`perl`）の標準入力へ渡す、quote 済み heredoc です。コマンドライン上の他のすべての word が `-` で始まるリテラルで、インタープリターの program が stdin の場合に限ります。`python3 - <<'PY'` は条件を満たしますが、`python3 tool.py <<'PY'` は満たしません。後者では stdin が script の data になるためです。本文はインタープリターのルールで解析します。[Paranoid interpreters](/ja/configuration/modes#paranoid-interpreters)では `interpreter.one-liner-paranoid` としてすべてブロックします。本文に危険な code block があれば `interpreter.dangerous-command` としてブロックし、安全な本文は許可します。
+3. その他すべて（quote されていない delimiter、不明な読み取り側、`bash` heredoc script、script operand を持つ interpreter call）は、結合した本文の raw-text heuristic scan に渡します。一致した場合は `raw-text.dangerous-command` としてブロックし、一致しなければ許可します。
+
+3 経路すべてに、共通する構造境界があります。heredoc 本文は shell text として再解析し、本文内で別の heredoc を宣言できます。再解析をまたぐ nesting は、パーサーの最大深度 64 に制限されます。これより深い場合は `structural-limit` 解析状態を報告し、standard を含む**すべて**の安全レベルでコマンドを拒否します。
+
+実行されないデータとして条件を通過しても、本文を file に保存する場合は追加処理があります。条件を満たした heredoc を、追記せずにリテラル path へそのまま書き込む場合（`cat > setup.sh <<'EOF'` または `tee setup.sh <<'EOF'`）、エンジンはその path と本文を記憶します。同じコマンド内で後から `bash setup.sh`、`sh setup.sh`、`source setup.sh` を実行するか、shell startup reference（`BASH_ENV`、`ENV`、`--rcfile`、`--init-file`）で参照すると、記憶した script text を解析します。trace には reason `heredoc-file` の `recurse` step として表示します。そのため、本文が破壊的な場合、`cat > x.sh <<'EOF' … EOF && bash x.sh` はブロックされます。追跡範囲は意図的に限定しています。解析ごとに最大 64 file を記憶します（`MAX_TRACKED_HEREDOC_FILES`。超過時は派生コマンドの作業上限でフェイルクローズ）。`/dev`、`/proc`、`/sys` 配下の path は追跡しません。追跡対象 path への後続の書き込みまたは redirection は、保存した本文を無効にします。
+
+<span id="git-rule-engine"></span>
+
+## Git ルールエンジン
+
+git 解析器は subcommand と option を抽出して危険な option pattern と照合し、理由と**分類**（`localDiscard` または `sharedState`）を返します。この分類によって[worktree の緩和](#worktree-relaxation)を判断します。
+
+| 分類 | 意味 | 例 |
+| --- | --- | --- |
+| **localDiscard** | local working-tree state だけを破棄する。worktree relaxation の候補 | `checkout --`、`restore`、`clean -f`、`reset --hard`（ref なし）、`switch --force`、`rebase --abort`、`merge --abort` |
+| **sharedState** | shared、remote、recovery state に影響する。緩和しない | `push --force`、`branch -D`、`stash drop`/`clear`、`worktree remove --force`、`tag -d`、`reflog delete`、`reset --hard <ref>` |
+
+option の照合は、git の実際の文法に従います。長形式 option には prefix matching を使うため、`--forc`、`--force`、`--force-with-lease` を正しく解決します。短形式 option は bundle を展開するため、`-Df` は `-D` と `-f` として読み取ります。値を取る global option（`-c`、`-C`、`--git-dir`、`--work-tree`）は、subcommand を探すときに読み飛ばします。ブロック対象の git pattern の完全な一覧は、[ブロックされるコマンド](/ja/reference/blocked-commands)を参照してください。
+
+<AccordionGroup>
+<Accordion title="Git SSH environment override">
+Git は、network operation 中に任意の program を実行するため、`GIT_SSH_COMMAND`、`GIT_SSH`、`GIT_SSH_VARIANT` を受け付けます。CC Safety Net は、これらの override を network subcommand（`clone`、`fetch`、`pull`、`push`、`ls-remote`、`submodule`）と組み合わせた場合にブロックします。network operation 中に任意のコマンドを実行できるためです。
+</Accordion>
+<Accordion title="checkout の詳細">
+`checkout` は次の順序で確認します。force（`--force`/`-f`）、new-branch escape（`-b`/`-B`/`--orphan` はブロックしない）、`--pathspec-from-file`、double-dash pathspec（`git checkout --` は未コミットの変更を破棄し、`git checkout <ref> -- <path>` は working tree を ref の version で上書きする）、曖昧な複数 positional form（2 個以上の positional がある場合は `switch`/`restore` を提案する）の順です。
+</Accordion>
+<Accordion title="reset の分類">
+`reset --hard`/`--merge` は、ref が `--` より前にある場合（branch pointer を移動する）は `sharedState`、それ以外の場合（working-tree change だけを破棄する）は `localDiscard` に分類します。
+</Accordion>
+</AccordionGroup>
+
+## 再帰的削除対象の分類
+
+`rm` の解析は recursive flag と force flag の組み合わせを検出し、対象を抽出して、現在の作業ディレクトリを基準に分類します。次の順序で確認し、**最初に一致した分類を採用**します。順序そのものが重要です。
+
+| # | 分類 | 一致するもの | 結果 |
+| --- | --- | --- | --- |
+| 1 | **安全でない `$TMPDIR` の word splitting** | quote されていない `$TMPDIR` が複数 word に分割される可能性がある | ブロック（cwd の外側として扱う） |
+| 2 | **未対応の Windows namespace** | 分類器が基準を決められない UNC path と device namespace path | ブロック（cwd の外側として扱う） |
+| 3 | **root/home target** | `/`、`/*`、`~`、`~/`、`$HOME`、`${HOME}` とその子（リテラルまたは正規化後） | 常にブロック（壊滅的操作） |
+| 4 | **保護対象の Git metadata** | 解決した `.git` entry、その directory、hooks directory | 常にブロック（壊滅的操作） |
+| 5 | **一時ディレクトリの対象** | `/tmp`、`/var/tmp`、system temp directory、`$TMPDIR`（一時ディレクトリ以外に override されていない場合） | 許可 |
+| 6 | **動的ターゲット** | expansion を予測できない target | standard では許可。[Strict](/ja/configuration/modes#strict-mode)で fail-closed capability が有効になるとブロック |
+| 7 | **設定済み allow path** | `destructive_command_protection.allow_paths` 配下にある、検証済みのリテラル対象 | 許可（一時ディレクトリとして分類） |
+| 8 | **home-cwd target** | cwd が home directory（先に project directory へ移動する） | ブロック |
+| 9 | **cwd self-target** | `.`、`./`、または cwd と同じ inode に解決される target | ブロック |
+| 10 | **cwd 内の対象** | 現在の作業ディレクトリ内に解決される path | 許可。[paranoid rm](/ja/configuration/modes#paranoid-rm-check)ではブロック |
+| 11 | **cwd 外の対象** | その他（絶対 path、親 path、cwd 外の一時ディレクトリでない path） | ブロック |
+
+この順序には、明示すべき 2 つの結果があります。
+
+- step 4 は step 7 より前にあるため、**repository を含む allow path でも Git metadata protection は緩和されません**。
+- step 6 は step 7 より前にあるため、**allow path は動的または検証不能な対象には適用されません**。
+
+allow path は、絶対 path または `~/` から始まる directory にする必要があります。**すべて**の安全レベルで `rm`、`Remove-Item`、`find -delete` に適用します。機密情報保護、deny path、root、home、保護対象の Git metadata は緩和しません。`$HOME` と等しい entry、または `$HOME` を含む上位 path は、validation 時と canonicalization 後の両方で拒否します。symlink escape は対象外です。
+
+この分類は、recursive flag（`-r`/`-R`/`--recursive`）と force flag（`-f`/`--force`）の両方がある場合に実行します。path の比較には canonical（realpath）解決を使います。このため、`/` を指す symlink は危険と正しく分類し、`/tmp-malicious` は `/tmp` の一時ディレクトリルールに一致しません。
+
+<Note>
+日常的な使用で重要な違いがあります。`rm -rf ./subdir`（cwd 内）は**許可**しますが、`rm -rf .`（cwd 自体）は**ブロック**します。[許可されるコマンド](/ja/reference/allowed-commands)を参照してください。
+</Note>
+
+### PowerShell `Remove-Item`
+
+`Remove-Item` とその alias は、`rm` と同じ対象分類を使います。解析には、native quoting、path separator、connector、pipeline、dynamic word の由来を保持する保守的な PowerShell subset を使います。
+
+- `-WhatIf`、`-WhatIf:$true`、および `-wi` の略語は、そうでなければブロックされた除去を無効化します。明示的な `-WhatIf:$false` は再びブロックします。
+- 動的フォームは strict のみです。`Remove-Item $target -Recurse -Force`、`Get-ChildItem … | Remove-Item -Force` パイプライン、値のない `-Path`、およびスプラッティング (`Remove-Item @params -Recurse -Force`) はすべて標準で許可され、strict ではブロックされます。例外は `Remove-Item $HOME -Recurse -Force` です。これは、動的ターゲットではなくルート/ホーム ターゲットとして分類されるため、**標準** でブロックされます。
+- エイリアスと省略されたパラメーターは解決されるため、`ri . -r -fo` はブロックされます。呼び出し演算子形式 (`& Remove-Item …`、`& { … }`、`. { … }`) が分析され、リテラル文字列を含む `Invoke-Expression` および `$(…)` 部分式も分析されます。
+- `#` 行コメントと `<# … #>` ブロック コメント (ネストされたものを含む) は無視されますが、その後の実際のコマンドはブロックされます。不正な形式または深さが制限されたブロック コメントおよび部分式はフェールクローズされます。
+- PowerShell ワイルドカードは、POSIX `*` グロブとは異なり、ドット エントリと**一致します**。そのため、`Remove-Item .git -Recurse -Force` とリポジトリ ルートの PowerShell ワイルドカードは両方とも Git メタデータ保護にヒットしますが、POSIX `./*` は `.git` をカバーしません。
+- シェルの選択は重要です。`posix` 方言は意図的に PowerShell 削除ルールを適用しませんが、`auto` は明示的な `Remove-Item` を検出し、`git.reset-hard` などのクロスシェル ルールを引き続き有効にします。
+
+### デバイスとディスクの破壊
+
+| コマンド | トリガー | ルール ID | intent |
+| --- | --- | --- | --- |
+| `dd` | `of=/dev/…` に一致する operand。device path への直接書き込み。device からの読み取りだけでは対象にならない | `dd.device-write` | `manual_only` |
+| `mkfs` | 先頭が `mkfs` または `mkfs.*` の variant で、いずれかの operand が `/dev/` から始まる | `mkfs.device` | `manual_only` |
+| `shred` | `shred --help` と `shred --version` を含む**すべての**対象 | `shred.target` | `use_alternative` |
+
+3 つの形式は、解析不能テキストの heuristic scan にも含まれます。そのため、`echo ` または `rg ` で始まる場合を除き、解析不能テキスト内の `dd of=/dev/…`、`mkfs /dev/…`、`shred <arg>` は `raw-text.dangerous-command` としてブロックされます。いずれも壊滅的操作のルールではないため、master switch とルールごとの override の優先順位に従います。
+
+## `find`、`xargs`、`parallel` の動的対象解析
+
+| コマンド | ブロックする操作 |
+| --- | --- |
+| `find ... -delete` | -delete primary による完全削除（preview には `-print` を使う） |
+| `find -exec rm -rf ...` | exec command を nested segment として再解析するため、destructive exec をブロック |
+| `xargs rm -rf` | pipe された dynamic input で動く rm。target を予測できない |
+| `xargs <shell> -c` | 動的入力からの shell 実行 |
+| `parallel rm -rf` | parallel placeholder または stdin で動く rm |
+| `parallel <shell> -c` | 動的入力からの shell 実行 |
+
+`xargs` と `parallel` では、対象を動的入力（pipe された stdin または placeholder expansion）から得るため、cwd を基準に検証できません。`parallel` の SSH remote mode（`-S`/`--sshlogin`）も worktree relaxation を無効にします。
+
+<span id="worktree-relaxation"></span>
+
+## Worktree の緩和
+
+[Worktree mode](/ja/configuration/modes#worktree-mode)が有効な場合、検証済み linked worktree 内の local-discard git command を許可します。緩和には、次の条件をすべて満たす必要があります。
+
+1. 一致したルールが `localDiscard` に分類されること（[Git ルールエンジン](#git-rule-engine)の表を参照）。`sharedState` ルールは緩和しません。
+2. worktree mode が有効であること。`policy.json` の `workflow.worktree_mode` と `CC_SAFETY_NET_WORKTREE=1` を logical OR で結合します。
+3. git context の environment override（`GIT_DIR`、`GIT_WORK_TREE`、`GIT_COMMON_DIR`、`GIT_INDEX_FILE`）がなく、コマンドラインにも `--git-dir`/`--work-tree` がないこと。
+
+linked worktree は推測せず、明示的に検証します。`.git` entry が _file_（directory または symlink ではない）であること、`gitdir:` pointer が `commondir` file を持つ directory に解決されること、backlink がこの worktree を指すこと、`config.worktree` が一致することを確認します。main worktree、bare repository、submodule は緩和しません。検証に失敗した場合は、理由に関係なくコマンドをブロックしたままにします（fail closed）。
+
+<AccordionGroup>
+<Accordion title="緩和できない local discard">
+検証済み linked worktree 内でも、次の操作は緩和しません。`$`、`*`、`?`、`[` を含む動的引数。強制的な branch reset（`git checkout -B`/`-Bf`、または `git switch -C`/`-Cf` と `-f` または `--discard-changes` の組み合わせ）。複数の `-f` flag を持つ `git clean`（使い捨て worktree の境界を越え、nested git repository を削除するために必要）。`--recurse-submodules` option または recursive-submodule config。
+</Accordion>
+<Accordion title="git -C の path 解決">
+先頭の global option を順に処理して、有効な git 作業ディレクトリを解決します。`-C <path>` と inline `-C<path>` は directory change として適用します。`--git-dir`/`--work-tree`（別々の形式または `=` 形式）は明示的な git context として扱い、緩和をすべて無効にします。
+</Accordion>
+</AccordionGroup>
+
+## カスタムルール
+
+対応する組み込み解析器がない場合は、fallback としてカスタムルールを実行します。カスタムルールは厳密に追加専用です。ブロックを追加できますが、組み込みのブロックを override したり、保護を緩和したりできません。ルールは `<rulebook-name>/<rule-name>` の namespace を持ち、command basename、任意の subcommand、リテラルの `block_args` で照合します。短形式 option は bundle を展開するため、`-Ap` は `-A` に一致します。
+
+完全な作成ガイドと照合 semantics は、[カスタムルール](/ja/configuration/custom-rules)を参照してください。
+
+## 分類を検査する
+
+エンジンが特定のコマンドをどのように評価したかを正確に確認するには、`explain` を実行します。
+
+```bash
+npx cc-safety-net explain "rm -rf ./build"
+npx cc-safety-net explain --json "git checkout -- file.txt"
+```
+
+人が読める形式の出力は、各セグメント、解析 step、ルール評価を順に示します。JSON 出力は構造化 trace を返します。schema は [Explain trace](/ja/reference/explain-trace)を参照してください。
+
+判定がコマンドではなく設定によって誤っていると思われる場合は、runtime が fallback policy を適用していないか確認してください。`npx cc-safety-net status` は `ready` または `degraded` を出力します。該当する source の修復方法は[設定の復旧](/ja/configuration/recovery)を参照してください。
+
+## 次に読むページ
+
+技術ガイドは、ユーザー向けの lifecycle から設計理由までを順に説明します。このページは step 4 です。
+
+- 戻る: [アーキテクチャ](/ja/guides/architecture) — この分類子が最後の部分となる順序付きガード ステージ。
+- 次へ: [設計原則](/ja/guides/design-principles) — 分類がパターンベースではなくセマンティックである理由、およびレベル境界がその位置に収まる理由。
+
+関連: レベルを選択するための [モード](/ja/configuration/modes)、結果参照のための [ブロックされたコマンド](/ja/reference/blocked-commands) と [許可されたコマンド](/ja/reference/allowed-commands)、および分類子が認識しないものに関する [既知の制限事項](/ja/guides/known-limitations)。

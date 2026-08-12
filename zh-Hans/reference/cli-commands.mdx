@@ -1,0 +1,570 @@
+---
+title: "CLI 命令参考"
+sidebarTitle: "CLI 命令"
+description: "CC Safety Net CLI 命令参考：status, doctor, logs, explain, rule, install, update, uninstall, hook, gui, 和 statusline，包含它们的选项和退出行为。"
+keywords:
+  - "cli"
+  - "命令行"
+  - "cc-safety-net 命令"
+  - "status"
+  - "doctor"
+  - "logs"
+  - "explain"
+  - "rule"
+  - "install"
+  - "update"
+  - "hook"
+  - "gui"
+  - "statusline"
+---
+
+CC Safety Net 提供一个 CLI 工具，名为 `cc-safety-net`。使用 `npx cc-safety-net` 或 `bunx cc-safety-net` 来运行它。
+
+强制执行发生在您的代理内部，通过 `cc-safety-net install` 配置的插件、扩展或钩子。CLI 本身不需要全局安装 — `npx`/`bunx` 会按需获取它来运行此处记录的命令。
+
+本页是命令接口参考，包括命令、子命令、选项和退出行为。它不是教程：有关引导式首次运行，请参阅[快速入门](/zh-Hans/quickstart)；有关各智能体的设置，请参阅[安装](/zh-Hans/installation)。
+
+## 命令概览
+
+CLI 注册了十一个命令。这是它们在 `cc-safety-net --help` 中出现的顺序。
+
+| 命令 | 用法 | 功能 |
+| --- | --- | --- |
+| [`status`](#status) | `status` | 显示运行时当前正在强制执行的内容 |
+| [`doctor`](#doctor) | `doctor [options]` | 运行安装和配置的诊断检查 |
+| [`logs`](#logs) | `logs [options]` | 浏览钩子记录的审计日志条目 |
+| [`explain`](#explain) | `explain [options] <command>` | 追踪命令是如何被分析的 |
+| [`rule`](#rule) | `rule <subcommand>` | 管理规则配置、规则库源和透明包装器 |
+| [`install`](#install) | `install [TARGET_FLAG]` | 将 CC Safety Net 安装到代码代理 CLI 中 |
+| [`update`](#update) | `update` | 就地更新所有已安装的集成 |
+| [`uninstall`](#uninstall) | `uninstall [TARGET_FLAG]` | 从代码代理 CLI 中移除 CC Safety Net |
+| [`hook`](#hook) | `hook INTEGRATION_FLAG` | 作为代理的运行时钩子运行，从 stdin 读取 JSON |
+| [`gui`](#gui) | `gui [options]` | 打开本地策略编辑器 GUI |
+| [`statusline`](#statusline) | `statusline --claude-code` | 为 shell 集成打印单行状态指示器 |
+
+`doctor` 也接受别名 `--doctor`。命令查找不区分大小写。
+
+<Note>
+  `status` 和 `statusline` 是两个不同的命令。`status` 为人类打印多行报告；`statusline` 为状态栏打印正好一行的表情符号指示器。
+</Note>
+
+## status
+
+`status` 回答一个问题：运行时当前正在强制执行什么？这是在信任它之前确认保护是否生效的最快方法。
+
+```bash
+npx cc-safety-net status
+```
+
+### 裁决
+
+头条裁决是以下两个值之一：
+
+| 裁决 | 含义 |
+| --- | --- |
+| `ready` | 策略快照干净地加载，没有加载器错误、警告或策略回退 |
+| `degraded` | 快照已加载，但存在加载器错误、警告或回退策略。原因列在 `Not active` 下 |
+
+已禁用的 Claude Code 插件不再是其自身的裁决。它被报告为 `Not active` 列表中的**第一个**项目符号，作用域限定在该集成上：
+
+```text
+plugin cc-safety-net@cc-marketplace is disabled in Claude Code; nothing is enforced in Claude Code until it is re-enabled. Other integrations are not affected.
+```
+
+每当 `~/.claude/settings.json` 缺失、解析失败、没有 `enabledPlugins`，或者没有将 `cc-safety-net@cc-marketplace` 设置为 `true` 时，该插件就被视为已禁用 — 检查默认设置为禁用，因此无法读取的设置文件被读取为禁用而不是启用。
+
+裁决来自策略快照，从不从您的配置中重新派生；插件检查仅添加该项目符号，从不更改裁决。
+
+### 输出
+
+`status` 打印一个裁决行、一个对齐的事实块，然后是确认或问题列表。
+
+| 行 | 值 |
+| --- | --- |
+| `Protection` | `destructive` 和 `secrets`，分别显示为 `ok` 或 `OFF` |
+| `Level` | 有效级别 — `standard`、`strict`、`paranoid` 或 `custom` — 当任何有效的破坏性命令规则与级别继承的内容不同时，带有 ` (customised)` 后缀 |
+| `Rules` | `none active`，或 `<n> active` 表示活动的自定义规则数量 |
+| `Policy` | 用户策略文件的路径，使用 `~` 缩短 |
+| `Worktree` | `relaxations active` — 此行**仅**在启用工作树模式时打印 |
+
+事实行是单行的：长值用 `…` 截断而不是换行。
+
+事实块之后，`status` 打印 `Everything configured is active.` 或一个 `Not active` 部分，其中包含一个项目符号（当适用时，插件禁用的项目符号在前，然后是快照诊断），后跟 `Full report: cc-safety-net doctor`。
+
+当 `NO_COLOR` 设置为环境变量或 stdout 不是 TTY 时，输出会降级为 ASCII：`ok`/`OFF` 而不是勾号和叉号图形，`-` 而不是 `·`，并且没有盾牌前缀。
+
+### 退出码
+
+<Note>
+  `status` **始终退出 `0`**，包括在裁决为 `degraded` 时。它纯粹是信息性的，因此从不使脚本失败。当您希望在出现问题时获得非零退出码时，请使用 `doctor`。
+</Note>
+
+## doctor
+
+`doctor` 运行完整的安装和配置健康检查，并打印一个分节的报告。
+
+```bash
+npx cc-safety-net doctor
+bunx cc-safety-net doctor
+```
+
+| 部分 | 描述 |
+| --- | --- |
+| Hook Integration | 验证每个支持的代理的配置：Claude Code, Amp Code, Antigravity CLI, Codex, Cursor, Gemini CLI, GitHub Copilot CLI, Hermes Agent, Kimi Code, OpenClaw, OpenCode, 和 Pi |
+| Guard Engine Verification | 运行合成自检以确认阻止功能正常（`git reset --hard` 和 `rm -rf /` 被阻止；`rm -rf ./node_modules` 被允许） |
+| Configuration | 验证用户和项目规则配置，并列出有效和被遮蔽的规则 |
+| Environment | 显示 CC Safety Net 环境变量的状态 |
+| Effective Safety | 显示选定的预设、有效级别、功能和规则覆盖，包括任何削弱继承规则的覆盖 |
+| Findings | 诊断出的问题，每个问题都有严重性和修复提示 |
+| Recent Activity | 总结过去 7 天内被阻止的命令 |
+| System Info | 显示所有相关工具的版本 |
+| Update Check | 检查是否有可用更新版本 |
+
+**选项：**
+
+| 标志 | 描述 |
+| --- | --- |
+| `--json` | 以 JSON 格式输出诊断信息（用于在错误报告中共享） |
+| `--skip-update-check` | 跳过 npm 注册表版本检查 |
+| `-h`, `--help` | 显示帮助 |
+
+`doctor` 在检测到失败时以非零代码退出。失败包括未配置代理、钩子检查失败、自检失败或无效的用户或项目配置。
+
+当某些审计日志文件无法读取时，Recent Activity 部分以 `Warning: <n> audit log sources could not be read; this summary is incomplete`（当只有一个时为 `source`）结尾，因此不会将一个安静的星期误认为是完整的。
+
+## logs
+
+`logs` 读取[审计日志](/zh-Hans/reference/audit-log)：每个允许或阻止的命令决策对应一条记录。
+
+```bash
+npx cc-safety-net logs
+npx cc-safety-net logs --suspect --since 7
+npx cc-safety-net logs --id 3fa9c2d1a70e8b42
+```
+
+默认情况下，`logs` 打印过去 30 天内每个项目的 20 条最近的**拒绝**记录。传递 `--all` 以包含允许的决策。
+
+### 过滤器和选项
+
+| 标志 | 参数 | 描述 |
+| --- | --- | --- |
+| `--id` | `<id>` | 按其 16 位十六进制 ID 在保留历史记录中查找一条条目 |
+| `--limit` | `<n>` | 要打印的最大条目数。默认为 `20` |
+| `--since` | `<days>` | 仅显示比此天数更新的条目。默认为 `30`；上限是您配置的审计保留期，而不是固定数量 |
+| `--agent` | `<name>` | 精确匹配记录的代理 ID，例如 `claude-code` |
+| `--rule` | `<ruleId>` | 精确匹配记录的规则 ID |
+| `--session` | `<id>` | 匹配记录的会话 ID |
+| `--project` | `<path>` | 精确匹配项目目录，或其下的任何目录 |
+| `--suspect` | | 仅显示值得再次查看的拒绝记录 |
+| `--all` | | 除了拒绝记录外，还包括 `allow` 条目 |
+| `--prune-legacy` | | 永久删除审计根目录下的旧版文件 |
+| `--dry-run` | | 使用 `--prune-legacy` 时，报告将要删除的内容，而不实际删除 |
+| `--json` | | 以 JSON 格式输出条目 |
+| `-h`, `--help` | | 显示帮助 |
+
+**`--suspect`** 将结果缩小到值得再次查看的拒绝记录：带有 `failureStage` 的拒绝（分析失败且保护器关闭，因此命令从未被证明是危险的），或在同一会话中被拒绝两次或更多次的相同命令签名。重复项在 `--since` 窗口内计算，然后由 `--limit` 截断输出。
+
+**互斥组合。** 两者都会被拒绝并显示明确的消息和退出码 `1`：
+
+- `--id` 不能与 `--agent`、`--rule`、`--session`、`--project`、`--suspect`、`--since` 或 `--limit` 组合使用。
+- `--prune-legacy` 不能与 `--id`、`--agent`、`--rule`、`--session`、`--project`、`--suspect`、`--all`、`--since` 或 `--limit` 组合使用。`--json` 和 `--dry-run` 是唯一允许与之一起使用的标志。
+
+单独使用 `--dry-run` 也会被拒绝：它会打印 `--dry-run requires --prune-legacy` 并退出 `1`。
+
+未识别的选项会打印 `Unknown option for logs: <arg>` 并退出 `1`。
+
+当审计日志文件无法读取或记录格式错误时，`logs` 会向 stderr 打印一条警告 — `warning: <n> audit log sources could not be read; these results are incomplete`（当只有一个时为 `source`） — 并保持 stdout 和退出码不变。
+
+### 机器可读输出
+
+| 调用 | JSON 形状 |
+| --- | --- |
+| `logs --json` | 一个原始审计条目数组，2 个空格缩进，在过滤、按最新优先排序和 `--limit` 之后 |
+| `logs --id <id> --json` | 一个包含零个或一个条目的数组 |
+| `logs --json` 且没有审计日志目录 | `[]` |
+| `logs --prune-legacy --json` | 一个紧凑对象：`{"removedFiles":n,"removedBytes":n,"failedFiles":n}` |
+| `logs --prune-legacy --dry-run --json` | 一个紧凑对象：`{"dryRun":true,"files":n,"bytes":n}` |
+
+人类可读输出为每个条目打印一行 — ID、时间戳、决策、代理、规则 ID 和截断到 50 个字符的命令，`↳` 标记了与完整命令不同的部分。`--id` 则打印一个标记的详细信息块，涵盖记录的每个字段。
+
+### logs --prune-legacy
+
+<Warning>
+  `logs --prune-legacy` **立即且不可逆地删除**审计根目录下的所有旧版根目录 `*.jsonl` 文件。没有确认提示，也没有 `--yes` — 当您想查看将要删除的内容时，请先添加 `--dry-run`。年龄和内容无关紧要 — 成员资格仅由文件位置决定。
+</Warning>
+
+嵌套的每个项目审计日志永远不会被触及，命令稍后会说明这一点。当所有删除都成功时，它退出 `0`，如果任何文件无法删除，则退出 `1`。再次运行时，如果没有任何东西需要删除，则是一个空操作。
+
+使用 `--dry-run` 时，不会删除任何内容。命令打印 `Would remove <n> legacy audit log files (<size>).` — 或 `No legacy audit log files found.` — 然后是 `Nested v2 audit logs are not included.`，并且当有东西要删除时，会打印 `Run the same command without --dry-run to delete them.`。它始终退出 `0`。使用 `--json` 时，它会打印紧凑对象 `{"dryRun":true,"files":n,"bytes":n}`。
+
+有关旧版布局和当前布局之间的区别，请参阅[审计日志](/zh-Hans/reference/audit-log)。
+
+## explain
+
+`explain` 逐步追踪 CC Safety Net 如何分析命令。使用它来理解命令为何被阻止或允许，或者自定义规则如何适用。
+
+```bash
+npx cc-safety-net explain "git reset --hard"
+bunx cc-safety-net explain "git reset --hard"
+```
+
+**选项：**
+
+| 标志 | 描述 |
+| --- | --- |
+| `--json` | 以 JSON 格式输出完整的分析结果 |
+| `--cwd <path>` | 分析时假定从该工作目录运行 |
+| `-h`, `--help` | 显示帮助 |
+
+`--` 结束标志解析；之后的所有内容都是命令。单个剩余参数按原样使用，因此 shell 操作符会保留；多个参数会被重新引用。
+
+**示例：**
+
+```bash
+npx cc-safety-net explain "rm -rf /"
+npx cc-safety-net explain --json "git checkout -- file.txt"
+npx cc-safety-net explain --cwd /tmp "git status"
+```
+
+成功解析选项后，`explain` 对阻止和允许的结果都退出 `0`。请阅读 `result` 字段而不是退出码。只有选项验证会失败：
+
+- 未知选项会打印 `Unknown option for explain: <arg>`；没有值的 `--cwd` 会打印 `--cwd requires a value`。任何解析错误后都会跟着 `Usage: cc-safety-net explain [--json] [--cwd <path>] <command>` 和 `Pass -- before a command that starts with dashes.`，并退出 `1`。
+- 不存在的 `--cwd` 路径会打印 `Error: --cwd path does not exist: <path>` 并退出 `1`。
+- 空命令会打印 `Error: No command provided` 以及用法行，并退出 `1`。
+
+顶层解析器以相同方式处理 `--`：它在第一个 `--` 处停止查找 `--help` 和 `--version`，因此 `explain -- --help` 会解释字面命令 `--help` 而不是打印帮助。
+
+<Warning>
+  Explain 输出不会自动变得适合共享。它会回显你提供的命令、解析后的 token，以及包括主目录在内的绝对路径。将跟踪粘贴到 issue 或聊天前，请参阅 [Explain 跟踪](/zh-Hans/reference/explain-trace)。
+</Warning>
+
+有关 `--json` 返回的 JSON schema，包括 `ExplainResult` 字段和每个 `TraceStep` 变体，请参阅 [Explain 跟踪参考](/zh-Hans/reference/explain-trace)。
+
+## rule
+
+`rule` 管理你的规则配置、规则簿源和透明命令包装器。本节说明命令接口；规则簿 schema、生命周期和覆盖语义位于[自定义规则](/zh-Hans/configuration/custom-rules)。
+
+运行不带子命令的 `rule` 会打印帮助并退出 `1`。`rule --help` 打印相同的帮助并退出 `0`。
+
+**选项：**
+
+| 标志 | 描述 | 有效于 |
+| --- | --- | --- |
+| `-g`, `--global` | 使用用户范围的规则配置而不是项目范围 | 除 `list` 和 `migrate` 之外的所有子命令 |
+| `--check` | 在不更改锁定或缓存状态的情况下进行检查 | 除 `migrate` 之外的所有子命令；对 `init`, `add`, `remove`, `update`, 和 `sync` 有意义 |
+| `--cleanup` | 在 `rule migrate` 验证它们之后删除旧版文件 | 仅 `migrate` |
+| `--delete-source` | 删除干净的本地源目录时将其删除 | 仅 `remove` |
+| `--example` | 创建一个非活动的示例规则库 | 仅 `init` |
+| `-h`, `--help` | 显示帮助 | 任何 |
+
+### rule init
+
+为当前范围创建规则配置。如果文件存在，命令会将其重写为规范格式，并保留 `rules`、`overrides` 和 `transparent_wrappers`。命令在需要时创建规则库缓存目录。
+
+```bash
+npx -y cc-safety-net rule init
+npx -y cc-safety-net rule init --global
+```
+
+单独运行 `rule init` 会写入一个**惰性**配置，其中不包含任何规则。传递 `--example` 还会写入一个名为 `example-rules` 的入门规则库：
+
+```bash
+npx -y cc-safety-net rule init --example
+```
+
+仅当 `example-rules/rulebook.json` 不存在时才写入示例规则库。由于配置未引用它，因此它是**非活动的**。使用 `rule add example-rules` 添加它以使其活动。
+
+### rule add
+
+添加一个规则库源并同步。`<source>` 是一个裸本地名称（例如 `project-rules`）或 GitHub 源，形式为 `owner/repo#ref/<rulebook-name>`：
+
+```bash
+npx -y cc-safety-net rule add project-rules
+npx -y cc-safety-net rule add kenryu42/cc-safety-net#main/block-git-add-all
+npx -y cc-safety-net rule add --global my-personal-rules
+```
+
+省略源是错误。
+
+### rule remove
+
+移除一个规则库源并同步。添加 `--delete-source` 以在删除干净的本地源目录时也删除它：
+
+```bash
+npx -y cc-safety-net rule remove project-rules
+npx -y cc-safety-net rule remove project-rules --delete-source
+```
+
+### rule update
+
+刷新已配置规则库源的锁定和缓存，或者在提供单个源时刷新该源：
+
+```bash
+npx -y cc-safety-net rule update
+npx -y cc-safety-net rule update project-rules
+npx -y cc-safety-net rule update --check
+```
+
+不带源参数的 `rule update` 等同于 `rule sync`。
+
+### rule sync
+
+为所有已配置的规则库源重建锁定和缓存。在手动编辑 `rule.json` 后运行它：
+
+```bash
+npx -y cc-safety-net rule sync
+```
+
+使用 `--check` 时，`update` 和 `sync` 都打印 `Rule config checked.` 而不是 `Rule config synced.`，并保持锁定和缓存状态不变。
+
+### rule list
+
+列出用户范围和项目范围内的活动规则库及其解析的源：
+
+```bash
+npx -y cc-safety-net rule list
+```
+
+`rule list` 同时读取两个范围，因此拒绝 `--global`。它仅在策略**错误**时退出 `1`；警告会被打印但退出 `0`。
+
+### rule wrapper
+
+管理透明命令包装器 — 这些命令将其参数传递给另一个命令，因此 CC Safety Net 应该分析其内部内容而不是包装器本身。
+
+```bash
+npx -y cc-safety-net rule wrapper list
+npx -y cc-safety-net rule wrapper add rtk
+npx -y cc-safety-net rule wrapper remove rtk
+```
+
+- 操作是必需的，并且必须是 `add`、`remove` 或 `list`。
+- `wrapper list` 不接受其他参数。它打印 `Transparent wrappers: (none)` 或一个编号列表。
+- `wrapper add` 和 `wrapper remove` 各自需要一个命令名。
+- 包装器名称必须匹配 `^[a-zA-Z][a-zA-Z0-9_-]*$`，并且保留命令不能注册为包装器。
+- `add` 会去重；`remove` 会过滤。范围遵循 `-g`/`--global`。
+
+注册的包装器会在 [Explain 跟踪](/zh-Hans/reference/explain-trace) 中显示为 `transparent-wrapper` 步骤。
+
+### rule verify
+
+验证两个范围内的规则配置文件，包括旧版路径和模式类型检测。在手动编辑配置后使用它：
+
+```bash
+npx -y cc-safety-net rule verify
+```
+
+在一切有效时退出 `0`，无效时退出非零。
+
+`rule verify` 不是纯粹的检查 — 它可能会修改它验证的文件。当某个范围的 `rule.json` 验证干净但没有 `$schema` 键时，命令会重写该文件：它插入
+
+```json
+"$schema": "https://raw.githubusercontent.com/kenryu42/cc-safety-net/main/assets/cc-safety-net.schema.json"
+```
+
+作为第一个键，并打印 `Added $schema to user config.` 或 `Added $schema to project config.`。这仅发生在用户或项目范围内的有效规则模式配置上 — 从不用于旧版配置或有错误的配置 — 并且没有标志可以关闭它。重写会将整个文件重新序列化为两空格缩进，因此在 CI 中，该命令可能会修改已跟踪的文件。如果您需要 `rule verify` 为只读，请提前提交 `$schema` 键。
+
+### rule migrate
+
+将旧版内联配置文件 — 项目的 `.safety-net.json` 和用户的 `~/.cc-safety-net/config.json` — 转换为规则库布局：
+
+```bash
+npx -y cc-safety-net rule migrate
+npx -y cc-safety-net rule migrate --cleanup
+```
+
+`--cleanup` 在迁移的规则验证后删除旧版文件。`migrate` 拒绝 `--global`、`--check` 和任何第二个位置参数。
+
+### rule doc
+
+将规则库编写指南打印到 stdout。将指南通过管道传输到代理以进行规则库编写或验证：
+
+```bash
+npx -y cc-safety-net rule doc
+```
+
+指南打印后，`rule doc` 会检查 npm 注册表是否有更新版本 — 最多每 24 小时一次，结果缓存在 `~/.cc-safety-net/update-check.json` 中。当存在更新版本时，它会在 stderr 中写入正好一行：
+
+```text
+UPDATE_AVAILABLE: cc-safety-net v<latest> is available (running v<current>). Ask the user once whether to run `npx -y cc-safety-net@latest update`; continue the current task either way and do not raise this again.
+```
+
+指南本身输出到 stdout，因此管道保持干净，并且同一版本不会在 7 天内再次宣布。设置 `CC_SAFETY_NET_NO_UPDATE_CHECK` 可完全禁用检查。注册表检查失败时是静默的，无论如何退出码都保持 `0`。
+
+## install
+
+`install` 将 CC Safety Net 集成到代码代理 CLI 中。目标集来自 CC Safety Net 的集成目录，因此与 GUI 和 `doctor` 使用的列表相同。
+
+有关各智能体的步骤、安装后操作和旧版插件标识符迁移，请参阅[安装](/zh-Hans/installation)。
+
+```bash
+npx -y cc-safety-net install
+npx -y cc-safety-net install --claude-code
+```
+
+### 目标
+
+接受十二个目标，按安装顺序排列：
+
+| 标志 | 代理 | 安装方式 |
+| --- | --- | --- |
+| `--amp` | Amp Code | 将插件文件写入 `~/.config/amp/plugins/cc-safety-net.ts` |
+| `--agy-cli` | Antigravity CLI | 将钩子条目写入 `~/.gemini/config/hooks.json` |
+| `--claude-code` | Claude Code | 运行 Claude Code 自带的插件市场命令 |
+| `--codex` | Codex | 运行 Codex 自带的插件市场命令 |
+| `--cursor` | Cursor | 将钩子条目写入 `~/.cursor/hooks.json` |
+| `--gemini-cli` | Gemini CLI | 运行 Gemini CLI 的扩展安装命令 |
+| `--copilot-cli` | GitHub Copilot CLI | 运行 Copilot CLI 自带的插件市场命令 |
+| `--hermes-agent` | Hermes Agent | 写入一个托管的 Python 插件到 `~/.hermes/plugins/cc-safety-net`（或 `$HERMES_HOME` 下）并使用 `hermes plugins enable` 启用它 |
+| `--kimi-code` | Kimi Code | 将 `[[hooks]]` 块写入 `~/.kimi-code/config.toml`（或 `$KIMI_CODE_HOME/config.toml`） |
+| `--openclaw` | OpenClaw | 通过 OpenClaw 自带的 `openclaw plugins` 命令安装和启用捆绑的插件 |
+| `--opencode` | OpenCode | 运行 OpenCode 的全局插件安装 |
+| `--pi` | Pi | 运行 Pi 的包安装 |
+
+### 安装机制
+
+CC Safety Net 使用三种安装机制：
+
+- **原生插件或扩展命令** — Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, OpenClaw, OpenCode, 和 Pi。CC Safety Net 调用代理自带的插件管理器并在此过程中清理被取代的插件 ID。OpenClaw 的安装还会事后验证 OpenClaw 是否报告插件已加载，然后要求您重新启动 OpenClaw Gateway。
+- **配置文件写入** — Antigravity CLI, Cursor, 和 Kimi Code。这三个是 CC Safety Net 直接编辑的唯一代理配置。
+- **插件文件** — Amp Code 和 Hermes Agent。更改后，重启 Amp 或运行 `plugins: reload`；对于 Hermes Agent，安装还会运行 `hermes plugins enable`，更改需要重启 Hermes。
+
+在配置文件安装（Antigravity CLI、Cursor 或 Kimi Code）或 Hermes Agent 安装写入任何内容之前，它会清除 `npx` 缓存中的过时副本。npm 缓存的 `_npx` 目录下，每个 `node_modules` 包含 `cc-safety-net` 的条目都会被移除。缓存路径为 `$npm_config_cache`（如果已设置）；否则在 macOS 和 Linux 上为 `~/.npm`，在 Windows 上为 `%LOCALAPPDATA%\npm-cache`。这四个集成通过 `npx` 运行 hook，因此新安装的 hook 会解析到最新版本，而不是缓存版本。
+
+### 选择目标
+
+- **无标志，交互式终端：** 会出现一个箭头键多选提示。每个目标都会被探测可用性，因此未安装的代理会显示 `CLI not installed`，已设置的代理会显示 `already installed`，卸载时未配置的代理会显示 `not installed`。
+- **带目标标志：** 提供**仅一个**目标标志。多个标志会引发 `Choose exactly one install|uninstall target:` 并显示完整的标志列表。未知的 `-` 参数和多余的位置参数也是错误。
+
+选择器的按键绑定在其页脚中打印。安装期间，页脚显示：
+
+```text
+Space: select  Enter: confirm  u: update installed  Up/Down: move  q/Esc: cancel
+```
+
+`Space` 切换高亮目标，`Enter` 确认（未选择任何内容时只会发出终端铃声），`Up`/`Down` — 或 `k`/`j` — 在可选择的行之间移动。在安装过程中按 `u`（或 `U`）会离开选择器并运行 [`update`](#update) 流程，而不是继续安装；卸载页脚省略了该绑定。按 `q` 或 `Esc` 退出会打印 `Cancelled: nothing was installed.`（或 `Cancelled: nothing was uninstalled.`）并退出 `0` — 退出是一个决定，而不是失败。按 `Ctrl-C` 则会引发 `SIGINT`，因此进程会像中断的程序一样正常结束。
+
+选定的目标始终按目录安装顺序运行，而不是您选择的顺序。失败会退出 `1` 并显示特定于错误的提示 — 权限问题、缺失路径或不是目录的路径组件。
+
+## update
+
+`update` 就地刷新所有已安装的集成。它从不安装任何新内容 — 您尚未设置的代理将保持不变。
+
+```bash
+npx -y cc-safety-net@latest update
+```
+
+目标通过读取每个代理的配置和状态文件来查找：当一个集成被检测为已安装时，它就有资格，**即使它当前被禁用**。GitHub Copilot CLI 是例外 — 它仅在 Copilot 的 `installed-plugins` 目录中存在 CC Safety Net 插件签出时才有资格，因为其禁用状态与未安装任何东西的开关无法区分，并且更新绝不能变成安装。仍然使用旧版 `safety-net@cc-marketplace` 插件 ID 的安装 — 在 Claude Code 或 Codex 中 — 也会被拾取，因此更新会将它们迁移到当前 ID。
+
+每个目标然后按目录安装顺序运行与 `install` 相同的操作，消息改为 `Updated …` 或 `… up to date`。对于那些安装驱动代理自带 CLI 的目标 — Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Hermes Agent, OpenClaw, OpenCode, 和 Pi — 首先会探测供应商二进制文件：缺失的二进制文件会打印 `<Agent> not found; skipped`（例如 `Codex not found; skipped`）并继续运行。配置文件和插件文件目标 — Amp Code, Antigravity CLI, Cursor, 和 Kimi Code — 不需要二进制文件，并且总是刷新。
+
+当没有任何目标符合条件时，`update` 打印 ``No installed integrations found. Run `cc-safety-net install` to set one up.`` 并退出 `0`。
+
+`update` 不接受目标标志和参数 — 仅接受 `-h`/`--help`。任何其他选项都会打印 `Unknown option for update: <flag>`，位置参数会打印 `Unexpected argument for update: <arg>`，两者都会退出 `1`。更新目标时发生的失败会以与 `install` 相同的错误提示退出 `1`；否则退出码为 `0`。
+
+您也可以通过交互式 `install` 选择器按 `u` 键访问更新流程。
+
+## uninstall
+
+`uninstall` 接受与 `install` 相同的十二个目标标志，并使用相同的选择规则和目标顺序。
+
+```bash
+npx -y cc-safety-net uninstall
+npx -y cc-safety-net uninstall --cursor
+```
+
+对于配置文件目标，卸载仅移除 CC Safety Net 管理的条目 — 通过其自身的钩子命令字符串匹配 — 并保持文件中的其他内容不变。
+
+## hook
+
+`hook` 将 CC Safety Net 作为代理的运行时钩子运行。它从 stdin 读取代理的钩子输入作为 JSON，并发出该代理的拒绝格式。您通常不手动运行它：您的代理的插件或配置会将其连接起来。它是保护命令的幕后推手。
+
+`hook` 需要**仅一个**集成标志。零个标志 — 或多个标志 — 会打印 `hook requires exactly one integration flag. Try: cc-safety-net hook --kimi-code`，显示命令帮助，并退出 `1`。
+
+| 标志 | 代理 | 钩子事件 | 旧版标志 |
+| --- | --- | --- | --- |
+| `-ac`, `--agy-cli` | Antigravity CLI | `PreToolUse` | — |
+| `-cc`, `--coding-cli` | Coding CLI (Claude Code) | `PreToolUse` | `--claude-code`; 也作为顶级形式的 `cc-safety-net -cc` 和 `cc-safety-net --claude-code` |
+| `-cu`, `--cursor` | Cursor | `preToolUse` | — |
+| `-gc`, `--gemini-cli` | Gemini CLI | `BeforeTool` | 作为顶级形式的 `cc-safety-net -gc` 和 `cc-safety-net --gemini-cli` |
+| `-cp`, `--copilot-cli` | GitHub Copilot CLI | `PreToolUse` | 作为顶级形式的 `cc-safety-net -cp` 和 `cc-safety-net --copilot-cli` |
+| `-ha`, `--hermes-agent` | Hermes Agent | `pre_tool_call` | — |
+| `-kc`, `--kimi-code` | Kimi Code | `PreToolUse` | — |
+
+Amp Code、Codex、OpenClaw、OpenCode 和 Pi 没有自己的 `hook` 标志。Amp Code、OpenClaw、OpenCode 和 Pi 将 CC Safety Net 作为插件或扩展加载到进程中；Codex 插件调用上面的共享 `hook --coding-cli` 入口点。有关每个智能体的连接方式，请参阅[集成架构](/zh-Hans/guides/integration-architecture)。
+
+<Note>
+  没有 `hook install` 或 `hook uninstall` 子命令。安装由顶层 [`install`](#install) 和 [`uninstall`](#uninstall) 命令处理。
+</Note>
+
+### Antigravity CLI 入口点
+
+`install --agy-cli` 将命令 `npx -y cc-safety-net hook --agy-cli` 写入 `~/.gemini/config/hooks.json` — Antigravity 共享 `.gemini` 目录。托管条目名为 `cc-safety-net`，并注册一个带有 30 秒超时的 `PreToolUse` 命令钩子。安装在文件不存在时创建它，重新启用已禁用的托管条目，或追加新条目；卸载仅移除命令与托管字符串匹配的条目。
+
+运行时，钩子读取 Antigravity 的 `run_command` 工具调用，从 `conversationId` 获取会话 ID，并以 `{ "decision": "deny", "reason": … }` 的形式拒绝。
+
+### Cursor 入口点
+
+`install --cursor` 将命令 `npx -y cc-safety-net hook --cursor` 写入 `~/.cursor/hooks.json` 的 `hooks.preToolUse` 下，在一个 `"version": 1` 文档中，带有 30 秒超时和 `failClosed: true`。安装程序会验证文档的版本和形状，并以描述性错误失败，而不是重写它不识别的内容。重复的托管条目会被合并为一个。
+
+运行时，钩子读取 Cursor 的 `Shell` 工具调用，从 `conversation_id` 获取会话 ID，并以 `{ "permission": "deny", … }` 或 `{ "permission": "allow" }` 回答。Cursor 的 `working_directory` 字段会与工作区根目录进行包含检查，并在缺失但已声明或指向外部时关闭失败。
+
+## gui
+
+`gui` 启动本地策略编辑器，并在你的浏览器中打开它。有关仪表板视图和确认行为，请参阅[仪表板](/zh-Hans/guides/dashboard)。
+
+```bash
+npx cc-safety-net gui
+npx cc-safety-net gui --no-open
+```
+
+### 选项
+
+| 标志 | 描述 |
+| --- | --- |
+| `--no-open` | 启动服务器并打印 URL，而不启动浏览器 |
+| `-h`, `--help` | 显示帮助 |
+
+`--no-open` 是 `gui` 接受的唯一参数。任何其他参数都会打印错误 — 选项为 `Unknown option for gui: <arg>`，位置参数为 `Unexpected argument for gui: <arg>` — 然后是 `Usage: cc-safety-net gui [--no-open]`，并退出 `1`。
+
+服务器始终首先启动，并且 URL 始终打印为 `CC Safety Net policy GUI: <url>`，无论是否使用该标志 — `--no-open` 仅抑制浏览器启动。浏览器启动失败不是致命的：`gui` 会打印手动打开的 URL，服务器会继续运行。
+
+服务器绑定 `127.0.0.1` 在一个临时端口上，并且每次运行时都会生成一个新的令牌，因此 URL 看起来像 `http://127.0.0.1:<port>/?token=<token>`。每个请求都必须携带该令牌，并且写入还必须将其作为标头发送。然后进程一直运行直到您中断它。
+
+## statusline
+
+`statusline` 将 CC Safety Net 的当前状态打印为一行表情符号指示器，适合代理状态栏。它需要 `--claude-code`（短形式 `-cc`）；没有它，命令会出错，显示帮助，并退出 `1`。
+
+```bash
+bunx cc-safety-net statusline --claude-code
+# -cc is the short form of --claude-code
+bunx cc-safety-net statusline -cc
+```
+
+当插件被禁用时，该行显示 `🛡️ CC Safety Net ❌`。否则，它会显示级别的表情符号 — `✅` 标准，`🔒` 严格，`👁️` 偏执，`🔧` 自定义 — 加上工作树松弛激活时的 `🌳`，以及策略快照降级时的尾随 `⚠️`。
+
+`statusline` 在输入被管道传输到它时读取标准输入。它会丢弃 Claude Code 的 JSON 状态负载。它会保留其他管道文本并将其作为 `<stdin> | <status>` 前缀。
+
+`statusline` 和 [`status`](#status) 使用相同的策略快照和环境模式。它们的输出格式不同。使用 `status` 进行终端报告。使用 `statusline` 进行程序或状态栏。
+
+有关设置说明和每个指示器的含义，请参阅[状态行](/zh-Hans/configuration/status-line)配置页面。
+
+## 全局选项
+
+随时检查已安装的版本或获取用法信息。`--version` 有一个 `-V` 短别名，`--help` 有一个 `-h` 短别名。
+
+```bash
+npx cc-safety-net --version
+npx cc-safety-net -V
+npx cc-safety-net --help
+npx cc-safety-net -h
+```
+
+使用 `help <command>` 或 `<command> --help` 查看特定命令的用法：
+
+```bash
+npx cc-safety-net help explain
+npx cc-safety-net explain --help
+npx cc-safety-net help doctor
+```
+
+未识别的命令会打印 `Unknown command: <name>` — 或以 `-` 开头的命令打印 `Unknown option: <name>` — 后跟 `Run 'cc-safety-net --help' for usage.`，并退出 `1`。对于未知命令的 `help <name>` 会打印 `Unknown command: <name>` 和 `Run 'cc-safety-net --help' for available commands.`。所有这些失败路径消息，包括它们显示的帮助文本，都会输出到 stderr。

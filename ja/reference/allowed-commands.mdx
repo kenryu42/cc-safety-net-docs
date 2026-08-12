@@ -1,0 +1,173 @@
+---
+title: "許可されるコマンドと許可される理由"
+sidebarTitle: "許可されるコマンド"
+description: "CC Safety Net が許可する Git、ファイルシステム、デバイス、PowerShell、機密パスの各コマンドと、strict および paranoid が取り消す許可のリファレンス。"
+keywords:
+  - "許可されるコマンド"
+  - "安全なコマンド"
+  - "許可済みコマンド"
+  - "許可リスト"
+  - "ホワイトリスト"
+  - "安全なバリエーション"
+  - "パススルー"
+  - "allow_paths"
+  - "WhatIf"
+  - "worktree モード"
+---
+
+CC Safety Net は、意味に基づくコマンド解析を使って、許可される形式と破壊的な形式を区別します。アナライザーは、このページにあるコマンド形式を許可します。
+
+一部の許可は安全レベルによって異なります。**standard のみ**と記載した行は、[strict](/ja/configuration/modes) または [paranoid](/ja/configuration/modes) が有効になると許可されません。
+
+このページは、許可されるコマンドのリファレンスです。ブロックされる形式については、[ブロックされるコマンド](/ja/reference/blocked-commands)を参照してください。順序付きのガードフローについては、[アーキテクチャ](/ja/guides/architecture)を参照してください。分類の動作については、[解析エンジン](/ja/guides/analysis-engine)を参照してください。
+
+<Warning>
+  壊滅的な操作に対する保護は、すべての安全レベルに適用されます。ルートとホームの再帰削除、保護対象の Git メタデータ、正規の `policy.json` は常にブロックされます。このページにある形式、`allow_paths`、worktree モード、ルールごとの `off` オーバーライドでは、この保護を緩和できません。
+</Warning>
+
+## Git コマンド
+
+| コマンドパターン | 安全な理由 |
+| --- | --- |
+| `git checkout -b <branch>` | 新しいブランチを作成して、そのブランチに切り替える |
+| `git checkout --orphan` | orphan ブランチを作成する |
+| `git restore --staged` | ファイルのステージを解除するだけで、変更を破棄しない |
+| `git restore --help` / `--version` | ヘルプまたはバージョンのみを出力する |
+| `git branch -d` | マージ確認を使う安全な削除 |
+| `git clean -n` / `--dry-run` | プレビューのみで、ファイルを削除しない |
+| `git push --force-with-lease` | 履歴を書き換える前に、想定したリモート状態を確認する |
+
+## ファイルシステムコマンド
+
+| コマンドパターン | 安全な理由 | レベル |
+| --- | --- | --- |
+| `rm -rf /tmp/...` | 一時ディレクトリは一時的なもの | すべて |
+| `rm -rf /var/tmp/...` | システムの一時ディレクトリ | すべて |
+| `rm -rf $TMPDIR/...` | ユーザーの一時ディレクトリ（`$TMPDIR` が一時パス以外に上書きされている場合を除く） | すべて |
+| `rm -rf ./subdir`（cwd 内） | 現在の作業ディレクトリ内のパスに限定される | [paranoid rm](/ja/configuration/modes) 以外のすべて |
+| `rm -rf "$target"`（動的ターゲット） | standard は、検証できないターゲットを一律にはブロックしない | **standard のみ** |
+| `cleanup() { rm -rf ../outside; }`（定義のみ） | 関数定義だけでは何も実行しない。関数が呼び出された場所でのみ本体を解析する | すべて |
+
+`rm -rf` はターゲットによって分類され、最初の一致が優先されます。ルートまたはホームのターゲット（`/`、`~`、`$HOME`）、保護対象の Git メタデータ、cwd 自体（`rm -rf .`）、cwd がホーム自体である場合は、すべてのレベルでブロックされます。cwd 外のその他のリテラルパスも、認識済みの一時パスまたは設定済み allow path でない限りブロックされます。一時パスと cwd 内のパスは許可されます。違いに注意してください。`rm -rf ./subdir` は許可されますが、cwd 自体を示す `rm -rf .` はブロックされます。
+
+その上で、レベルに応じた次の 2 つの調整が適用されます。
+
+- 動的ターゲット（`rm -rf "$target"`、バッククォート、置換）は standard では許可され、fail-closed 機能が有効になるとブロックされます。standard は、敵対的または動的に生成されたコマンドテキストに対してベストエフォートで動作します。
+- `CC_SAFETY_NET_PARANOID_RM=1` を設定すると、一時パス以外の再帰的な強制削除は、cwd 内でもブロックされます。そのため、`rm -rf ./cache` は許可されなくなります。一時ターゲットと設定済みの許可パスは引き続き許可されます。
+
+### 設定済みの許可パス
+
+`destructive_command_protection.allow_paths` に記載した絶対ディレクトリまたは `~/` で始まるディレクトリは、信頼された一時ルートとして扱われます。これは**すべて**の安全レベルで、`rm`、PowerShell の `Remove-Item`、`find -delete` に適用されます。
+
+許可パスが他の範囲を広げることはありません。機密パス保護や拒否パスを緩和しません。ルート、ホーム、保護対象の Git メタデータを対象にはできません。リポジトリを含む許可パスでも、そのリポジトリの `.git` に対する `rm -rf` はブロックされます。動的ターゲットが最初に分類されるため、検証できないターゲットには許可パスが適用されません。`$HOME` と等しい、またはそれを含むエントリは、検証時と正規化後の両方で拒否されます。許可パスから外へ出るシンボリックリンクは対象外です。
+
+## heredoc データコンシューマー
+
+stdin の引用符付き heredoc で、コンシューマーが本文を保存または公開するだけの場合、その本文はプログラムではなくデータです。そのため、本文をコマンドテキストとしてスキャンしません。コンシューマーは、リテラルの `cat`、`tee`、`git apply`、`git commit`、`gh pr create`、`gh issue create` のいずれかである必要があります。heredoc はコマンドの唯一の入力リダイレクトである必要があります。また、`cat` と `tee` は出力プロセス置換（`>(...)`）に接続できません。この許可は、strict と paranoid を含む**すべて**のレベルで有効です。
+
+| コマンドパターン | 安全な理由 |
+| --- | --- |
+| `cat > note.md <<'EOF'` | 本文をファイルに書き込み、実行しない |
+| `tee note.md <<'EOF'` | 同様に、本文を実行せず保存する |
+| `git apply <<'PATCH'` | パッチ本文をテキストとして適用し、実行しない |
+| `git commit -F - <<'EOF'` | 本文がコミットメッセージになる。破壊的なコマンドを文章として説明していても同じ |
+| `gh pr create --body-file - <<'EOF'`、`gh issue create -F - <<'EOF'` | 本文を PR または issue のテキストとして公開する |
+
+区切り文字は引用符で囲む必要があります（`<<'EOF'`）。引用符がない `<<EOF` の本文では置換が展開される可能性があるため、standard では引き続きスキャンされ、fail-closed が有効になると拒否されます。heredoc の外にあるコマンドは引き続き解析されます。`cat <<'EOF' && rm -rf ~` は `rm` でブロックされます。`cat`、`tee`、`git commit`、`gh pr create`、`gh issue create` では、機密パスを抽出する前にも本文がマスクされます。そのため、シークレットのファイル名を文章で示してもコミットはブロックされません。`git apply` の本文は、書き込むファイル名をパッチが示すため、パス抽出からは見える状態を保ちます。完全な条件と、その条件を満たさない heredoc を standard が処理する方法については、[heredoc 解析](/ja/guides/analysis-engine)を参照してください。
+
+## standard のみの許可
+
+次の形式は standard では許可され、[strict](/ja/configuration/modes) または [paranoid](/ja/configuration/modes) が有効になると拒否されます。これは見落としではなく、意図したトレードオフです。standard は、敵対的または動的な入力に対してベストエフォートで動作します。
+
+| コマンドパターン | standard が許可する理由 |
+| --- | --- |
+| `echo 'unterminated` | 解析できないが安全に見えるテキスト。フォールバックのヒューリスティックスキャンで破壊的なものが見つからなかった。同じスキャンにより、`git reset --hard 'unterminated` は standard でもブロックされる |
+| `rm -rf "$target"` | 実行前に検証できない再帰削除ターゲット |
+| `Remove-Item $target -Recurse -Force` | 同じ検証不能なターゲットを使う PowerShell の同等形式 |
+| `Get-ChildItem . -Recurse \| Remove-Item -Force` | 検証できない PowerShell パイプライン入力 |
+| `$(printf r)m -rf /` | 動的な実行ファイル。置換によってコマンドヘッドが組み立てられる |
+| `git reset $(printf --hard)` | 動的な構造。置換によって引数が組み立てられる |
+| `test -f ~/.ssh/id_rsa`、`find ~/.ssh -type f` | 内容にアクセスせず、組み込み機密パスのメタデータのみを検出する |
+| `W='rm -rf ~'; echo "$W"` | 正しく解析された引用符付きリテラル代入内の危険なテキスト。変数が引用符付き引数データとしてのみ使われる場合、使用時までブロックを保留する |
+| `f() { rm -rf "$1"; }; f ~` | 呼び出された関数本体では位置パラメーターが未束縛のままであるため、ターゲットが動的になる。`rm -rf "$target"` と同じトレードオフ |
+
+引用符付き代入の保留は狭い範囲に限定されます。代入自体は何も実行せず、引用符付きの展開は 1 つの argv ワードのままなので、コマンドとフラグに分割されません。データとしての使用だとアナライザーが証明できない参照では、代入時のブロックが維持されます。これには、引用符なしの展開（`env $W`）、コマンド位置でのすべての展開（引用符付きも含む）、コマンド置換内の参照、引用符なしの heredoc 本文内の参照が含まれます。値をシェルに渡す処理は、後段で検出されます。`eval "$W"`、`bash -c "$W"`、`echo "$W" | sh` はすべて、シェル実行元を検証できないため拒否されます。
+
+<Note>
+  リソース枯渇の制限は、このトレードオフの一部ではありません。パーサーの再帰上限または構造検証上限を超えるコマンドは、standard を含む**すべて**のレベルで拒否されます。
+</Note>
+
+## デバイスコマンド
+
+`dd`、`mkfs`、`shred` はすべてのレベルで解析されますが、実際に破壊的な形式のみがブロックされます。
+
+| コマンドパターン | 安全な理由 |
+| --- | --- |
+| `dd if=/dev/sda of=./backup.img` | デバイスからファイルへ読み取る。ブロックされるのは、デバイスへ直接書き込む `of=/dev/...` のみ |
+| `dd if=x.iso of=./out.img`、`dd if=/dev/urandom of=random.dat` | 出力ターゲットが通常のファイル |
+| `mkfs.ext4 disk.img`、`mkfs.ext4 ./loop.img` | `/dev/` デバイスではなく、ファイルベースのイメージをフォーマットする |
+| オペランドがない `shred` | `shred` ルールには少なくとも 1 つのターゲットが必要。`shred --help` と `shred --version` は、すべてのオペランドが対象になるため**ブロックされる** |
+| `ldd ./bin`、`ddrescue if=/dev/sda of=./out.img` | ワード境界で一致する。`dd` または `shred` を部分文字列として含むだけのヘッドは、ルールのヘッドではない |
+
+## PowerShell コマンド
+
+| コマンドパターン | 安全な理由 |
+| --- | --- |
+| `Remove-Item . -Recurse -Force -WhatIf` | `-WhatIf` はドライランなので、何も削除しない。`-WhatIf:$true` と省略形 `-wi` も同じ動作をする。`-WhatIf:$false` は再びブロックされる |
+| `Remove-Item file.txt` | 再帰的でも強制でもない単純な削除は、破壊的ルールセットの対象外 |
+| `Remove-Item .\dist -Recurse -Force`、`-Path .\dist`、`-LiteralPath:.\dist`、`.\{dist}`、`'.\dist,old'` | 現在の作業ディレクトリ内（paranoid rm ではブロックされる） |
+| `Remove-Item /tmp/test-dir -Recurse -Force` | `rm` と同じ分類の一時ターゲット。設定済みの許可パスも同様に動作する |
+| `Remove-Item 'file''name.txt'` とバッククォートでエスケープした形式 | 破壊的なターゲットに解決されない、引用またはエスケープされた単純削除 |
+| `Remove-Item $target -Recurse -Force` | 動的ターゲット。**standard のみ**。strict と paranoid ではブロックされる |
+| `Get-ChildItem . -Recurse \| Remove-Item -Force` | 検証できないパイプライン入力。**standard のみ** |
+
+シェルモードに `posix` を選ぶと、PowerShell の削除ルールは意図的にすべて無効になります。一方、`git.reset-hard` や `rm.recursive-force-root-or-home` などのクロスシェルルールは維持されます。`auto` モードでは、明示的な `Remove-Item` が検出されます。これは、`;`、改行、`&&`、`||` の後にある場合も同じです。
+
+## 機密パスに関する許可
+
+機密パス保護は、サポート対象の形式に対する範囲が限定されたパターンセットです。そのため、機密ファイル名を含む一部の形式は引き続き許可されます。
+
+| コマンドパターン | 許可される理由 | レベル |
+| --- | --- | --- |
+| `find . -name .env` | `-name` は読み取るパスではなく、検索*パターン*を指定する | すべて |
+| `find src -type f` | 機密パスのルートがない | すべて |
+| `custom-tool README.md`、`make FOO=bar`、`xxd README.md` | リストにないコマンドの無害なオペランド | すべて |
+| `cat .env.example`（`.env.sample`、`.env.template`、`.env.defaults` も同様） | env テンプレートにはシークレットではなくプレースホルダー値が入る。ほかのすべての機密パスルールより先に除外される | すべて |
+| `cat node_modules/x/fixture.pem` | ベンダー管理ディレクトリでは、拡張子ルールと広範なキーベース名ルールが抑制される | すべて |
+| `test -f ~/.ssh/id_rsa` | 内容にアクセスしないメタデータのみの存在確認 | **standard のみ** |
+| `find ~/.ssh -type f` | 内容にアクセスしないメタデータのみの一覧取得 | **standard のみ** |
+| 機密パスのリテラルを含む Node/Bun のインライン評価 | 範囲を限定した字句スキャンでファイルシステムまたはコマンド実行のマーカーが見つからない場合、非アクティブな診断データとして扱う | **standard のみ** |
+
+この許可のうち 2 つには、知っておく必要がある正確な境界があります。
+
+- **env テンプレート。** 正確なベース名 `.env.example`、`.env.sample`、`.env.template`、`.env.defaults` と、`.env.example.` または `.env.sample.` で始まるすべての名前（`.env.example.local` など）は、ほかのすべての機密パスルールより先に除外されます。そのため、保護対象のホームディレクトリ内でも読み書きできます。この接頭辞形式は、残りの 2 つのテンプレートには拡張されません。`.env.template.local` は、ほかのすべての `.env.*` 名と同様に `secret.pattern.env-variant` でブロックされます。
+- **ベンダー管理ディレクトリ。** パスセグメントが `node_modules` または `__pycache__` の場合、または隣接する組み合わせ `vendor/bundle` または `vendor/cache` がある場合（単独の `vendor` セグメントは対象外）、正確に 2 つのルールグループが抑制されます。拡張子ルール（`.pem`、`.p12`、`.key` など）と、拡張子なしの広範なキーベース名ルール `secret.pattern.ssh-key-basename`（`*_rsa`、`*_dsa`、`*_ed25519`、`*_ecdsa`）です。それ以外のルールはすべて引き続き適用されます。`node_modules/x/.env` と `node_modules/x/id_rsa` は通常どおりブロックされます。`.git` は除外セットに**含まれません**。そのため、`.git` ツリー内のキーマテリアル（`.git/hooks/deploy_key_rsa` など）は、ほかの場所と同様にルールに一致します。
+
+<Warning>
+  standard は、機密な**内容**へのアクセスや設定済みの拒否パスを緩和しません。`cat ~/.ssh/id_rsa`、`find ~/.ssh -type f -exec cat {} +`、`find ~/.ssh -type f -fprint .env`、`test -f ~/.ssh/id_rsa && cat ~/.ssh/id_rsa`、`test -f "$(cat ~/.ssh/id_rsa)"` はすべて standard でもブロックされます。拒否パスとその子孫は組み込みルールより先に一致し、standard のみの 2 つの緩和の対象外です。
+</Warning>
+
+## worktree モードの例外
+
+[`CC_SAFETY_NET_WORKTREE=1`](/ja/configuration/modes) を設定すると、CC Safety Net はリンクされた Git worktree を確認した後、選択したローカル破棄コマンドを許可します。確認に失敗した場合、コマンドは引き続きブロックされます。
+
+worktree モードが有効なとき、リンクされた worktree 内で次のコマンドが許可されます。
+
+- `git restore <file>` と `git restore --worktree <file>`
+- `git checkout -- <file>`、`git checkout <ref> -- <file>`、`git checkout --force`、複数の位置引数を持つ曖昧な checkout 形式
+- `git switch --discard-changes` と `git switch -f` / `--force`
+- `git reset --hard` と `git reset --merge`
+- `git clean -f`（`-fd` などの結合フラグも含む）
+
+次のコマンドはローカルの作業ツリーを越えて影響するため、リンクされた worktree 内でも引き続きブロックされます。
+
+- `git push --force` — リモートに影響する
+- `git branch -D` — 共有 ref に影響する
+- `git stash drop` / `git stash clear` — stash は worktree 間で共有される
+- `git worktree remove --force` — 別の worktree を削除する可能性がある
+
+worktree モードは、Git のローカル破棄ルールのみを緩和します。ファイルシステム、デバイス、PowerShell のルールには影響しません。また、Git メタデータ保護を緩和することもありません。リンクされた worktree 内でも、`rm .git`、`rm -rf <resolved gitDir>`、`rm -rf <commonDir>`、リダイレクト `> .git` はすべて hard-stop になります。これは、マーカーファイルが解決する Git ディレクトリも保護されるためです。
+
+<Tip>
+  安全だと考えるコマンドを CC Safety Net がブロックする場合は、`npx cc-safety-net explain "<command>"` を実行して解析全体を確認し、理由を把握してください。フラグについては [CLI コマンド](/ja/reference/cli-commands)を、より広い診断フローについては[トラブルシューティング](/ja/guides/troubleshooting)を参照してください。
+</Tip>

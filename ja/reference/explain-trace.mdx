@@ -1,0 +1,158 @@
+---
+title: "explain JSON トレースリファレンス"
+sidebarTitle: "explain トレース"
+description: "cc-safety-net explain --json が返す JSON のスキーマ。ExplainResult フィールド、各解析手順を示す TraceStep のバリエーション、共有前にトレースが明らかにする情報を説明します。"
+keywords:
+  - "explain"
+  - "explain --json"
+  - "トレース"
+  - "JSON トレース"
+  - "ExplainResult"
+  - "TraceStep"
+  - "判定トレース"
+  - "ブロック理由"
+---
+
+`explain --json` コマンドは、コマンド解析の構造化トレースを返します。このページでは、スクリプトやほかのツール向けに JSON の形式を定義します。また、共有前にトレースから明らかになる可能性がある情報も説明します。
+
+フラグと終了動作については、[CLI コマンド](/ja/reference/cli-commands)を参照してください。予期しないブロックに関するヘルプについては、[トラブルシューティング](/ja/guides/troubleshooting)を参照してください。
+
+```bash
+npx cc-safety-net explain --json "git checkout -- file.txt"
+```
+
+<Warning>
+  トレースは、そのまま安全に共有できるとは限りません。最初に[トレースを共有する前に](#トレースを共有する前に)を読んでください。
+</Warning>
+
+## ExplainResult
+
+`explain --json` が返す最上位オブジェクトです。
+
+| フィールド | 型 | 有無 | 説明 |
+| --- | --- | --- | --- |
+| `result` | `"blocked" \| "allowed"` | 常にある | コマンドの最終結果 |
+| `reason` | `string` | ブロック時のみ | ブロック理由 |
+| `segment` | `string` | ブロック時のみ | 判定を発生させた特定のセグメント |
+| `ruleId` | `string` | 一致したルールによるブロック時 | ブロックを発生させたルールの ID |
+| `trace` | `ExplainTrace` | 常にある | 最上位およびセグメントごとの手順を持つトレースコンテナー |
+| `customRule` | `object` | カスタムルールまたはルールブックルールが一致した場合 | `id` と、任意の `rulebook`（`name`、`version`）、`source`、`override`（`{ type: "reason", reason }`） |
+| `configSource` | `string \| null` | 常にある | 有効な設定を読み込んだ設定ファイル |
+| `configValid` | `boolean` | 常にある | 読み込んだ設定が問題なく検証されたか |
+| `effectiveLevel` | `"standard" \| "strict" \| "paranoid" \| "custom"` | 常にある | 環境変数フラグとオーバーライドを適用した、実際に有効なレベル |
+| `selectedPreset` | `"standard" \| "strict" \| "paranoid"` | 常にある | ポリシーで指定したプリセット。既定値は `standard` |
+| `effectiveCapabilities` | `object` | 常にある | 機能ごとの状態。下記を参照 |
+| `destructiveCommandRuleOverrides` | `Record<string, "on" \| "off">` | 常にある。`{}` の場合がある | ポリシーに保存されたルールごとのオーバーライド |
+| `ruleActivation` | `object` | 条件付き。下記を参照 | 関連ルールが on または off の状態になった方法 |
+
+4 つの設定フィールド `effectiveLevel`、`selectedPreset`、`effectiveCapabilities`、`destructiveCommandRuleOverrides` は一度だけ作成され、すべての返却パスに含まれます。そのため、空のコマンドを explain する場合でも存在します。
+
+### `effectiveCapabilities`
+
+`effectiveCapabilities` は、`fail_closed`、`paranoid_rm`、`paranoid_interpreters` をキーにするレコードです。各値には次のフィールドがあります。
+
+| フィールド | 型 | 説明 |
+| --- | --- | --- |
+| `enabled` | `boolean` | 機能が有効か |
+| `source` | `"preset" \| "capability_override" \| "environment"` | 最終状態を決めたもの |
+| `sources` | `array` | 影響したすべての入力。優先順位順 |
+
+各機能が変更する動作については、[モード](/ja/configuration/modes)を参照してください。
+
+### `ruleActivation`
+
+`ruleActivation` は、関連ルールが有効化機能を宣言している場合にのみ存在します。関連ルールは、一致したルールまたはモードで制御される候補ルールです。モードで制御される候補とは、必要なレベルまたは機能が有効なら一致するルールです。
+
+| フィールド | 型 | 説明 |
+| --- | --- | --- |
+| `id` | `string` | ルール ID |
+| `enabled` | `boolean` | ルールが現在有効か |
+| `inheritedEnabled` | `boolean` | 継承だけでルールが有効になるか |
+| `changesInherited` | `boolean` | 有効な状態が継承した状態と異なるか |
+| `source` | `string` | 状態を決めたもの。`catastrophic`、`master_disabled`、`rule_override`、`preset`、`capability_override`、`environment`、`built_in_default` のいずれか |
+| `activationCapability` | `string` | 任意。ルールを制御する機能 |
+| `override` | `"on" \| "off"` | 任意。保存済みのルールごとのオーバーライド（存在する場合） |
+
+人向けの出力では、`Rule activation: <id> — on|off via <source>` という 1 行で表示されます。
+
+## `ExplainTrace`
+
+| フィールド | 型 | 説明 |
+| --- | --- | --- |
+| `steps` | `TraceStep[]` | 最上位の手順。多くのトレースはグローバルな `parse` 手順で始まる。保護の短絡処理では省略されることがある |
+| `segments` | `object[]` | セグメントごとのエントリ。各エントリに `index` と固有の `steps` 配列がある |
+
+トレースは受動的です。記録によって判定が変わることはなく、通常のガード評価ではトレースを作りません。トレースは `explain` 専用です。
+
+**上限。** レコーダーは保持する内容を制限します。イベントは最大 512 件、テキスト値は 1 件あたり 2,048 文字、リストは 1 件あたり 128 項目、オブジェクトは 1 件あたり 128 プロパティ、ネストは 16 レベルです。上限を超えたイベントは保存せずに数だけを記録し、記録されたすべての値は deep-freeze されます。削除したイベントの数は `ExplainTrace` では公開されません。公開されるのは `steps` と `segments` だけです。
+
+## `TraceStep` のバリエーション
+
+ほかのフィールドを読む前に、`type` を使ってバリエーションを選んでください。
+
+| `type` | 主なフィールド | 出現する場合 |
+| --- | --- | --- |
+| `parse` | `input`, `segments` | 最初のシェル分割で、入力をトークンセグメントに分けた場合 |
+| `env-strip` | `input`, `envVars`, `output` | セグメントの先頭から環境変数代入を削除した場合（値は編集済み） |
+| `leading-tokens-stripped` | `input`, `removed`, `output` | 解析前に先頭トークン（`env`、`command` など）を削除した場合 |
+| `shell-wrapper` | `wrapper`, `innerCommand` | `bash -c` などのシェルラッパーを展開した場合 |
+| `interpreter` | `interpreter`, `codeArg`, `paranoidBlocked` | インタープリターのワンライナーを調べた場合。`paranoidBlocked` は paranoid モードによる即時拒否を示す |
+| `busybox` | `subcommand` | busybox 形式のディスパッチをサブコマンドに解決した場合 |
+| `transparent-wrapper` | `wrapper`, `output` | 登録済みの透過ラッパーを通して内部を確認した場合。下記を参照 |
+| `recurse` | `reason`, `innerCommand`, `depth` | 再帰的な再解析を開始した場合 |
+| `rule-check` | `ruleModule`, `ruleFunction`, `matched`, `reason?` | 組み込みルールモジュールを評価した場合 |
+| `worktree-relaxation` | `originalReason`, `gitCwd` | ターゲットがリンクされた worktree であるため、Git の破棄コマンドを緩和した場合 |
+| `tmpdir-check` | `tmpdirValue`, `isOverriddenToNonTemp`, `allowTmpdirVar` | `$TMPDIR` の解決と上書き検出 |
+| `fallback-scan` | `tokensScanned`, `embeddedCommandFound?` | 残りのトークンに対するフォールバックの危険テキストスキャン |
+| `custom-rules-check` | `rulesChecked`, `matched`, `reason?` | ユーザー定義ルールを評価した場合 |
+| `cwd-change` | `segment`, `effectiveCwdNowUnknown` | `cd` または `pushd` が有効な cwd を変更した場合。以後の分類は新しい cwd または不明な cwd を使う |
+| `dangerous-text` | `token`, `matched`, `reason?` | トークンを危険テキストパターンと照合した場合 |
+| `strict-unparseable` | `rawCommand`, `reason` | strict モードが解析不能なコマンドを fail-closed で拒否した場合 |
+| `segment-skipped` | `index`, `reason` | 前のセグメントがすでにブロックされたため、セグメントをスキップした場合 |
+| `error` | `message`, `partial?` | 解析エラーを取得した場合。`partial` は部分的な出力を示す |
+
+### `recurse` の理由
+
+`recurse.reason` は、`shell-wrapper`、`interpreter`、`busybox`、`shell-eval`、`shell-trap`、`shell-stdin`、`shell-heredoc`、`heredoc-file` の 8 値のいずれかです。
+
+`heredoc-file` は、内容を解析がすでに把握しているスクリプトファイルをコマンドが実行した場合に記録されます。その内容とは、同じコマンド内で先に `cat >` または `tee` を使ってそのパスへ書き込んだ、引用符付き heredoc 本文です。保存済みの本文はスクリプトとして再解析されます。[heredoc 解析](/ja/guides/analysis-engine)を参照してください。
+
+### `transparent-wrapper` 手順
+
+`transparent-wrapper` は、`rule wrapper add` で登録したコマンドを通して内部を確認したときに記録される、セグメント範囲の手順です。主要な子と各代替候補を含む候補の子ごとに 1 手順が出力され、各手順には次のフィールドがあります。
+
+| フィールド | 型 | 説明 |
+| --- | --- | --- |
+| `wrapper` | `string` | ラッパーコマンド名 |
+| `output` | `string[]` | 解析が再帰的に処理する候補トークンリスト |
+
+この手順は、対象トークンへの再帰の直前に記録されます。そのため、ラップされたコマンドの解析より必ず前にあります。人向けの出力では、番号付きの `Transparent wrapper` 手順として表示され、`Wrapper:` と `Tokens:` が示されます。
+
+ラッパーは `rule wrapper add`、`rule wrapper remove`、`rule wrapper list` コマンドで管理します。[`rule wrapper`](/ja/reference/cli-commands)を参照してください。
+
+## トレースの順序
+
+一般的なトレースは、`parse` → セグメントごとの `env-strip` / `leading-tokens-stripped` → 検出（`shell-wrapper` / `interpreter` / `busybox` / `transparent-wrapper`）→ `rule-check` または `custom-rules-check` → 判定という順に進みます。再帰は `depth` が増える `recurse` 手順として表示されます。ただし、`busybox` ディスパッチは `recurse` 手順を記録しても再帰深度を消費しません。そのため、busybox ラッパーのチェーンでは同じ `depth` 値が繰り返されます。判定だけが必要な場合は、トレースをたどらず、最上位の `result` と、必要に応じて `reason`、`segment`、`ruleId` を読んでください。
+
+3 つの保護は、エバリュエーターの実行前に短絡します。ポリシーファイル保護、Git メタデータ保護、シークレット保護です。これらのいずれかがコマンドをブロックすると、トレースには**合成された 1 つの `rule-check` 手順だけが入り、`parse` 手順はありません**。`ruleId` は `policy-protection`、`git-metadata-protection`、または一致したシークレットルールの ID になります。すべてのトレースが `parse` 手順で始まると仮定するツールは、この場合を処理する必要があります。
+
+## トレースを共有する前に
+
+<Warning>
+  **explain トレースは、そのまま安全に共有できるものではありません。** `parse` 手順は、入力した生のコマンド文字列と、解析された各トークンを記録します。ほかの多くの手順にも生のテキストがあります。`fallback-scan.tokensScanned`、`dangerous-text.token`、`shell-wrapper.innerCommand`、`interpreter.codeArg`、`recurse.innerCommand`、`strict-unparseable.rawCommand`、`transparent-wrapper.output`、`worktree-relaxation.gitCwd`、`cwd-change.segment` が該当します。`configSource` は絶対パスであり、通常はホームディレクトリ内にあります。
+
+  編集処理が削除するのは、認識された資格情報の**形式**だけです。これは[監査ログ](/ja/reference/audit-log)と同じ、範囲が限定されたパターンリストです。ファイルパス、ホスト名、IP アドレス、ユーザー名、プロジェクト名、クライアント名、リストにない形式のシークレットについては何も保証しません。認識できないものは編集できません。
+
+  トレースを共有する前に、**プレースホルダーの資格情報とパス**を使って問題を再現してください。その後、**出力を最初から最後まで読み**、公開したくないものを削除してください。
+</Warning>
+
+たとえば、`--token=…` 代入を含むコマンドを explain するとトークンは編集されます。しかし、同じコマンド内の `/srv/acme-prod/customer-dump.sql` のようなパスは、ホスト名、IP アドレス、アカウント名などとともに完全な形で返されます。
+
+脆弱性レポートに `explain` 出力を含めることができます。編集はベストエフォートの制御であり、保証ではありません。編集のバイパスは報告可能な脆弱性です。貼り付ける前に完全な出力を確認してください。
+
+## 関連ページ
+
+- [CLI コマンド](/ja/reference/cli-commands) — `explain` のフラグ、例、終了動作。
+- [監査ログ](/ja/reference/audit-log) — 編集パターンのリストと、ログレコードに適用される同じ境界。
+- [解析エンジン](/ja/guides/analysis-engine) — 各トレース手順に対応する動作。
+- [トラブルシューティング](/ja/guides/troubleshooting) — 予期しないブロックの診断に `explain` を使う方法。

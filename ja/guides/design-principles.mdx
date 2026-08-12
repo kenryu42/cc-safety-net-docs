@@ -1,0 +1,109 @@
+---
+title: "設計原則"
+sidebarTitle: "設計原則"
+description: "CC Safety Net の設計理由：wildcard より semantic analysis、常時有効な保護を先に置く固定 guard order、ツール自身の failure で fail closed、エージェントが作業を続けられる denial、最小限の dependency surface、rulebook、多層防御、worktree relaxation。"
+---
+
+これは技術 sequence の最後のページです。新しい動作は追加せず、[アーキテクチャ](/ja/guides/architecture)と[解析エンジン](/ja/guides/analysis-engine)が規定する内容の理由と tradeoff を説明します。*何が*起きるかを知るには、先にそれらを読んでください。*なぜ*起きるかを知るには、このページを読んでください。
+
+CC Safety Net は、AI コーディングエージェントが home directory 全体を削除した実際の incident を受けて構築されました。すべての設計判断は 1 つの目標に基づきます。エージェントが破壊的コマンドを実行する*前*に阻止し、誤った安心感を与えないことです。
+
+## Wildcard pattern より semantic analysis
+
+コーディングエージェントは、`git reset --hard` に対する wildcard rule など、wildcard matching を使う deny rule に対応します。wildcard pattern は raw command string と pattern を比較するため、space、flag order、command wrapping の変化で block が静かに失敗する可能性があります。flag の並べ替え（`rm -r -f /`）、shell での wrapping（`sh -c "rm -rf /"`）、interpreter の背後への隠蔽は、すべて string matching を回避します。
+
+代わりに CC Safety Net は各 command を parse し、`git`、`rm`、`Remove-Item`、`find`、`xargs`、`parallel` の実際の option grammar を理解する analyzer に渡します。このため、判定は command の*見た目*ではなく、command が*実行する動作*に基づきます。
+
+tradeoff は複雑さです。parser は shell syntax を正しく処理する必要があり、対応する各 command には独自の analyzer が必要です。利点は、最も重要な command に対する bypass resistance です。pipeline は[アーキテクチャ](/ja/guides/architecture#inside-command-analysis)で、各 analyzer の正確な動作は[解析エンジン](/ja/guides/analysis-engine)で規定します。
+
+## 常時有効な保護を先に置く 1 つの固定順序
+
+すべての連携で、各ツール呼び出しは同じ順序付き stage を通ります。そのうち 2 stage（canonical policy file と Git metadata の保護）は、意図的に policy snapshot の読み込み*前*に実行します。
+
+この順序が重要です。設定後に評価する保護の強さは設定に依存し、侵害されたエージェントが最初に編集しようとするのは設定だからです。policy file を読み込む前に拒否することで、この 2 guard は config state を持たず、preset や override で緩和できず、保護対象の file 自身で無効化できません。その代わり、safety level と fallback reason はまだ不明なため、denial で報告できません。これは unconditional guarantee のために diagnostic detail を減らす意図的な tradeoff です。
+
+Sensitive-path protection は snapshot の後にあります。これは policy で制御できます。どの path を sensitive とするかは実際に local decision であり、独自の deny path を追加できなければ役に立たないためです。
+
+具体的な stage table は[アーキテクチャ](/ja/guides/architecture#the-ordered-guard-stages)にあります。
+
+## 解析を完了できない場合は fail closed
+
+CC Safety Net は解析を完了できない場合に、許可せずブロックします。
+
+- guard 内の throw error は、すべての entry point で、throw した stage に属する deny になります。
+- tool-input bound または parser budget の超過は、すべての safety level で deny になります。
+- [Strict mode](/ja/configuration/modes#strict-mode)は fail-closed をさらに拡張し、parser が完全に理解できない command と検証できない destructive target を対象にします。
+
+理由は明確です。fail open する safety net は、誤った安心感を与えるため、safety net がない場合より危険です。予期しない error での block は不便ですが復旧できます。destructive command の通過は復旧できません。
+
+**無効な設定は意図的にこの対象ではありません。** 拒否された configuration source は deny に変換せず drop します。rulebook の typo だけで machine が全作業を block すると、ユーザーに対する denial-of-service になり、file の修正ではなく tool の uninstall を促すためです。[設定の復旧](/ja/configuration/recovery)が、その contract と修復手順を定めます。
+
+各 trust boundary での適用方法は[セキュリティモデル](/ja/guides/security-model)を参照してください。
+
+## エージェントが作業を続けられる denial
+
+denial は error state ではありません。active session で通常の tool result としてエージェントに届きます。この動作が、各 block message の書き方を決めます。
+
+単なる「permission denied」は、エージェントに類似 command を再試行させるか、task 全体を停止させる可能性があります。variant の反復は未保護の形式を見つけ、agent turn を消費する可能性があります。task 全体を止めると、1 つの safety action が作業停止になります。
+
+そのため、各 message はエージェントに生産的な次の操作を渡すよう構成します。reason は command が実行したはずの動作を平易に示し、安全な代替がある場合はその名前を示します。各 rule には、closing instruction を選択する **intent** もあります。block を報告して task の残りを続行する、指定した代替に切り替える、狭い明示 target で再試行する、操作をユーザーに渡す、variant の総当たりではなく command を再構成する、のいずれかです。internal error の fail-closed denial にも intent（retry せず再構成）があるため、tool 自身の予期しない failure でも、有用な response へ導きます。
+
+instruction は意図的に advisory です。エージェントに強制はしません。enforcement は guard が行い、従わない retry も同じように block します。message の目的は compliant path を最も簡単にすることです。このため通常は、session が block を吸収して続行します。message の構造と完全な intent table は[仕組み](/ja/guides/how-it-works#ブロック結果の形式)を参照してください。
+
+## 最小限の dependency surface
+
+CC Safety Net は runtime dependency surface を遅延読み込みする 1 package に保ちます。segment splitting、quoting、redirection、command substitution、dynamic-word provenance という構造情報はすべて、third-party grammar ではなく**独自の上限付き POSIX parser と PowerShell parser**から取得します。これは意図的な build-versus-buy decision です。
+
+- 小さい dependency tree は supply-chain attack surface を縮小します。parser は攻撃者が最も混乱させたい構成要素です。
+- analysis には一般的な tokenizer が保持しない fact が必要です。どの word が expansion 由来か、どの target が working directory に固定されるか、どの quoting form が使われたかです。owned parser だけが、これらを first-class fact にできます。
+- parser budget を configuration ではなく fixed constant にできるため、resource exhaustion は open-ended problem ではなく、上限付きで test 可能な failure mode になります。
+- CC Safety Net を hook subprocess として実行するエージェントでは、shell tool call ごとに新しく開始するため startup time が重要です。dependency が少ないと cold start が速くなります。
+
+parser budget と各 dependency の使用方法は[アーキテクチャ](/ja/guides/architecture#parsers-and-the-runtime-dependency-surface)を参照してください。
+
+## Rulebook system
+
+以前の version は、custom rule を 1 つの project file に inline JSON として保存しました。CC Safety Net は、4 つの理由で rulebook system に置き換えました。
+
+- **共有**：rulebook は GitHub repository から取得し、lockfile の SHA-256 digest で固定できるため、team は JSON を copy-paste せず blocking policy を共有できます。
+- **Integrity**：remote rulebook content は使用前に lockfile digest に対して検証します。inline config には integrity の仕組みがありませんでした。
+- **Scoping**：rulebook は、別々の config directory を持つ user（global）scope と project scope に対応します。
+- **Validation**：rulebook content は、blocking decision に影響する前に schema validation を受けます。
+
+custom rule は厳密に additive です。制限を追加することだけができ、built-in protection を緩和できません。これにより trust boundary が簡潔になります。authoring workflow は[カスタムルール](/ja/configuration/custom-rules)を参照してください。
+
+## 1 設定ではなく段階的な level
+
+保護は単一の on/off switch ではなく、standard、strict、paranoid の 3 preset として提供します。「検証できない command を block すべきか」への正しい答えは、command の source によって異なるためです。
+
+Standard は、人間が監督する session 向けに最適化しています。認識できる destructive command と sensitive-content access を block し、parse できないが無害な text は許容するため、日常作業を中断しません。敵対的または動的な input に対しては明示的に **best-effort** であり、prompt injection や他の信頼できない context から command が来る場合には適しません。
+
+Strict と paranoid は摩擦と引き換えに確実性を高めます。Strict は検証できないものを block し、paranoid は通常は問題ないが時に壊滅的な category も block します。この設計は、standard-mode parser heuristic の追加によって standard の gap を閉じようとはしません。静的に解決できない target は、推測を増やしても安全にはならないためです。新たな gap への所定の対応は、strict または paranoid の fail-closed fixture です。このため、standard mode の residual-risk family を隠さず記録します。
+
+個別 capability は別々に設定でき、rule ごとの override で standard 下でも strict-tier rule を強制できます。ただし、catastrophic rule または always-on protection を override で弱めることはできません。level は[モード](/ja/configuration/modes)、各 boundary の正確な位置は[解析エンジン](/ja/guides/analysis-engine#safety-level-boundaries)を参照してください。
+
+## 代替ではなく多層防御
+
+CC Safety Net は完全な security solution とは主張しません。多層防御 stack の 1 layer と位置づけます。
+
+- **Permission deny rule** は、迅速でユーザー設定可能な block を提供します。CC Safety Net は permission system の*前*に実行するため、deny rule の設定に関係なく各 command を検査します。
+- **OS-level sandboxing** は filesystem と network access を制限しますが、その境界*内*の操作が destructive かは理解しません。sandboxed directory 内の `git reset --hard` は sandbox の視点では技術的に安全ですが、依然として危険な操作です。
+
+これらを併用してください。deny rule は迅速な iteration、sandboxing は未知の threat と containment、CC Safety Net は既知の destructive pattern に対する bypass-resistant protection を担当します。[CC Safety Net とサンドボックス](/ja/guides/vs-sandboxing)を参照してください。
+
+## Worktree relaxation
+
+linked git worktree には usability problem があります。worktree で作業する developer は、その worktree の local change を破棄するために `git checkout -- .` または `git reset --hard` を実行したい場合がありますが、default rule は local-discard operation として block します。
+
+rule 全般を緩和する代わりに、[worktree mode](/ja/configuration/modes#worktree-mode)は local discard だけを、linked worktree と確実に検証された directory 内だけで、かつ git context が redirect されていない場合だけ許可します。verification が設計を支える要素です。worktree のように見えるだけの directory は対象外で、check を完了できない場合は command を block したままにします。
+
+この緩和は意図的に狭くしています。remote-affecting operation（force push、branch delete、stash drop）はすべて block のままです。使い捨て worktree の外へ到達できる local discard も block します。正確な条件と緩和不能な場合は[解析エンジン](/ja/guides/analysis-engine#worktree-relaxation)、mode の有効化方法は[モード](/ja/configuration/modes)を参照してください。
+
+## 次に読むページ
+
+技術ガイドは、ユーザー向け lifecycle から設計理由まで順に説明します。このページは最後の step 5 です。
+
+- 前：[解析エンジン](/ja/guides/analysis-engine)：これらの tradeoff から生じる正確な classification behavior。[アーキテクチャ](/ja/guides/architecture)：それらが正当化する guard order。
+- 最初から：[仕組み](/ja/guides/how-it-works)：同じ system をユーザー向けの深さで説明します。
+
+関連ページ：[セキュリティモデル](/ja/guides/security-model)：これらの decision が保護する trust boundary。[既知の制限](/ja/guides/known-limitations)：対応できない範囲。[設定の復旧](/ja/configuration/recovery)：上記の `ready` / `degraded` contract。

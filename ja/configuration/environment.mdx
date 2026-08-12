@@ -1,0 +1,107 @@
+---
+title: "環境変数"
+sidebarTitle: "環境変数"
+description: "CC Safety Net のすべての環境変数を説明します。安全レベル、機能トグル、audit scope、debug output、設定ディレクトリの上書き、update check の無効化、policy と環境の優先順位を含みます。"
+---
+
+CC Safety Net は、`policy.json` と環境変数から設定を読み取ります。mode toggle は `CC_SAFETY_NET_*` prefix を使用します。`CC_` prefix がない古い `SAFETY_NET_*` 名は、明記されている場合に legacy alias として使用できます。エージェントを起動する前に、shell またはエージェントの起動環境で変数を設定してください。
+
+このページでは、変数自体と、変数を `policy.json` と組み合わせる方法を説明します。各レベルがブロックする内容については[安全レベル](/ja/configuration/modes)を、policy file の完全な仕様については[ポリシー](/ja/configuration/policy)を参照してください。
+
+## 安全レベル
+
+| 変数 | Legacy alias | 効果 |
+| --- | --- | --- |
+| `CC_SAFETY_NET_LEVEL=standard\|strict\|paranoid` | なし | 安全 preset を選択します。`policy.json` の `safety.level` で設定したレベルを上げますが、下げません。 |
+
+3 つの preset は、同じ 3 機能（`fail_closed`、`paranoid_rm`、`paranoid_interpreters`）に展開されます。各 preset がブロックする内容と各機能の変更点については、[安全レベル](/ja/configuration/modes)を参照してください。
+
+`standard`、`strict`、`paranoid` 以外の値は無視され、`policy.json` で設定したレベルがそのまま使用されます。拒否された値は常に stderr に報告されます。debug flag は不要です。
+
+```
+CC Safety Net: ignored invalid CC_SAFETY_NET_LEVEL="<value>". Use standard, strict, paranoid.
+```
+
+報告される値は、先頭の 40 文字に切り詰められます。空の値は未設定として扱われ、warning は表示されません。
+
+## 機能トグル
+
+次の変数は、機能ごとの legacy flag です。各 flag は機能を**上げるだけ**です。false として扱われる値を設定しても、機能は無効になりません。preset より下の状態に機能を無効化する必要がある場合は、[policy.json](/ja/configuration/policy) の `safety.overrides` を使用してください。
+
+| 変数 | Legacy alias | 効果 |
+| --- | --- | --- |
+| `CC_SAFETY_NET_STRICT=1` | `SAFETY_NET_STRICT` | `fail_closed` 機能を強制的に有効にします。`safety.overrides.fail_closed: true` と同じです。 |
+| `CC_SAFETY_NET_PARANOID=1` | `SAFETY_NET_PARANOID` | `paranoid_rm` と `paranoid_interpreters` の両方を強制的に有効にします。`fail_closed` は設定**しません**。 |
+| `CC_SAFETY_NET_PARANOID_RM=1` | `SAFETY_NET_PARANOID_RM` | `paranoid_rm` を強制的に有効にします。対象が cwd 内にある場合も、temp 以外に対する `rm -rf` をブロックします。 |
+| `CC_SAFETY_NET_PARANOID_INTERPRETERS=1` | `SAFETY_NET_PARANOID_INTERPRETERS` | `paranoid_interpreters` を強制的に有効にします。内容に関係なく、すべての interpreter one-liner をブロックします。 |
+| `CC_SAFETY_NET_WORKTREE=1` | `SAFETY_NET_WORKTREE` | 確認済みの linked worktree 内で、ローカル変更を破棄する Git ルールを緩和します。`workflow.worktree_mode` と logical OR で組み合わせます。 |
+
+boolean flag は、`1` または `true`（大文字と小文字を区別しない）に設定すると true です。`CC_SAFETY_NET_*` 名が設定されている場合は、それが優先されます。prefix 付きの名前がない場合にのみ、`SAFETY_NET_*` alias を参照します。
+
+## 優先順位
+
+policy と環境は、次の固定された順番で組み合わせます。
+
+1. **Preset。** `policy.json` の `safety.level` が、継承する機能の既定値を提供します。field がない場合、preset は `standard` です。
+2. **`CC_SAFETY_NET_LEVEL`。** 有効な基本レベルは、policy level と environment level の高い方です。環境はレベルを上げられますが、下げられません。
+3. **`safety.overrides.*`。** 次に、`policy.json` の明示的な機能 override が、`fail_closed`、`paranoid_rm`、`paranoid_interpreters` をどちらの方向にも設定します。つまり、上げることも**下げることも**できます。
+4. **機能トグル。** `CC_SAFETY_NET_STRICT`、`CC_SAFETY_NET_PARANOID`、`CC_SAFETY_NET_PARANOID_RM`、`CC_SAFETY_NET_PARANOID_INTERPRETERS` flag は最後に適用され、**単調**です。各 flag は機能を強制的に `true` にし、機能を無効にすることはできません。
+5. **Worktree mode** は、`workflow.worktree_mode` と `CC_SAFETY_NET_WORKTREE` の logical OR です。
+
+報告される**有効レベル**は、最終的な 3 機能の組み合わせから算出されます。どの preset にも一致しない組み合わせは、`custom` と報告されます。例として、`fail_closed` が無効で `paranoid_rm` が有効な場合があります。
+
+`destructive_command_protection.overrides` のルールごとの項目は、機能から算出された状態の上に適用されます。catastrophic rule は常に強制され、上記の設定では無効にできません。
+
+## Audit scope
+
+| 変数 | Legacy alias | 効果 |
+| --- | --- | --- |
+| `CC_SAFETY_NET_AUDIT_SCOPE=all\|blocked` | なし | audit log に記録するコマンド判定を選択します。既定値は `all` です。 |
+
+- `all`（既定値であり、変数が未設定の場合の動作）は、許可とブロックの両方のコマンド判定を記録します。
+- `blocked` は、privacy を最小にする設定です。拒否だけを記録します。
+- この設定で拒否が抑制されることは**ありません**。
+- その他の値では拒否だけの記録に戻り、`doctor` は warning finding `environment.audit-scope-invalid` として報告します。
+
+許可された判定は、ツール呼び出しがコマンドに route された場合にのみ記録されます。コマンドではない許可済みツール呼び出しは記録されません。
+
+## Debug output
+
+| 変数 | Legacy alias | 効果 |
+| --- | --- | --- |
+| `CC_SAFETY_NET_DEBUG=1` | なし | analysis exception が発生した理由や、status line 用 Claude settings file の読み取り失敗などの diagnostic message を stderr に出力します。無効な `CC_SAFETY_NET_LEVEL` warning は制御しません。この warning は常に出力されます。 |
+
+`CC_SAFETY_NET_DEBUG` は、記録される判定を変更しません。それを設定するのは `CC_SAFETY_NET_AUDIT_SCOPE` です。コマンドが許可された理由を調査する場合や bug report を作成する場合に使用してください。`doctor` コマンドは、設定されているかどうかを報告します。
+
+## 設定ディレクトリの上書き
+
+| 変数 | Legacy alias | 効果 |
+| --- | --- | --- |
+| `CC_SAFETY_NET_HOME=<path>` | なし | `~/.cc-safety-net` の代わりに `<path>` を CC Safety Net のホームディレクトリとして使用します。 |
+
+設定すると、`policy.json` は `<path>/policy.json` から、user scope の rulebook 設定は `<path>/rules/` から読み取られます。rulebook の lock と cache も同じ tree に配置されます。sandbox 環境や標準以外の `HOME` 設定で役立ちます。例として、エージェントが shell と異なるホームディレクトリで動作する場合があります。
+
+<Note>
+  `CC_SAFETY_NET_HOME` は audit log を移動しません。audit root は個別に解決されます。導出方法については、[Audit log](/ja/reference/audit-log#ログの配置)を参照してください。
+</Note>
+
+## Update check を無効にする
+
+| 変数 | Legacy alias | 効果 |
+| --- | --- | --- |
+| `CC_SAFETY_NET_NO_UPDATE_CHECK=1` | なし | `rule doc` の実行中に行う update check を無効にします。空ではない値はすべて有効です。この変数は boolean として解析されないため、`0` でも check を無効にします。 |
+
+通常、`rule doc` は 24 時間に 1 回まで新しい release を確認します。`https://registry.npmjs.org/cc-safety-net/latest` を poll し、結果を `$HOME/.cc-safety-net/update-check.json` に cache します。新しい version がある場合は、stderr に `UPDATE_AVAILABLE:` 行を出力します。この poll は、`rule doc` の実行中に CLI が行う唯一の外部 network request です。
+
+`CC_SAFETY_NET_NO_UPDATE_CHECK` を設定すると、check を完全に skip します。registry poll、cache write、`UPDATE_AVAILABLE:` 行のいずれも発生しません。`doctor` と dashboard が行う別の update check には影響しません。
+
+## 有効な設定を確認する
+
+簡単に確認するには `status` を実行し、完全な report を表示するには `doctor` を実行します。
+
+```bash
+npx cc-safety-net status
+npx cc-safety-net doctor
+```
+
+`doctor` report の Environment section は、各変数、その値、既定の動作、使用中の legacy `SAFETY_NET_*` 名を一覧表示します。両方のコマンドの完全な syntax と output については [CLI コマンド](/ja/reference/cli-commands)を、Claude Code で一目で確認できる indicator については [Status line](/ja/configuration/status-line)を参照してください。

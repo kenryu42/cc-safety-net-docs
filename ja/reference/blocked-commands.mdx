@@ -1,0 +1,260 @@
+---
+title: "ブロックされるコマンドと理由"
+sidebarTitle: "ブロックされるコマンド"
+description: "CC Safety Net がブロックする Git、rm、find、device、PowerShell、機密パスのコマンドと、各ルールに必要な安全レベルを示す完全なリファレンスです。"
+keywords:
+  - "ブロックされるコマンド"
+  - "危険なコマンド"
+  - "破壊的コマンド"
+  - "deny list"
+  - "rm -rf"
+  - "git reset --hard"
+  - "git clean -fdx"
+  - "git push --force"
+  - "find delete"
+  - "xargs rm"
+  - "dd mkfs shred"
+  - "Remove-Item"
+  - "Git メタデータ保護"
+  - "policy.json 保護"
+---
+
+CC Safety Net は、未コミット変更、stash した作業、remote 履歴、または disk 全体を永久に破壊する可能性があるため、これらのコマンドをブロックします。次の表は既定の組み込みルールを示します。[カスタムルール](/ja/configuration/custom-rules)で拡張できます。
+
+既定では、マークのないすべての行を 3 つの安全レベルでブロックします。**Strict** または **Paranoid** と記載した行には、その安全レベルまたは機能が必要です。ポリシーは重大でない一部のルールを無効にできます。各レベルを有効にする方法については、[モード](/ja/configuration/modes)を参照してください。
+
+このページは、ブロックする*もの*と各境界を示す動作 matrix です。architecture のページではありません。順序付き guard flow については[アーキテクチャ](/ja/guides/architecture)、分類器が判定に到達する正確な方法については[解析エンジン](/ja/guides/analysis-engine)、許可される安全な形式については[許可されるコマンド](/ja/reference/allowed-commands)を参照してください。
+
+## 各レベルが追加するブロック
+
+| レベル | 追加するブロック |
+| --- | --- |
+| [Standard](/ja/configuration/modes#既定モード) | マークのない行をすべてブロックします。`echo 'unterminated` など、安全に見える解析不能なテキストは許可しますが、認識可能な破壊的 pattern を含む解析不能なテキストは heuristic で引き続きブロックします。動的な `rm -rf` 対象は一律にブロック**しません**。 |
+| [Strict](/ja/configuration/modes#strict-mode) | Standard がブロックするすべての形式に加えて、解析不能なコマンドを一律にブロックし、検証できない破壊的対象、[小さい対応 set 外の heredoc](#strict-と-paranoid-の-heredoc)、組み込み機密パスのメタデータだけの検出をブロックします。 |
+| [Paranoid](/ja/configuration/modes#paranoid-mode) | Strict がブロックするすべての形式に加えて、現在の作業ディレクトリ内でも一時 path 以外の再帰強制削除をブロックし、内容に関係なくすべての interpreter 1 行コードをブロックします。 |
+
+<Note>
+  一部の重大な保護は、選択した安全レベルに依存しません。root と home の再帰削除、Git メタデータ保護、正規の `policy.json` 保護は、破壊的コマンドの master switch とルールごとの `off` override を無視します。
+</Note>
+
+## Git コマンド
+
+これらの Git 操作は、未コミットの作業を破棄し、復旧履歴を破壊し、または共有 state を書き換えるためブロックします。
+
+| コマンド形式 | ブロックする理由 |
+| --- | --- |
+| `git checkout -- <files>` | 未コミット変更を永久に破棄する |
+| `git checkout --force` / `-f` | 未コミット変更を強制的に破棄する |
+| `git checkout <ref> -- <path>` | ref の内容で作業ツリーを上書きする |
+| `git checkout <ref> <path>` | Git が ref と pathspec を判別する際に上書きする可能性がある |
+| `git checkout --pathspec-from-file` | ファイル一覧から複数ファイルを上書きできる |
+| `git restore <files>` | 作業ツリーの変更を破棄する。unstage だけを行うには `--staged` を使用する |
+| `git restore --worktree` / `-W` | 作業ツリーの変更を明示的に破棄する |
+| `git switch --discard-changes` | branch の切り替え時に未コミット変更を破棄する |
+| `git switch --force` / `-f` | 未コミット変更を破棄する（強制 switch） |
+| `git reset --hard` | すべての未コミット変更を削除する |
+| `git reset --merge` | 未コミット変更を失う可能性がある |
+| `git clean -f` / `--force` | 未追跡ファイルを永久に削除する |
+| `git push --force` / `-f` | リモート履歴を破壊する。`--force-with-lease` を使う |
+| `git branch -D` | merge 確認なしでブランチを強制削除する |
+| `git rebase --abort` | rebase の conflict 解決内容を破棄する |
+| `git merge --abort` | merge の conflict 解決内容を破棄する |
+| `git tag -d` / `--delete` | tag を永久に削除する |
+| `git reflog delete` | 復旧履歴を削除する |
+| `git stash drop` | stash した変更を永久に削除する |
+| `git stash clear` | stash したすべての変更を削除する |
+| `git worktree remove --force` | 変更確認なしで worktree を削除する |
+
+force flag と create/reset flag の両方で branch を変更する Git コマンド（例えば `git checkout -Bf`、`git switch -Cf --discard-changes`）は、強制 branch reset として扱い、ブロックします。
+
+### Git SSH 環境変数 override
+
+Git は、network 操作中に任意の program を実行するため、`GIT_SSH_COMMAND`、`GIT_SSH`、`GIT_SSH_VARIANT` を使用できます。CC Safety Net は、任意のコマンドを実行できるため、network subcommand と組み合わせたこれらの override をブロックします。
+
+| ブロックする形式 | ブロックする理由 |
+| --- | --- |
+| `GIT_SSH_COMMAND=... git clone` | SSH override は network 操作中に任意のコマンドを実行できる |
+| `GIT_SSH=... git fetch` / `pull` / `push` | 同じ理由。fetch、pull、push に適用する |
+| `GIT_SSH_VARIANT=... git ls-remote` / `submodule` | 同じ理由。ls-remote と submodule に適用する |
+
+## ファイルシステムコマンド
+
+| コマンド形式 | ブロックする理由 | レベル |
+| --- | --- | --- |
+| `rm -rf /`, `~`, `$HOME` | ルートまたはホームを削除する | すべて、重大 |
+| `rm -rf .git` と保護対象 hooks | リポジトリ履歴と hooks を破壊する | すべて、重大 |
+| `rm -rf .` | 現在の作業ディレクトリ自体を削除する | すべて |
+| cwd 外への `rm -rf` | 作業領域外の絶対、親、非一時パスを削除する | すべて |
+| ホームが cwd の状態で `rm -rf` | ホームを基準にした再帰削除は危険 | すべて |
+| `rm -rf "$target"` | 動的対象を実行前に検証できない | **Strict**、paranoid |
+| `rm -rf ./cache` | cwd 内でも一時 path 以外の再帰強制削除を制限する | **Paranoid**（[`CC_SAFETY_NET_PARANOID_RM=1`](/ja/configuration/modes#paranoid-rm-check)） |
+| `cleanup() { rm -rf ../outside; }; cleanup` | 呼び出された shell function body を call site で解析する。definition だけでは何も実行しない | すべて |
+| `find ... -delete` | 条件に一致するファイルを永久に削除する（preview には `-print` を使用する） | すべて |
+| `find .git -delete` | 保護対象の Git メタデータを削除対象にする。`find.delete-git-metadata` が `off` でも重大な操作としてブロックする | すべて、重大 |
+| `find -exec rm -rf ...` | `find` 内で再帰強制削除を実行する | すべて |
+| `xargs rm -rf` | 動的入力のため対象を予測できない | すべて |
+| `xargs <shell> -c` | 任意のコマンドを実行できる | すべて |
+| `parallel rm -rf` | 動的入力のため対象を予測できない | すべて |
+| `parallel <shell> -c` | 任意のコマンドを実行できる | すべて |
+
+`rm -rf` の対象は、次の first-match 順序で分類します。未対応の Windows UNC または device 対象、root または home、保護対象の Git メタデータ、一時 path、動的対象、設定済み allow path、作業ディレクトリとしての home、作業ディレクトリ自身、作業ディレクトリ内、作業ディレクトリ外です。一時 path はすべてのレベルで許可します。作業ディレクトリ内の他の path は、paranoid `rm` が有効でなければ許可します。安全な形式については、[許可されるコマンド](/ja/reference/allowed-commands)を参照してください。
+
+破壊的コマンドを POSIX function に隠しても動作は変わりません。function を呼び出した場所で、caller の cwd を使用して body を解析します。call は quote（`'cleanup'`）、`time`/`!` prefix、`eval` を通して解決します。呼び出されない definition は不活性です。call 解決と scope については、[POSIX shell function](/ja/guides/analysis-engine)を参照してください。
+
+<Warning>
+  動的な `rm -rf` 対象は、standard で一律にブロックしません。`rm -rf "$target"` は standard で許可され、[strict](/ja/configuration/modes#strict-mode) または [paranoid](/ja/configuration/modes#paranoid-mode) で fail-closed 機能が有効になった場合だけブロックされます。Standard は敵対的または動的に生成されたコマンドテキストに対して best-effort です。コマンドが prompt injection または他の信頼できない source から来る可能性がある場合は、strict または paranoid を使用してください。
+</Warning>
+
+Git メタデータと動的対象は、設定済み allow path より先に分類します。そのため、`destructive_command_protection.allow_paths` の項目が Git メタデータ保護を緩和することはなく、検証不能な対象にも適用されません。
+
+## デバイスとディスクの破壊
+
+CC Safety Net は、すべての安全レベルで `dd`、`mkfs`、`shred` を解析します。これらのルールは重大ルールではないため、破壊的コマンドの master switch とルールごとの `off` override を適用できます。
+
+| コマンド形式 | ブロックする理由 |
+| --- | --- |
+| `dd ... of=/dev/...` | device path への直接 `dd` 書き込みは disk または partition を破壊できる。順序を変えた operand と quote した operand も対象（`dd of=/dev/nvme0n1 if=/dev/zero`、`of="/dev/sda"`） |
+| `mkfs /dev/...` と任意の `mkfs.*` 形式 | device の format は全 data を削除する（`mkfs.ext4 /dev/sda1`、`mkfs -t ext4 /dev/sdb`） |
+| `shred <target>` | `shred` は渡したものを永久に破壊するため、`shred --help` と `shred --version` を含むすべての対象をブロックする |
+
+`dd` ルールを発生させるのは、device への*書き込み*だけです。device から file への読み取り（`dd if=/dev/sda of=./backup.img`）と、file-backed image に対する `mkfs.ext4 disk.img` は許可します。3 つのルールは wrapper と carrier にも適用します。`bash -c "dd if=/dev/zero of=/dev/sda"`、`sudo mkfs.ext4 /dev/sda`、`env dd of=/dev/sda if=/dev/zero`、`eval "shred secret"` はすべてブロックされます。
+
+## Git メタデータ
+
+実行ディレクトリに最も近い祖先 `.git`、解決後の Git ディレクトリ、`hooks` サブツリーを保護します。この確認は設定読み込み前に実行するため、無効化できません。
+
+| ブロックする形式 | 説明 |
+| --- | --- |
+| `rm .git`, `rm -rf .git`, `rm .*` | Git 制御エントリを直接削除する |
+| `rm -rf <resolved gitDir>`, `rm -rf <commonDir>` | linked worktree または submodule では `.git` が marker file であるため、参照先の `gitDir` と `commonDir` も保護する |
+| `rm -rf <root>/.git/modules/<submodule>` | submodule の Git ディレクトリを保護する |
+| `rm -rf <dirname(gitDir)>/*` | 保護対象 directory を含む glob |
+| 保護対象を source または destination にした `mv` | 移動経路をブロックする |
+| `> .git` などの書き込みリダイレクト | 上書きをブロックする |
+| `.git/hooks/new-hook` への `Write` または patch | 書き込み、patch、未知ツールの path を保護する |
+| `find .git -delete` | 常に重大な操作として扱う |
+
+symlink の `.git` directory と hooks directory は、lexical alias と canonical alias の**両方**で保護します。存在しない Git directory を参照する `.git` marker もブロックします。POSIX shell の末尾 `*` glob は dot-entry に一致しないため、repository root の `rm -rf ./*` は `.git` を対象にしません。ただし、`rm -rf .git/worktrees/*` と PowerShell wildcard は対象にします。
+
+<Note>
+  境界：この guard は、実行ディレクトリに最も近い祖先 Git control plane を対象にします。実行ディレクトリの下にネストした他の repository と、解決済み set 外の Git-internal path は対象外です。
+</Note>
+
+## 正規の `policy.json`
+
+正規の user policy file、`~/.cc-safety-net/policy.json`、または変数が設定されている場合の `$CC_SAFETY_NET_HOME/policy.json` の変更や削除は常にブロックします。この確認は設定の読み込み**前**に実行するため、保護対象 policy で無効にすることはできません。拒否結果に安全レベルと config state はありません。reason 文字列は正確に次のとおりです。
+
+```text
+This path contains the protected policy config and you must not modify or delete it.
+```
+
+一致は、file、その directory、その directory の祖先について、次の形式を対象にします。
+
+- 直接の write、edit、patch target。
+- 正確な shell operand と write redirection。
+- 対応する environment-variable、relative、既存 symlink alias。
+- policy directory またはその祖先に対する再帰 `rm`。
+- file、directory、または祖先を source とする `mv`。
+
+読み取り専用の `[`, `cat`, `file`, `grep`, `head`, `jq`, `less`, `ls`, `more`, `rg`, `sed`, `stat`, `tail`, `test`, `wc` は許可します。
+
+<Warning>
+  これは意図的に最小にした exact-path guard であり、コマンド emulation ではありません。assignment だけの shell variable と明示的な `cd` を追跡しますが、glob または brace を展開せず、計算された interpreter path を推論せず、interpreter body を検査せず、archive member を推論せず、`find` action を simulate せず、transfer の最終 file name を推論しません。Rulebook、lockfile、cache、sibling file、policy-directory inspection はこの guard の対象外です。改ざん耐性があるのは `policy.json` だけです。
+</Warning>
+
+## PowerShell `Remove-Item`
+
+PowerShell support は、`Remove-Item` とその alias、および既存の cross-shell rule を中心とした保守的な subset です。一般的な PowerShell parser ではありません。ルールは `powershell` と `auto` shell mode で適用します。`posix` mode は意図的に適用しませんが、`git.reset-hard` と `rm.recursive-force-root-or-home` などの cross-shell rule は引き続き適用します。
+
+| コマンド形式 | ブロックする理由 | レベル |
+| --- | --- | --- |
+| `Remove-Item C:\`, `~`, `$HOME`, `$env:USERPROFILE`, `$env:HOME` | 末尾の `\`、`\*`、`/` 形式を含む root または home の削除 | すべて、重大 |
+| `Remove-Item .git -Recurse -Force` | Git メタデータを削除する | すべて、重大 |
+| `Remove-Item . -Recurse -Force` | `--` end-of-parameters marker の後を含む現在の directory 自身 | すべて |
+| `Remove-Item ../other -Recurse -Force` | `..\other`、`../{other}`、外部要素を含む comma-separated array、Windows UNC/namespace target を含む cwd 外 | すべて |
+| `Set-Location $HOME; Remove-Item ./build -Recurse -Force` | cwd が home の場合の再帰削除 | すべて |
+| `Remove-Item $target -Recurse -Force` | 動的対象を検証できない | **Strict**、paranoid |
+| `Get-ChildItem . -Recurse \| Remove-Item -Force` | pipeline 入力を検証できない | **Strict**、paranoid |
+| `Remove-Item -Recurse -Force -Path` | `-Path` value の欠落は動的対象として分類する | **Strict**、paranoid |
+| `Remove-Item @params -Recurse -Force` | splat parameter は動的対象として分類する | **Strict**、paranoid |
+| `Remove-Item ./cache -Recurse -Force` | cwd 内の非一時パス | **Paranoid** |
+
+alias と省略 parameter を解決するため、`ri . -r -fo` もブロックします。invocation-operator 形式（`& Remove-Item ...`、`& { ... }`、`. { ... }`）、literal 文字列を持つ `iex` / `Invoke-Expression`、`$(...)` subexpression も解析します。line comment（`#`）と block comment（nested を含む `<# ... #>`）は無視しますが、その後にある実コマンドは引き続きブロックします。不正または深さ上限を超えた block comment と subexpression は fail-closed です。
+
+<Note>
+  `-WhatIf` は PowerShell が実際には何も削除しないため、ブロックを無効にします。`-WhatIf`、`-WhatIf:$true`、省略形 `-wi` は、通常ならブロックする `Remove-Item . -Recurse -Force` をすべて許可します。明示的な `-WhatIf:$false` は再度ブロックします。上の strict 専用行には 1 つ例外があります。`Remove-Item $HOME -Recurse -Force` は動的対象ではなく root/home 対象として分類されるため、**standard** でブロックします。
+</Note>
+
+## 機密パス
+
+機密パス保護は、コマンド解析前に実行する別の guard stage です。対応する **command**、**path**、**search**（grep/glob）、**patch** 形式に適用し、unknown tool の任意の text を shell コマンドとして扱うことなく unknown tool も確認します。
+
+書き込みだけではなく、組み込み機密 set の読み取りもブロックします。`cat .env`、`env cat .env`、`sudo command cat .env`、`strings id_rsa`、`xxd .env`、`base64 .env`、`dd if=.env`、`cat ~/.ssh/id_rsa`、`bash -c "cat .env"`、`node -e 'require("child_process").execSync("cat .env")'` はすべてブロックされます。
+
+command-shape extraction は上限付きで構造的です。構造的な shell-syntax 上限では fail-closed になり、無効な parse では throw します。設定済み deny path は組み込みルールより前に一致させ、standard-mode の allowance で緩和することはありません。
+
+すべての rule id と family、保護対象 path、2 つの Coding CLI tier、match 順序、exemption については、[機密情報保護のリファレンス](/ja/reference/secret-protection)を参照してください。機能全体は `secret_protection.enabled: false` で無効にでき、個別ルールは `secret_protection.overrides` で on または off にできます。[ポリシー](/ja/configuration/policy)を参照してください。
+
+## Shell ラッパーとインタープリター 1 行コード
+
+`bash -c` または `sh -c` などの shell interpreter で wrapper されたコマンドもブロックします。ネストした wrapper を最大 10 階層まで再帰解析します。この深さを超えるコマンドは、通過させず拒否します。
+
+| 例 | 結果 |
+| --- | --- |
+| `bash -c 'git reset --hard'` | ブロック |
+| `sh -lc 'rm -rf /'` | ブロック |
+
+Interpreter の 1 行コードに埋め込まれた破壊的 code は、**既定で**検出してブロックします。CC Safety Net は interpreter の `-c` または `-e` flag に渡された code を抽出し、埋め込まれた破壊的操作を scan します。そのため、agent は Python または Node call に `os.system("rm -rf /")` を入れて hook を通過させることができません。
+
+| 例 | 結果 |
+| --- | --- |
+| `python -c 'import os; os.system("rm -rf /")'` | 既定でブロック（埋め込まれた `rm -rf` を検出） |
+| `node -e 'require("child_process").exec("git reset --hard")'` | 既定でブロック |
+
+解析する interpreter は、`python`、`python2`、`python3`、`node`、`ruby`、`perl` です。ブロックを発生させるのは埋め込まれた破壊的コマンドであり、1 行コードの形式だけなら既定で許可します。
+
+### すべての interpreter 1 行コードをブロックする
+
+内容に関係なく interpreter 1 行コードをブロックするには、`CC_SAFETY_NET_PARANOID_INTERPRETERS=1` を設定します。危険な code がなくても、すべての `python -c`、`node -e`、`ruby -e`、`perl -e` 1 行コードをブロックします。`python -c "print(1)"` は standard と strict で許可され、ここではブロックされます。[モード](/ja/configuration/modes)を参照してください。
+
+## `strict` と `paranoid` の heredoc
+
+fail-closed 機能が有効な場合、heredoc コマンドは次の条件をすべて満たす場合だけ許可します。
+
+- コマンドに heredoc が 1 つある。
+- heredoc が標準入力にある。
+- delimiter が quote されている。
+- コマンドに他の入力 redirection がない。
+- consumer が literal の `cat`、`tee`、`git apply`、`git commit`、`gh pr create`、`gh issue create` のいずれかである。
+
+fail-closed 機能は [strict](/ja/configuration/modes) と [paranoid](/ja/configuration/modes) で有効です。quote されていない delimiter は次の理由で拒否します。
+
+```text
+Unquoted heredoc input is not supported safely. Quote the delimiter or ask the user to verify.
+```
+
+その他の未対応形式または consumer は次の理由で拒否します。
+
+```text
+This heredoc form or stdin consumer is not supported safely. Use a quoted heredoc with a supported consumer (cat, tee, git apply, git commit, gh pr create, gh issue create), or ask the user to verify.
+```
+
+standard mode での heredoc 内容の処理を含む完全な contract は、[解析エンジン](/ja/guides/analysis-engine)にあります。
+
+## 解析できないコマンドテキスト
+
+| 入力 | `standard` | `strict` と `paranoid` |
+| --- | --- | --- |
+| `echo 'unterminated` | 許可 | 安全に解析できないためブロック |
+| `git reset --hard 'unterminated` | テキスト確認でブロック | ブロック |
+| `dd if=/dev/zero of=/dev/sda 'oops` | テキスト確認でブロック | ブロック |
+
+heuristic scan は、`rm -rf`、`git reset --hard`、`git reset --merge`、`git clean -f`、`git checkout --force`、`git checkout --`、`git push --force`、`git push --delete`、`git branch -D`、`git tag -d`、`git stash drop`、`git stash clear`、`--staged` なしの `git restore`、`find -delete`、`dd of=/dev/`、`mkfs /dev/`、`shred <arg>` を確認します。一致した場合は、ルール `raw-text.dangerous-command` で拒否します。text が `echo ` または `rg ` で始まる場合、`find`、`dd`、`mkfs`、`shred` pattern は除外するため、これらの文字列を echo または ripgrep invocation に quote しても scan を発生させません。
+
+<Warning>
+  Resource-exhaustion 上限はレベル system とは別であり、standard を含む**すべて**のモードで拒否します。declared-command recursion 上限または structural command-validation 上限を超える場合は常に拒否し、通過させません。
+</Warning>
+
+<Note>
+  `explain` コマンドを使用すると、CC Safety Net が特定のコマンドをブロックまたは許可する正確な理由を追跡できます。flag については [CLI コマンド](/ja/reference/cli-commands)、JSON schema については [explain トレース](/ja/reference/explain-trace)を参照してください。
+</Note>

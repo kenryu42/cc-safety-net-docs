@@ -6,7 +6,7 @@ description: "Inside the analysis engine: safety-level boundaries, wrapper and i
 
 This is the fourth page of the technical sequence and the narrowest: it assumes the guard pipeline from [Architecture](/guides/architecture) and documents only the exact classification behavior and edge cases of the destructive-command classifier — the level of detail you need when reading `explain` output or writing precise [custom rules](/configuration/custom-rules).
 
-The classifier is the **last** stage of the guard. Everything before it — bounded tool-input extraction, parser budgets, policy-file and Git-metadata protection, the policy snapshot load, and sensitive-path protection — has already run and is specified in the [ordered guard stages](/guides/architecture#the-ordered-guard-stages). Those earlier stages fail closed in **every** safety level, so nothing on this page relaxes them.
+The classifier is the **last** stage of the guard. Everything before it — bounded tool-input extraction, parser budgets, policy-file and Git-metadata protection, the policy snapshot load, and sensitive-path protection — has already run and is specified in the [ordered guard stages](/guides/architecture#the-ordered-guard-stages). Bounded parsing and the always-on policy-file and Git-metadata guards fail closed at every safety level. An invalid policy snapshot uses protective fallbacks, while sensitive-path protection follows the resolved policy. The destructive-command classifier cannot relax a decision already made by an earlier stage.
 
 Its dispatch flow — split into segments, strip env assignments and wrappers, identify the head command, hand it to the matching analyzer — is diagrammed once in [Architecture](/guides/architecture#inside-command-analysis). This page picks up from there: what each analyzer does with the segment it receives, and where the safety levels move the boundary.
 
@@ -62,7 +62,7 @@ Individual strict-tier rules can be turned off, but **strict is still strict** f
 
 ### Per-rule overrides versus levels
 
-For non-catastrophic rules, precedence is: the master switch `destructive_command_protection` first, then the per-rule `"on"` / `"off"` override, then the resolved preset capability. Any strict- or paranoid-tier rule can be force-enabled under standard with an `"on"` override.
+For non-catastrophic rules, precedence is: the master switch `destructive_command_protection` first, then the resolved preset capability, then the per-rule `"on"` / `"off"` override. Any strict- or paranoid-tier rule can be force-enabled under standard with an `"on"` override.
 
 **Catastrophic rules ignore both the master switch and any `"off"` override.** They are `rm.recursive-force-root-or-home`, `rm.git-metadata`, `powershell.remove-item-root-or-home`, `powershell.remove-item-recursive-force-root-or-home`, `powershell.remove-item-git-metadata`, and `find.delete-git-metadata`, alongside the always-on policy-file guard.
 

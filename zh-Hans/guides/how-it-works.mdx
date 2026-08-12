@@ -1,0 +1,116 @@
+---
+title: "CC Safety Net 如何拦截和阻止破坏性命令"
+sidebarTitle: "工作原理"
+description: "一次工具调用的生命周期：智能体请求、集成拦截、有序保护和分析、允许或阻止响应、审计记录，以及判定出乎预期时应检查的位置。"
+---
+
+CC Safety Net 位于编码智能体与受保护工具之间。它在每个受支持的工具操作运行前检查该操作，然后允许操作，或返回智能体可以处理的阻止结果。本页端到端跟踪一次工具调用。
+
+有关将每个智能体连接到 CC Safety Net 的集成，请参阅[集成架构](/zh-Hans/guides/integration-architecture)。
+
+## 一次工具调用的生命周期
+
+<Steps>
+  <Step title="智能体准备工具调用">
+    智能体决定运行某项操作，例如 `git reset --hard` 这样的 shell 命令，或文件写入、编辑、搜索或 patch，然后将它交给工具层。
+  </Step>
+  <Step title="集成拦截调用">
+    该智能体的 CC Safety Net 集成在工具执行前、操作系统看到它之前接收调用。部分智能体将 CC Safety Net 作为短生命周期子进程 hook 调用；其他智能体则在进程内将其作为插件或扩展加载。两种方式都运行相同的防护。有关每个智能体使用的模型，请参阅[集成架构](/zh-Hans/guides/integration-architecture)。
+  </Step>
+  <Step title="CC Safety Net 检查操作">
+    CC Safety Net 在深度、大小和字段数量限制内读取工具输入。它只解析一次输入，然后按[按顺序检查的内容](#按顺序检查的内容)中的固定顺序运行。顺序不取决于智能体。
+  </Step>
+  <Step title="返回允许或阻止结果">
+    安全的调用会被允许并正常执行。被阻止的调用绝不会运行；智能体会收到阻止消息，其中包含原因、违规命令和后续操作。请参阅[阻止消息的形式](#阻止消息的形式)。
+  </Step>
+  <Step title="可以审计判定">
+    拒绝判定会追加到本地审计日志。符合条件的允许命令判定也会在配置的审计范围包含它们时记录。请参阅[审计记录](#审计记录)。
+  </Step>
+</Steps>
+
+## 按顺序检查的内容
+
+每次工具调用都按以下顺序通过相同阶段：
+
+1. **有界输入提取。** 在深度、节点数、键数和大小的遍历限制内，从工具输入读取命令。超过限制时会阻止调用，以免进行无界遍历。
+2. **单次解析。** 命令只解析一次，并生成后续各阶段复用的结构化事实。解析器预算耗尽时会阻止调用，且适用于所有安全级别。
+3. **策略文件保护。** 任何会修改或删除 CC Safety Net 自己的 `policy.json`、其目录或祖先目录的操作都会被直接阻止。
+4. **Git 元数据保护。** 任何会删除、移动、覆盖或 patch 仓库 `.git` 元数据或 hooks 目录的操作都会被直接阻止，包括从工作目录内部发起的操作。
+5. **加载配置。** 解析策略、rulebook 和安全级别。
+6. **敏感路径保护。** 根据内置敏感位置（`.env`、`~/.ssh`、云服务和编码 CLI 凭证文件）以及你配置的 deny path 检查命令、路径、搜索和 patch。
+7. **破坏性命令分析。** 将命令拆分成命令段，展开包装器和解释器，再由理解对应命令的分析器对每段分类，包括 `git`、`rm`、`Remove-Item`、`find`、`xargs`、`parallel`、设备命令和自定义规则。
+
+第 3 和第 4 步有意在第 5 步**之前**运行。这两项保护始终启用，配置无法削弱它们，因为它们在读取配置前就已生效。第 6 步由策略控制，因此你可以禁用它或用自己的 deny path 扩展它。
+
+有关包含阶段名称和证据的维护者视图，请参阅[架构](/zh-Hans/guides/architecture)。有关分类器内部机制，请参阅[分析引擎](/zh-Hans/guides/analysis-engine)。
+
+## 为什么分析意图，而不是匹配字符串
+
+CC Safety Net 分析命令*做什么*，而不是它*看起来像什么*。它会解析可执行文件、子命令、标志和参数。对应可执行文件的分析器会应用该命令的选项语法。
+
+| 命令 | 实际作用 | 结果 |
+| --- | --- | --- |
+| `git checkout -b feature` | 创建新分支 | **允许** |
+| `git checkout -- file` | 丢弃文件中未提交的更改 | **阻止** |
+
+两者都以 `git checkout` 开头。如果不重复实现 Git 的选项逻辑，简单的前缀规则无法区分这些结果。结构化分析还会处理重新排序的标志（`rm -r -f /`）、shell 包装器（`sh -c "rm -rf /"`）和解释器单行命令（`python -c 'import os; os.system("rm -rf /")'`）。CC Safety Net 最多会展开并重新分析 10 层嵌套命令。
+
+本页不会列出每一条规则。完整阻止行为矩阵见[被阻止的命令](/zh-Hans/reference/blocked-commands)，有意允许的内容见[被允许的命令](/zh-Hans/reference/allowed-commands)。
+
+## 阻止消息的形式
+
+智能体会收到阻止消息作为工具结果：
+
+```text
+BLOCKED by CC Safety Net
+
+Reason: git checkout -- discards uncommitted changes permanently. Use 'git stash' first.
+
+Command: git checkout -- src/main.py
+
+If this operation is truly needed, ask the user for explicit permission and have them run the command manually.
+```
+
+在适用时，消息还会包含匹配的 `Rule:` id、`Tool:` 名称、触发阻止的特定 `Segment:`，以及使用回退配置时的 `Config warning:`。命令和命令段文本会被截取，消息中的所有内容在离开进程前都会经过机密遮盖。
+
+阻止不会结束智能体会话。消息作为普通工具结果返回，并引导智能体回到任务，而不是重试其他变体。规则的 intent 决定结束指令：
+
+| Intent | 告知智能体的操作 |
+| --- | --- |
+| `hard_stop` | 不得以任何方式重试或绕过；报告阻止，然后继续任务的其余部分 |
+| `use_alternative` | 不要重试被阻止的形式；改用原因中指定的更安全替代方案继续 |
+| `scope_down` | 使用更窄且明确的目标重试；如果确实需要范围广的操作，则上报给用户 |
+| `manual_only` | 请求用户明确许可，并让用户手动运行 |
+| `stop_and_explain` | 不要暴力尝试其他变体；简化或重组命令，或报告阻止 |
+
+这些消息为何采用此形式，以及为何指令是建议而执行仍由防护负责，请参阅[设计原则](/zh-Hans/guides/design-principles)。
+
+## 审计记录
+
+CC Safety Net 始终在本地审计日志中记录拒绝。默认情况下，它也记录被允许的命令判定。使用以下命令读取日志：
+
+```bash
+npx cc-safety-net logs
+```
+
+日志位置、每条记录的内容、记录保留时间，以及写入前准确遮盖的内容，都记录在[审计日志参考](/zh-Hans/reference/audit-log)中。
+
+## 判定出乎预期时
+
+<Steps>
+  <Step title="询问原因">
+    `npx cc-safety-net explain "<command>"` 会为命令重放分析，并显示匹配的规则和原因。添加 `--json` 可获得结构化跟踪。
+  </Step>
+  <Step title="检查保护是否确实生效">
+    `npx cc-safety-net status` 会在一个屏幕中输出 `ready` 或 `degraded`，并在 `Not active` 下列出所有未执行的项目，包括已禁用的 Claude Code 插件。`degraded` 表示某个配置源被拒绝，当前正在执行回退配置。请参阅[配置恢复](/zh-Hans/configuration/recovery)，了解哪些保护有效、哪些无效以及如何修复。`npx cc-safety-net doctor` 会提供完整报告。
+  </Step>
+  <Step title="调整或报告">
+    如果阻止正确但对你的工作流过于严格，请更改[安全模式](/zh-Hans/configuration/modes)或添加单条规则覆盖。如果安全命令被阻止，或破坏性命令未被阻止，请参阅[故障排除](/zh-Hans/guides/troubleshooting)和[安全策略](/zh-Hans/security)，了解应在何处报告。
+  </Step>
+</Steps>
+
+## 本页未涵盖的内容
+
+CC Safety Net 分析智能体尝试进行的工具调用，因此它无法看到任意二进制文件、不透明或未配置的命令代理、网络活动中隐藏的行为。它是静态的执行前策略关卡，不是 OS 沙箱，不是权限边界，对绕过已安装集成的命令也完全没有保护。完整列表和建议的缓解措施见[已知限制](/zh-Hans/guides/known-limitations)。
+
+接下来，请参阅[集成架构](/zh-Hans/guides/integration-architecture)，了解每个智能体如何连接到 CC Safety Net。

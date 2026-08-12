@@ -1,0 +1,99 @@
+---
+title: "为 CC Safety Net 做贡献"
+sidebarTitle: "贡献"
+description: "为 CC Safety Net 做贡献的方法：使用 Bun 1.3.14 和 Node.js 18+ 设置环境、了解 bun run check 的检查范围、测试本地插件、遵循代码约定，以及完成拉取请求检查表。"
+---
+
+进行大型更改前，请先创建 issue。本页说明开发环境设置和项目约定。完整指南见源代码仓库中的 [CONTRIBUTING.md](https://github.com/kenryu42/cc-safety-net/blob/main/CONTRIBUTING.md)。
+
+## 构建前先提出建议
+
+CC Safety Net 的范围明确：**防止编码智能体意外犯错并造成数据丢失**。它不是通用的安全加固或攻击防护工具。在实现新的检测规则、命令类别、架构更改或配置选项前，请先创建 issue 进行讨论。拼写修正和解决方案明确的小型错误修正可以直接提交拉取请求。
+
+## 设置开发环境
+
+- **Bun 1.3.14** — 必需的构建和测试运行时，也是唯一受支持的包管理器（[安装指南](https://bun.sh/docs/installation)）。它在 `package.json` 中固定为 `packageManager`。
+- **Node.js 18 或更高版本** — 构建产物支持的运行时。运行已发布的 CLI 或插件不需要 Bun。
+- **Claude Code** 或 **OpenCode** — 仅当你要在本地加载并测试插件时需要。构建项目或运行测试套件不需要它们。
+
+```bash
+git clone https://github.com/kenryu42/cc-safety-net.git
+cd cc-safety-net
+bun install
+bun run build
+bun run check
+```
+
+`bun run check` 是唯一的质量门。它依次运行 Biome lint 和格式检查、TypeScript 类型检查、`knip` 死代码检测、`jscpd` 重复检测、带覆盖率的测试套件，以及覆盖率阈值检查。完成更改后运行一次，不要分别运行各个子命令。创建拉取请求前，请确保它通过且没有错误。
+
+迭代期间可以使用单独的命令：
+
+```bash
+bun run lint          # Biome lint + format
+bun run typecheck     # TypeScript
+bun run knip          # Dead-code detection
+bun test              # Full test suite
+bun test tests/engine                        # One directory or file
+bun test --test-name-pattern "checkout"      # Tests matching a pattern
+bun run build         # Build for distribution
+```
+
+## 测试本地插件
+
+先构建，然后加载本地插件，以测试实际阻止行为：
+
+- **Claude Code**：禁用任何已安装的 safety-net 插件，退出 Claude Code，然后在仓库根目录运行 `claude --plugin-dir .`。
+- **OpenCode**：将 `~/.config/opencode/opencode.json` 中的 `plugin[]` 数组指向已构建的 `file://.../cc-safety-net/dist/index.js`，删除 npm `cc-safety-net` 条目以避免冲突，然后重启 OpenCode。运行 `/status`，并确认插件名称显示为 `dist`。
+
+使用安全的仅排除 pathspec 确认已知阻止行为：`git checkout -- ':(exclude,top)**'` 必须被阻止。即使保护未启用，此 pathspec 也不会选择任何文件。
+
+## 遵循代码约定
+
+| 约定 | 规则 |
+| --- | --- |
+| 构建/测试运行时 | Bun 1.3.14 |
+| 已发布版本的运行时 | Node.js 18+ |
+| 包管理器 | 仅使用 bun（`bun install`、`bun run`） |
+| 格式化程序/linter | Biome |
+| 类型 | 依赖类型推断；仅在导出或清晰度需要时添加显式注解。优先使用 `type \| null`，不要使用 `type \| undefined` |
+| 文件命名 | `kebab-case`；`docs/` 中的文件也使用小写 kebab-case |
+| 函数/类型命名 | 函数使用 `camelCase`，类型使用 `PascalCase` |
+| 常量 | `SCREAMING_SNAKE_CASE`（例如原因常量） |
+| 导入 | 包内使用相对导入 |
+| 测试 | 位于 `tests/` 中并对应 `src/` 的结构，不得与代码并置在 `src/` 中 |
+| 构建输出 | 忽略 `dist/` — lefthook 提交前 hook 会重新构建它 |
+
+### 样式指南
+
+- 除非代码确实可组合或可复用，否则将代码保留在一个函数中。
+- 避免使用 `try`/`catch`、`any` 类型和 `else` 分支。优先使用提前返回。
+- 优先使用函数式数组方法（`flatMap`、`filter`、`map`），不要使用 `for` 循环；对 `filter` 使用类型守卫，以便下游保留类型推断。
+- 优先使用 `const`，不要使用 `let`；使用三元表达式或提前返回，不要重新赋值。
+- 直接内联只使用一次的值，不要为其命名，并避免不必要的解构。
+
+### 范围纪律
+
+过度工程是本项目的主要失败模式。实现满足请求的最小更改，并说明超出该范围的每项添加可以防止的具体故障。每项检查都必须可以在实践中证伪。在第一个实际条目出现之前，不要预先构建 schema、验证器、注册表或测试框架。优先记录流程，不要用代码强制执行流程。
+
+### Knip
+
+绝不在 `knip.ts` 的 `ignoreIssues` 中添加条目。当 knip 标记未使用的导出时，请修复根本原因：删除或取消导出确实无用的代码；使用 `/** @internal */` JSDoc 注释标记仅用于测试的导出（knip 以 `--production` 模式运行，因此排除测试文件）；从 barrel 文件中删除未使用的名称。
+
+## 准备拉取请求
+
+- 代码遵循上述约定。
+- `bun run check` 通过且没有错误。
+- 为新规则添加测试，覆盖率至少为 90%。
+- 至少使用一个受支持的智能体进行本地测试，例如 Codex、Claude Code、Gemini CLI、GitHub Copilot CLI、Kimi Code 或 Pi。[安装](/zh-Hans/installation#安装指定智能体)页面列出了全部十二个智能体。
+- 在需要时更新文档（`README.md`、`AGENTS.md`）。
+- 不更改 `package.json` 中的版本。
+
+只有维护者处理版本升级和发布。绝不要直接修改 `package.json` 或 `plugin.json` 中的版本。
+
+## 获取开发帮助
+
+- `bunx cc-safety-net doctor` 验证你的设置。
+- `bunx cc-safety-net explain "<command>"` 逐步显示命令的分析方式。
+- 检查源代码仓库中的 `CLAUDE.md` 或 `AGENTS.md`，了解架构和约定；在审查代码前阅读 `REVIEW.md`。
+- 查看 `src/analyzer/` 中的现有实现，了解代码模式；查看 `tests/helpers.ts`，了解测试工具。
+- 为错误或功能请求创建 issue。

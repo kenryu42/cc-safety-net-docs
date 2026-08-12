@@ -1,0 +1,107 @@
+---
+title: "环境变量"
+sidebarTitle: "环境"
+description: "所有 CC Safety Net 环境变量的完整参考：安全级别、能力开关、审计范围、调试输出、配置目录覆盖、更新检查退出选项，以及策略与环境的优先级规则。"
+---
+
+CC Safety Net 从 `policy.json` 和环境变量中读取其配置。模式切换使用 `CC_SAFETY_NET_*` 前缀。不带 `CC_` 前缀的旧 `SAFETY_NET_*` 名称仍保留为旧别名（如有注明）。在启动智能体之前，请在 shell 或智能体的启动环境中设置变量。
+
+本页说明各变量本身，以及它们如何与 `policy.json` 组合。各级别阻止的内容见[模式](/zh-Hans/configuration/modes)；完整的策略文件契约见[策略](/zh-Hans/configuration/policy)。
+
+## 安全级别
+
+|变量|旧别名 |效果|
+| --- | --- | --- |
+| `CC_SAFETY_NET_LEVEL=standard\|strict\|paranoid` | 无 | 选择安全预设。提高 `policy.json` 中 `safety.level` 配置的级别，绝不会降低它。 |
+
+这三个预设扩展为相同的三个能力 - `fail_closed`、`paranoid_rm` 和 `paranoid_interpreters`。请参阅[模式](/zh-Hans/configuration/modes) 了解每个预设阻止的内容以及每个能力更改的内容。
+
+除 `standard`、`strict` 或 `paranoid` 之外的任何值都将被忽略，并且 `policy.json` 中配置的级别将保持不变。拒绝的值始终报告在 stderr 上 — 不需要调试标志：
+
+```
+CC Safety Net: ignored invalid CC_SAFETY_NET_LEVEL="<value>". Use standard, strict, paranoid.
+```
+
+报告的值被截断为前 40 个字符。空值被视为未设置并且不会产生警告。
+
+## 能力开关
+
+这些是旧版的单项能力标志。每个标志都**只能开启**对应能力。将标志设置为假值不会关闭能力。需要关闭预设所启用的能力时，请在 [policy.json](/zh-Hans/configuration/policy) 中使用 `safety.overrides`。
+
+|变量|旧别名 |效果|
+| --- | --- | --- |
+| `CC_SAFETY_NET_STRICT=1` | `SAFETY_NET_STRICT` |强制启用 `fail_closed` 能力。相当于`safety.overrides.fail_closed: true`。 |
+| `CC_SAFETY_NET_PARANOID=1` | `SAFETY_NET_PARANOID` |强制打开 `paranoid_rm` 和 `paranoid_interpreters`。它**不**设置`fail_closed`。 |
+| `CC_SAFETY_NET_PARANOID_RM=1` | `SAFETY_NET_PARANOID_RM` |强制开启 `paranoid_rm`：即使目标位于 cwd 内部，也会阻止非临时 `rm -rf`。 |
+| `CC_SAFETY_NET_PARANOID_INTERPRETERS=1` | `SAFETY_NET_PARANOID_INTERPRETERS` | 强制开启 `paranoid_interpreters`：无论内容如何，都阻止所有解释器单行命令。 |
+| `CC_SAFETY_NET_WORKTREE=1` | `SAFETY_NET_WORKTREE` | 在已确认的 linked worktree 内放宽本地丢弃 Git 规则。与 `workflow.worktree_mode` 进行逻辑 OR 组合。 |
+
+当设置为 `1` 或 `true`（不区分大小写）时，布尔标志为 true。当设置 `CC_SAFETY_NET_*` 名称时，它获胜；仅当前缀名称不存在时才参考 `SAFETY_NET_*` 别名。
+
+## 优先级
+
+策略和环境按固定顺序组合：
+
+1. **预设。** `policy.json` 中的 `safety.level` 提供继承的能力默认值。当该字段不存在时，预设为`standard`。
+2. **`CC_SAFETY_NET_LEVEL`。** 有效基础级别是策略级别和环境级别中较高的一个。环境可以提高级别，但绝不会降低级别。
+3. **`safety.overrides.*`。** `policy.json` 中的显式能力覆盖，然后在任一方向上设置 `fail_closed`、`paranoid_rm` 或 `paranoid_interpreters` - 向上**或**向下。
+4. **能力开关。** `CC_SAFETY_NET_STRICT`、`CC_SAFETY_NET_PARANOID`、`CC_SAFETY_NET_PARANOID_RM` 和 `CC_SAFETY_NET_PARANOID_INTERPRETERS` 标志最后应用，并且是**单调的** — 每个标志都将其能力强制为 `true`，并且它们都不能关闭能力。
+5. **worktree 模式**是`workflow.worktree_mode`和`CC_SAFETY_NET_WORKTREE`的逻辑或。
+
+报告的**有效级别**根据最终的三项能力组合得出。不匹配任何预设的组合（例如 `paranoid_rm` 开启而 `fail_closed` 关闭）会报告为 `custom`。
+
+`destructive_command_protection.overrides` 中的每规则条目应用于能力派生状态之上。灾难性规则始终强制执行，并且不能通过上述任何一项来禁用。
+
+## 审计范围
+
+|变量|旧别名 |效果|
+| --- | --- | --- |
+| `CC_SAFETY_NET_AUDIT_SCOPE=all\|blocked` |无 |哪些命令决策会到达审计日志。默认为 `all`。 |
+
+- `all`（默认值，以及未设置变量时的行为）记录允许和阻止的命令决策。
+- `blocked` 是隐私最小化设置：仅记录拒绝。
+- 此设置**永远**不会抑制拒绝。
+- 任何其他值都会回退到仅拒绝记录，并且 `doctor` 将其报告为警告结果 `environment.audit-scope-invalid`。
+
+仅当工具调用路由到命令时才记录允许的决策；允许的非命令工具调用不会产生记录。
+
+## 调试输出
+
+|变量|旧别名 |效果|
+| --- | --- | --- |
+| `CC_SAFETY_NET_DEBUG=1` | 无 | 将诊断消息打印到 stderr，例如分析异常的原因，或无法读取状态行所需的 Claude 设置文件。它不控制无效 `CC_SAFETY_NET_LEVEL` 警告；该警告始终打印。 |
+
+`CC_SAFETY_NET_DEBUG` 不会更改记录的决策 - 即 `CC_SAFETY_NET_AUDIT_SCOPE`。在调查为什么允许命令或提交错误报告时使用它。 `doctor` 命令报告是否已设置。
+
+## 配置目录覆盖
+
+|变量|旧别名 |效果|
+| --- | --- | --- |
+| `CC_SAFETY_NET_HOME=<path>` |无 |使用 `<path>` 作为 CC Safety Net 主目录，而不是 `~/.cc-safety-net`。 |
+
+设置后，从 `<path>/policy.json` 读取 `policy.json`，从 `<path>/rules/` 读取用户范围的 rulebook 配置，并从同一目录树读取 rulebook lock 和缓存。这适用于沙箱或非标准 `HOME` 设置，例如智能体使用与 shell 不同的主目录运行时。
+
+<Note>
+`CC_SAFETY_NET_HOME` 不重新定位审计日志。审计根独立解析 - 请参阅[审计日志的布局](/zh-Hans/reference/audit-log#日志布局)了解其派生方式。
+</Note>
+
+## 更新检查选择退出
+
+|变量|旧别名 |效果|
+| --- | --- | --- |
+| `CC_SAFETY_NET_NO_UPDATE_CHECK=1` | 无 | 禁用 `rule doc` 期间运行的更新检查。任何非空值都生效。此变量不按布尔值解析，因此即使 `0` 也会禁用检查。 |
+
+`rule doc` 通常最多每 24 小时检查一次更新版本：它轮询 `https://registry.npmjs.org/cc-safety-net/latest`，将结果缓存在 `$HOME/.cc-safety-net/update-check.json` 中，并在存在更新版本时在 stderr 上打印 `UPDATE_AVAILABLE:` 行。该轮询是 CLI 在 `rule doc` 期间发出的唯一出站网络请求。
+
+当设置 `CC_SAFETY_NET_NO_UPDATE_CHECK` 时，将完全跳过检查：没有注册表轮询，没有缓存写入，也没有 `UPDATE_AVAILABLE:` 行。它不会影响 `doctor` 和仪表板运行的单独更新检查。
+
+## 检查你的活动配置
+
+运行 `status` 进行快速检查，或运行 `doctor` 获取完整报告：
+
+```bash
+npx cc-safety-net status
+npx cc-safety-net doctor
+```
+
+`doctor` 报告的 Environment 部分列出每个变量、变量值、默认行为，以及正在使用的旧 `SAFETY_NET_*` 名称。两个命令的完整语法和输出见 [CLI 命令](/zh-Hans/reference/cli-commands)；Claude Code 中的概览指示器见[状态行](/zh-Hans/configuration/status-line)。

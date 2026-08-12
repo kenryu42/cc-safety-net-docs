@@ -1,0 +1,333 @@
+---
+title: "为编码智能体安装 CC Safety Net"
+sidebarTitle: "安装"
+description: "在全部十二个受支持的编码智能体中安装和卸载 CC Safety Net：Amp Code、Antigravity CLI、Claude Code、Codex、Cursor、Gemini CLI、GitHub Copilot CLI、Hermes Agent、Kimi Code、OpenClaw、OpenCode 和 Pi。"
+---
+
+CC Safety Net 作为插件、扩展或 hook 安装在编码智能体内。你不需要常驻服务或 daemon。部分集成会为每次检查启动一个短时运行的 hook 子进程。
+
+大多数集成支持 **Windows、macOS 和 Linux**。它们会检测主机操作系统，以处理路径和解析命令。在 Windows 上，这包括不区分大小写的路径，以及通过 `COMSPEC` 和 `PATHEXT` 解析 `cmd.exe` 或 PowerShell。
+
+**Hermes Agent** 和 **OpenClaw** 集成仅支持 macOS 和 Linux。它们使用 POSIX 主目录路径 `~/.hermes` 和 `~/.openclaw`，不支持 Windows 路径。
+
+开始前请安装 **Node.js 18 或更高版本**。示例使用 `npx` 运行 CLI 子命令。
+
+使用 `cc-safety-net install <target-flag>` 安装一个集成，使用 `cc-safety-net uninstall <target-flag>` 删除它，使用 `cc-safety-net update` 刷新所有已安装的集成。
+
+## 交互式安装
+
+不带目标参数运行安装程序，以在计算机上检测到的编码 CLI 中进行交互式多选：
+
+```bash
+npx -y cc-safety-net@latest install
+```
+
+在选择器中，`Space` 选择目标，`Enter` 确认，`u` 改为更新每个已安装的集成，`q` 或 `Esc` 取消且不做任何更改。`@latest` 限定符很重要：不带版本的 `cc-safety-net` 规范可能从 npx 缓存重新运行旧副本，而不是当前版本，因此本页的每条安装、卸载和更新命令都固定该限定符。
+
+以相同方式删除集成：
+
+```bash
+npx -y cc-safety-net@latest uninstall
+```
+
+如果你经常使用 CLI，可以全局安装，以获得相同命令的短别名 `ccsn`：
+
+```bash
+npm install -g cc-safety-net
+ccsn doctor
+```
+
+该别名随全局安装提供；`npx` 运行使用完整的 `cc-safety-net` 名称。
+
+## 更新已安装的集成
+
+要原地刷新每个已安装的集成，请运行：
+
+```bash
+npx -y cc-safety-net@latest update
+```
+
+`update` 检测计算机上已安装的集成（包括已禁用的集成），并以更新模式重新运行每个集成的安装路径。找不到智能体 CLI 的集成会报告为 skipped；如果没有安装任何集成，命令会要求你先运行 `cc-safety-net install`。在交互式安装程序中按 `u` 会运行相同更新。
+
+`update` 也是主要版本之间的升级路径。在 v1 安装上运行它会将每个已安装的集成迁移到当前 v2 版本。如果你在 v1 内联配置中定义了自定义规则，请完成[旧配置迁移](/zh-Hans/configuration/custom-rules)。然后运行 `npx cc-safety-net doctor`，确认运行时为 `ready`。
+
+## 安装指定智能体
+
+对于脚本化非交互安装，请传入一个且只能传入一个目标参数。传入零个或多个目标参数都会报错。在交互式终端中，不带目标参数会启动安装选择器。
+
+| 智能体 | 安装 | 卸载 |
+| --- | --- | --- |
+| [Amp Code](#amp-code-安装) | `npx -y cc-safety-net@latest install --amp` | `npx -y cc-safety-net@latest uninstall --amp` |
+| [Antigravity CLI](#antigravity-cli-安装) | `npx -y cc-safety-net@latest install --agy-cli` | `npx -y cc-safety-net@latest uninstall --agy-cli` |
+| [Claude Code](#claude-code-安装) | `npx -y cc-safety-net@latest install --claude-code` | `npx -y cc-safety-net@latest uninstall --claude-code` |
+| [Codex](#codex-安装) | `npx -y cc-safety-net@latest install --codex` | `npx -y cc-safety-net@latest uninstall --codex` |
+| [Cursor](#cursor-安装) | `npx -y cc-safety-net@latest install --cursor` | `npx -y cc-safety-net@latest uninstall --cursor` |
+| [Gemini CLI](#gemini-cli-安装) | `npx -y cc-safety-net@latest install --gemini-cli` | `npx -y cc-safety-net@latest uninstall --gemini-cli` |
+| [GitHub Copilot CLI](#github-copilot-cli-安装) | `npx -y cc-safety-net@latest install --copilot-cli` | `npx -y cc-safety-net@latest uninstall --copilot-cli` |
+| [Hermes Agent](#hermes-agent-安装) | `npx -y cc-safety-net@latest install --hermes-agent` | `npx -y cc-safety-net@latest uninstall --hermes-agent` |
+| [Kimi Code](#kimi-code-安装) | `npx -y cc-safety-net@latest install --kimi-code` | `npx -y cc-safety-net@latest uninstall --kimi-code` |
+| [OpenClaw](#openclaw-安装) | `npx -y cc-safety-net@latest install --openclaw` | `npx -y cc-safety-net@latest uninstall --openclaw` |
+| [OpenCode](#opencode-安装) | `npx -y cc-safety-net@latest install --opencode` | `npx -y cc-safety-net@latest uninstall --opencode` |
+| [Pi](#pi-安装) | `npx -y cc-safety-net@latest install --pi` | `npx -y cc-safety-net@latest uninstall --pi` |
+
+所有安装命令都是幂等的：在已配置的智能体上再次运行是安全的，并且只会留下一个托管项。
+
+## Amp Code 安装
+
+```bash
+npx -y cc-safety-net@latest install --amp
+```
+
+此命令将 npm 软件包中的自包含插件构件复制到 `~/.config/amp/plugins/cc-safety-net.ts`，因此不需要托管插件、URL 或全局 npm 依赖。重新运行命令会原地更新托管构件。
+
+```bash
+npx -y cc-safety-net@latest uninstall --amp
+```
+
+<Note>
+  安装、更新或卸载后，请重启 Amp 或运行 `plugins: reload`，使更改生效。
+</Note>
+
+如果 `~/.config/amp/plugins/cc-safety-net.ts` 是符号链接、目录，或是不含 CC Safety Net 托管标头的普通文件，安装和卸载都拒绝修改它。请自行移动或删除该文件，然后重新运行命令。
+
+插件只保护其安装所在的计算机。在 Amp Orb 等远程执行器上执行的工具调用不受保护。
+
+## Antigravity CLI 安装
+
+```bash
+npx -y cc-safety-net@latest install --agy-cli
+```
+
+此命令在 `~/.gemini/config/hooks.json` 中写入托管的 `PreToolUse` 项，对每次 `run_command` 工具调用运行 `npx -y cc-safety-net hook --agy-cli`。
+
+由于 hook 通过 `npx` 运行，安装会先从 npm 缓存的 `_npx` 目录删除所有缓存的 `cc-safety-net` 副本（如果设置了 `$npm_config_cache`，则使用该目录；否则 macOS 和 Linux 使用 `~/.npm`，Windows 使用 `%LOCALAPPDATA%\npm-cache`），以便 hook 解析到当前版本。卸载不会修改缓存。
+
+```bash
+npx -y cc-safety-net@latest uninstall --agy-cli
+```
+
+可以选择安装 `/cc-safety-net` skill，以便在 Antigravity CLI 中交互式编写规则：
+
+```bash
+npx skill add kenryu42/cc-safety-net
+```
+
+## Claude Code 安装
+
+```bash
+npx -y cc-safety-net@latest install --claude-code
+```
+
+此命令从 `kenryu42/cc-marketplace` 添加 `cc-marketplace`，并安装 `cc-safety-net@cc-marketplace` 插件；如果已有已禁用的副本，则会将其启用。
+
+```bash
+npx -y cc-safety-net@latest uninstall --claude-code
+```
+
+**启用自动更新**
+
+要自动保持 CC Safety Net 为最新版本，请在 Claude Code 中运行 `/plugin`，转到 **Marketplaces**，选择 **cc-marketplace**，然后启用 **auto-update**。
+
+<Note>
+  该插件调用共享的 Coding CLI hook：`cc-safety-net hook --coding-cli`（短参数 `-cc`）。这是规范参数名称，并与 Codex 插件共享。`hook --claude-code` 仅作为旧别名受支持，请勿在新配置中使用。
+</Note>
+
+## Codex 安装
+
+```bash
+npx -y cc-safety-net@latest install --codex
+```
+
+此命令从 `kenryu42/cc-marketplace` 添加 `cc-marketplace`，并安装 `cc-safety-net@cc-marketplace` 插件。
+
+**信任 hook**
+
+Codex 不会运行不受信任的 hook。启动 Codex，打开 `/hooks`，选择 **cc-safety-net PreToolUse hook**，然后按 `t` 信任它。
+
+```bash
+npx -y cc-safety-net@latest uninstall --codex
+```
+
+<Note>
+  信任后，如果 hook 仍未运行，请确认 `~/.codex/config.toml`（或 `$CODEX_HOME/config.toml`）已启用插件 hook 支持：
+
+  ```toml
+  [features]
+  plugin_hooks = true
+  ```
+</Note>
+
+## Cursor 安装
+
+```bash
+npx -y cc-safety-net@latest install --cursor
+```
+
+此命令在全局 Cursor hooks 配置 `~/.cursor/hooks.json` 中写入托管的 `preToolUse` 项：
+
+```json
+{ "command": "npx -y cc-safety-net hook --cursor", "timeout": 30, "failClosed": true }
+```
+
+由于配置是全局的，这会保护所有项目中的 Cursor IDE 和 Cursor CLI 会话。`failClosed` 表示 hook 无法产生判定时，Cursor 会拒绝工具调用。
+
+由于 hook 通过 `npx` 运行，安装会先清除 npm `_npx` 缓存中缓存的 `cc-safety-net` 副本，以便 hook 解析到当前版本；卸载不会修改缓存。缓存位置见 [Antigravity CLI 部分](#antigravity-cli-安装)。
+
+```bash
+npx -y cc-safety-net@latest uninstall --cursor
+```
+
+## Gemini CLI 安装
+
+```bash
+npx -y cc-safety-net@latest install --gemini-cli
+```
+
+此命令从 `https://github.com/kenryu42/gemini-safety-net` 安装 Gemini Safety Net 扩展；如果已有已禁用的副本，则会重新启用它。Gemini CLI 不是 `cc-marketplace` 插件，其扩展位于自己的仓库中，扩展 id 为 `gemini-safety-net`。
+
+```bash
+npx -y cc-safety-net@latest uninstall --gemini-cli
+```
+
+安装后请重启 Gemini CLI（或开始新会话），以加载扩展及其 hook。
+
+## GitHub Copilot CLI 安装
+
+```bash
+npx -y cc-safety-net@latest install --copilot-cli
+```
+
+如果尚未注册，此命令会添加 `cc-marketplace`，安装 `cc-safety-net@cc-marketplace` 插件；如果该插件在 `~/.copilot/settings.json` 的 `enabledPlugins` 中明确禁用，则会将其设置为 `true`。
+
+```bash
+npx -y cc-safety-net@latest uninstall --copilot-cli
+```
+
+<Note>
+  安装或删除插件后，请重启 Copilot CLI，使更改生效。
+</Note>
+
+Copilot CLI 的 hook 支持受版本限制。Copilot 配置文件中的内联 hook 定义要求 Copilot CLI **1.0.8** 或更高版本，`~/.copilot/hooks` 下的用户 hook 文件要求 **0.0.422** 或更高版本。插件会为你处理此问题；如果你手动配置 hook 并遇到问题，请运行 `npx cc-safety-net doctor`。它会报告检测到的 Copilot 版本和受支持的 hook 来源。
+
+## Hermes Agent 安装
+
+```bash
+npx -y cc-safety-net@latest install --hermes-agent
+```
+
+此命令将托管的 Python 插件（`__init__.py` 和 `plugin.yaml`）写入 `$HERMES_HOME/plugins/cc-safety-net/`（未设置 `HERMES_HOME` 时为 `~/.hermes/plugins/cc-safety-net/`），然后运行 `hermes plugins enable cc-safety-net --no-allow-tool-override`。仅有文件不会生效：Hermes 只在自己的配置将用户插件列为已启用时加载它，因此即使文件已是最新版本，安装也会运行启用命令。
+
+由于插件通过 `npx` 调用 shell，安装会先清除 npm `_npx` 缓存中缓存的 `cc-safety-net` 副本，以便插件解析到当前版本；卸载不会修改缓存。缓存位置见 [Antigravity CLI 部分](#antigravity-cli-安装)。
+
+<Note>
+  安装、更新或卸载后，请重启 Hermes，使更改生效。
+</Note>
+
+在每次 `pre_tool_call` 时，插件通过 JSON stdin 将工具调用发送到 `npx -y cc-safety-net hook --hermes-agent`（短参数 `-ha`），超时为 30 秒。它保护 `terminal`、`read_file`、`write_file` 和 `patch` 工具；其他 Hermes 工具不会转发。该插件采用故障时拒绝：当 `npx` 缺失、分析无法启动、超时、以非零状态退出或返回无法读取的输出时，会用明确消息阻止工具调用，而不是让其通过。
+
+```bash
+npx -y cc-safety-net@latest uninstall --hermes-agent
+```
+
+卸载会在删除插件文件*之前*运行 `hermes plugins disable cc-safety-net`。Hermes 只能解析仍在磁盘上的插件，而保持启用的配置项会自动加载将来同名的任何插件。如果 `hermes` CLI 失败或缺失，仍会删除文件，并显示警告，说明 Hermes 配置中可能仍列有 `cc-safety-net`。卸载还会删除 Python `__pycache__` 字节码目录，并且仅在插件目录中没有其他内容时回收该目录。
+
+如果插件目录是符号链接或不是普通目录，安装和卸载都拒绝修改它；如果托管文件是符号链接、不是普通文件或不含 CC Safety Net 托管标头，也会拒绝覆盖或删除。请自行移动或删除它，然后重新运行命令。
+
+此集成仅支持 macOS 和 Linux。
+
+## Kimi Code 安装
+
+```bash
+npx -y cc-safety-net@latest install --kimi-code
+```
+
+此命令在 `~/.kimi-code/config.toml`（或 `$KIMI_CODE_HOME/config.toml`）中写入 `[[hooks]]` 块，对每次 `PreToolUse` `Bash` 调用运行 `npx -y cc-safety-net hook --kimi-code`。
+
+由于 hook 通过 `npx` 运行，安装会先清除 npm `_npx` 缓存中缓存的 `cc-safety-net` 副本，以便 hook 解析到当前版本；卸载不会修改缓存。缓存位置见 [Antigravity CLI 部分](#antigravity-cli-安装)。
+
+```bash
+npx -y cc-safety-net@latest uninstall --kimi-code
+```
+
+可以选择安装 `/cc-safety-net` skill，以便在 Kimi Code 中交互式编写规则：
+
+```bash
+npx skill add kenryu42/cc-safety-net
+```
+
+## OpenClaw 安装
+
+```bash
+npx -y cc-safety-net@latest install --openclaw
+```
+
+此命令通过 OpenClaw 自己的 CLI 安装插件：先运行 `openclaw plugins install <packaged plugin dir> --force`，再运行 `openclaw plugins enable cc-safety-net`；打包的插件目录包含在 npm 软件包中。然后，它运行 `openclaw plugins inspect cc-safety-net --runtime --json`，验证插件确实已加载：运行时损坏的已启用插件可以干净地安装，但随后不提供任何保护，因此状态不是 `loaded` 时安装会失败，并指示你运行 `openclaw plugins inspect cc-safety-net --runtime` 查看详情。
+
+由于 `--force` 会覆盖（卸载时会删除）占用 `cc-safety-net` 扩展 id 的内容，两条命令都会先检查扩展目录是否只包含 CC Safety Net 托管插件或完全不存在，否则拒绝运行。请移动或删除该目录，然后重新运行命令。
+
+```bash
+npx -y cc-safety-net@latest uninstall --openclaw
+```
+
+<Note>
+  安装、更新或卸载后，请重启 OpenClaw Gateway，使更改生效。如果 `openclaw.json` 设置了 `plugins.allow`，其中也必须列出 `cc-safety-net`。如果 allowlist 遗漏它，即使插件已启用也不会加载。
+</Note>
+
+OpenClaw 将 CC Safety Net 作为进程内插件加载，而不是 hook 子进程，因此没有运行时 hook 参数。插件只为 `exec` 工具注册 `before_tool_call` 处理程序，OpenClaw 的文件工具不受保护。每次 `exec` 调用都会依据智能体的 workspace 目录进行分析；如果无法解析该 workspace、`workdir` 解析到其外部，或调用指定的执行 host 不是 `auto` 或 `gateway`（例如 `sandbox` 或 `node`），插件会故障时拒绝。
+
+设置 `OPENCLAW_STATE_DIR` 时，OpenClaw 状态目录使用该值；否则使用 `OPENCLAW_CONFIG_PATH` 所在目录；再否则使用 `~/.openclaw`。设置 `OPENCLAW_CONFIG_PATH` 时，配置文件使用该值；否则使用状态目录中的 `openclaw.json`。安装和 doctor 按相同顺序解析路径，因此移动位置的 OpenClaw 安装不会被误报为不存在。
+
+此集成仅支持 macOS 和 Linux。
+
+## OpenCode 安装
+
+```bash
+npx -y cc-safety-net@latest install --opencode
+```
+
+OpenCode 可能继续提供旧的缓存插件版本，因此安装命令总会先清除 `~/.cache/opencode/packages/cc-safety-net@latest`，再运行 `opencode plugin -g -f cc-safety-net@latest`。
+
+```bash
+npx -y cc-safety-net@latest uninstall --opencode
+```
+
+卸载会从 `~/.config/opencode/opencode.json`（或 `.jsonc`）的 `plugin` 数组中删除 `cc-safety-net`，并再次清除缓存的软件包。
+
+安装或更新后，请重启 OpenCode，以从刷新的缓存加载插件。
+
+## Pi 安装
+
+```bash
+npx -y cc-safety-net@latest install --pi
+```
+
+此命令运行 `pi install npm:cc-safety-net`；如果 Pi 设置固定了会禁用 CC Safety Net 的 `extensions` 过滤器，则会在 `~/.pi/agent/settings.json` 中清除该过滤器。
+
+```bash
+npx -y cc-safety-net@latest uninstall --pi
+```
+
+Pi 将 CC Safety Net 作为进程内扩展加载，而不是 hook 子进程。扩展会拦截 `bash` 工具和自定义 `Shell` 工具（例如 pi-grok-cli），解析每次调用的工作目录，并注册用于管理 rulebook 的 `/cc-safety-net` 内置命令。详情见[集成架构](/zh-Hans/guides/integration-architecture)。
+
+## 从旧插件标识符迁移
+
+当前插件标识符在适用的所有位置都是 `cc-safety-net@cc-marketplace`。早期版本的两个标识符仍可能出现在现有计算机上：
+
+| 旧标识符 | 智能体 | 处理方式 |
+| --- | --- | --- |
+| `safety-net@cc-marketplace` | Claude Code、Codex | 安装时检测，并在当前插件就位后自动卸载 |
+| `copilot-safety-net` | GitHub Copilot CLI | 安装时检测并自动卸载 |
+
+你不需要手动删除它们。运行该智能体的正常安装命令，迁移会作为其中一部分完成。不要在新配置中使用旧标识符。
+
+## 验证安装
+
+安装后，请运行 doctor 命令，确认 CC Safety Net 已正确连接，并按预期阻止命令：
+
+```bash
+npx cc-safety-net doctor
+```
+
+`doctor` 会对每个受支持的智能体运行完整健康检查，包括 hook 集成、确认阻止有效的自检、自定义规则验证、活动模式标志、近期活动、系统版本和更新检查。有关每项检查和可用参数，请参阅 [doctor 命令参考](/zh-Hans/reference/cli-commands)。
+
+如果任何检查失败，输出会包含问题说明和建议的修复方法。

@@ -31,33 +31,30 @@ Use this guide to install CC Safety Net and test a real block. The steps are the
     It checks every supported agent at once, so you do not have to tell it which one you use. It also runs a self-test that confirms blocking works. A clean run prints a green checkmark next to each item; anything that fails explains what went wrong and how to fix it. The full check list is in the [doctor command reference](/reference/cli-commands#doctor).
   </Step>
   <Step title="See a real block">
-    With CC Safety Net active, ask your agent to run these two commands and watch the difference:
+    With CC Safety Net active, ask your agent to run this harmless probe:
 
     ```bash
-    # Blocked — discards uncommitted changes in README.md
-    git checkout -- README.md
-
-    # Allowed — creates a new branch without discarding working-tree changes
-    git checkout -b test-branch
+    # This exclusion-only pathspec selects no files
+    git checkout -- ':(exclude,top)**'
     ```
 
-    The first never reaches your shell. Your agent gets a block message instead:
+    The command never reaches your shell. Your agent gets a block message instead. If protection is inactive, the exclusion-only Git pathspec selects no files, so no tracked file is changed.
 
     <pre className="cc-block-message-output"><code>{`BLOCKED by CC Safety Net
 
 Reason: git checkout -- discards uncommitted changes permanently. Use 'git stash' first.
 
-Command: git checkout -- README.md
+Command: git checkout -- ':(exclude,top)**'
 
 If this operation is truly needed, ask the user for explicit permission and have them run the command manually.`}</code></pre>
 
-    The message explains the block and gives the agent a safer next action. The second command runs normally. For the message structure and the rest of the decision lifecycle, see [How it works](/guides/how-it-works#what-a-block-looks-like).
+    The message explains the block and gives the agent a safer next action. For the message structure and the rest of the decision lifecycle, see [How it works](/guides/how-it-works#what-a-block-looks-like).
   </Step>
   <Step title="Ask why, without running anything">
     If a decision surprises you, `explain` evaluates a command string through the same engine without executing it:
 
     ```bash
-    npx cc-safety-net explain "git checkout -- README.md"
+    npx cc-safety-net explain "git checkout -- ':(exclude,top)**'"
     ```
 
     It prints the verdict, the rule that matched, and the effective configuration. Use a non-sensitive example command while you explore.
