@@ -6,7 +6,7 @@ description: "Amp Code、Antigravity CLI、Claude Code、Codex、Cursor、Gemini
 
 CC Safety Net は、コーディングエージェント内のプラグイン、拡張機能、または hook として動作します。常駐サービスや daemon は不要です。一部の連携は、確認ごとに短時間だけ動作する hook subprocess を開始します。
 
-多くの連携は **Windows、macOS、Linux** で動作します。path 処理とコマンド解決のために host OS を検出します。Windows では、大文字と小文字を区別しない path、および `COMSPEC` と `PATHEXT` による `cmd.exe` または PowerShell の解決を含みます。
+多くの連携は **Windows、macOS、Linux** で動作します。path 処理とコマンド解決のために host OS を検出します。Windows では、大文字と小文字を区別しない path、および `COMSPEC` と `PATHEXT` による `cmd.exe` または PowerShell の解決を含みます。install コマンドと対話式 installer は、npm が Windows で `.cmd` shim としてインストールする agent CLI も解決するため、`install --codex` などのコマンドはそれらを見つけられます。
 
 **Hermes Agent** と **OpenClaw** の連携は、macOS と Linux だけで動作します。POSIX home directory path の `~/.hermes` と `~/.openclaw` を使用し、Windows path をサポートしません。
 
@@ -76,19 +76,31 @@ script による非対話式 install では、対象 flag を正確に 1 つ渡�
 npx -y cc-safety-net@latest install --amp
 ```
 
-自己完結型プラグイン artifact を npm package から `~/.config/amp/plugins/cc-safety-net.ts` にコピーします。hosted plugin、URL、global npm dependency は不要です。再実行すると管理対象 artifact をその場で更新します。
+管理対象プラグイン artifact を、アカウントの hosted Amp Personal Plugins repository に `cc-safety-net.ts` として publish します。personal plugin はアカウントに従ってどこでも有効になるため、Amp Orb などの remote マシンで実行する thread も保護します。
+
+install には `amp` CLI とサインイン済みのアカウントが必要です。最初に `amp plugins repositories --json` を実行して、書き込み可能な Personal Plugins repository を見つけます。CLI がない場合やサインインしていない場合は、`amp login` を示して install を停止します。次に `user-plugins` を使い捨ての一時 checkout に clone し、`cc-safety-net.ts` を書き込み、tool identity の `cc-safety-net` で commit し（commit signing は無効にするため、global git 設定が install を止めることはありません）、push します。コマンドを再実行すると、publish 済み artifact をその場で更新します。
+
+install は、user policy file の snapshot も publish する artifact に埋め込みます。runtime では、policy file がないマシン（例えば Orb の空の home directory）だけに snapshot を適用します。マシンに policy file があれば、無効なものであっても常に優先します。policy file が存在しないか parse できない場合は、snapshot なしの artifact を publish します。snapshot には audit retention、user rulebook、project scope の policy は含まれません。policy の編集は、次の `install --amp` または `update` で反映されます。
 
 ```bash
 npx -y cc-safety-net@latest uninstall --amp
 ```
 
+uninstall は、同じ commit と push の流れで personal repository から `cc-safety-net.ts` を削除します。
+
 <Note>
   install、update、uninstall 後は、変更を有効にするため Amp を再起動するか `plugins: reload` を実行してください。
 </Note>
 
-`~/.config/amp/plugins/cc-safety-net.ts` が symlink、directory、または CC Safety Net managed header がない regular file の場合、install と uninstall はどちらも変更を拒否します。自身でファイルを移動または削除してから、コマンドを再実行してください。
+personal repository 内の `cc-safety-net.ts` が symlink、regular file 以外、または CC Safety Net managed header がないファイルの場合、install と uninstall はどちらも変更を拒否します。repository 側でファイルを削除してから、コマンドを再実行してください。
 
-プラグインが保護するのは、インストールしたマシンだけです。Amp Orb などの remote executor で実行するツール呼び出しは対象外です。
+以前の release は、plugin を local file の `~/.config/amp/plugins/cc-safety-net.ts` にコピーしていました。残った local エントリは personal plugin を隠すため、install は publish 後に管理対象の local copy を削除します。local エントリが管理対象の copy ではない場合、install は次のエラーで失敗します。
+
+```text
+Local Amp plugin <path> is not a managed copy and masks the personal plugin. Remove it and rerun install --amp.
+```
+
+uninstall も管理対象の local copy を削除しますが、管理対象ではない local エントリはそのまま残します。
 
 ## Antigravity CLI
 
@@ -235,6 +247,14 @@ plugin directory が symlink または regular directory ではない場合、in
 
 ## Kimi Code
 
+Kimi Code には 2 つのインストール方法があります。Kimi Code の config に書き込む global hook と、Kimi Code 内からインストールする native Kimi Code plugin です。対話式 terminal では、`install --kimi-code`（または対話式 installer での Kimi Code の選択）は、どちらの方法を使うかを尋ねる single-select prompt を開きます。global hook を今インストールするか、native plugin の手順を表示するかを選びます。非対話式 session では、flag は global hook を直接インストールするため、script や CI pipeline が prompt で止まることはありません。`update` は変わりません。
+
+<Note>
+  どちらの方法でも Kimi Code hook は fail-open です。hook process が開始できない、crash する、または timeout する場合、Kimi Code は tool call を許可します。
+</Note>
+
+**Global hook**
+
 ```bash
 npx -y cc-safety-net@latest install --kimi-code
 ```
@@ -246,6 +266,18 @@ hook は `npx` で動作するため、install は最初に npm `_npx` cache か
 ```bash
 npx -y cc-safety-net@latest uninstall --kimi-code
 ```
+
+**Native plugin**
+
+代わりに native plugin を使うには、Kimi Code 内で次を実行します。
+
+```text
+/plugins install https://github.com/kenryu42/cc-safety-net
+```
+
+trust prompt を確認します。デフォルトは cancel です。その後、`/reload` を実行するか、新しい session を開始します。plugin は、`node ./dist/bin/cc-safety-net.js hook --kimi-code` を 30 秒の timeout で実行する `PreToolUse` `Bash` hook を 1 つ宣言します。global hook と同じ adapter です。
+
+global hook がすでに設定済みの場合、対話式 installer の Kimi Code 行は選択可能なままで、`(global hook installed)` と表示されます。また、表示される plugin の手順に注意書きが追加されます。`cc-safety-net uninstall --kimi-code` は、plugin が有効になった*後*にだけ実行してください。両方の hook が動作する短い重複は拒否メッセージが重複するだけですが、どちらも有効でない期間は保護されません。
 
 Kimi Code 内で対話形式にルールを作成するには、任意で `/cc-safety-net` skill をインストールします。
 

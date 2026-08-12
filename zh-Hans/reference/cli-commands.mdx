@@ -407,7 +407,7 @@ npx -y cc-safety-net install --claude-code
 
 | 标志 | 代理 | 安装方式 |
 | --- | --- | --- |
-| `--amp` | Amp Code | 将插件文件写入 `~/.config/amp/plugins/cc-safety-net.ts` |
+| `--amp` | Amp Code | 通过 amp CLI 将托管插件发布到您账户托管的 Amp Personal Plugins 仓库 |
 | `--agy-cli` | Antigravity CLI | 将钩子条目写入 `~/.gemini/config/hooks.json` |
 | `--claude-code` | Claude Code | 运行 Claude Code 自带的插件市场命令 |
 | `--codex` | Codex | 运行 Codex 自带的插件市场命令 |
@@ -415,7 +415,7 @@ npx -y cc-safety-net install --claude-code
 | `--gemini-cli` | Gemini CLI | 运行 Gemini CLI 的扩展安装命令 |
 | `--copilot-cli` | GitHub Copilot CLI | 运行 Copilot CLI 自带的插件市场命令 |
 | `--hermes-agent` | Hermes Agent | 写入一个托管的 Python 插件到 `~/.hermes/plugins/cc-safety-net`（或 `$HERMES_HOME` 下）并使用 `hermes plugins enable` 启用它 |
-| `--kimi-code` | Kimi Code | 将 `[[hooks]]` 块写入 `~/.kimi-code/config.toml`（或 `$KIMI_CODE_HOME/config.toml`） |
+| `--kimi-code` | Kimi Code | 在终端中先出现方式选择提示，然后将 `[[hooks]]` 块写入 `~/.kimi-code/config.toml`（或 `$KIMI_CODE_HOME/config.toml`） |
 | `--openclaw` | OpenClaw | 通过 OpenClaw 自带的 `openclaw plugins` 命令安装和启用捆绑的插件 |
 | `--opencode` | OpenCode | 运行 OpenCode 的全局插件安装 |
 | `--pi` | Pi | 运行 Pi 的包安装 |
@@ -426,13 +426,15 @@ CC Safety Net 使用三种安装机制：
 
 - **原生插件或扩展命令** — Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, OpenClaw, OpenCode, 和 Pi。CC Safety Net 调用代理自带的插件管理器并在此过程中清理被取代的插件 ID。OpenClaw 的安装还会事后验证 OpenClaw 是否报告插件已加载，然后要求您重新启动 OpenClaw Gateway。
 - **配置文件写入** — Antigravity CLI, Cursor, 和 Kimi Code。这三个是 CC Safety Net 直接编辑的唯一代理配置。
-- **插件文件** — Amp Code 和 Hermes Agent。更改后，重启 Amp 或运行 `plugins: reload`；对于 Hermes Agent，安装还会运行 `hermes plugins enable`，更改需要重启 Hermes。
+- **托管插件产物** — Amp Code 和 Hermes Agent。Amp 的插件通过 amp CLI 发布到您账户托管的 Amp Personal Plugins 仓库（预检命令是 `amp plugins repositories --json`），因此安装需要 amp CLI 和 `amp login`；发布后的插件适用于每个 Amp 会话，包括 Orb 线程。遗留在 `~/.config/amp/plugins/cc-safety-net.ts` 的托管本地副本会遮蔽个人插件，因此安装会将其移除。更改后，重启 Amp 或运行 `plugins: reload`。对于 Hermes Agent，安装将插件写入磁盘并运行 `hermes plugins enable`，更改需要重启 Hermes。
 
 在配置文件安装（Antigravity CLI、Cursor 或 Kimi Code）或 Hermes Agent 安装写入任何内容之前，它会清除 `npx` 缓存中的过时副本。npm 缓存的 `_npx` 目录下，每个 `node_modules` 包含 `cc-safety-net` 的条目都会被移除。缓存路径为 `$npm_config_cache`（如果已设置）；否则在 macOS 和 Linux 上为 `~/.npm`，在 Windows 上为 `%LOCALAPPDATA%\npm-cache`。这四个集成通过 `npx` 运行 hook，因此新安装的 hook 会解析到最新版本，而不是缓存版本。
 
+**Kimi Code 有两种安装方式。** 在终端中，`install --kimi-code` — 或在选择器中选中 Kimi Code — 会打开一个单选提示：现在安装全局 hook，或改为打印原生 Kimi 插件的步骤（在 Kimi Code 内运行 `/plugins install https://github.com/kenryu42/cc-safety-net` — 信任提示默认是取消 — 然后运行 `/reload` 或开始新会话）。选择插件方式不会写入任何内容，只打印步骤。非交互式会话会跳过该提示，直接安装全局 hook。由于该提示是获得插件步骤的唯一途径，即使全局 hook 已配置，安装时 Kimi Code 的行仍然可选，并标记为 `(global hook installed)`。
+
 ### 选择目标
 
-- **无标志，交互式终端：** 会出现一个箭头键多选提示。每个目标都会被探测可用性，因此未安装的代理会显示 `CLI not installed`，已设置的代理会显示 `already installed`，卸载时未配置的代理会显示 `not installed`。
+- **无标志，交互式终端：** 会出现一个箭头键多选提示。每个目标都会被探测可用性，因此未安装的代理会显示 `CLI not installed`，已设置的代理会显示 `already installed`，卸载时未配置的代理会显示 `not installed`。在 Windows 上，探测和安装本身都会通过 shell 解析 npm 的 `.cmd` shim，因此用 npm 安装的 CLI 能被正常检测到，而不会显示 `CLI not installed`。
 - **带目标标志：** 提供**仅一个**目标标志。多个标志会引发 `Choose exactly one install|uninstall target:` 并显示完整的标志列表。未知的 `-` 参数和多余的位置参数也是错误。
 
 选择器的按键绑定在其页脚中打印。安装期间，页脚显示：
@@ -443,7 +445,7 @@ Space: select  Enter: confirm  u: update installed  Up/Down: move  q/Esc: cancel
 
 `Space` 切换高亮目标，`Enter` 确认（未选择任何内容时只会发出终端铃声），`Up`/`Down` — 或 `k`/`j` — 在可选择的行之间移动。在安装过程中按 `u`（或 `U`）会离开选择器并运行 [`update`](#update) 流程，而不是继续安装；卸载页脚省略了该绑定。按 `q` 或 `Esc` 退出会打印 `Cancelled: nothing was installed.`（或 `Cancelled: nothing was uninstalled.`）并退出 `0` — 退出是一个决定，而不是失败。按 `Ctrl-C` 则会引发 `SIGINT`，因此进程会像中断的程序一样正常结束。
 
-选定的目标始终按目录安装顺序运行，而不是您选择的顺序。失败会退出 `1` 并显示特定于错误的提示 — 权限问题、缺失路径或不是目录的路径组件。
+选定的目标始终按目录安装顺序运行，而不是您选择的顺序。在终端中，每个目标在一个加载指示器后面运行 — `Installing <name> integration…` 或 `Uninstalling <name> integration…` — 指示器停止后打印该目标的报告；没有 TTY 时则没有加载指示器。宿主 CLI 的命令在 120 秒后仍未完成会被终止并报告为失败。失败会退出 `1` 并显示特定于错误的提示 — 权限问题、缺失路径或不是目录的路径组件。
 
 ## update
 
@@ -453,13 +455,13 @@ Space: select  Enter: confirm  u: update installed  Up/Down: move  q/Esc: cancel
 npx -y cc-safety-net@latest update
 ```
 
-目标通过读取每个代理的配置和状态文件来查找：当一个集成被检测为已安装时，它就有资格，**即使它当前被禁用**。GitHub Copilot CLI 是例外 — 它仅在 Copilot 的 `installed-plugins` 目录中存在 CC Safety Net 插件签出时才有资格，因为其禁用状态与未安装任何东西的开关无法区分，并且更新绝不能变成安装。仍然使用旧版 `safety-net@cc-marketplace` 插件 ID 的安装 — 在 Claude Code 或 Codex 中 — 也会被拾取，因此更新会将它们迁移到当前 ID。
+目标通过读取每个代理的配置和状态文件来查找：当一个集成被检测为已安装时，它就有资格，**即使它当前被禁用**。Amp Code 通过 `amp plugins list` 的输出获得资格 — 该输出与 `codex plugin list` 一样以 30 秒超时获取，因为冷启动会通过网络刷新签出，可能超过默认的 5 秒。GitHub Copilot CLI 是例外 — 它仅在 Copilot 的 `installed-plugins` 目录中存在 CC Safety Net 插件签出时才有资格，因为其禁用状态与未安装任何东西的开关无法区分，并且更新绝不能变成安装。仍然使用改名前的 `safety-net@cc-marketplace` 插件 ID 的安装 — 在 Claude Code、Codex 中，或在 GitHub Copilot CLI 中表现为插件签出 `cc-marketplace/safety-net` — 也会被拾取：更新会将它们迁移到当前 ID，并尽力移除旧版副本，旧版副本移除失败只会发出警告，不会使该目标失败。
 
-每个目标然后按目录安装顺序运行与 `install` 相同的操作，消息改为 `Updated …` 或 `… up to date`。对于那些安装驱动代理自带 CLI 的目标 — Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Hermes Agent, OpenClaw, OpenCode, 和 Pi — 首先会探测供应商二进制文件：缺失的二进制文件会打印 `<Agent> not found; skipped`（例如 `Codex not found; skipped`）并继续运行。配置文件和插件文件目标 — Amp Code, Antigravity CLI, Cursor, 和 Kimi Code — 不需要二进制文件，并且总是刷新。
+每个目标然后按目录安装顺序运行与 `install` 相同的操作，消息改为 `Updated …` 或 `… up to date`。对于那些安装驱动代理自带 CLI 的目标 — Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Hermes Agent, OpenClaw, OpenCode, 和 Pi — 首先会探测供应商二进制文件：缺失的二进制文件会打印 `<Agent> not found; skipped`（例如 `Codex not found; skipped`）并继续运行。配置文件目标 — Antigravity CLI, Cursor, 和 Kimi Code — 不需要二进制文件，并且总是刷新。Amp Code 不需要单独的探测：仅当 `amp plugins list` 显示个人插件时才会被检测到，其刷新会驱动 amp CLI 发布当前产物。在 Claude Code、Codex 和 GitHub Copilot CLI 上，已注册的市场会在插件步骤之前先刷新（例如 `claude plugin marketplace update cc-marketplace`），而不是依赖无操作的 `add`，因此过时的目录签出不会使更新失败。
 
 当没有任何目标符合条件时，`update` 打印 ``No installed integrations found. Run `cc-safety-net install` to set one up.`` 并退出 `0`。
 
-`update` 不接受目标标志和参数 — 仅接受 `-h`/`--help`。任何其他选项都会打印 `Unknown option for update: <flag>`，位置参数会打印 `Unexpected argument for update: <arg>`，两者都会退出 `1`。更新目标时发生的失败会以与 `install` 相同的错误提示退出 `1`；否则退出码为 `0`。
+`update` 不接受目标标志和参数 — 仅接受 `-h`/`--help`。任何其他选项都会打印 `Unknown option for update: <flag>`，位置参数会打印 `Unexpected argument for update: <arg>`，两者都会退出 `1`。一个目标的失败不会停止运行：它的错误会以与 `install` 相同的提示打印，update 继续处理其余目标，若有任何目标失败，命令在最后退出 `1` — 否则退出 `0`。
 
 您也可以通过交互式 `install` 选择器按 `u` 键访问更新流程。
 

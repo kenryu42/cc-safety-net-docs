@@ -407,7 +407,7 @@ npx -y cc-safety-net install --claude-code
 
 | フラグ | エージェント | インストール方法 |
 | --- | --- | --- |
-| `--amp` | Amp Code | `~/.config/amp/plugins/cc-safety-net.ts` にプラグインファイルを書き込む |
+| `--amp` | Amp Code | amp CLI を通じて、アカウントのホスト型 Amp Personal Plugins リポジトリに管理対象プラグインを公開する |
 | `--agy-cli` | Antigravity CLI | `~/.gemini/config/hooks.json` にフックエントリを書き込む |
 | `--claude-code` | Claude Code | Claude Code 自身のプラグインマーケットプレイスコマンドを実行する |
 | `--codex` | Codex | Codex 自身のプラグインマーケットプレイスコマンドを実行する |
@@ -415,7 +415,7 @@ npx -y cc-safety-net install --claude-code
 | `--gemini-cli` | Gemini CLI | Gemini CLI の拡張インストールコマンドを実行する |
 | `--copilot-cli` | GitHub Copilot CLI | Copilot CLI 自身のプラグインマーケットプレイスコマンドを実行する |
 | `--hermes-agent` | Hermes Agent | `~/.hermes/plugins/cc-safety-net`（または `$HERMES_HOME` の下）に管理対象 Python プラグインを書き込み、`hermes plugins enable` で有効にする |
-| `--kimi-code` | Kimi Code | `~/.kimi-code/config.toml`（または `$KIMI_CODE_HOME/config.toml`）に `[[hooks]]` ブロックを書き込む |
+| `--kimi-code` | Kimi Code | ターミナルでは方式プロンプトの後に、`~/.kimi-code/config.toml`（または `$KIMI_CODE_HOME/config.toml`）に `[[hooks]]` ブロックを書き込む |
 | `--openclaw` | OpenClaw | OpenClaw 自身の `openclaw plugins` コマンドで同梱プラグインをインストールして有効にする |
 | `--opencode` | OpenCode | OpenCode のグローバルプラグインインストールを実行する |
 | `--pi` | Pi | Pi のパッケージインストールを実行する |
@@ -426,13 +426,15 @@ CC Safety Net は、3 つのインストール方法を使います。
 
 - **ネイティブのプラグインまたは拡張コマンド** — Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、OpenClaw、OpenCode、Pi。CC Safety Net はエージェント自身のプラグインマネージャーを実行し、置き換えられた古いプラグイン ID を削除します。OpenClaw のインストールは、その後に OpenClaw がプラグインを読み込み済みと報告することも確認し、OpenClaw Gateway の再起動を求めます。
 - **設定ファイルへの書き込み** — Antigravity CLI、Cursor、Kimi Code。CC Safety Net がエージェントの設定を直接編集するのは、この 3 つだけです。
-- **プラグインファイル** — Amp Code と Hermes Agent。変更後は Amp を再起動するか `plugins: reload` を実行します。Hermes Agent では、インストール時に `hermes plugins enable` も実行され、変更後に Hermes の再起動が必要です。
+- **管理対象プラグイン成果物** — Amp Code と Hermes Agent。Amp のプラグインは、amp CLI を通じてアカウントのホスト型 Amp Personal Plugins リポジトリに公開されます（事前確認は `amp plugins repositories --json`）。そのため、インストールには amp CLI と `amp login` が必要です。公開されたプラグインは、Orb スレッドを含むすべての Amp セッションに適用されます。`~/.config/amp/plugins/cc-safety-net.ts` に管理対象のローカルコピーが残っているとパーソナルプラグインを覆い隠すため、インストール時に削除されます。変更後は Amp を再起動するか `plugins: reload` を実行します。Hermes Agent では、インストール時にプラグインをディスクに書き込んで `hermes plugins enable` も実行し、変更後に Hermes の再起動が必要です。
 
 設定ファイルへのインストール（Antigravity CLI、Cursor、Kimi Code）または Hermes Agent へのインストールが何かを書き込む前に、`npx` キャッシュから古い `cc-safety-net` を削除します。npm キャッシュの `_npx` ディレクトリ（`$npm_config_cache` が設定されている場合はその場所。それ以外は macOS と Linux で `~/.npm`、Windows で `%LOCALAPPDATA%\npm-cache`）の下にあり、`node_modules` が `cc-safety-net` を含むすべてのエントリを削除します。この 4 つの統合は `npx` でフックを実行するため、この処理により、新しくインストールしたフックはキャッシュ済みのバージョンではなく最新版を解決します。
 
+**Kimi Code には 2 つのインストール方式があります。** ターミナルで `install --kimi-code` を実行するか、ピッカーで Kimi Code を選択すると、単一選択プロンプトが開きます。グローバルフックを今インストールするか、代わりにネイティブ Kimi プラグインの手順を表示するかを選びます（手順は、Kimi Code 内で `/plugins install https://github.com/kenryu42/cc-safety-net` を実行し — 信頼プロンプトのデフォルトはキャンセルです — 次に `/reload` を実行するか新しいセッションを開始します）。プラグイン方式を選んでも何も書き込まれず、手順を表示するだけです。非対話セッションではプロンプトをスキップして、グローバルフックを直接インストールします。このプロンプトがプラグイン手順への唯一の経路であるため、グローバルフックが設定済みでも install 時の Kimi Code の行は選択可能なままで、`(global hook installed)` と表示されます。
+
 ### ターゲットの選択
 
-- **フラグなしの対話型ターミナル：** 矢印キーを使う複数選択プロンプトが表示されます。各ターゲットの使用可否を調べます。そのため、エージェントがインストールされていない場合は `CLI not installed`、設定済みの場合は `already installed`、uninstall 時に未設定の場合は `not installed` と表示されます。
+- **フラグなしの対話型ターミナル：** 矢印キーを使う複数選択プロンプトが表示されます。各ターゲットの使用可否を調べます。そのため、エージェントがインストールされていない場合は `CLI not installed`、設定済みの場合は `already installed`、uninstall 時に未設定の場合は `not installed` と表示されます。Windows では、この使用可否の検査もインストール自体も npm の `.cmd` シムをシェル経由で解決するため、npm でインストールした CLI が `CLI not installed` と表示されることなく検出されます。
 - **ターゲットフラグあり：** 正確に 1 つのターゲットフラグを指定します。複数指定すると `Choose exactly one install|uninstall target:` の後に完全なフラグリストを表示します。不明な `-` 引数と余分な位置引数もエラーです。
 
 セレクターのキーバインドはフッターに表示されます。install 時のフッターは次のとおりです。
@@ -443,7 +445,7 @@ Space: select  Enter: confirm  u: update installed  Up/Down: move  q/Esc: cancel
 
 `Space` は強調表示したターゲットの選択を切り替えます。`Enter` は確定します。何も選択されていない場合はターミナルベルを鳴らすだけです。`Up` / `Down` または `k` / `j` は、選択可能な行の間を移動します。install 時に `u`（または `U`）を押すとセレクターを終了して [`update`](#update) フローを実行します。uninstall のフッターにはこのキーがありません。`q` または `Esc` で終了すると、`Cancelled: nothing was installed.`（または `Cancelled: nothing was uninstalled.`）を出力し、`0` で終了します。終了は判定であり、失敗ではありません。一方、`Ctrl-C` は `SIGINT` を送出するため、通常の中断されたプログラムと同じ方法でプロセスが終了します。
 
-選択したターゲットは、選択した順序ではなく、常にカタログのインストール順で実行されます。失敗すると、権限問題、パス不足、ディレクトリではないパス要素など、エラー固有のヒントとともに `1` で終了します。
+選択したターゲットは、選択した順序ではなく、常にカタログのインストール順で実行されます。ターミナルでは、各ターゲットはスピナー — `Installing <name> integration…` または `Uninstalling <name> integration…` — の後ろで実行され、スピナーが止まった後にレポートが表示されます。TTY でない場合、スピナーはありません。120 秒経っても終わらないホスト CLI のコマンドは強制終了され、失敗として報告されます。失敗すると、権限問題、パス不足、ディレクトリではないパス要素など、エラー固有のヒントとともに `1` で終了します。
 
 ## update
 
@@ -453,13 +455,13 @@ Space: select  Enter: confirm  u: update installed  Up/Down: move  q/Esc: cancel
 npx -y cc-safety-net@latest update
 ```
 
-ターゲットは、各エージェントの設定ファイルと状態ファイルを読み取って検出します。現在無効な場合でも、インストール済みと検出される統合が対象です。GitHub Copilot CLI は例外です。Copilot の `installed-plugins` ディレクトリに CC Safety Net プラグインの checkout がある場合だけ対象になります。無効状態と、何もインストールされていない kill-switch 状態を区別できず、update が install になることを防ぐためです。Claude Code または Codex でレガシーの `safety-net@cc-marketplace` プラグイン ID を使うインストールも検出され、更新時に現在の ID へ移行されます。
+ターゲットは、各エージェントの設定ファイルと状態ファイルを読み取って検出します。現在無効な場合でも、インストール済みと検出される統合が対象です。Amp Code は `amp plugins list` の出力によって対象になります。この出力は、`codex plugin list` と同じく 30 秒のタイムアウトで取得します。コールドラン時は checkout をネットワーク経由で更新するため、デフォルトの 5 秒を超えることがあるからです。GitHub Copilot CLI は例外です。Copilot の `installed-plugins` ディレクトリに CC Safety Net プラグインの checkout がある場合だけ対象になります。無効状態と、何もインストールされていない kill-switch 状態を区別できず、update が install になることを防ぐためです。改名前の `safety-net@cc-marketplace` プラグイン ID を使うインストール — Claude Code、Codex、および GitHub Copilot CLI のプラグイン checkout `cc-marketplace/safety-net` — も検出されます。更新時に現在の ID へ移行し、レガシーコピーをベストエフォートで削除します。レガシーコピーの削除に失敗しても、ターゲットは失敗せず警告になります。
 
-各ターゲットは、カタログのインストール順で `install` と同じ操作を実行し、メッセージだけが `Updated …` または `… up to date` に変わります。インストール時にエージェント自身の CLI を使うターゲット、つまり Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、Hermes Agent、OpenClaw、OpenCode、Pi では、先にベンダーバイナリを調べます。バイナリがない場合は `<Agent> not found; skipped`（例は `Codex not found; skipped`）を出力して処理を続けます。設定ファイルまたはプラグインファイルを使うターゲット、つまり Amp Code、Antigravity CLI、Cursor、Kimi Code にはバイナリが不要で、常に更新されます。
+各ターゲットは、カタログのインストール順で `install` と同じ操作を実行し、メッセージだけが `Updated …` または `… up to date` に変わります。インストール時にエージェント自身の CLI を使うターゲット、つまり Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、Hermes Agent、OpenClaw、OpenCode、Pi では、先にベンダーバイナリを調べます。バイナリがない場合は `<Agent> not found; skipped`（例は `Codex not found; skipped`）を出力して処理を続けます。設定ファイルを使うターゲット、つまり Antigravity CLI、Cursor、Kimi Code にはバイナリが不要で、常に更新されます。Amp Code には別途の検査は不要です。`amp plugins list` がパーソナルプラグインを表示する場合にのみ検出され、その更新は amp CLI を実行して現在の成果物を公開します。Claude Code、Codex、GitHub Copilot CLI では、登録済みのマーケットプレイスをプラグイン処理の前に更新します（例は `claude plugin marketplace update cc-marketplace`）。何もしない `add` に頼らないため、古いカタログ checkout が更新を失敗させることはありません。
 
 対象がない場合、`update` は ``No installed integrations found. Run `cc-safety-net install` to set one up.`` を出力して `0` で終了します。
 
-`update` はターゲットフラグも引数も受け取りません。使用できるのは `-h` / `--help` だけです。ほかのオプションは `Unknown option for update: <flag>`、位置引数は `Unexpected argument for update: <arg>` を出力し、どちらも `1` で終了します。ターゲットの更新に失敗すると `install` と同じエラーヒントとともに `1` で終了します。それ以外の終了コードは `0` です。
+`update` はターゲットフラグも引数も受け取りません。使用できるのは `-h` / `--help` だけです。ほかのオプションは `Unknown option for update: <flag>`、位置引数は `Unexpected argument for update: <arg>` を出力し、どちらも `1` で終了します。1 つのターゲットが失敗しても実行は止まりません。エラーは `install` と同じヒントとともに表示され、update は残りのターゲットを続行し、いずれかのターゲットが失敗していれば最後に `1` で終了します。それ以外の終了コードは `0` です。
 
 対話型の `install` セレクターで `u` を押して、update フローへ移ることもできます。
 

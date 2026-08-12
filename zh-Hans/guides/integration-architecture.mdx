@@ -17,7 +17,7 @@ CC Safety Net 支持十二种编码智能体，但集成方式并不完全相同
 | **Stdin hook 子进程** | Antigravity CLI、Claude Code、Cursor、Gemini CLI、GitHub Copilot CLI、Hermes Agent、Kimi Code | 每次工具调用时，智能体把调用作为 JSON 写入 stdin，并运行短生命周期进程 `cc-safety-net hook <flag>`。CC Safety Net 分析调用，在 stdout 打印智能体专用 deny 对象，并以 0 退出。 |
 | **智能体加载的插件** | Codex、OpenClaw、OpenCode | 智能体按自己的软件包格式加载 CC Safety Net 插件。这些智能体没有 `hook` 标志。 |
 | **进程内扩展** | Pi | Pi 直接在 Pi 进程中加载 CC Safety Net 扩展并在内存中调用，无子进程、stdin 或 stdout。 |
-| **事件插件** | Amp Code | Amp 加载托管插件文件，并在进程内向其发送每个 `tool.call` 事件。 |
+| **事件插件** | Amp Code | Amp 从账户的 Personal Plugins 仓库加载托管的个人插件，并在进程内向其发送每个 `tool.call` 事件。 |
 
 ## Stdin hook 子进程智能体
 
@@ -57,7 +57,7 @@ CC Safety Net 支持十二种编码智能体，但集成方式并不完全相同
 | Gemini CLI | 从 `gemini-safety-net` 仓库加载的扩展 `gemini-safety-net`，不是 `cc-marketplace` 插件 |
 | GitHub Copilot CLI | 插件 `cc-safety-net@cc-marketplace`，或 `~/.copilot/hooks` 下的 hook 文件/ Copilot 配置中的内联 hook。Hook 支持受版本限制，详情见<a href="/zh-Hans/installation">安装</a>。`disableAllHooks: true` 会禁用所有 hook |
 | Hermes Agent | 直接写入：`~/.hermes/plugins/cc-safety-net/` 下的托管 Python 插件（`__init__.py` 和 `plugin.yaml`；设置时 Hermes home 为 `$HERMES_HOME`），再运行 `hermes plugins enable cc-safety-net --no-allow-tool-override`。启用状态记录在 Hermes `config.yaml` 的 `plugins.enabled` |
-| Kimi Code | 直接写入：`~/.kimi-code/config.toml`（或 `$KIMI_CODE_HOME/config.toml`）中的 `[[hooks]]` 块，运行 `npx -y cc-safety-net hook --kimi-code` |
+| Kimi Code | 直接写入：`~/.kimi-code/config.toml`（或 `$KIMI_CODE_HOME/config.toml`）中的 `[[hooks]]` 块，运行 `npx -y cc-safety-net hook --kimi-code`。另一种方式是在 Kimi Code 内运行 `/plugins install https://github.com/kenryu42/cc-safety-net` 安装原生 Kimi Code 插件；manifest 运行相同的 hook 入口（`node ./dist/bin/cc-safety-net.js hook --kimi-code`、`PreToolUse` 事件、`Bash` matcher、30 秒超时） |
 
 ### Hermes Agent 如何到达 hook
 
@@ -126,15 +126,22 @@ Pi 把 CC Safety Net 作为进程内扩展加载。扩展由软件包 `pi.extens
 
 ## Amp Code 事件插件
 
-Amp Code 把 CC Safety Net 作为系统插件加载：一个位于 `~/.config/amp/plugins/cc-safety-net.ts` 的自包含文件，从 npm 软件包复制而不是从 URL 获取。插件通过 `@ampcode/plugin` API 订阅 Amp `tool.call` 事件，返回 `allow` 或带消息的 `reject-and-continue`。它和 Pi、OpenClaw、OpenCode 一样在进程内运行。
+Amp Code 把 CC Safety Net 作为**个人插件**加载：Amp 账户托管的 Personal Plugins 仓库中一个名为 `cc-safety-net.ts` 的自包含文件。插件通过 `@ampcode/plugin` API 订阅 Amp `tool.call` 事件，返回 `allow` 或带消息的 `reject-and-continue`。它和 Pi、OpenClaw、OpenCode 一样在进程内运行。个人插件跟随账户而不是单台机器，因此也覆盖在 Amp Orb 等远程执行器上运行的线程。
 
-文件含 CC Safety Net 托管 header，用于证明 CC Safety Net 可以安全替换它。写入或删除时的执行方式见<a href="/zh-Hans/installation">安装</a>。
+`install --amp` 把 artifact 发布到该仓库：确认账户有可写的 Personal Plugins 仓库（`amp plugins repositories --json`），把仓库克隆到一次性 checkout（`amp clone user-plugins`），写入文件，然后提交并推送。文件含 CC Safety Net 托管 header，用于证明 CC Safety Net 可以安全替换它；该 header 在个人仓库内强制执行，仓库里出现非托管的 `cc-safety-net.ts` 会使安装失败。旧的本地系统插件 `~/.config/amp/plugins/cc-safety-net.ts` 若残留托管副本会被删除，因为本地插件会遮蔽个人插件；那里存在非托管本地文件同样会使安装失败。设置和删除命令见<a href="/zh-Hans/installation">安装</a>。
 
-Amp 启动时读取插件，因此新写入或删除的插件文件要重新加载 Amp 才会影响当前会话。
+### 嵌入的策略快照
+
+发布的 artifact 携带用户策略的快照：文件末尾追加一条 `globalThis.__CC_SAFETY_NET_EMBEDDED_POLICY__ = …` 赋值，策略在写入前先归一化。运行时只有在自身没有策略文件的机器上（Orb 的空 home 目录）快照才生效；有策略文件的机器即使文件无效，也保持自身行为。审计保留、用户 rulebook 和项目范围策略不会嵌入，策略修改要在下一次 `install` 或 `update` 时才发布。
+
+Amp 启动时读取插件，因此新发布或删除的插件要重新加载 Amp 才会影响当前会话。
+
+### 检测 Amp Code
+
+`doctor` 通过解析 `amp plugins list` 输出检测插件；个人范围插件显示为 `✓ cc-safety-net (User Plugins) <status>`。该输出不含版本号，因此 `doctor` 不会报告 Amp 的版本偏差——`cc-safety-net update` 始终重新发布当前 artifact。
 
 ### Amp Code 覆盖限制
 
-- 系统插件只保护安装它的机器。Amp Orb 等远程执行器上运行的工具调用不受保护。
 - Amp 不定义订阅同一 `tool.call` 事件的多个插件的执行顺序。CC Safety Net 评估它收到的输入。如果另一插件在 CC Safety Net 已允许后改写输入，CC Safety Net 不能重新评估。
 
 ## 验证集成

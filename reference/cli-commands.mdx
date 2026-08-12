@@ -407,7 +407,7 @@ Twelve targets are accepted, listed here in the order they are installed:
 
 | Flag | Agent | How it installs |
 | --- | --- | --- |
-| `--amp` | Amp Code | Writes a plugin file to `~/.config/amp/plugins/cc-safety-net.ts` |
+| `--amp` | Amp Code | Publishes the managed plugin to your account's hosted Amp Personal Plugins repository through the amp CLI |
 | `--agy-cli` | Antigravity CLI | Writes the hook entry into `~/.gemini/config/hooks.json` |
 | `--claude-code` | Claude Code | Runs Claude Code's own plugin marketplace commands |
 | `--codex` | Codex | Runs Codex's own plugin marketplace commands |
@@ -415,7 +415,7 @@ Twelve targets are accepted, listed here in the order they are installed:
 | `--gemini-cli` | Gemini CLI | Runs Gemini CLI's extension install command |
 | `--copilot-cli` | GitHub Copilot CLI | Runs Copilot CLI's own plugin marketplace commands |
 | `--hermes-agent` | Hermes Agent | Writes a managed Python plugin to `~/.hermes/plugins/cc-safety-net` (or under `$HERMES_HOME`) and enables it with `hermes plugins enable` |
-| `--kimi-code` | Kimi Code | Writes a `[[hooks]]` block into `~/.kimi-code/config.toml` (or `$KIMI_CODE_HOME/config.toml`) |
+| `--kimi-code` | Kimi Code | Writes a `[[hooks]]` block into `~/.kimi-code/config.toml` (or `$KIMI_CODE_HOME/config.toml`), after a method prompt in a terminal |
 | `--openclaw` | OpenClaw | Installs and enables the bundled plugin through OpenClaw's own `openclaw plugins` commands |
 | `--opencode` | OpenCode | Runs OpenCode's global plugin install |
 | `--pi` | Pi | Runs Pi's package install |
@@ -426,13 +426,15 @@ CC Safety Net uses three installation mechanisms:
 
 - **Native plugin or extension commands** — Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, OpenClaw, OpenCode, and Pi. CC Safety Net shells out to the agent's own plugin manager and cleans up superseded plugin ids along the way. OpenClaw's install also verifies afterwards that OpenClaw reports the plugin as loaded, then asks you to restart the OpenClaw Gateway.
 - **Config-file writes** — Antigravity CLI, Cursor, and Kimi Code. These three are the only agent configs CC Safety Net edits directly.
-- **Plugin files** — Amp Code and Hermes Agent. After a change, restart Amp or run `plugins: reload`; for Hermes Agent, the install also runs `hermes plugins enable`, and a change needs a Hermes restart.
+- **Managed plugin artifacts** — Amp Code and Hermes Agent. Amp's plugin is published to your account's hosted Amp Personal Plugins repository through the amp CLI (the preflight is `amp plugins repositories --json`), so the install needs the amp CLI and `amp login`; the published plugin applies to every Amp session, including Orb threads. A leftover managed local copy at `~/.config/amp/plugins/cc-safety-net.ts` would mask the personal plugin, so install removes it. After a change, restart Amp or run `plugins: reload`. For Hermes Agent, the install writes the plugin to disk and also runs `hermes plugins enable`, and a change needs a Hermes restart.
 
 Before a config-file install (Antigravity CLI, Cursor, or Kimi Code) or a Hermes Agent install writes anything, it clears stale copies of `cc-safety-net` from the `npx` cache — every entry under the npm cache's `_npx` directory (`$npm_config_cache` if set, otherwise `~/.npm` on macOS and Linux, `%LOCALAPPDATA%\npm-cache` on Windows) whose `node_modules` contains `cc-safety-net` is removed. Those four integrations run the hook through `npx`, so this makes the freshly installed hook resolve the latest version instead of a cached one.
 
+**Kimi Code has two install methods.** In a terminal, `install --kimi-code` — or selecting Kimi Code in the picker — opens a single-select prompt: install the global hook now, or print the steps for the native Kimi plugin instead (inside Kimi Code, run `/plugins install https://github.com/kenryu42/cc-safety-net` — the trust prompt defaults to cancel — then `/reload` or a new session). Choosing the plugin method writes nothing; it only prints the steps. A non-interactive session skips the prompt and installs the global hook directly. Because the prompt is the only path to the plugin steps, the Kimi Code picker row stays selectable during install even when the global hook is already configured — it is then labeled `(global hook installed)`.
+
 ### Selecting a target
 
-- **No flag, interactive terminal:** an arrow-key multi-select prompt appears. Each target is probed for availability, so an agent that is not installed shows `CLI not installed`, one already set up shows `already installed`, and one that is not configured shows `not installed` during uninstall.
+- **No flag, interactive terminal:** an arrow-key multi-select prompt appears. Each target is probed for availability, so an agent that is not installed shows `CLI not installed`, one already set up shows `already installed`, and one that is not configured shows `not installed` during uninstall. On Windows, the probes — like the installs themselves — resolve npm `.cmd` shims through the shell, so a CLI installed with npm is detected instead of showing `CLI not installed`.
 - **With a target flag:** provide exactly one target flag. More than one raises `Choose exactly one install|uninstall target:` followed by the full flag list. Unknown `-` arguments and stray positional arguments are also errors.
 
 The selector's key bindings are printed in its footer. During install that footer reads:
@@ -443,7 +445,7 @@ Space: select  Enter: confirm  u: update installed  Up/Down: move  q/Esc: cancel
 
 `Space` toggles the highlighted target, `Enter` confirms (with nothing selected it only rings the terminal bell), and `Up`/`Down` — or `k`/`j` — move between selectable rows. Pressing `u` (or `U`) during install leaves the selector and runs the [`update`](#update) flow instead; the uninstall footer omits that binding. Quitting with `q` or `Esc` prints `Cancelled: nothing was installed.` (or `Cancelled: nothing was uninstalled.`) and exits `0` — quitting is a decision, not a failure. `Ctrl-C` instead raises `SIGINT`, so the process ends the way an interrupted program normally does.
 
-Selected targets always run in catalog install order, not the order you picked them. A failure exits `1` with a hint specific to the error — a permissions problem, a missing path, or a path component that is not a directory.
+Selected targets always run in catalog install order, not the order you picked them. In a terminal, each target runs behind a spinner — `Installing <name> integration…` or `Uninstalling <name> integration…` — and its report prints once the spinner stops; without a TTY there is no spinner. A host-CLI command that has not finished after 120 seconds is killed and reported as a failure. A failure exits `1` with a hint specific to the error — a permissions problem, a missing path, or a path component that is not a directory.
 
 ## update
 
@@ -453,13 +455,13 @@ Selected targets always run in catalog install order, not the order you picked t
 npx -y cc-safety-net@latest update
 ```
 
-Targets are found by reading each agent's config and state files: an integration qualifies when it is detected as installed, **even when it is currently disabled**. GitHub Copilot CLI is the exception — it qualifies only when a CC Safety Net plugin checkout exists in Copilot's `installed-plugins` directory, because its disabled state is indistinguishable from a kill-switch with nothing installed, and update must never turn into an install. Installations still on the legacy `safety-net@cc-marketplace` plugin id — in Claude Code or Codex — are also picked up, so updating migrates them to the current id.
+Targets are found by reading each agent's config and state files: an integration qualifies when it is detected as installed, **even when it is currently disabled**. Amp Code qualifies through `amp plugins list` output — fetched, like `codex plugin list`, with a 30-second timeout, because a cold run refreshes checkouts over the network and can outlast the 5-second default. GitHub Copilot CLI is the exception — it qualifies only when a CC Safety Net plugin checkout exists in Copilot's `installed-plugins` directory, because its disabled state is indistinguishable from a kill-switch with nothing installed, and update must never turn into an install. Installations still on the pre-rename `safety-net@cc-marketplace` plugin id — in Claude Code, in Codex, or in GitHub Copilot CLI as the plugin checkout `cc-marketplace/safety-net` — are also picked up: updating migrates them to the current id and removes the legacy copy best-effort, so a failed legacy removal warns instead of failing the target.
 
-Each target then runs the same operation as `install`, in catalog install order, with the messages switched to `Updated …` or `… up to date`. For the targets whose install drives the agent's own CLI — Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Hermes Agent, OpenClaw, OpenCode, and Pi — the vendor binary is probed first: a missing binary prints `<Agent> not found; skipped` (for example `Codex not found; skipped`) and the run continues. The config-file and plugin-file targets — Amp Code, Antigravity CLI, Cursor, and Kimi Code — need no binary and always refresh.
+Each target then runs the same operation as `install`, in catalog install order, with the messages switched to `Updated …` or `… up to date`. For the targets whose install drives the agent's own CLI — Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Hermes Agent, OpenClaw, OpenCode, and Pi — the vendor binary is probed first: a missing binary prints `<Agent> not found; skipped` (for example `Codex not found; skipped`) and the run continues. The config-file targets — Antigravity CLI, Cursor, and Kimi Code — need no binary and always refresh. Amp Code needs no separate probe: it is detected only when `amp plugins list` shows the personal plugin, and its refresh drives the amp CLI to publish the current artifact. On Claude Code, Codex, and GitHub Copilot CLI, an already-registered marketplace is refreshed before the plugin step (for example `claude plugin marketplace update cc-marketplace`) instead of relying on a no-op `add`, so a stale catalog checkout cannot fail the update.
 
 When nothing qualifies, `update` prints ``No installed integrations found. Run `cc-safety-net install` to set one up.`` and exits `0`.
 
-`update` takes no target flags and no arguments — only `-h`/`--help`. Any other option prints `Unknown option for update: <flag>`, a positional prints `Unexpected argument for update: <arg>`, and both exit `1`. A failure while updating a target exits `1` with the same error hints as `install`; otherwise the exit code is `0`.
+`update` takes no target flags and no arguments — only `-h`/`--help`. Any other option prints `Unknown option for update: <flag>`, a positional prints `Unexpected argument for update: <arg>`, and both exit `1`. One target's failure does not stop the run: its error prints with the same hints as `install`, update continues with the remaining targets, and the command exits `1` at the end when any target failed — otherwise `0`.
 
 You can also reach the update flow from the interactive `install` selector by pressing `u`.
 

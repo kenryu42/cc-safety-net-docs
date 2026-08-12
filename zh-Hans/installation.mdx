@@ -6,7 +6,7 @@ description: "在全部十二个受支持的编码智能体中安装和卸载 CC
 
 CC Safety Net 作为插件、扩展或 hook 安装在编码智能体内。你不需要常驻服务或 daemon。部分集成会为每次检查启动一个短时运行的 hook 子进程。
 
-大多数集成支持 **Windows、macOS 和 Linux**。它们会检测主机操作系统，以处理路径和解析命令。在 Windows 上，这包括不区分大小写的路径，以及通过 `COMSPEC` 和 `PATHEXT` 解析 `cmd.exe` 或 PowerShell。
+大多数集成支持 **Windows、macOS 和 Linux**。它们会检测主机操作系统，以处理路径和解析命令。在 Windows 上，这包括不区分大小写的路径，以及通过 `COMSPEC` 和 `PATHEXT` 解析 `cmd.exe` 或 PowerShell。安装命令和交互式选择器还会解析 npm 在 Windows 上以 `.cmd` shim 形式安装的智能体 CLI，因此 `install --codex` 等命令能够找到它们。
 
 **Hermes Agent** 和 **OpenClaw** 集成仅支持 macOS 和 Linux。它们使用 POSIX 主目录路径 `~/.hermes` 和 `~/.openclaw`，不支持 Windows 路径。
 
@@ -78,19 +78,31 @@ npx -y cc-safety-net@latest update
 npx -y cc-safety-net@latest install --amp
 ```
 
-此命令将 npm 软件包中的自包含插件构件复制到 `~/.config/amp/plugins/cc-safety-net.ts`，因此不需要托管插件、URL 或全局 npm 依赖。重新运行命令会原地更新托管构件。
+此命令将托管插件构件以 `cc-safety-net.ts` 的形式发布到你账户托管的 Amp Personal Plugins 仓库。个人插件跟随你的账户随处生效，因此也保护在远程计算机上执行的线程，例如 Amp Orb。
+
+安装需要 `amp` CLI 和已登录的账户：它先运行 `amp plugins repositories --json` 查找你可写的 Personal Plugins 仓库；缺少 CLI 或未登录会停止安装，并提示运行 `amp login`。然后它将 `user-plugins` 克隆到一次性临时检出目录，写入 `cc-safety-net.ts`，以工具身份 `cc-safety-net` 提交（并关闭提交签名，避免你的全局 git 配置阻塞安装），再推送。重新运行命令会原地更新已发布的构件。
+
+安装还会将你的用户策略文件快照嵌入已发布的构件。运行时只有在没有策略文件的计算机上（例如 Orb 的空主目录）才应用该快照；计算机上存在的策略文件（即使无效）总是优先。如果你的策略文件不存在或无法解析，安装会发布不含快照的构件。快照不包含审计保留期、用户 rulebook 和项目范围策略；策略修改会随下一次 `install --amp` 或 `update` 发布。
 
 ```bash
 npx -y cc-safety-net@latest uninstall --amp
 ```
 
+卸载以相同的提交并推送流程从个人仓库中删除 `cc-safety-net.ts`。
+
 <Note>
   安装、更新或卸载后，请重启 Amp 或运行 `plugins: reload`，使更改生效。
 </Note>
 
-如果 `~/.config/amp/plugins/cc-safety-net.ts` 是符号链接、目录，或是不含 CC Safety Net 托管标头的普通文件，安装和卸载都拒绝修改它。请自行移动或删除该文件，然后重新运行命令。
+如果个人仓库中的 `cc-safety-net.ts` 是符号链接、不是普通文件，或不含 CC Safety Net 托管标头，安装和卸载都拒绝修改它。请在仓库中删除它，然后重新运行命令。
 
-插件只保护其安装所在的计算机。在 Amp Orb 等远程执行器上执行的工具调用不受保护。
+早期版本会将插件复制到本地文件 `~/.config/amp/plugins/cc-safety-net.ts`。残留的本地条目会遮蔽个人插件，因此安装会在发布后删除托管的本地副本；当本地条目不是托管副本时，安装会失败：
+
+```text
+Local Amp plugin <path> is not a managed copy and masks the personal plugin. Remove it and rerun install --amp.
+```
+
+卸载也会删除托管的本地副本，但会保留非托管的本地条目。
 
 ## Antigravity CLI 安装
 
@@ -237,6 +249,14 @@ npx -y cc-safety-net@latest uninstall --hermes-agent
 
 ## Kimi Code 安装
 
+Kimi Code 支持两种安装方法：写入 Kimi Code 配置的全局 hook，或从 Kimi Code 内部安装的原生 Kimi Code 插件。在交互式终端中，`install --kimi-code`（或在交互式安装程序中选择 Kimi Code）会打开一个单选提示，询问使用哪种方法：立即安装全局 hook，或打印原生插件的步骤。在非交互式会话中，该参数直接安装全局 hook，因此脚本和 CI 流水线不会卡在提示上。`update` 不变。
+
+<Note>
+  两种方法下 Kimi Code hook 都是故障时放行：当 hook 进程无法启动、崩溃或超时时，Kimi Code 会允许该工具调用。
+</Note>
+
+**全局 hook**
+
 ```bash
 npx -y cc-safety-net@latest install --kimi-code
 ```
@@ -248,6 +268,18 @@ npx -y cc-safety-net@latest install --kimi-code
 ```bash
 npx -y cc-safety-net@latest uninstall --kimi-code
 ```
+
+**原生插件**
+
+要改用原生插件，请在 Kimi Code 中运行：
+
+```text
+/plugins install https://github.com/kenryu42/cc-safety-net
+```
+
+确认信任提示（它默认是取消），然后运行 `/reload` 或开始新会话。插件声明一个 `PreToolUse` `Bash` hook，以 30 秒超时运行 `node ./dist/bin/cc-safety-net.js hook --kimi-code`，与全局 hook 使用相同的适配器。
+
+当全局 hook 已配置时，交互式安装程序中的 Kimi Code 行保持可选，并标注 `(global hook installed)`；打印的插件步骤会额外显示警告：仅在插件生效*之后*运行 `cc-safety-net uninstall --kimi-code`。两个 hook 同时运行的短暂重叠只会重复拒绝消息，而两者都未生效的空窗期会让你失去保护。
 
 可以选择安装 `/cc-safety-net` skill，以便在 Kimi Code 中交互式编写规则：
 

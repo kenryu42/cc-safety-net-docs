@@ -17,7 +17,7 @@ For the commands that install or remove each integration, see [Installation](/in
 | **Stdin hook subprocess** | Antigravity CLI, Claude Code, Cursor, Gemini CLI, GitHub Copilot CLI, Hermes Agent, Kimi Code | The agent runs `cc-safety-net hook <flag>` as a short-lived process for each tool call, writing the call as JSON to its stdin. CC Safety Net analyzes it and prints an agent-specific deny object on stdout, exiting 0. |
 | **Agent-loaded plugin** | Codex, OpenClaw, OpenCode | The agent loads CC Safety Net as a plugin of its own package format. There is no `hook` flag for these agents. |
 | **In-process extension** | Pi | Pi loads CC Safety Net's extension directly into the Pi process and calls it in memory — no subprocess, no stdin or stdout. |
-| **Event plugin** | Amp Code | Amp loads a managed plugin file and delivers each `tool.call` event to it, in process. |
+| **Event plugin** | Amp Code | Amp loads a managed personal plugin from the account's Personal Plugins repository and delivers each `tool.call` event to it, in process. |
 
 ## Stdin hook subprocess agents
 
@@ -61,7 +61,7 @@ Four of the seven have their files written directly by CC Safety Net — three a
 | Gemini CLI | Extension `gemini-safety-net`, loaded from the `gemini-safety-net` repository — not a `cc-marketplace` plugin |
 | GitHub Copilot CLI | Plugin `cc-safety-net@cc-marketplace`, or hook files under `~/.copilot/hooks` / inline hooks in Copilot config. Hook support is version-gated, so which of those sources works depends on your Copilot CLI version — see [Installation](/installation#github-copilot-cli-installation). `disableAllHooks: true` disables all hooks |
 | Hermes Agent | Written directly: a managed Python plugin at `~/.hermes/plugins/cc-safety-net/` (`__init__.py` plus `plugin.yaml`; the Hermes home is `$HERMES_HOME` when set), then enabled with `hermes plugins enable cc-safety-net --no-allow-tool-override`. Enablement is recorded in Hermes' own `config.yaml` under `plugins.enabled` |
-| Kimi Code | Written directly: a `[[hooks]]` block in `~/.kimi-code/config.toml` (or `$KIMI_CODE_HOME/config.toml`) running `npx -y cc-safety-net hook --kimi-code` |
+| Kimi Code | Written directly: a `[[hooks]]` block in `~/.kimi-code/config.toml` (or `$KIMI_CODE_HOME/config.toml`) running `npx -y cc-safety-net hook --kimi-code`. Alternatively, a native Kimi Code plugin installed inside Kimi Code with `/plugins install https://github.com/kenryu42/cc-safety-net`; its manifest runs the same hook entry (`node ./dist/bin/cc-safety-net.js hook --kimi-code`, `PreToolUse` event, `Bash` matcher, 30-second timeout) |
 
 ### How Hermes Agent reaches the hook
 
@@ -130,15 +130,22 @@ Because there is no hook config file to inspect, the `doctor` command detects Pi
 
 ## The Amp Code event plugin
 
-Amp Code loads CC Safety Net as a system plugin: a single self-contained file at `~/.config/amp/plugins/cc-safety-net.ts`, copied out of the npm package rather than fetched from a URL. The plugin subscribes to Amp's `tool.call` event through the `@ampcode/plugin` API and returns either `allow` or `reject-and-continue` with a message. Like Pi, OpenClaw, and OpenCode, it runs in process.
+Amp Code loads CC Safety Net as a **personal plugin**: a single self-contained file `cc-safety-net.ts` in your Amp account's hosted Personal Plugins repository. The plugin subscribes to Amp's `tool.call` event through the `@ampcode/plugin` API and returns either `allow` or `reject-and-continue` with a message. Like Pi, OpenClaw, and OpenCode, it runs in process. Because a personal plugin follows the account rather than one machine, it also covers threads that run on a remote executor such as an Amp Orb.
 
-The file carries a managed header identifying it as CC Safety Net's, which is what marks it as safe for CC Safety Net to replace. See [Installation](/installation#amp-code-installation) for how that header is enforced when the artifact is written or removed.
+`install --amp` publishes the artifact to that repository: it checks that the account has a writable Personal Plugins repository (`amp plugins repositories --json`), clones it into a throwaway checkout (`amp clone user-plugins`), writes the file, and commits and pushes. The file carries a managed header identifying it as CC Safety Net's, which is what marks it as safe for CC Safety Net to replace — enforced inside the personal repository, where an unmanaged `cc-safety-net.ts` fails the install. A leftover managed copy of the old local system plugin at `~/.config/amp/plugins/cc-safety-net.ts` is removed, because a local plugin masks the personal one; an unmanaged local file there also fails the install. See [Installation](/installation#amp-code-installation) for the setup and removal commands.
 
-Amp reads plugins at startup, so a newly written or removed plugin file has no effect on the running session until Amp reloads.
+### The embedded policy snapshot
+
+The published artifact carries a snapshot of your user policy: one `globalThis.__CC_SAFETY_NET_EMBEDDED_POLICY__ = …` assignment appended to the file, with the policy normalized before it is written. At runtime the snapshot applies only on a machine with no policy file of its own — an Orb's empty home directory; a machine that has a policy file, even an invalid one, keeps its own behavior. Audit retention, user rulebooks, and project-scope policy are not embedded, and a policy edit only ships on the next `install` or `update`.
+
+Amp reads plugins at startup, so a newly published or removed plugin has no effect on the running session until Amp reloads.
+
+### Detecting Amp Code
+
+`doctor` detects the plugin by parsing `amp plugins list` output, where a personal-scope plugin renders as `✓ cc-safety-net (User Plugins) <status>`. That output carries no version, so `doctor` never reports version drift for Amp — `cc-safety-net update` republishes the current artifact regardless.
 
 ### Amp Code coverage limits
 
-- A system plugin protects only the machine it is installed on. Tool calls executed on a remote executor such as an Amp Orb run without it.
 - Amp does not define the execution order of multiple plugins subscribed to the same `tool.call` event. CC Safety Net evaluates the input it receives and cannot re-evaluate an input that another plugin rewrites after CC Safety Net has already allowed it.
 
 ## Verify the integration

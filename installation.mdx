@@ -6,7 +6,7 @@ description: "Install and uninstall CC Safety Net across all twelve supported co
 
 CC Safety Net installs as a plugin, extension, or hook inside your coding agent. You do not need a persistent service or daemon. Some integrations start a short-lived hook subprocess for each check.
 
-Most integrations run on **Windows, macOS, and Linux**. They detect the host operating system for path handling and command resolution. On Windows, this includes case-insensitive paths and `cmd.exe` or PowerShell resolution through `COMSPEC` and `PATHEXT`.
+Most integrations run on **Windows, macOS, and Linux**. They detect the host operating system for path handling and command resolution. On Windows, this includes case-insensitive paths and `cmd.exe` or PowerShell resolution through `COMSPEC` and `PATHEXT`. The install commands and the interactive picker also resolve agent CLIs that npm installs as `.cmd` shims on Windows, so commands like `install --codex` find them.
 
 The **Hermes Agent** and **OpenClaw** integrations run only on macOS and Linux. They use the POSIX home-directory paths `~/.hermes` and `~/.openclaw` and do not support Windows paths.
 
@@ -78,19 +78,31 @@ Every install command is idempotent: running it again on an already-configured a
 npx -y cc-safety-net@latest install --amp
 ```
 
-This copies a self-contained plugin artifact out of the npm package to `~/.config/amp/plugins/cc-safety-net.ts`, so no hosted plugin, URL, or global npm dependency is required. Rerunning the command updates the managed artifact in place.
+This publishes the managed plugin artifact as `cc-safety-net.ts` in your account's hosted Amp Personal Plugins repository. A personal plugin follows your account everywhere, so it also covers threads that execute on a remote machine, such as Amp Orbs.
+
+Install needs the `amp` CLI and a signed-in account: it first runs `amp plugins repositories --json` to find your writable Personal Plugins repository, and a missing CLI or missing login stops the install with a pointer to `amp login`. It then clones `user-plugins` into a throwaway temporary checkout, writes `cc-safety-net.ts`, commits under the tool identity `cc-safety-net` (with commit signing turned off, so your global git config cannot stall the install), and pushes. Rerunning the command updates the published artifact in place.
+
+Install also embeds a snapshot of your user policy file into the published artifact. At runtime the snapshot applies only on a machine that has no policy file — such as an Orb's empty home directory; a policy file present on the machine, even an invalid one, always wins. If your policy file is absent or cannot be parsed, install publishes the bare artifact without a snapshot. The snapshot does not carry audit retention, user rulebooks, or project-scope policy, and a policy edit ships on the next `install --amp` or `update`.
 
 ```bash
 npx -y cc-safety-net@latest uninstall --amp
 ```
 
+Uninstall removes `cc-safety-net.ts` from the personal repository with the same commit-and-push flow.
+
 <Note>
   Restart Amp or run `plugins: reload` after installing, updating, or uninstalling so the change takes effect.
 </Note>
 
-Install and uninstall both refuse to touch `~/.config/amp/plugins/cc-safety-net.ts` if it is a symlink, a directory, or a regular file that does not carry the CC Safety Net managed header. Move or remove the file yourself and rerun the command.
+Install and uninstall both refuse to touch `cc-safety-net.ts` in the personal repository if it is a symlink, not a regular file, or a file that does not carry the CC Safety Net managed header. Remove it there and rerun the command.
 
-A plugin protects only the machine it is installed on. Tool calls that execute on a remote executor such as an Amp Orb are not covered.
+Earlier releases copied the plugin to a local file at `~/.config/amp/plugins/cc-safety-net.ts`. A leftover local entry masks the personal plugin, so install removes a managed local copy after publishing, and fails when the local entry is not a managed copy:
+
+```text
+Local Amp plugin <path> is not a managed copy and masks the personal plugin. Remove it and rerun install --amp.
+```
+
+Uninstall also removes a managed local copy but leaves an unmanaged local entry in place.
 
 ## Antigravity CLI installation
 
@@ -237,6 +249,14 @@ This integration is macOS and Linux only.
 
 ## Kimi Code installation
 
+Kimi Code supports two install methods: a global hook written to your Kimi Code config, or a native Kimi Code plugin you install from inside Kimi Code. In an interactive terminal, `install --kimi-code` (or picking Kimi Code in the interactive installer) opens a single-select prompt asking which method to use: install the global hook now, or print the native-plugin steps. In a non-interactive session the flag installs the global hook directly, so scripts and CI pipelines never hang on a prompt. `update` is unchanged.
+
+<Note>
+  Kimi Code hooks are fail-open with either method: when the hook process cannot start, crashes, or times out, Kimi Code allows the tool call.
+</Note>
+
+**Global hook**
+
 ```bash
 npx -y cc-safety-net@latest install --kimi-code
 ```
@@ -248,6 +268,18 @@ Because the hook runs through `npx`, install first clears cached `cc-safety-net`
 ```bash
 npx -y cc-safety-net@latest uninstall --kimi-code
 ```
+
+**Native plugin**
+
+To use the native plugin instead, run this inside Kimi Code:
+
+```text
+/plugins install https://github.com/kenryu42/cc-safety-net
+```
+
+Confirm the trust prompt — it defaults to cancel — then run `/reload` or start a new session. The plugin declares one `PreToolUse` `Bash` hook that runs `node ./dist/bin/cc-safety-net.js hook --kimi-code` with a 30-second timeout: the same adapter the global hook uses.
+
+When the global hook is already configured, the Kimi Code row in the interactive installer stays selectable and is labeled `(global hook installed)`, and the printed plugin steps add a caution: run `cc-safety-net uninstall --kimi-code` only *after* the plugin is active. A brief overlap where both hooks run just duplicates the denial message, while a gap with neither active leaves you unprotected.
 
 Optionally install the `/cc-safety-net` skill so you can author rules interactively inside Kimi Code:
 

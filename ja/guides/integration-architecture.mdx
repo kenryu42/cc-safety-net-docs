@@ -17,7 +17,7 @@ CC Safety Net は 12 のコーディングエージェントに対応します�
 | **Stdin hook subprocess** | Antigravity CLI、Claude Code、Cursor、Gemini CLI、GitHub Copilot CLI、Hermes Agent、Kimi Code | エージェントは各ツール呼び出しで `cc-safety-net hook <flag>` を短時間の process として実行し、呼び出しを JSON で stdin に書き込みます。CC Safety Net は解析し、エージェント固有の deny object を stdout に出力して 0 で終了します。 |
 | **Agent-loaded plugin** | Codex、OpenClaw、OpenCode | エージェントは自身の package format の plugin として CC Safety Net を読み込みます。これらのエージェントには `hook` flag がありません。 |
 | **In-process extension** | Pi | Pi は CC Safety Net extension を Pi process に直接読み込み、memory 内で呼び出します。subprocess、stdin、stdout は使いません。 |
-| **Event plugin** | Amp Code | Amp は管理対象 plugin file を読み込み、各 `tool.call` event を process 内で渡します。 |
+| **Event plugin** | Amp Code | Amp は account の Personal Plugins repository から管理対象の personal plugin を読み込み、各 `tool.call` event を process 内で渡します。 |
 
 ## Stdin hook subprocess を使うエージェント
 
@@ -61,7 +61,7 @@ CC Safety Net は 12 のコーディングエージェントに対応します�
 | Gemini CLI | `gemini-safety-net` repository から読み込む extension `gemini-safety-net`。`cc-marketplace` plugin ではない |
 | GitHub Copilot CLI | Plugin `cc-safety-net@cc-marketplace`、または `~/.copilot/hooks` 下の hook file / Copilot config 内の inline hook。hook support は version-gated のため、利用できる source は Copilot CLI version によって異なる。[インストール](/ja/installation#github-copilot-cli)を参照。`disableAllHooks: true` はすべての hook を無効にする |
 | Hermes Agent | 直接書き込み：`~/.hermes/plugins/cc-safety-net/` の管理対象 Python plugin（`__init__.py` と `plugin.yaml`。設定時の Hermes home は `$HERMES_HOME`）を追加し、`hermes plugins enable cc-safety-net --no-allow-tool-override` で有効化。enablement は Hermes 自身の `config.yaml` の `plugins.enabled` に記録 |
-| Kimi Code | 直接書き込み：`npx -y cc-safety-net hook --kimi-code` を実行する `[[hooks]]` block を `~/.kimi-code/config.toml`（または `$KIMI_CODE_HOME/config.toml`）に追加 |
+| Kimi Code | 直接書き込み：`npx -y cc-safety-net hook --kimi-code` を実行する `[[hooks]]` block を `~/.kimi-code/config.toml`（または `$KIMI_CODE_HOME/config.toml`）に追加。もう 1 つの方法として、Kimi Code 内で `/plugins install https://github.com/kenryu42/cc-safety-net` を実行して native Kimi Code plugin を install できます。manifest は同じ hook entry（`node ./dist/bin/cc-safety-net.js hook --kimi-code`、`PreToolUse` event、`Bash` matcher、timeout 30 秒）を実行します |
 
 ### Hermes Agent が hook に到達する仕組み
 
@@ -130,15 +130,22 @@ extension は、組み込み **`bash`** tool と custom **`Shell`** tool（pi-gr
 
 ## Amp Code event plugin
 
-Amp Code は system plugin として CC Safety Net を読み込みます。npm package からコピーした 1 つの self-contained file `~/.config/amp/plugins/cc-safety-net.ts` で、URL から取得しません。plugin は `@ampcode/plugin` API で Amp の `tool.call` event を subscribe し、`allow` または message 付き `reject-and-continue` を返します。Pi、OpenClaw、OpenCode と同様に process 内で動作します。
+Amp Code は CC Safety Net を **personal plugin** として読み込みます。Amp account の hosted Personal Plugins repository にある 1 つの self-contained file `cc-safety-net.ts` です。plugin は `@ampcode/plugin` API で Amp の `tool.call` event を subscribe し、`allow` または message 付き `reject-and-continue` を返します。Pi、OpenClaw、OpenCode と同様に process 内で動作します。personal plugin は 1 台の machine ではなく account に従うため、Amp Orb などの remote executor 上で実行される thread も保護します。
 
-file には CC Safety Net の管理対象であることを示す managed header があり、CC Safety Net が安全に置換できることを示します。artifact の write または remove 時の header 適用方法は[インストール](/ja/installation#amp-code)を参照してください。
+`install --amp` は artifact をその repository に publish します。account に書き込み可能な Personal Plugins repository があることを確認し（`amp plugins repositories --json`）、使い捨ての checkout に clone し（`amp clone user-plugins`）、file を書き込み、commit して push します。file には CC Safety Net の管理対象であることを示す managed header があり、CC Safety Net が安全に置換できることを示します。この header は personal repository 内で強制され、unmanaged な `cc-safety-net.ts` があると install は失敗します。旧来の local system plugin `~/.config/amp/plugins/cc-safety-net.ts` の管理対象コピーが残っていれば削除されます。local plugin は personal plugin を mask するためです。そこに unmanaged な local file がある場合も install は失敗します。setup と removal の command は[インストール](/ja/installation#amp-code)を参照してください。
 
-Amp は startup 時に plugin を読み取るため、新しく書き込みまたは削除した plugin file は、Amp を reload するまで実行中の session に影響しません。
+### 埋め込み policy snapshot
+
+publish される artifact には user policy の snapshot が含まれます。file 末尾に追加される 1 つの `globalThis.__CC_SAFETY_NET_EMBEDDED_POLICY__ = …` 代入で、policy は書き込み前に正規化されます。runtime では、自身の policy file がない machine — Orb の空の home directory — でのみ snapshot が適用されます。policy file がある machine は、それが invalid でも自身の挙動を保ちます。audit retention、user rulebook、project-scope policy は埋め込まれず、policy の編集は次の `install` または `update` で反映されます。
+
+Amp は startup 時に plugin を読み取るため、新しく publish または削除した plugin は、Amp を reload するまで実行中の session に影響しません。
+
+### Amp Code の検出
+
+`doctor` は `amp plugins list` の出力を解析して plugin を検出します。personal-scope plugin は `✓ cc-safety-net (User Plugins) <status>` と表示されます。この出力には version が含まれないため、`doctor` は Amp の version drift を報告しません。`cc-safety-net update` は常に現在の artifact を publish し直します。
 
 ### Amp Code の対象制限
 
-- system plugin は install した machine だけを保護します。Amp Orb などの remote executor 上で実行する tool call には適用されません。
 - Amp は、同じ `tool.call` event を subscribe する複数 plugin の実行順序を定義しません。CC Safety Net は受け取った input を評価し、CC Safety Net が allow した後で別の plugin が書き換えた input を再評価できません。
 
 ## 連携を検証する
