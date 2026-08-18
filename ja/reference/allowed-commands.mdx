@@ -17,7 +17,7 @@ keywords:
 
 CC Safety Net は、意味に基づくコマンド解析を使って、許可される形式と破壊的な形式を区別します。アナライザーは、このページにあるコマンド形式を許可します。
 
-一部の許可は安全レベルによって異なります。**standard のみ**と記載した行は、[strict](/ja/configuration/modes) または [paranoid](/ja/configuration/modes) が有効になると許可されません。
+一部の許可は安全レベルによって異なります。**standard のみ**と記載した行は、[strict](/ja/configuration/modes#strict-mode) または [paranoid](/ja/configuration/modes#paranoid-mode) が有効になると許可されません。
 
 このページは、許可されるコマンドのリファレンスです。ブロックされる形式については、[ブロックされるコマンド](/ja/reference/blocked-commands)を参照してください。順序付きのガードフローについては、[アーキテクチャ](/ja/guides/architecture)を参照してください。分類の動作については、[解析エンジン](/ja/guides/analysis-engine)を参照してください。
 
@@ -44,7 +44,7 @@ CC Safety Net は、意味に基づくコマンド解析を使って、許可さ
 | `rm -rf /tmp/...` | 一時ディレクトリは一時的なもの | すべて |
 | `rm -rf /var/tmp/...` | システムの一時ディレクトリ | すべて |
 | `rm -rf $TMPDIR/...` | ユーザーの一時ディレクトリ（`$TMPDIR` が一時パス以外に上書きされている場合を除く） | すべて |
-| `rm -rf ./subdir`（カレントディレクトリ配下） | 対象がカレントディレクトリ内に限定される | [paranoid rm](/ja/configuration/modes) 以外のすべて |
+| `rm -rf ./subdir`（カレントディレクトリ配下） | 対象がカレントディレクトリ内に限定される | [paranoid rm](/ja/configuration/modes#paranoid-rm-check) 以外のすべて |
 | `rm -rf "$target"`（動的な対象） | standard は、検証できない対象を一律にはブロックしない | **standard のみ** |
 | `cleanup() { rm -rf ../outside; }`（定義のみ） | 関数定義だけでは何も実行しない。関数が呼び出された場所でのみ本体を解析する | すべて |
 
@@ -73,11 +73,11 @@ CC Safety Net は、意味に基づくコマンド解析を使って、許可さ
 | `git commit -F - <<'EOF'` | 本文がコミットメッセージになる。破壊的なコマンドを文章として説明していても同じ |
 | `gh pr create --body-file - <<'EOF'`、`gh issue create -F - <<'EOF'` | 本文をプルリクエストや Issue の本文として登録する |
 
-デリミタは引用符で囲む必要があります（`<<'EOF'`）。引用符のない `<<EOF` では本文の中で展開が起きうるため、standard では引き続きスキャンの対象になり、fail closed が有効な場合は拒否されます。heredoc の外にあるコマンドは、これまでどおり解析されます。`cat <<'EOF' && rm -rf ~` は `rm` によってブロックされます。`cat`、`tee`、`git commit`、`gh pr create`、`gh issue create` では、機密パスを抽出する前に本文もマスクされます。そのため、シークレットのファイル名を文章の中で触れただけでコミットがブロックされることはありません。`git apply` の本文は、patch が書き込むファイル名を含むため、パス抽出からは見える状態のままにします。条件の全体と、条件を満たさない heredoc を standard がどう扱うかについては、[heredoc の解析](/ja/guides/analysis-engine)を参照してください。
+デリミタは引用符で囲む必要があります（`<<'EOF'`）。引用符のない `<<EOF` では本文の中で展開が起きうるため、standard では引き続きスキャンの対象になり、fail closed が有効な場合は拒否されます。heredoc の外にあるコマンドは、これまでどおり解析されます。`cat <<'EOF' && rm -rf ~` は `rm` によってブロックされます。`cat`、`tee`、`git commit`、`gh pr create`、`gh issue create` では、機密パスを抽出する前に本文もマスクされます。そのため、シークレットのファイル名を文章の中で触れただけでコミットがブロックされることはありません。`git apply` の本文は、patch が書き込むファイル名を含むため、パス抽出からは見える状態のままにします。条件の全体と、条件を満たさない heredoc を standard がどう扱うかについては、[heredoc の解析](/ja/guides/analysis-engine#heredoc-analysis)を参照してください。
 
 ## standard のみの許可
 
-次の形式は standard では許可され、[strict](/ja/configuration/modes) または [paranoid](/ja/configuration/modes) を有効にすると拒否されます。これは見落としではなく、意図的なトレードオフです。standard は、敵対的な入力や動的な入力に対してはベストエフォートという位置づけだからです。
+次の形式は standard では許可され、[strict](/ja/configuration/modes#strict-mode) または [paranoid](/ja/configuration/modes#paranoid-mode) を有効にすると拒否されます。これは見落としではなく、意図的なトレードオフです。standard は、敵対的な入力や動的な入力に対してはベストエフォートという位置づけだからです。
 
 | コマンドパターン | standard が許可する理由 |
 | --- | --- |
@@ -149,7 +149,7 @@ CC Safety Net は、意味に基づくコマンド解析を使って、許可さ
 
 ## worktree モードの例外
 
-[`CC_SAFETY_NET_WORKTREE=1`](/ja/configuration/modes) を設定すると、CC Safety Net は Git の linked worktree であることを確認したうえで、一部のローカル破棄コマンドを許可します。確認できなかった場合、そのコマンドはブロックされたままです。
+[`CC_SAFETY_NET_WORKTREE=1`](/ja/configuration/modes#worktree-mode) を設定すると、CC Safety Net は Git の linked worktree であることを確認したうえで、一部のローカル破棄コマンドを許可します。確認できなかった場合、そのコマンドはブロックされたままです。
 
 worktree モードが有効なとき、リンクされた worktree 内で次のコマンドが許可されます。
 
@@ -169,5 +169,5 @@ worktree モードが有効なとき、リンクされた worktree 内で次の�
 worktree モードが緩和するのは、Git のローカル破棄ルールだけです。ファイルシステム、デバイス、PowerShell のルールには影響せず、Git メタデータの保護が緩和されることもありません。linked worktree の中でも、`rm .git`、`rm -rf <resolved gitDir>`、`rm -rf <commonDir>`、`> .git` へのリダイレクトは、いずれも即座にブロックされます。参照ファイルが指す先の Git ディレクトリも保護対象だからです。
 
 <Tip>
-  安全だと考えるコマンドを CC Safety Net がブロックする場合は、`npx cc-safety-net explain "<command>"` を実行して解析全体を確認し、理由を把握してください。フラグについては [CLI コマンド](/ja/reference/cli-commands)を、より広い診断フローについては[トラブルシューティング](/ja/guides/troubleshooting)を参照してください。
+  安全だと考えるコマンドを CC Safety Net がブロックする場合は、`npx cc-safety-net explain "<command>"` を実行して解析全体を確認し、理由を把握してください。フラグについては [CLI コマンド](/ja/reference/cli-commands#explain)を、より広い診断フローについては[トラブルシューティング](/ja/guides/troubleshooting)を参照してください。
 </Tip>
