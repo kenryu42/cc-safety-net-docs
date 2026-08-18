@@ -1,7 +1,7 @@
 ---
 title: "explain JSON トレースリファレンス"
 sidebarTitle: "explain トレース"
-description: "cc-safety-net explain --json が返す JSON のスキーマ。ExplainResult フィールド、各解析手順を示す TraceStep のバリエーション、共有前にトレースが明らかにする情報を説明します。"
+description: "cc-safety-net explain --json が返す JSON のスキーマです。ExplainResult のフィールド、解析の各段階を表す TraceStep の種類、そして共有する前に知っておくべき、トレースに含まれる情報を説明します。"
 keywords:
   - "explain"
   - "explain --json"
@@ -43,7 +43,7 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 | `selectedPreset` | `"standard" \| "strict" \| "paranoid"` | 常にある | ポリシーで指定したプリセット。既定値は `standard` |
 | `effectiveCapabilities` | `object` | 常にある | 機能ごとの状態。下記を参照 |
 | `destructiveCommandRuleOverrides` | `Record<string, "on" \| "off">` | 常にある。`{}` の場合がある | ポリシーに保存されたルールごとのオーバーライド |
-| `ruleActivation` | `object` | 条件付き。下記を参照 | 関連ルールが on または off の状態になった方法 |
+| `ruleActivation` | `object` | 条件付き。下記を参照 | 関連するルールが有効・無効のどちらになったか、その経緯 |
 
 4 つの設定フィールド `effectiveLevel`、`selectedPreset`、`effectiveCapabilities`、`destructiveCommandRuleOverrides` は一度だけ作成され、すべての返却パスに含まれます。そのため、空のコマンドを explain する場合でも存在します。
 
@@ -96,18 +96,18 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 | `env-strip` | `input`, `envVars`, `output` | セグメントの先頭から環境変数代入を削除した場合（値は編集済み） |
 | `leading-tokens-stripped` | `input`, `removed`, `output` | 解析前に先頭トークン（`env`、`command` など）を削除した場合 |
 | `shell-wrapper` | `wrapper`, `innerCommand` | `bash -c` などのシェルラッパーを展開した場合 |
-| `interpreter` | `interpreter`, `codeArg`, `paranoidBlocked` | インタープリターのワンライナーを調べた場合。`paranoidBlocked` は paranoid モードによる即時拒否を示す |
+| `interpreter` | `interpreter`, `codeArg`, `paranoidBlocked` | インタープリターの 1 行コードを調べた場合。`paranoidBlocked` は paranoid モードによる即時拒否を示す |
 | `busybox` | `subcommand` | busybox 形式のディスパッチをサブコマンドに解決した場合 |
 | `transparent-wrapper` | `wrapper`, `output` | 登録済みの透過ラッパーを通して内部を確認した場合。下記を参照 |
 | `recurse` | `reason`, `innerCommand`, `depth` | 再帰的な再解析を開始した場合 |
 | `rule-check` | `ruleModule`, `ruleFunction`, `matched`, `reason?` | 組み込みルールモジュールを評価した場合 |
-| `worktree-relaxation` | `originalReason`, `gitCwd` | ターゲットがリンクされた worktree であるため、Git の破棄コマンドを緩和した場合 |
+| `worktree-relaxation` | `originalReason`, `gitCwd` | 対象が linked worktree だと確認できたため、Git の破棄コマンドを緩和した場合 |
 | `tmpdir-check` | `tmpdirValue`, `isOverriddenToNonTemp`, `allowTmpdirVar` | `$TMPDIR` の解決と上書き検出 |
 | `fallback-scan` | `tokensScanned`, `embeddedCommandFound?` | 残りのトークンに対するフォールバックの危険テキストスキャン |
 | `custom-rules-check` | `rulesChecked`, `matched`, `reason?` | ユーザー定義ルールを評価した場合 |
-| `cwd-change` | `segment`, `effectiveCwdNowUnknown` | `cd` または `pushd` が有効な cwd を変更した場合。以後の分類は新しい cwd または不明な cwd を使う |
+| `cwd-change` | `segment`, `effectiveCwdNowUnknown` | `cd` や `pushd` によって実効カレントディレクトリが変わった場合。以降の分類では、新しいカレントディレクトリ、または「不明」として扱われる |
 | `dangerous-text` | `token`, `matched`, `reason?` | トークンを危険テキストパターンと照合した場合 |
-| `strict-unparseable` | `rawCommand`, `reason` | strict モードが解析不能なコマンドを fail-closed で拒否した場合 |
+| `strict-unparseable` | `rawCommand`, `reason` | strict モードが、解析できないコマンドを fail closed で拒否した場合 |
 | `segment-skipped` | `index`, `reason` | 前のセグメントがすでにブロックされたため、セグメントをスキップした場合 |
 | `error` | `message`, `partial?` | 解析エラーを取得した場合。`partial` は部分的な出力を示す |
 
@@ -115,7 +115,7 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 
 `recurse.reason` は、`shell-wrapper`、`interpreter`、`busybox`、`shell-eval`、`shell-trap`、`shell-stdin`、`shell-heredoc`、`heredoc-file` の 8 値のいずれかです。
 
-`heredoc-file` は、内容を解析がすでに把握しているスクリプトファイルをコマンドが実行した場合に記録されます。その内容とは、同じコマンド内で先に `cat >` または `tee` を使ってそのパスへ書き込んだ、引用符付き heredoc 本文です。保存済みの本文はスクリプトとして再解析されます。[heredoc 解析](/ja/guides/analysis-engine)を参照してください。
+`heredoc-file` は、解析側がすでに内容を把握しているスクリプトファイルをコマンドが実行した場合に記録されます。その内容とは、同じコマンド内で先に `cat >` や `tee` を使ってそのパスへ書き込んだ、引用符付きの heredoc の本文です。保存された本文は、スクリプトとして解析し直されます。[heredoc の解析](/ja/guides/analysis-engine)を参照してください。
 
 ### `transparent-wrapper` 手順
 
@@ -132,7 +132,7 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 
 ## トレースの順序
 
-一般的なトレースは、`parse` → セグメントごとの `env-strip` / `leading-tokens-stripped` → 検出（`shell-wrapper` / `interpreter` / `busybox` / `transparent-wrapper`）→ `rule-check` または `custom-rules-check` → 判定という順に進みます。再帰は `depth` が増える `recurse` 手順として表示されます。ただし、`busybox` ディスパッチは `recurse` 手順を記録しても再帰深度を消費しません。そのため、busybox ラッパーのチェーンでは同じ `depth` 値が繰り返されます。判定だけが必要な場合は、トレースをたどらず、最上位の `result` と、必要に応じて `reason`、`segment`、`ruleId` を読んでください。
+典型的なトレースは、`parse` → セグメントごとの `env-strip` / `leading-tokens-stripped` → 検出（`shell-wrapper` / `interpreter` / `busybox` / `transparent-wrapper`）→ `rule-check` または `custom-rules-check` → 判定、という順に進みます。再帰は `depth` が増える `recurse` 手順として表示されます。ただし、`busybox` ディスパッチは `recurse` 手順を記録しても再帰深度を消費しません。そのため、busybox ラッパーのチェーンでは同じ `depth` 値が繰り返されます。判定だけが必要な場合は、トレースをたどらず、最上位の `result` と、必要に応じて `reason`、`segment`、`ruleId` を読んでください。
 
 3 つの保護は、エバリュエーターの実行前に短絡します。ポリシーファイル保護、Git メタデータ保護、シークレット保護です。これらのいずれかがコマンドをブロックすると、トレースには**合成された 1 つの `rule-check` 手順だけが入り、`parse` 手順はありません**。`ruleId` は `policy-protection`、`git-metadata-protection`、または一致したシークレットルールの ID になります。すべてのトレースが `parse` 手順で始まると仮定するツールは、この場合を処理する必要があります。
 
@@ -146,7 +146,7 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
   トレースを共有する前に、**プレースホルダーの資格情報とパス**を使って問題を再現してください。その後、**出力を最初から最後まで読み**、公開したくないものを削除してください。
 </Warning>
 
-たとえば、`--token=…` 代入を含むコマンドを explain するとトークンは編集されます。しかし、同じコマンド内の `/srv/acme-prod/customer-dump.sql` のようなパスは、ホスト名、IP アドレス、アカウント名などとともに完全な形で返されます。
+たとえば `--token=…` の代入を含むコマンドを explain すると、そのトークンはマスクされます。しかし同じコマンド内の `/srv/acme-prod/customer-dump.sql` のようなパスは、ホスト名、IP アドレス、アカウント名などとともに、そのままの形で返されます。
 
 脆弱性レポートに `explain` 出力を含めることができます。編集はベストエフォートの制御であり、保証ではありません。編集のバイパスは報告可能な脆弱性です。貼り付ける前に完全な出力を確認してください。
 

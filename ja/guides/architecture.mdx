@@ -1,14 +1,14 @@
 ---
 title: "アーキテクチャ"
 sidebarTitle: "アーキテクチャ"
-description: "保守者向けのシステムマップ：連携 adapter、policy snapshot、ツール入力から許可または拒否までの順序付き guard stage、内部 parser、runtime dependency surface。"
+description: "メンテナー向けのシステム構成図です。連携アダプター、ポリシースナップショット、ツール入力から許可・拒否までの順序付きガードステージ、内部パーサー、実行時の依存関係を扱います。"
 ---
 
-このページは、保守者向けの guard pipeline 仕様です。[仕組み](/ja/guides/how-it-works)ではユーザー向けの視点を示します。[連携アーキテクチャ](/ja/guides/integration-architecture)では、各エージェントが guard に到達する仕組みを示します。
+このページは、メンテナー向けのガードパイプラインの仕様です。ユーザー向けの視点は[仕組み](/ja/guides/how-it-works)を、各エージェントがどのようにガードへ到達するかは[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
 
-CC Safety Net は、静的な実行前ポリシーゲートです。対応する各コーディングエージェントは、ツール呼び出しを CC Safety Net に送ります。guard は、各呼び出しを同じ順序で確認します。連携間の違いは、呼び出しの到着方法だけです。標準入力を使う hook subprocess、または process 内の plugin や extension を使います。
+CC Safety Net は、静的な実行前ポリシーゲートです。対応する各コーディングエージェントがツール呼び出しを CC Safety Net に送り、ガードはどの呼び出しも同じ順序で検査します。連携ごとに違うのは呼び出しの届き方だけで、標準入力を使う hook subprocess か、プロセス内のプラグイン／拡張機能のいずれかです。
 
-次の stage 順序は、このページだけで規定します。他の各ページでは、1～2 文で説明してこのページへ link します。各 analyzer の正確な動作は、[解析エンジン](/ja/guides/analysis-engine)を参照してください。
+以下のステージ順序を規定しているのはこのページだけです。他のページでは 1〜2 文で触れてここへリンクしています。各アナライザーの正確な挙動は、[解析エンジン](/ja/guides/analysis-engine)を参照してください。
 
 ## システム構成要素
 
@@ -56,60 +56,60 @@ graph TD
     Analyze --> Audit
 ```
 
-## 連携 adapter
+## 連携アダプター
 
-adapter は、エージェントのツール呼び出し payload を正規化した invocation に変換し、guard の判定をそのエージェントの deny format に変換します。システムレベルでは、次の 2 点が重要です。
+アダプターは、エージェントのツール呼び出しのペイロードを正規化された呼び出し情報に変換し、ガードの判定をそのエージェント向けの拒否形式に戻します。システム全体から見て重要なのは、次の 2 点です。
 
-- adapter がコマンド実行 capability を与えるのは、**連携ごとに定めた正確な tool name だけ**です。unknown tool は shell-command として扱われません。policy-file、Git-metadata、sensitive-path の inspection は引き続き受けますが、その text は command として parse されません。
-- adapter は `config-state` reporting path を所有します。guard 自身は、この stage を出力しません。
+- アダプターがコマンド実行として扱うのは、**連携ごとに定めた特定のツール名だけ**です。未知のツールがシェルコマンドとして扱われることはありません。ポリシーファイル、Git メタデータ、機密パスの検査は引き続き受けますが、その内容がコマンドとしてパースされることはありません。
+- `config-state` の報告経路はアダプターが担います。ガード自身がこのステージを出力することはありません。
 
-各エージェントが使う adapter、hook flag、設定の場所は、すべて[連携アーキテクチャ](/ja/guides/integration-architecture)にあります。設定するコマンドは[インストール](/ja/installation)を参照してください。
+各エージェントが使うアダプター、hook のフラグ、設定ファイルの場所は、すべて[連携アーキテクチャ](/ja/guides/integration-architecture)にまとめてあります。設定用のコマンドは[インストール](/ja/installation)を参照してください。
 
-## Policy snapshot
+## ポリシースナップショット
 
-`loadPolicySnapshot()` は、local policy configuration、rulebook lockfile、検証済み rulebook cache entry から、有効な runtime policy を構成します。その contract は内容と同じくらい重要です。
+`loadPolicySnapshot()` は、ローカルのポリシー設定、rulebook のロックファイル、検証済みの rulebook キャッシュエントリから、実行時に適用するポリシーを組み立てます。その取り決めは、中身と同じくらい重要です。
 
-- **書き込み、network request、in-memory caching を行いません。** remote rulebook の同期は、明示的な CLI 操作（`cc-safety-net rule sync`）のままです。
-- 結果は**深く immutable**です。policy object、rules array、各 rule とその `block_args`、transparent-wrapper list、safety block とその override、destructive-command rule override、allow path、disabled rule と deny path を含む secret-protection block はすべて freeze されます。snapshot wrapper 自身も freeze されます。
-- 結果は正確に **2 つの state** になります。`ready` では、検証済みのすべての source が適用されます。`degraded` では、candidate source が拒否され、代わりに安全なものが適用されます。degraded reason は、失敗した source、active でないもの、修復方法を示します。
-- rule ごとの provenance（rulebook name と version、public source spec、override reason）は snapshot に登録され、diagnostics と GUI が表示します。
+- **書き込み、ネットワーク通信、メモリ上のキャッシュのいずれも行いません。** リモート rulebook の同期は、あくまで明示的な CLI 操作（`cc-safety-net rule sync`）のままです。
+- 結果は**深く不変（immutable）**です。ポリシーオブジェクト、rules 配列、各ルールとその `block_args`、transparent wrapper の一覧、safety ブロックとその override、破壊的コマンドルールの override、allow path、無効化されたルールと deny path を含むシークレット保護のブロックが、いずれも freeze されます。スナップショットのラッパー自体も freeze されます。
+- 結果は必ず **2 つの状態**のどちらかになります。`ready` では検証済みの設定元がすべて適用されます。`degraded` では、候補となった設定元が拒否され、代わりに安全な既定値が適用されます。degraded の理由には、失敗した設定元、有効になっていないもの、修復方法が示されます。
+- ルールごとの出所情報（rulebook の名前とバージョン、公開の設定元指定、override の理由）はスナップショットに記録され、診断表示と GUI に表示されます。
 
-拒否された policy または rule source だけを理由に、通常のツール呼び出しを拒否することはありません。runtime は source を block に変換せず、drop します。state contract と修復手順は[設定の復旧](/ja/configuration/recovery)を参照してください。
+ポリシーやルールの設定元が拒否されたというだけの理由で、通常のツール呼び出しが拒否されることはありません。ランタイムは設定元をブロックに変換するのではなく、破棄します。状態の取り決めと修復手順は、[設定の復旧](/ja/configuration/recovery)を参照してください。
 
 <span id="the-ordered-guard-stages"></span>
 
 ## 順序付き guard stage
 
-すべての連携の各ツール呼び出しは、次の固定順序で実行されます。拒否する操作は、audit log に示した `failureStage` value を記録します。
+どの連携でも、ツール呼び出しは次の固定順序で処理されます。拒否した操作は、表に示した `failureStage` の値とともに監査ログに記録されます。
 
-| # | 記録する `failureStage` | 動作 | policy で弱められるか |
+| # | 記録される `failureStage` | 処理内容 | ポリシーで弱められるか |
 | --- | --- | --- | --- |
-| 1 | `policy-protection` | traversal bound（depth、node count、key count、string ごとおよび合計 byte size）の範囲内で tool input から command を抽出します。bound 超過時は fail closed します。 | いいえ |
-| 2 | — | invocation から semantic fact を作ります。1 回 parse し、後続の各 stage が再利用します。 | いいえ |
-| 3 | `command-analysis` | declared-command parser budget を超過したため、recursion limit 到達として command を拒否します。 | いいえ |
-| 4 | `command-validation` | structural command-validation budget（input length、word count、nesting depth）を超過したため、command を拒否します。 | いいえ |
-| 5 | — | 実行 working directory の protected Git metadata を解決します。 | いいえ |
-| 6 | `policy-protection` | **Policy-file protection**：canonical user `policy.json`、その directory、ancestor に触れる write、move、recursive delete を intent `hard_stop` で拒否します。 | いいえ |
-| 7 | `policy-protection` | **Git-metadata protection**：解決済み `.git` entry、その directory、hooks directory を対象にする delete、move、redirection、write-tool、patch、unknown-tool route を intent `hard_stop` で拒否します。write-tool、patch、unknown-tool route では read-only tool を除外します。 | いいえ |
-| 8 | `config-load` | **Policy snapshot を読み込み**、policy と environment から有効な safety level を解決します。 | — |
-| 9 | `secret-protection` | **Sensitive-path protection**：command、path、search、patch shape について、built-in sensitive path と設定済み deny path を検査します。一致すると intent `hard_stop` で拒否し、matched rule id を付けます。policy で secret protection が無効な場合は完全に skip します。 | はい |
-| 10 | `non-command` | stage 1～9 を通過した non-command invocation は、ここで許可します。 | — |
-| 11 | `command-validation` | 空または blank の command text は fail closed します。 | いいえ |
-| 12 | `command-analysis` | **Destructive-command analysis** は snapshot、有効な capability、parsed program、fact store、解決済み Git metadata を使って実行し、block または allow します。 | 一部 |
+| 1 | `policy-protection` | 走査の上限（深さ、ノード数、キー数、文字列単位および合計のバイト数）の範囲内で、ツール入力からコマンドを抽出する。上限を超えた場合は fail closed になる。 | いいえ |
+| 2 | — | 呼び出し情報から意味情報を構築する。パースは 1 回だけで、以降のすべてのステージが再利用する。 | いいえ |
+| 3 | `command-analysis` | 宣言されたコマンドのパーサー処理上限を超えたため、再帰上限に達したものとしてコマンドを拒否する。 | いいえ |
+| 4 | `command-validation` | 構造的な検証の上限（入力長、語数、ネストの深さ）を超えたため、コマンドを拒否する。 | いいえ |
+| 5 | — | 実行時の作業ディレクトリについて、保護対象の Git メタデータを解決する。 | いいえ |
+| 6 | `policy-protection` | **ポリシーファイルの保護**。正規のユーザー `policy.json`、そのディレクトリ、上位ディレクトリに触れる書き込み・移動・再帰削除を、intent `hard_stop` で拒否する。 | いいえ |
+| 7 | `policy-protection` | **Git メタデータの保護**。解決済みの `.git` エントリ、そのディレクトリ、hooks ディレクトリを対象とする削除・移動・リダイレクト・書き込み系ツール・patch・未知のツール経由の操作を、intent `hard_stop` で拒否する。書き込み系ツール、patch、未知のツールの経路では、読み取り専用ツールは対象外。 | いいえ |
+| 8 | `config-load` | **ポリシースナップショットを読み込み**、ポリシーと環境変数から実際に適用する安全レベルを決定する。 | — |
+| 9 | `secret-protection` | **機密パスの保護**。コマンド、パス、検索、patch の各形式について、組み込みの機密パスと設定済みの deny path を検査する。一致した場合は intent `hard_stop` で拒否し、一致したルール ID を添える。ポリシーでシークレット保護が無効な場合は、このステージを完全にスキップする。 | はい |
+| 10 | `non-command` | ステージ 1〜9 を通過したコマンド以外の呼び出しは、ここで許可される。 | — |
+| 11 | `command-validation` | コマンド文字列が空、または空白のみの場合は fail closed になる。 | いいえ |
+| 12 | `command-analysis` | **破壊的コマンドの解析**。スナップショット、実際に有効な機能、パース済みのプログラム、意味情報のストア、解決済みの Git メタデータを使って実行し、ブロックまたは許可を決める。 | 一部 |
 
 この順序から、次の 3 点が直接導かれます。
 
-- **stage 6 と 7 は stage 8 より前に実行します。** Policy-file protection と Git-metadata protection は、設定を読み込む*前*に拒否します。常に有効で、config state を持たず、preset、override、master switch で弱めることはできません。
-- **Sensitive-path protection は snapshot の後、command analysis の前に実行します。** 3 つの hard-stop protection のうち、policy が制御できるのはこれだけです。master switch、pattern ごとの override、deny path で制御します。
-- **stage 8 より後の判定だけが safety level を報告します。** input bound、policy-file protection、Git-metadata protection による拒否には、意図的に `level` と config-fallback metadata がありません。その時点では、どちらもまだ不明なためです。
+- **ステージ 6 と 7 は、ステージ 8 より前に実行されます。** ポリシーファイルの保護と Git メタデータの保護は、設定を読み込む*前*に拒否を返します。常に有効で、設定の状態を一切持たず、preset・override・マスタースイッチのいずれでも弱められません。
+- **機密パスの保護は、スナップショットの後、コマンド解析の前に実行されます。** 3 つある即時ブロックの保護のうち、ポリシーで制御できるのはこれだけで、マスタースイッチ、パターンごとの override、deny path で調整します。
+- **安全レベルを報告できるのは、ステージ 8 より後の判定だけです。** 入力上限、ポリシーファイルの保護、Git メタデータの保護による拒否には、意図的に `level` と設定フォールバックの情報が含まれません。その時点ではどちらもまだ分かっていないからです。
 
-guard 内の各 dependency call は wrapper で囲まれます。このため、throw された error は、throw した stage に属する fail-closed deny になります。tool-input bound が原因の場合は、command-substitution 由来の text を evidence から削除します。これにより、oversized input を外部へ返しません。
+ガード内の依存呼び出しはすべてラッパーで包まれています。そのため、投げられた例外は、それを投げたステージに紐づく fail closed の拒否になります。ツール入力の上限が原因の場合は、コマンド置換に由来するテキストを根拠情報から取り除きます。これにより、過大な入力がそのまま外部へ返ることはありません。
 
 <span id="inside-command-analysis"></span>
 
-## Command analysis の内部
+## コマンド解析の内部
 
-stage 12 で classifier を実行します。shell operator で command を segment に分割し、各 segment を個別に調べます。1 つでも block すると command 全体を拒否します。
+ステージ 12 で分類処理が動きます。コマンドをシェルの演算子でセグメントに分割し、各セグメントを個別に検査します。1 つでもブロック対象があれば、コマンド全体を拒否します。
 
 ```mermaid
 graph LR
@@ -135,52 +135,52 @@ graph LR
     Blocked -->|no| Allow["Allow"]
 ```
 
-engine は、segment 間の working-directory change（`cd` と `pushd`）を追跡し、environment assignment を伝播します。このため、target classification は実際の shell の動作を反映します。shell wrapper と interpreter body への recursion は最大 10 level です。各 analyzer、safety-level boundary、完全な target-classification order は[解析エンジン](/ja/guides/analysis-engine)を参照してください。
+エンジンはセグメント間での作業ディレクトリの変更（`cd` と `pushd`）を追跡し、環境変数の代入を伝播します。そのため、対象の分類は実際のシェルの挙動を反映します。シェルのラッパーやインタープリターの本体への再帰は、最大 10 階層までです。各アナライザー、安全レベルの境界、対象分類の完全な順序は、[解析エンジン](/ja/guides/analysis-engine)を参照してください。
 
 <span id="parsers-and-the-runtime-dependency-surface"></span>
 
-## Parser と runtime dependency surface
+## パーサーと実行時の依存関係
 
-`parseCommand(source, dialect, limits)` は、CC Safety Net **独自の POSIX parser** または**独自の PowerShell parser**に dispatch します。`auto` dialect は、適用するものを判定します。どちらも内部 module であり、third-party grammar の wrapper ではありません。
+`parseCommand(source, dialect, limits)` は、CC Safety Net **自前の POSIX パーサー**または**自前の PowerShell パーサー**に処理を振り分けます。`auto` を指定した場合は、どちらを使うかを自動判定します。どちらも内部モジュールであり、サードパーティの文法定義をラップしたものではありません。
 
-Parser と analyzer の budget は compile-time constant で、policy setting ではありません。そのため、設定で増やすことはできません。
+パーサーとアナライザーの処理上限はコンパイル時の定数で、ポリシーの設定項目ではありません。そのため、設定で引き上げることはできません。
 
-| Budget | 値 |
+| 上限 | 値 |
 | --- | --- |
-| Maximum input length | 131,072 UTF-16 code units |
-| Maximum words | 16,384 |
-| Maximum nesting depth | 64 |
-| Maximum derived-command work | 16,384 derived tokens |
+| 入力長の上限 | 131,072 UTF-16 コードユニット |
+| 語数の上限 | 16,384 |
+| ネストの深さの上限 | 64 |
+| 派生コマンドの処理量の上限 | 派生トークン 16,384 個 |
 
-最初の 3 つは initial parse を制限します。4 番目は parse 後に analyzer が command から*派生させる*作業を制限します。対象は、`find -exec`、`xargs`、`parallel` から再構築した child command、wrapper の後ろに埋め込まれた command、analyzer に replay する tracked heredoc file、PowerShell `Invoke-Expression` source です。使い切ると、`"Command analysis exceeds CC Safety Net's derived-command work limit. Reduce nested or embedded command complexity and retry."` という reason で拒否します。これは recursion-depth limit と、上の stage table にある structural validation limit とは異なる failure です。
+最初の 3 つは、最初のパース処理を制限します。4 つ目は、パース後にアナライザーがコマンドから*派生させる*作業量を制限します。対象になるのは、`find -exec`、`xargs`、`parallel` から再構築した子コマンド、ラッパーの背後に埋め込まれたコマンド、アナライザーに再投入する追跡済みの heredoc ファイル、PowerShell の `Invoke-Expression` のソースです。これを使い切ると、`"Command analysis exceeds CC Safety Net's derived-command work limit. Reduce nested or embedded command complexity and retry."` という理由で拒否します。これは再帰の深さの上限とも、上のステージ表にある構造的な検証の上限とも別の失敗です。
 
-analyzer の public contract は意図的に狭くしています。allow では何も返さず、block では result object を返します。parser 内部の `complete` / `partial` / `limited` state は公開しないため、caller は parse confidence で分岐できません。
+アナライザーの公開インターフェースは意図的に狭くしてあります。許可のときは何も返さず、ブロックのときだけ結果オブジェクトを返します。パーサー内部の `complete` / `partial` / `limited` という状態は公開しないため、呼び出し側がパースの確信度で処理を分岐させることはできません。
 
-PowerShell support は `Remove-Item` とその alias、および既存の cross-shell rule を中心とする**保守的な subset**です。その subset について、native quoting、path separator、connector、pipeline、dynamic-word provenance を保持します。汎用 PowerShell interpreter ではありません。
+PowerShell への対応は、`Remove-Item` とその別名、および既存のシェル共通ルールを中心とした**限定的なサブセット**です。そのサブセットの範囲では、PowerShell 固有のクオート、パス区切り、接続演算子、パイプライン、動的な語の出どころを保持します。汎用の PowerShell インタープリターではありません。
 
-### Dependency
+### 依存関係
 
-CC Safety Net の runtime package dependency は **`zod` 1 つだけ**で、configuration validation のみに使います。source は `createRequire` で遅延読み込みします。split Node bundle（Pi を含む）はこの挙動を保持し、その遅延読み込み先を同梱の `dist/vendor/zod.cjs` に向けます。standalone の Amp artifact と OpenClaw artifact は、代わりに `zod` を inline にします。import する source module は正確に 1 つです。
+CC Safety Net の実行時のパッケージ依存は **`zod` の 1 つだけ**で、設定の検証にのみ使用します。ソースコードでは `createRequire` を使って遅延読み込みします。分割された Node バンドル（Pi 向けを含む）もこの挙動を保ち、遅延読み込み先を同梱の `dist/vendor/zod.cjs` に向けます。単体で配布する Amp 用と OpenClaw 用の成果物では、代わりに `zod` をインライン展開します。`zod` を import しているソースモジュールは、ちょうど 1 つだけです。
 
-公開 bundle は **third-party shell parser を含みません**。path scanner が読み取る flat entry stream は、`projectShellSyntax` により parsed IR から投影します。このため、上記の内部 POSIX parser と PowerShell parser が唯一の shell structure source です。raw command text を 2 回目に tokenize して drift することはありません。
+公開されるバンドルには、**サードパーティ製のシェルパーサーは含まれません**。パススキャナーが読み取るフラットなエントリ列は、`projectShellSyntax` によってパース済みの中間表現から射影したものです。したがって、シェルの構造情報の出どころは、上に挙げた内部の POSIX パーサーと PowerShell パーサーだけであり、生のコマンド文字列を 2 度目にトークン化して結果がずれることはありません。
 
-公開 runtime target は Node.js 18 以降です。
+公開時の対象ランタイムは Node.js 18 以降です。
 
 ## 主な設計特性
 
-- **すべての連携で 1 つの固定順序。** 上の stage table が contract 全体です。guard には agent ごとの branch がありません。
-- **常時有効な保護を設定より前に実行。** Policy-file protection と Git-metadata protection は、無効化できる policy を読み込む前に拒否するため、無効化できません。
-- **guard 自身の failure で fail closed。** dependency の throw、parser budget の枯渇、tool-input bound の違反は、allow ではなく deny になり、失敗した stage に属します。無効な*設定*は別の場合で、deny しません。[設定の復旧](/ja/configuration/recovery)を参照してください。
-- **評価時に network も write もない。** runtime 評価は network request を行わず、snapshot loader は write しません。guard は外向き通信を検査または filter しません。
-- **Platform-agnostic core。** adapter が format を変換し、guard と classifier はそのまま共有されます。
-- **上限付きであり、網羅的ではない。** これは静的な実行前ポリシーゲートで、OS sandbox、privilege boundary、インストール済み連携を回避する command に対する保護ではありません。[既知の制限](/ja/guides/known-limitations)を参照してください。
+- **すべての連携で共通の、1 つの固定順序。** 上のステージ表がそのまま仕様のすべてです。ガードにエージェントごとの分岐はありません。
+- **常時有効な保護は設定より前に動く。** ポリシーファイルの保護と Git メタデータの保護は、それらを無効化しうるポリシーを読み込む前に拒否を返すため、無効化できません。
+- **ガード自身の失敗では fail closed。** 依存処理が投げた例外、パーサーの処理上限の枯渇、ツール入力の上限違反は、いずれも許可ではなく拒否になり、失敗したステージに紐づけられます。無効な*設定*はこれとは別扱いで、拒否にはなりません。[設定の復旧](/ja/configuration/recovery)を参照してください。
+- **評価中にネットワーク通信も書き込みも行わない。** 実行時の評価はネットワーク通信を行わず、スナップショットの読み込み処理は書き込みを行いません。ガードが外向きの通信を検査・遮断することもありません。
+- **中核はプラットフォームに依存しない。** アダプターが形式を変換し、ガードと分類処理はそのまま共有されます。
+- **範囲は限定的で、網羅的ではない。** これは静的な実行前ポリシーゲートであり、OS のサンドボックス、権限境界、インストール済み連携を迂回するコマンドに対する保護ではありません。[既知の制限](/ja/guides/known-limitations)を参照してください。
 
 ## 次に読むページ
 
-技術ガイドは、ユーザー向けの lifecycle から設計理由まで順に説明します。このページは step 3 です。
+技術ガイドは、ユーザー向けのライフサイクルの説明から設計の理由へと順に降りていく構成です。このページはその 3 番目にあたります。
 
-- 前：[連携アーキテクチャ](/ja/guides/integration-architecture)：各 agent call が上記の adapter に到達する仕組み。[仕組み](/ja/guides/how-it-works)：同じ順序をユーザー向けの深さで説明します。
-- 次：[解析エンジン](/ja/guides/analysis-engine)：stage 12 の詳細。各 analyzer、safety-level boundary、recursive-delete classification order を説明します。
-- その次：[設計原則](/ja/guides/design-principles)：order、always-on protection、owned parser を採用した理由を説明します。
+- 戻る：[連携アーキテクチャ](/ja/guides/integration-architecture)には、各エージェントの呼び出しが上記のアダプターに到達するまでの流れが、[仕組み](/ja/guides/how-it-works)には、同じ順序のユーザー向けの説明があります。
+- 次へ：[解析エンジン](/ja/guides/analysis-engine)では、ステージ 12 を掘り下げ、各アナライザー、安全レベルの境界、再帰削除の対象分類の順序を説明します。
+- その次：[設計原則](/ja/guides/design-principles)では、この順序、常時有効な保護、自前のパーサーを採用した理由を説明します。
 
-関連ページ：[設定の復旧](/ja/configuration/recovery)：`ready` と `degraded`。[セキュリティモデル](/ja/guides/security-model)：trust boundary。[既知の制限](/ja/guides/known-limitations)：この設計で対応できない範囲。
+関連ページ：`ready` と `degraded` については[設定の復旧](/ja/configuration/recovery)、信頼境界については[セキュリティモデル](/ja/guides/security-model)、この設計で対応できない範囲については[既知の制限](/ja/guides/known-limitations)を参照してください。

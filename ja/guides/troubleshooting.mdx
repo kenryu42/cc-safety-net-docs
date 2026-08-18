@@ -1,167 +1,167 @@
 ---
 title: "インストールと動作のトラブルシューティング"
 sidebarTitle: "トラブルシューティング"
-description: "hook が動作しない、コマンドがブロックされない、誤検知、カスタムルールが適用されない、設定が degraded になる、status line が表示されないなど、CC Safety Net の一般的な問題を修正します。"
+description: "hook が動作しない、コマンドがブロックされない、誤検知が起きる、カスタムルールが効かない、設定が degraded になる、ステータスラインが表示されないなど、CC Safety Net でよくある問題の対処方法を説明します。"
 ---
 
-このガイドを使用して、CC Safety Net の一般的なインストールと動作の問題を修正します。最初に `status` で短い判定を確認します。次に `doctor` で完全なレポートを取得します。
+このガイドでは、CC Safety Net のインストールと動作に関するよくある問題の対処方法を説明します。まず `status` で判定を手早く確認し、次に `doctor` で詳細なレポートを取得してください。
 
-## 最初に診断を実行する
+## まず診断を実行する
 
 ```bash
 npx cc-safety-net status
 ```
 
-`status` は runtime 判定（`ready` または `degraded`）、有効な保護と安全レベル、policy path、未解決の問題ごとの bullet を表示します。無効な Claude Code plugin は、別の判定ではなく、最初の `Not active` 項目に表示されます。`status` は情報表示専用で、常に 0 で終了します。
+`status` は、ランタイムの判定（`ready` または `degraded`）、有効な保護と安全レベル、ポリシーファイルのパス、未解決の問題を 1 件ずつ表示します。Claude Code のプラグインが無効な場合は、別の判定になるのではなく `Not active` の先頭項目として表示されます。`status` は情報表示専用で、終了コードは常に 0 です。
 
 ```bash
 npx cc-safety-net doctor
 bunx cc-safety-net doctor
 ```
 
-`doctor` は、すべての対応エージェントについて包括的な health check を実行します。hook 連携、ブロック機能を確認するセルフテスト、カスタムルールの検証、有効な mode flag、最近の activity、system version、update check が対象です。これはルール設定と `policy.json` の両方を報告する 1 つのコマンドです。各チェックの動作については、[doctor コマンドのリファレンス](/ja/reference/cli-commands#doctor)を参照してください。
+`doctor` は、対応するすべてのエージェントについて包括的なヘルスチェックを実行します。対象は、hook の連携状態、ブロックが機能するかを確かめるセルフテスト、カスタムルールの検証、有効になっているモードフラグ、最近の実行履歴、システムのバージョン、更新の有無です。ルールの設定と `policy.json` の両方を報告するのは、このコマンドだけです。各チェックの内容は、[doctor コマンドのリファレンス](/ja/reference/cli-commands#doctor)を参照してください。
 
-次の個別問題を確認する前に、出力を確認してください。多くの問題はここに表示されます。
+個別の問題を調べる前に、まずこの出力を確認してください。多くの問題はここに現れます。
 
 <Note>
-  `degraded` 判定は、設定 source が拒否され、代わりに安全なものを適用していることを示します。コマンドがブロックされるという意味ではありません。無効な設定によって通常の作業を拒否することはありません。[設定の復旧](/ja/configuration/recovery)を参照してください。
+  判定が `degraded` の場合、設定元のいずれかが拒否され、代わりに安全なものが適用されていることを意味します。コマンドがブロックされるという意味ではありません。設定が無効でも、通常の作業が拒否されることはありません。[設定の復旧](/ja/configuration/recovery)を参照してください。
 </Note>
 
-## 一般的な問題を修正する
+## よくある問題への対処
 
 <AccordionGroup>
-  <Accordion title="Hook が動作せず、コマンドが未確認で実行される">
-    ブロックされるはずのコマンドを実行しても介入なしで実行された場合、hook がエージェントに正しく登録されていません。
+  <Accordion title="hook が動作せず、コマンドが検査されないまま実行される">
+    ブロックされるはずのコマンドが、何の介入もなく実行されてしまう場合、hook がエージェントに正しく登録されていません。
 
-    **解決手順：**
+    **対処手順：**
 
-    1. `npx cc-safety-net doctor` を実行します。すべての対応エージェントの hook 連携を確認し、誤設定がある場合は正確な config path を示します。
-    2. エージェント用の install コマンドを再実行します。有効な managed installation では、この操作は冪等であり、欠落または無効な managed entry を修復します。installer が未認識、symlink、または別の所有者の config や file を報告した場合は、上書きせず、表示された手動復旧手順に従ってください。エージェントごとの完全な command table は、[インストール](/ja/installation#特定のエージェントをインストールする)にあります。
-    3. **Amp Code**：`amp plugins list` を実行し、`cc-safety-net (User Plugins)` の行が status `active` であることを確認します。それ以外の status の場合は、Amp で `plugins: reload` を実行するか、`install --amp` で再インストールします。`~/.config/amp/plugins/cc-safety-net.ts` に残った local file は personal plugin を隠します。`install --amp` は managed copy であれば削除し、unmanaged file の場合は対処手順を示す error で失敗します。Amp は起動時に plugin を読み取るため、変更後に Amp を再起動するか `plugins: reload` を実行します。
-    4. **Antigravity CLI**：`~/.gemini/config/hooks.json` に、`npx -y cc-safety-net hook --agy-cli` を実行する管理対象 `PreToolUse` 項目があることを確認します。
-    5. **Claude Code**：Claude Code 内で `/plugin` を実行し、installed plugins list に `cc-safety-net` があり、有効であることを確認します。表示されない場合は、`/plugin install cc-safety-net@cc-marketplace` で再インストールし、`/reload-plugins` を実行します。
-    6. **Codex**：`codex plugin list` を実行し、`cc-safety-net@cc-marketplace` 行が `installed, enabled` であることを確認します。次に TUI で `/hooks` を実行し、**cc-safety-net PreToolUse hook** を選択して `t` を押し、trusted にします。信頼操作なしでは hook は動作しません。それでも動作しない場合は、`~/.codex/config.toml`（または `$CODEX_HOME/config.toml`）の `[features]` で `plugin_hooks = true` であることを確認します。
-    7. **Cursor**：`~/.cursor/hooks.json` に、`npx -y cc-safety-net hook --cursor` を実行する管理対象 `preToolUse` 項目があることを確認します。設定は global であるため、1 つの項目がすべてのプロジェクトの Cursor IDE と Cursor CLI を対象にします。
-    8. **Gemini CLI**：`gemini extensions list` を実行し、`https://github.com/kenryu42/gemini-safety-net` source がインストールされ、有効であることを確認します。User と Workspace の両方の scope を確認してください。設定されている場合は Workspace が優先されます。`gemini extensions install https://github.com/kenryu42/gemini-safety-net` で再インストールし、新しい Gemini session を開始します。
-    9. **GitHub Copilot CLI**：`cc-safety-net@cc-marketplace` plugin がインストール済み（`/plugin`）で、`~/.copilot/settings.json` の `enabledPlugins` で有効であることを確認します。Copilot CLI 1.0.8 以降では、inline hook config と `disableAllHooks` を次の優先順で確認します：`.github/copilot/settings.local.json`、`.github/copilot/settings.json`、`.claude/settings.local.json`、`.claude/settings.json`、`~/.copilot/settings.json`、`~/.copilot/config.json`。`disableAllHooks` を定義する最初の file が結果を決めます。`true` はすべての hook を無効にし、`false` は優先度の低い値の適用を止めます。`.claude` の hook は `cc-safety-net hook --copilot-cli` または `cc-safety-net hook -cp` を実行する必要があります。通常の Claude Code hook は Copilot に登録されません。`~/.copilot/hooks/` の user hook file には Copilot CLI 0.0.422 以降が必要です。
-    10. **Hermes Agent**：managed plugin file が `$HERMES_HOME/plugins/cc-safety-net`（`HERMES_HOME` が未設定の場合は `~/.hermes/plugins/cc-safety-net`）にあり、`hermes plugins enable cc-safety-net --no-allow-tool-override` で plugin が有効であることを確認します。Hermes は `config.yaml` に記載された user plugin だけを読み込みます。次に Hermes を再起動します。`doctor` は plugin file と Hermes config だけを読み取り、実行中の Hermes に plugin が実際に読み込まれたかを確認しません。変更後に再起動して再テストしてください。
-    11. **Kimi Code**：`~/.kimi-code/config.toml`（または `$KIMI_CODE_HOME/config.toml`）に、`PreToolUse` `Bash` で `npx -y cc-safety-net hook --kimi-code` を実行する `[[hooks]]` block があることを確認します。ない場合は、`npx -y cc-safety-net@latest install --kimi-code` を再実行します。
-    12. **OpenClaw**：plugin は OpenClaw 自身の CLI でインストールして有効にします。`npx -y cc-safety-net@latest install --openclaw` を再実行すると、`openclaw plugins install <plugin dir> --force` と `openclaw plugins enable cc-safety-net` を実行し、plugin が読み込まれたことを確認します。詳細は `openclaw plugins inspect cc-safety-net --runtime` に表示されます。その後、OpenClaw Gateway を再起動します。`openclaw.json` に `plugins.allow` がある場合は、`cc-safety-net` も記載する必要があります。`doctor` は plugin directory と `openclaw.json` だけを読み取り、実行中の Gateway に plugin が読み込まれたかを確認しません。そのため、停止中の Gateway を failure として報告しません。
-    13. **OpenCode**：`XDG_CONFIG_HOME` が設定されている場合は `$XDG_CONFIG_HOME/opencode/opencode.json`（または `.jsonc`）、設定されていない場合は `~/.config/opencode/opencode.json`（または `.jsonc`）を確認します。`plugin[]` array に `cc-safety-net` があることを確認します。OpenCode は古い version を cache する場合があります。[インストール](/ja/installation#opencode)の cache 消去手順を参照してください。
-    14. **Pi**：`pi install npm:cc-safety-net` が完了したことを確認し、extension を読み込むため Pi を再起動します。Pi は CC Safety Net を process 内 extension として実行します。Pi を直接 probe する `npx cc-safety-net doctor` を実行します。
-    15. 変更後、エージェント session を reload または restart します。
+    1. `npx cc-safety-net doctor` を実行します。対応するすべてのエージェントについて hook の連携状態を確認し、設定に問題があれば該当する設定ファイルのパスを示します。
+    2. そのエージェント用のインストールコマンドを実行し直します。正常な管理下のインストールであればこの操作は冪等で、欠けている管理対象エントリや壊れたエントリを修復します。インストーラーが「認識できない」「シンボリックリンクである」「別の所有者の設定やファイルである」と報告した場合は上書きせず、表示された手動復旧の手順に従ってください。エージェントごとのコマンド一覧は[インストール](/ja/installation#特定のエージェントをインストールする)にあります。
+    3. **Amp Code**：`amp plugins list` を実行し、`cc-safety-net (User Plugins)` の行の状態が `active` であることを確認します。それ以外の状態であれば、Amp で `plugins: reload` を実行するか、`install --amp` で再インストールしてください。`~/.config/amp/plugins/cc-safety-net.ts` にローカルファイルが残っていると、personal plugin が覆い隠されます。`install --amp` は、それが管理対象のコピーであれば削除し、管理対象外のファイルであれば対処方法を示すエラーで失敗します。Amp は起動時にプラグインを読み込むため、変更後は Amp を再起動するか `plugins: reload` を実行してください。
+    4. **Antigravity CLI**：`~/.gemini/config/hooks.json` に、`npx -y cc-safety-net hook --agy-cli` を実行する管理対象の `PreToolUse` エントリがあることを確認します。
+    5. **Claude Code**：Claude Code 内で `/plugin` を実行し、インストール済みプラグインの一覧に `cc-safety-net` があり、有効になっていることを確認します。見当たらない場合は `/plugin install cc-safety-net@cc-marketplace` で再インストールし、`/reload-plugins` を実行してください。
+    6. **Codex**：`codex plugin list` を実行し、`cc-safety-net@cc-marketplace` の行が `installed, enabled` になっていることを確認します。次に TUI で `/hooks` を実行し、**cc-safety-net PreToolUse hook** を選択して `t` を押し、信頼済みにします。この信頼操作を行わないと hook は動作しません。それでも動作しない場合は、`~/.codex/config.toml`（または `$CODEX_HOME/config.toml`）の `[features]` に `plugin_hooks = true` があるか確認してください。
+    7. **Cursor**：`~/.cursor/hooks.json` に、`npx -y cc-safety-net hook --cursor` を実行する管理対象の `preToolUse` エントリがあることを確認します。この設定はグローバルなので、エントリ 1 つですべてのプロジェクトの Cursor IDE と Cursor CLI が対象になります。
+    8. **Gemini CLI**：`gemini extensions list` を実行し、`https://github.com/kenryu42/gemini-safety-net` を取得元とする拡張機能がインストールされ、有効になっていることを確認します。User と Workspace の両方のスコープを確認してください。両方に設定がある場合は Workspace が優先されます。必要であれば `gemini extensions install https://github.com/kenryu42/gemini-safety-net` で再インストールし、新しい Gemini のセッションを開始します。
+    9. **GitHub Copilot CLI**：`cc-safety-net@cc-marketplace` プラグインがインストール済み（`/plugin`）で、`~/.copilot/settings.json` の `enabledPlugins` で有効になっていることを確認します。Copilot CLI 1.0.8 以降では、インラインの hook 設定と `disableAllHooks` を次の優先順で確認します。`.github/copilot/settings.local.json`、`.github/copilot/settings.json`、`.claude/settings.local.json`、`.claude/settings.json`、`~/.copilot/settings.json`、`~/.copilot/config.json` の順です。`disableAllHooks` を最初に定義しているファイルが結果を決めます。`true` はすべての hook を無効にし、`false` は優先度の低い設定の適用を止めます。`.claude` 側の hook は `cc-safety-net hook --copilot-cli` または `cc-safety-net hook -cp` を実行する必要があります。通常の Claude Code の hook が Copilot に登録されることはありません。`~/.copilot/hooks/` に置くユーザー hook ファイルには、Copilot CLI 0.0.422 以降が必要です。
+    10. **Hermes Agent**：管理対象のプラグインファイルが `$HERMES_HOME/plugins/cc-safety-net`（`HERMES_HOME` が未設定の場合は `~/.hermes/plugins/cc-safety-net`）にあること、および `hermes plugins enable cc-safety-net --no-allow-tool-override` によってプラグインが有効になっていることを確認します。Hermes は `config.yaml` に記載されたユーザープラグインしか読み込みません。確認できたら Hermes を再起動してください。`doctor` はプラグインファイルと Hermes の設定を読むだけで、実行中の Hermes に実際に読み込まれたかまでは確認しません。変更後は再起動してから、もう一度試してください。
+    11. **Kimi Code**：`~/.kimi-code/config.toml`（または `$KIMI_CODE_HOME/config.toml`）に、`PreToolUse` の `Bash` で `npx -y cc-safety-net hook --kimi-code` を実行する `[[hooks]]` ブロックがあることを確認します。なければ `npx -y cc-safety-net@latest install --kimi-code` を実行し直してください。
+    12. **OpenClaw**：プラグインは OpenClaw 自身の CLI でインストールして有効にします。`npx -y cc-safety-net@latest install --openclaw` を実行し直すと、`openclaw plugins install <plugin dir> --force` と `openclaw plugins enable cc-safety-net` が実行され、プラグインが読み込まれたことまで確認します。詳細は `openclaw plugins inspect cc-safety-net --runtime` で確認できます。その後、OpenClaw Gateway を再起動してください。`openclaw.json` に `plugins.allow` を設定している場合は、そこに `cc-safety-net` も記載する必要があります。なお `doctor` はプラグインのディレクトリと `openclaw.json` を読むだけで、実行中の Gateway に読み込まれたかは確認しないため、Gateway が停止していても失敗としては報告しません。
+    13. **OpenCode**：`XDG_CONFIG_HOME` が設定されていれば `$XDG_CONFIG_HOME/opencode/opencode.json`（または `.jsonc`）を、設定されていなければ `~/.config/opencode/opencode.json`（または `.jsonc`）を確認し、`plugin[]` の配列に `cc-safety-net` があることを確かめます。OpenCode は古いバージョンをキャッシュしていることがあります。キャッシュの消去手順は[インストール](/ja/installation#opencode)を参照してください。
+    14. **Pi**：`pi install npm:cc-safety-net` が完了していることを確認し、拡張機能を読み込むために Pi を再起動します。Pi は CC Safety Net をプロセス内の拡張機能として実行します。確認には、Pi を直接起動して調べる `npx cc-safety-net doctor` を使ってください。
+    15. 変更が終わったら、エージェントのセッションを再読み込みするか再起動します。
 
-    エージェントが使用する mechanism が不明な場合は、[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
+    使っているエージェントがどの方式かが分からない場合は、[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
   </Accordion>
 
   <Accordion title="破壊的なコマンドがブロックされなかった">
-    ブロックされると予想したコマンドが許可された場合は、次の順序で確認します。多くの場合、gap ではなく、文書に記載された allowance または予想より低い安全レベルが原因です。
+    ブロックされると思っていたコマンドが許可された場合は、次の順に確認してください。多くの場合、対応漏れではなく、文書化された許可か、想定より低い安全レベルが原因です。
 
-    **解決手順：**
+    **対処手順：**
 
-    1. `npx cc-safety-net explain "<the command>"` を実行し、CC Safety Net がそのコマンドを評価した手順全体を確認します。出力には、確認したルール、有効な安全レベル、およびルールはあるが現在のレベルで無効な場合の rule activation 行が表示されます。
+    1. `npx cc-safety-net explain "<the command>"` を実行し、CC Safety Net がそのコマンドをどう評価したかを最初から確認します。出力には、確認されたルール、実際に適用されている安全レベル、そしてルールは存在するが現在のレベルでは無効な場合にその旨を示す行が含まれます。
 
        <Warning>
-         実際の trace は自動的に安全に共有できるものではありません。redaction は認識できる credential shape だけを対象にします。コマンドテキスト、解析済み token、home directory を含む絶対 path、policy file path が含まれます。**プレースホルダーの認証情報**で再現し、貼り付ける前に出力を確認してください。
+         トレースがそのまま安全に共有できるわけではありません。マスク処理の対象は、認識できる資格情報の形式だけです。コマンド文字列、解析後のトークン、ホームディレクトリを含む絶対パス、ポリシーファイルのパスはそのまま残ります。**ダミーの資格情報**を使って再現し、貼り付ける前に出力を確認してください。
        </Warning>
 
-    2. 出力の有効レベルを確認します。[Standard モード](/ja/configuration/modes#既定モード)は best-effort です。動的な実行ファイル、substitution で組み立てたコマンド構造、`rm -rf "$target"` などの検証不能な再帰削除対象、組み込み機密パスのメタデータだけの確認を意図的に許可します。コマンドが prompt injection または他の敵対的な状況から来る可能性がある場合は、これらすべてで fail-closed になる [strict](/ja/configuration/modes#strict-mode) または [paranoid](/ja/configuration/modes#paranoid-mode) に上げます。
-    3. コマンドが明示的に許可される category にある場合があります。例えば、cwd 内の `rm -rf` は、プロジェクトに限定されるため既定で許可されます。完全な一覧は、[許可されるコマンド](/ja/reference/allowed-commands)を参照してください。
-    4. `npx cc-safety-net status` を実行します。`degraded` 判定は rule source が除外されたことを示し、その source が提供する拒否は適用されません。[設定の復旧](/ja/configuration/recovery)を参照してください。
-    5. CC Safety Net が解析しない proxy を通してコマンドを実行する場合は、`npx -y cc-safety-net rule wrapper add <command>` で登録し、実際の child command を解析できるようにします。
-    6. 自身の状況でコマンドをブロックする必要がある場合は、`npx -y cc-safety-net rule init` でカスタム rulebook を作成し、`.cc-safety-net/rules/project-rules/rulebook.json` にルールを追加します。schema については、[カスタムルール](/ja/configuration/custom-rules)を参照してください。
-    7. 上のどれでも説明できない場合、まだルールがブロックしないコマンド形式は、project policy で public bug とする**coverage gap**です。そのまま貼り付けて実行できる payload ではなく、コマンドの*形式*を説明する [GitHub issue](https://github.com/kenryu42/cc-safety-net/issues) を作成します。機密情報の漏えい、意図した directory 外への書き込み、supply-chain または package-integrity の問題には private disclosure path を使用します。2 つの手順と境界は、[セキュリティポリシー](/ja/security)にあります。
+    2. 出力に表示される有効なレベルを確認します。[standard モード](/ja/configuration/modes#既定モード)はベストエフォートで、動的な実行ファイル、コマンド置換で組み立てられたコマンド構造、`rm -rf "$target"` のような検証できない再帰削除の対象、組み込みの機密パスに対するメタデータのみのチェックを意図的に許可します。コマンドがプロンプトインジェクションなど敵対的な文脈から来る可能性がある場合は、これらすべてが fail closed になる [strict](/ja/configuration/modes#strict-mode) または [paranoid](/ja/configuration/modes#paranoid-mode) に引き上げてください。
+    3. そのコマンドが、明示的に許可されている分類に該当することもあります。たとえばカレントディレクトリ配下の `rm -rf` は、プロジェクト内に閉じているため既定で許可されます。全一覧は[許可されるコマンド](/ja/reference/allowed-commands)を参照してください。
+    4. `npx cc-safety-net status` を実行します。判定が `degraded` の場合、ルールの設定元が破棄されており、その設定元が提供していた拒否は適用されていません。[設定の復旧](/ja/configuration/recovery)を参照してください。
+    5. CC Safety Net が解析しないプロキシ経由でコマンドを実行している場合は、`npx -y cc-safety-net rule wrapper add <command>` で登録し、実際の子コマンドを解析できるようにしてください。
+    6. 自分の環境ではそのコマンドをブロックしたい場合は、`npx -y cc-safety-net rule init` でカスタムの rulebook を作成し、`.cc-safety-net/rules/project-rules/rulebook.json` にルールを追加します。スキーマは[カスタムルール](/ja/configuration/custom-rules)を参照してください。
+    7. 以上のどれにも当てはまらない場合、ルールがまだブロックしないコマンド形式は**対応漏れ**であり、このプロジェクトの方針では公開のバグとして扱います。そのまま貼り付けて実行できる攻撃コードではなく、コマンドの*形式*を説明した [GitHub Issue](https://github.com/kenryu42/cc-safety-net/issues) を作成してください。シークレットの漏えい、意図したディレクトリの外への書き込み、サプライチェーンやパッケージの完全性に関わる問題は、非公開の開示経路を使います。両方の手順と切り分けの基準は[セキュリティポリシー](/ja/security)にあります。
 
-       手順 1 の確認済み `explain` trace を添付します。raw trace と実際の認証情報は添付しないでください。境界が文書に記載されたものである場合は、[既知の制限](/ja/guides/known-limitations)に説明と代替 layer があります。
+       報告には、手順 1 で内容を確認した `explain` のトレースを添えてください。未確認のトレースや本物の資格情報は添付しないでください。文書化された境界に該当する場合は、[既知の制限](/ja/guides/known-limitations)に説明と、代わりに使える対策があります。
   </Accordion>
 
   <Accordion title="CC Safety Net が必要なコマンドをブロックする">
-    組み込みルールは意図的に保守的です。必要なコマンドがブロックされた場合は、複数の選択肢があります。
+    組み込みのルールは意図的に保守的です。必要なコマンドがブロックされた場合は、いくつかの選択肢があります。
 
-    **解決手順：**
+    **対処手順：**
 
-    1. `npx cc-safety-net explain "<the command>"` を実行し、ブロックの正確な理由と一致したルールを確認します。
-    2. deny reason が "Command analysis exceeds CC Safety Net's derived-command work limit. Reduce nested or embedded command complexity and retry." の場合、ルールは一致していません。コマンドから analyzer が派生させるコマンド用の固定 work budget を使い切りました。対象には `find -exec`、`xargs`、`parallel` 内の shell 1 行コード、wrapper の後ろに埋め込まれたコマンド、同様の nested 形式があります。budget は compile-time constant であり、設定で増やせません。コマンドを単純な別々のコマンドに分割して再試行します。
-    3. 状況に応じて、次の代替手段を検討します。
-       - **linked Git worktree で作業していますか？** `policy.json` の `workflow.worktree_mode` または `CC_SAFETY_NET_WORKTREE=1` で worktree モードを有効にします。コマンドが disposable で隔離された workspace として設計された linked worktree 内で実行されることを確認した場合、ローカル破棄ルールを緩和します。
-       - **より安全な形式が必要ですか？** 例えば、`git push --force-with-lease` は許可され、追加の safety check とともに `--force` と同じ結果を提供します。`git clean -n`（dry-run）も許可され、削除対象を preview できます。
-       - **コマンドが本当に必要ですか？** エージェント外で手動実行します。これは常に選択できます。ブロック時にも、CC Safety Net はユーザーにその操作を依頼するようエージェントに指示します。
+    1. `npx cc-safety-net explain "<the command>"` を実行し、ブロックの正確な理由と、一致したルールを確認します。
+    2. 拒否の理由が "Command analysis exceeds CC Safety Net's derived-command work limit. Reduce nested or embedded command complexity and retry." の場合、ルールに一致したわけではありません。アナライザーがそのコマンドから派生させる処理量の上限を使い切っています。`find -exec`、`xargs`、`parallel` の中のシェル 1 行コード、ラッパーの背後に埋め込まれたコマンド、同様の入れ子構造が該当します。この上限はコンパイル時の定数で、設定では引き上げられません。コマンドを単純な複数のコマンドに分けて実行し直してください。
+    3. 状況に応じて、次の選択肢を検討してください。
+       - **linked worktree で作業していませんか？** `policy.json` の `workflow.worktree_mode` か `CC_SAFETY_NET_WORKTREE=1` で worktree モードを有効にします。使い捨ての独立した作業環境である linked worktree 内での実行だと確認できた場合にかぎり、ローカル破棄のルールが緩和されます。
+       - **より安全な書き方はありませんか？** たとえば `git push --force-with-lease` は許可されており、追加の安全確認付きで `--force` と同じ結果を得られます。`git clean -n`（ドライラン）も許可されており、何が削除されるかを事前に確認できます。
+       - **本当にそのコマンドが必要ですか？** エージェントの外で自分で実行するという選択肢は、常に残されています。ブロック時にも、CC Safety Net はユーザーに実行を依頼するようエージェントに指示します。
   </Accordion>
 
   <Accordion title="カスタムルールが適用されない">
-    検証できない rule source は**除外**されます。コマンドは動作し続けますが、その source のルールは適用されません。runtime は `degraded` を報告します。この failure は正常な session で目立たない場合があるため、ルール設定の変更と upgrade のたびに確認してください。
+    検証できないルールの設定元は**破棄されます**。コマンド自体は動き続けますが、その設定元のルールは適用されず、ランタイムは `degraded` を報告します。この種の失敗は問題のないセッションでは気づきにくいため、ルール設定を変更したときとアップグレードのたびに確認してください。
 
-    その他の検証済み scope とすべての組み込み保護は適用を続けます。各 failure と fallback の完全な説明は、[設定の復旧](/ja/configuration/recovery)にあります。
+    検証に成功した他のスコープと、組み込みの保護はすべて適用され続けます。失敗とフォールバックの詳細は、[設定の復旧](/ja/configuration/recovery)にあります。
 
-    **解決手順：**
+    **対処手順：**
 
-    1. `npx cc-safety-net status` で判定を確認し、`npx cc-safety-net doctor` で完全な理由を確認します。拒否された source と条件を示します。
-    2. `npx -y cc-safety-net rule list` を実行し、実際に有効な source と rule、および issue と warning を確認します。次に `npx -y cc-safety-net rule verify` で rulebook 構造を検証します。
-    3. 正しい file location を使用していることを確認します。
-       - **User scope**：`~/.cc-safety-net/rules/rule.json`（`rule init --global` で作成）
-       - **Project scope**：project root の `.cc-safety-net/rules/rule.json`
-    4. `rule.json` と rulebook JSON file が有効な JSON であることを確認します。一般的な誤りは、末尾の comma と quote されていない key です。読み取れない `rule.json` は、`transparent_wrappers` を含む scope 全体を除外します。
+    1. `npx cc-safety-net status` で判定を確認し、`npx cc-safety-net doctor` で理由の全文を確認します。拒否された設定元とその条件が示されます。
+    2. `npx -y cc-safety-net rule list` を実行し、実際に有効な設定元とルール、および Issues と Warnings を確認します。続けて `npx -y cc-safety-net rule verify` で rulebook の構造を検証します。
+    3. ファイルの置き場所が正しいか確認します。
+       - **ユーザースコープ**：`~/.cc-safety-net/rules/rule.json`（`rule init --global` で作成）
+       - **プロジェクトスコープ**：プロジェクトルートの `.cc-safety-net/rules/rule.json`
+    4. `rule.json` と rulebook の JSON ファイルが、有効な JSON になっているか確認します。よくある間違いは、末尾の余分なカンマと、引用符で囲まれていないキーです。`rule.json` が読み取れないと、`transparent_wrappers` を含めてそのスコープ全体が破棄されます。
     5. `rule.json` に `"version": 1`、各 `rulebook.json` に `"rulebook_version": 1` があることを確認します。どちらも必須です。
-    6. local rulebook を編集しても以前の動作が続く場合、digest 検証済み cache が引き続き適用されています。この状態に warning はありません。`npx -y cc-safety-net rule sync` を実行して local edit を昇格します。
-    7. 以前の inline config（`.safety-net.json` または `~/.cc-safety-net/config.json`）を使用していた場合は、`npx -y cc-safety-net rule migrate` を実行して新しい layout に変換します。移行していない以前の file にあるルールは、移行するまで不活性です。
-    8. rulebook source を変更した後は、`npx -y cc-safety-net rule sync` を実行して lock と cache を再構築し、`rule verify` を再実行します。`rule sync` は guard と同じ方法で scope を reload し、誤った成功を報告せず、残っている正確な diagnostic で失敗します。
+    6. ローカルの rulebook を編集しても以前の動作が続く場合は、ダイジェスト検証済みのキャッシュがそのまま適用されています。この状態では警告は出ません。`npx -y cc-safety-net rule sync` を実行して、ローカルの編集を反映してください。
+    7. 以前のインライン設定（`.safety-net.json` または `~/.cc-safety-net/config.json`）を使っていた場合は、`npx -y cc-safety-net rule migrate` を実行して新しい構成に変換します。未移行の旧ファイルにあるルールは、移行するまで何も保護しません。
+    8. rulebook の設定元を変更した後は、`npx -y cc-safety-net rule sync` でロックとキャッシュを再構築し、`rule verify` を実行し直します。`rule sync` はガードと同じ方法でスコープを読み込み直すため、誤って成功と報告することはなく、問題が残っていればその診断とともに失敗します。
 
-    runtime が `degraded` の間も、これらすべてを実行できます。設定不能であることを理由にブロックされるものはありません。
+    これらの操作は、ランタイムが `degraded` の間もすべて実行できます。設定できないことを理由にブロックされるものはありません。
   </Accordion>
 
-  <Accordion title="status または status line が degraded を報告する">
-    `degraded` は、設定 candidate が拒否され、代わりに安全なものが適用されていることを示します。例は、除外された rule source、重複する rulebook 名、または無効な `policy.json` が salvage した値または protective default に戻る場合です。これを理由に通常の作業を拒否することはありません。
+  <Accordion title="status やステータスラインが degraded と表示される">
+    `degraded` は、候補となった設定が拒否され、代わりに安全なものが適用されていることを示します。破棄されたルールの設定元、rulebook 名の重複、無効な `policy.json` が救済後の値や安全側の既定値に戻った場合などが該当します。これを理由に通常の作業が拒否されることはありません。
 
-    **解決手順：**
+    **対処手順：**
 
-    1. `npx cc-safety-net doctor` を実行します。`config.runtime-degraded` finding に、拒否された file と条件を示す完全な理由があります。
-    2. rule source の場合は、指定された修正を行い、`npx -y cc-safety-net rule sync` を再実行します。
-    3. `policy.json` の場合は、手動で file を修正します。runtime は書き換えません。拒否された section は *protective* default に戻るため、通常は設定より拒否が多くなり、少なくはなりません。例外は無効な `safety.level` です。`standard` に戻るため、保護が*低下*します。
-    4. `npx cc-safety-net status` を再実行し、判定が `ready` であることを確認します。
+    1. `npx cc-safety-net doctor` を実行します。`config.runtime-degraded` の項目に、拒否されたファイルと条件を示す理由の全文があります。
+    2. ルールの設定元が原因の場合は、示された内容を修正して `npx -y cc-safety-net rule sync` を実行し直します。
+    3. `policy.json` が原因の場合は、自分でファイルを修正してください。ランタイムが書き換えることはありません。拒否されたセクションは*安全側の*既定値に戻るため、通常は設定したつもりより拒否が増えることはあっても減ることはありません。例外は無効な `safety.level` で、この場合は `standard` に戻るため保護が*弱くなります*。
+    4. `npx cc-safety-net status` を実行し直し、判定が `ready` になったことを確認します。
 
-    すべての failure と fallback については、[設定の復旧](/ja/configuration/recovery)を参照してください。
+    失敗とフォールバックの一覧は、[設定の復旧](/ja/configuration/recovery)を参照してください。
   </Accordion>
 
-  <Accordion title="Claude Code に status line が表示されない">
-    status line には、`~/.claude/settings.json` の項目が必要です。表示されない場合、項目がない、不正である、または誤った runtime を参照している可能性があります。
+  <Accordion title="Claude Code にステータスラインが表示されない">
+    ステータスラインを表示するには、`~/.claude/settings.json` に設定が必要です。表示されない場合、その設定がない、内容が誤っている、あるいは誤った実行方法を指している可能性があります。
 
-    **解決手順：**
+    **対処手順：**
 
-    1. `~/.claude/settings.json` を開き、`statusLine` 項目があることを確認します。次のいずれかの形式です。
+    1. `~/.claude/settings.json` を開き、`statusLine` の項目があることを確認します。形式は次のいずれかです。
        ```json
        { "statusLine": { "type": "command", "command": "bunx cc-safety-net statusline --claude-code" } }
        ```
        ```json
        { "statusLine": { "type": "command", "command": "npx -y cc-safety-net statusline --claude-code" } }
        ```
-    2. この file の変更はすぐに有効になります。Claude Code を再起動する必要はありません。
-    3. `claude x` 形式を使用する場合、native version の Claude Code だけに対応します。Claude Code を npm でインストールした場合は、代わりに `npx` または `bunx` を使用します。
-    4. terminal で status line コマンドを直接テストし、出力を確認します。
+    2. このファイルの変更は即座に反映されます。Claude Code を再起動する必要はありません。
+    3. `claude x` の形式は、ネイティブ版の Claude Code でのみ動作します。Claude Code を npm でインストールした場合は、代わりに `npx` か `bunx` を使ってください。
+    4. ステータスラインのコマンドをターミナルで直接実行し、出力を確認します。
        ```bash
        bunx cc-safety-net statusline --claude-code
        ```
-       このコマンドが失敗すると、Claude Code 内の status line は空になります。
-    5. status line は `~/.claude/settings.json` の `enabledPlugins["cc-safety-net@cc-marketplace"]` 項目を反映します。CC Safety Net を手動 hook または他のエージェントで実行する場合、保護が有効でも `❌` と表示されることがあります。各 indicator については、[status line](/ja/configuration/status-line)を参照してください。
+       このコマンドが失敗すると、Claude Code 内のステータスラインは空になります。
+    5. ステータスラインが反映するのは、`~/.claude/settings.json` の `enabledPlugins["cc-safety-net@cc-marketplace"]` の項目だけです。CC Safety Net を手動の hook として、あるいは別のエージェントで動かしている場合は、保護が有効でも `❌` と表示されることがあります。各インジケーターの意味は、[ステータスライン](/ja/configuration/status-line)を参照してください。
   </Accordion>
 
   <Accordion title="更新を取得する">
-    最新のブロックルールと bug fix を取得するため、CC Safety Net を最新に保ちます。
+    最新のブロックルールとバグ修正を取り込むため、CC Safety Net は最新の状態に保ってください。
 
-    **すべてのインストール済み連携を更新する：**
+    **インストール済みの連携をすべて更新する：**
 
     ```bash
     npx -y cc-safety-net@latest update
     ```
 
-    `update` は、無効なものを含むマシン上のインストール済み連携を検出し、その場で更新します。agent CLI が見つからない連携は skipped と報告します。`@latest` tag は重要です。tag なしの `cc-safety-net` spec は、現在の release ではなく npx cache にある以前の copy を再実行する場合があります。対話式 installer で `u` を押すと、同じ update を実行します。
+    `update` は、マシンにインストール済みの連携を無効化されたものも含めて検出し、その場で更新します。対象のエージェントの CLI が見つからない連携は、スキップとして報告されます。`@latest` の指定は重要です。バージョンを指定しない `cc-safety-net` では、最新リリースではなく npx キャッシュに残った古いコピーが再実行されることがあります。対話式インストーラーで `u` を押した場合も、同じ更新処理が動きます。
 
-    **Claude Code（plugin marketplace）：**
+    **Claude Code（プラグインマーケットプレイス）：**
 
-    代わりに自動更新するには、`/plugin` を開き、`Marketplaces` を選択し、`cc-marketplace` を選択して auto-update を有効にします。
+    自動更新にする場合は、`/plugin` を開いて `Marketplaces` を選び、`cc-marketplace` を選択して auto-update を有効にします。
 
-    local install がある場合は、package manager で更新します。
+    グローバルにインストールしている場合は、パッケージマネージャーで更新してください。
 
-    **現在の version を確認する：**
+    **現在のバージョンを確認する：**
 
     ```bash
     npx cc-safety-net --version
@@ -169,18 +169,18 @@ bunx cc-safety-net doctor
   </Accordion>
 </AccordionGroup>
 
-## 診断情報を収集して問題を報告する
+## 診断情報を集めて報告する
 
-上の手順で問題を解決できない場合は、報告を作成する前に完全な診断出力を収集します。
+上記の手順で解決しない場合は、報告する前に診断出力を一式そろえてください。
 
 ```bash
 npx cc-safety-net doctor --json
 ```
 
-`--json` flag は、environment、インストール済み version、hook 設定、セルフテスト結果を 1 つの snapshot に収めた構造化出力を生成します。
+`--json` を付けると、環境、インストール済みのバージョン、hook の設定、セルフテストの結果を 1 つのスナップショットにまとめた構造化出力が得られます。
 
 <Warning>
-  診断出力と `explain` 出力を共有する前に確認してください。home directory を含む絶対 filesystem path、project と directory の名前、設定 path が含まれます。redaction は認識できる credential shape だけを対象にするため、実際の認証情報ではなく**プレースホルダーの認証情報**で問題を再現し、貼り付ける前に出力を読んでください。
+  診断出力や `explain` の出力は、共有する前に必ず確認してください。ホームディレクトリを含む絶対パス、プロジェクト名やディレクトリ名、設定ファイルのパスが含まれます。マスク処理の対象は認識できる資格情報の形式だけなので、本物の資格情報ではなく**ダミーの資格情報**を使って問題を再現し、貼り付ける前に内容を読んでください。
 </Warning>
 
-bug（coverage gap、誤検知、インストール問題、文書問題）は public の [GitHub issue](https://github.com/kenryu42/cc-safety-net/issues) で報告します。機密情報の漏えい、意図した directory 外への書き込み、supply-chain または package-integrity の問題には、[セキュリティポリシー](/ja/security)の private path を使用します。
+バグ（対応漏れ、誤検知、インストールの問題、ドキュメントの誤り）は、公開の [GitHub Issue](https://github.com/kenryu42/cc-safety-net/issues) で報告してください。シークレットの漏えい、意図したディレクトリの外への書き込み、サプライチェーンやパッケージの完全性に関わる問題は、[セキュリティポリシー](/ja/security)に記載した非公開の経路を使ってください。

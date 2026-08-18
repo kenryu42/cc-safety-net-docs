@@ -1,136 +1,136 @@
 ---
 title: "セキュリティモデル"
 sidebarTitle: "セキュリティモデル"
-description: "CC Safety Net の trust model：AI から shell への境界、各 safety level の保証、configuration recovery boundary、開示分類。"
+description: "CC Safety Net の信頼モデルを説明します。AI からシェルへの境界、各安全レベルの保証、設定復旧の境界、脆弱性の開示分類を扱います。"
 ---
 
-CC Safety Net は、AI コーディングエージェントなどの信頼できない command source と execution environment の間にあります。このページでは、trust boundary、safety-level guarantee、configuration failure handling、secret protection、attack surface を説明します。脆弱性の報告は[セキュリティポリシー](/ja/security)を参照してください。
+CC Safety Net は、AI コーディングエージェントのような信頼できないコマンドの発生源と、実際の実行環境との間に位置します。このページでは、信頼境界、各安全レベルの保証、設定が壊れたときの扱い、シークレット保護、攻撃対象領域を説明します。脆弱性の報告方法は[セキュリティポリシー](/ja/security)を参照してください。
 
-CC Safety Net は、対応するコーディングエージェントのツール呼び出しに対する best-effort の静的な実行前ポリシーゲートです。OS sandbox、privilege boundary、インストール済み連携を回避する command に対する保護ではありません。
+CC Safety Net は、対応するコーディングエージェントのツール呼び出しに対する、ベストエフォートの静的な実行前ポリシーゲートです。OS のサンドボックスでも権限境界でもなく、インストール済みの連携を迂回するコマンドに対する保護でもありません。
 
-## Trust boundary
+## 信頼境界
 
-### 主境界：command source から execution environment
+### 主境界：コマンドの発生源と実行環境の間
 
-中心的な trust boundary は、AI コーディングエージェントと host shell の間にあります。CC Safety Net が gatekeeper です。
+中心となる信頼境界は、AI コーディングエージェントとホストのシェルの間にあります。そこで門番の役割を果たすのが CC Safety Net です。
 
-- **信頼できない側**：AI エージェントが生成する command string。エージェントは prompt injection、混乱した context、敵対的 instruction によって破壊的コマンドを生成する可能性があるため、潜在的に hostile として扱います。
-- **実行側**：command を実行する host shell。
+- **信頼できない側**：AI エージェントが生成するコマンド文字列。プロンプトインジェクション、混乱したコンテキスト、敵対的な指示によって破壊的なコマンドを生成しうるため、潜在的に敵対的なものとして扱います。
+- **実行する側**：コマンドを実行するホストのシェル。
 
-対応 platform の shell tool に到達する各 command は、実行を許可する前に analysis engine を通ります。analysis が block reason を返すと、command を拒否します。
+対応プラットフォームのシェルツールに届くコマンドは、実行が許可される前に必ず解析エンジンを通ります。解析がブロックの理由を返した場合、そのコマンドは拒否されます。
 
-境界は、対応する tool name と shape で終わります。adapter が command-execution capability を与えるのは、連携ごとに定めた正確な tool name だけです。unknown tool は保守的な policy-file、Git-metadata、sensitive-path inspection を受けますが、その text を shell command として扱いません。インストール済み連携を完全に回避する command は境界外です。
+この境界は、対応するツール名と形式の範囲で終わります。アダプターがコマンド実行として扱うのは、連携ごとに定めた特定のツール名だけです。未知のツールも、ポリシーファイル、Git メタデータ、機密パスについては保守的に検査されますが、その内容がシェルコマンドとして扱われることはありません。インストール済みの連携を完全に迂回するコマンドは、この境界の外側です。
 
-### 副境界
+### 副次的な境界
 
-4 つの副境界は、外部 source から CC Safety Net 内に入ります。各 source は analysis に影響する前に validate します。
+副次的な境界が 4 つあり、いずれも外部から CC Safety Net の内側へ入ってきます。どの入力も、解析に影響を与える前に検証されます。
 
-| 境界 | Source | 検証方法 |
+| 境界 | 入力元 | 検証方法 |
 | --- | --- | --- |
-| ユーザー設定 | disk 上の `policy.json` と rule configuration | parse と schema validation を実行。拒否された candidate は適用せず、runtime は通常作業を拒否せずに fallback する（下記の [Configuration recovery boundary](#configuration-recovery-boundary) を参照） |
-| Rulebook source | GitHub または local directory から取得する rulebook | remote rulebook は lockfile の SHA-256 digest で integrity check。検証できない source は rule を提供しない |
-| Hook input JSON | 各エージェントが stdin に送る JSON payload | 防御的に parse。malformed または oversized input は deny になる |
-| Environment variable | level と capability flag、および path override（`CC_SAFETY_NET_*`、`TMPDIR` など） | 明示的に読み取り。security-critical value は信頼しない |
+| ユーザー設定 | ディスク上の `policy.json` とルール設定 | パースとスキーマ検証を行う。拒否された候補は適用されず、ランタイムは通常の作業を拒否せずにフォールバックする（下記の[設定復旧の境界](#configuration-recovery-boundary)を参照） |
+| rulebook の設定元 | GitHub またはローカルディレクトリから取得する rulebook | リモートの rulebook はロックファイルの SHA-256 ダイジェストで完全性を検証する。検証できない設定元からはルールを読み込まない |
+| hook の入力 JSON | 各エージェントが標準入力に送る JSON ペイロード | 防御的にパースする。不正または過大な入力は拒否になる |
+| 環境変数 | レベルと機能のフラグ、パスの上書き（`CC_SAFETY_NET_*`、`TMPDIR` など） | 明示的に読み取る。セキュリティ上重要な値は信頼しない |
 
-## 各 safety level の保証
+## 各安全レベルの保証
 
-Standard、strict、paranoid は、`fail_closed`、`paranoid_rm`、`paranoid_interpreters` の 3 capability に default を与える preset です。保証は level ごとに異なります。
+standard、strict、paranoid は、`fail_closed`、`paranoid_rm`、`paranoid_interpreters` の 3 つの機能に既定値を与える preset です。保証の内容はレベルごとに異なります。
 
-| Level | 保証 |
+| レベル | 保証の内容 |
 | --- | --- |
-| [Standard](/ja/configuration/modes#既定モード) | 認識可能な destructive command に対する **best-effort** protection。dynamic executable、substitution で組み立てた command structure、検証不能な recursive-delete target、組み込み sensitive path の独立した metadata-only check を意図的に許可する。安全に見える unparseable text は通し、destructive に見える text は conservative heuristic で検出する |
-| [Strict](/ja/configuration/modes#strict-mode) | fail-closed capability を追加。unparseable input は通さず拒否し、`rm -rf "$target"` などの検証不能な destructive target と metadata-only sensitive-path discovery を block する |
-| [Paranoid](/ja/configuration/modes#paranoid-mode) | Strict に 2 つの制限を追加。現在の working directory 内でも temp 以外の[再帰的な強制削除](/ja/configuration/modes#paranoid-rm-check)を block し、内容に関係なく[すべての interpreter one-liner](/ja/configuration/modes#paranoid-interpreters)を block する |
+| [standard](/ja/configuration/modes#既定モード) | 認識できる破壊的コマンドに対する**ベストエフォート**の保護。動的な実行ファイル、コマンド置換で組み立てられたコマンド構造、検証できない再帰削除の対象、組み込みの機密パスに対する単独のメタデータのみのチェックは、意図的に許可する。パースできなくても安全に見えるテキストは通し、破壊的に見えるテキストは保守的なヒューリスティックで検出する |
+| [strict](/ja/configuration/modes#strict-mode) | fail closed の機能を追加する。パースできない入力は通さずに拒否し、`rm -rf "$target"` のような検証できない破壊的対象と、メタデータのみによる機密パスの探索をブロックする |
+| [paranoid](/ja/configuration/modes#paranoid-mode) | strict にさらに 2 つの制限を加える。カレントディレクトリ配下であっても一時パス以外への[再帰的な強制削除](/ja/configuration/modes#paranoid-rm-check)をブロックし、内容にかかわらず[すべてのインタープリター 1 行コード](/ja/configuration/modes#paranoid-interpreters)をブロックする |
 
 <Warning>
-  Standard mode は **adversarial-grade ではありません**。dynamic `rm -rf` target は standard で一律に block されません。`rm -rf "$target"` は standard では allow され、strict または paranoid だけで block されます。command が prompt injection または他の adversarial context から来る可能性がある場合、strict または paranoid が必要です。
+  standard モードは**敵対的な入力に耐える水準ではありません**。動的な `rm -rf` の対象は、standard では一律にはブロックされません。`rm -rf "$target"` は standard では許可され、ブロックされるのは strict と paranoid だけです。コマンドがプロンプトインジェクションなど敵対的な文脈から来る可能性がある場合は、strict または paranoid が必要です。
 </Warning>
 
-secret protection が有効な間、safety level は一致した sensitive **content** access または user-configured deny path とその子孫を緩和しません。設定済みの `secret_protection.allow_paths` 項目は、literal file または directory tree を CLI 以外の組み込み secret rule から除外できます。deny path と `secret.cli.*` rule は引き続き優先します。Catastrophic protection は常に適用します。root または user home directory の recursive deletion、protected Git metadata の destructive change、canonical user `policy.json` の destructive change が含まれます。
+シークレット保護が有効な間は、安全レベルによって、一致した機密情報の**内容**へのアクセスや、ユーザーが設定した deny path とその配下が緩和されることはありません。設定した `secret_protection.allow_paths` の項目により、特定のファイルやディレクトリツリーを CLI 以外の組み込みシークレットルールから除外できますが、deny path と `secret.cli.*` のルールは引き続き優先されます。致命的な操作に対する保護は常に適用されます。これには、root またはユーザーのホームディレクトリの再帰削除、保護対象の Git メタデータへの破壊的な変更、正規のユーザー `policy.json` への破壊的な変更が含まれます。
 
 <span id="configuration-recovery-boundary"></span>
 
-## Configuration recovery boundary
+## 設定復旧の境界
 
-Configuration は trust boundary であり kill switch ではありません。無効な configuration は 2 つの runtime state のいずれかになり、**無効であることだけを理由に通常作業を拒否しません**。
+設定は信頼境界であって、緊急停止スイッチではありません。設定が無効な場合、ランタイムは 2 つの状態のいずれかになりますが、**設定が無効だというだけの理由で通常の作業を拒否することはありません**。
 
-- **`ready`**：すべての active source を validate 済み。
-- **`degraded`**：candidate source を拒否し、代わりに安全なものを適用。検証不能な rule source は drop されて rule を提供しない。drift したか無効な local rulebook は digest-verified cache を維持する。duplicate rulebook name は最初の claim を維持する。読み取れない policy file は salvage した policy または built-in protective default に fallback する。
+- **`ready`**：有効なすべての設定元が検証済みです。
+- **`degraded`**：候補となった設定元が拒否され、代わりに安全なものが適用されています。検証できないルールの設定元は破棄され、ルールを提供しません。内容がずれている、または無効なローカル rulebook については、ダイジェスト検証済みのキャッシュがそのまま使われます。rulebook 名が重複した場合は、先に名前を確保した側が残ります。読み取れないポリシーファイルは、救済されたポリシーか、組み込みの安全側の既定値にフォールバックします。
 
-拒否した candidate を active として扱うことはありません。source を drop すると、その source が提供した denial がなくなります。これは設定した policy と比べて実際の enforcement reduction であり、security-neutral とせず、すべての surface で報告します。ただし drop で built-in rule を弱めることはできません。rulebook は blocking rule だけを提供し、読み取れない `rule.json` を無視すると、その `overrides` が無効にした built-in が復元されます。1 つの例外は scope が限定され、文書化されています。`transparent_wrappers` は `rule.json` にあるため、読み取れない `rule.json` は、その scope で built-in analysis が展開する wrapped command を減らします。設定できないことを理由に何も deny しないため、代わりに command または path を allowlist することはありません。
+拒否された候補が有効なものとして扱われることはありません。設定元を破棄すると、その設定元が提供していた拒否も失われます。これは、設定したポリシーと比べて実際に強制力が下がることを意味するため、安全性に影響しないものとは扱わず、すべての表示箇所で報告します。ただし、破棄によって組み込みのルールが弱まることはありません。rulebook が提供できるのはブロックのルールだけであり、読み取れない `rule.json` を無視すれば、その `overrides` が無効にしていた組み込みルールはむしろ復活します。例外は 1 つだけで、範囲も文書化されています。`transparent_wrappers` は `rule.json` の中にあるため、`rule.json` を読み取れない場合、そのスコープでは組み込みの解析が透過できるラップ済みコマンドが減ります。設定できないことを理由に何かを拒否しない代わりに、コマンドやパスを許可リストに追加することもありません。
 
-Policy-file protection と Git-metadata protection は configuration snapshot の読み込み**前**に評価するため、両 state に同じように適用され、configuration metadata を持ちません。
+ポリシーファイルの保護と Git メタデータの保護は、設定スナップショットの読み込み**より前**に評価されるため、どちらの状態でも同じように適用され、設定に関する情報を持ちません。
 
-すべての failure row、それが生成する fallback、recovery command という完全な contract は[設定の復旧](/ja/configuration/recovery)にあります。
+失敗の種類ごとの一覧、それによって生じるフォールバック、復旧用のコマンドを含む完全な取り決めは、[設定の復旧](/ja/configuration/recovery)にあります。
 
-## Fail-closed enforcement
+## fail closed による強制
 
-Fail-closed は、analysis 自身を完了できない場合の**その 1 回のツール呼び出し**に適用します。予期しない analyzer failure、parse できない input、resource limit 到達が該当します。無効な configuration の動作を示すものではありません。
+fail closed は、解析そのものを完了できない場合に**その 1 回のツール呼び出し**へ適用されます。アナライザーの予期しない失敗、パースできない入力、リソース上限への到達が該当します。設定が無効なときの動作を指す言葉ではありません。
 
 <Steps>
-  <Step title="Hook の entry point">
-    hook adapter は analysis call を try/catch で囲みます。analysis が throw すると、command を続行させず、"failed closed" reason の deny decision を出力します。これはすべての stdin-based hook agent（Antigravity CLI、Claude Code、Cursor、Gemini CLI、GitHub Copilot CLI、Kimi Code）に適用します。
+  <Step title="hook のエントリーポイント">
+    hook のアダプターは、解析の呼び出しを try/catch で囲みます。解析が例外を投げた場合、コマンドを続行させず、「failed closed」の理由を添えた拒否を出力します。これは標準入力方式の hook を使うすべてのエージェント（Antigravity CLI、Claude Code、Cursor、Gemini CLI、GitHub Copilot CLI、Kimi Code）に当てはまります。
   </Step>
-  <Step title="Plugin と extension の entry point">
-    Amp Code、OpenCode、OpenClaw、Pi の process 内連携は同じ pattern を使います。analysis error を捕捉し、block message として再表示するため、platform は denied command として扱います。Codex は plugin として install されますが、共有 stdin hook entry point を実行するため、上の step に含まれます。Hermes Agent は両方を重ねます。管理対象 Python plugin が同じ stdin hook（`cc-safety-net hook --hermes-agent`）を呼び出し、analysis を完了できない場合は plugin 自身が call を block します。missing `npx`、解決できない working directory または Hermes session record、spawn failure、30 秒の timeout、non-zero analyzer exit、読み取れない output が対象です。各 agent の model は[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
+  <Step title="プラグインと拡張機能のエントリーポイント">
+    Amp Code、OpenCode、OpenClaw、Pi のプロセス内連携も、同じパターンを使います。解析エラーを捕捉し、それをブロックメッセージとして返すため、各プラットフォームは拒否されたコマンドとして扱います。Codex はプラグインとしてインストールされますが、実行するのは共通の標準入力 hook のエントリーポイントなので、前のステップに含まれます。Hermes Agent は両方を重ねた構成です。管理対象の Python プラグインが同じ標準入力 hook（`cc-safety-net hook --hermes-agent`）を呼び出し、解析を完了できない場合はプラグイン自身がその呼び出しをブロックします。`npx` が見つからない、作業ディレクトリや Hermes のセッション記録を解決できない、プロセスの起動に失敗する、30 秒でタイムアウトする、アナライザーが 0 以外で終了する、出力を読み取れない、といった場合が対象です。各エージェントの方式は[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
   </Step>
-  <Step title="形式が不正または大きすぎる tool input">
-    信頼できない recursive tool input は、64 object level、10,000 visited value、10,000 own key、string ごとに 1 MiB、aggregate string data 4 MiB に制限します。hook stdin は raw byte 8 MiB が上限です。いずれかの boundary を超えると call を deny します。
+  <Step title="形式が不正、またはサイズが大きすぎるツール入力">
+    信頼できない入れ子構造のツール入力には、オブジェクトの深さ 64 段、走査する値 10,000 個、自身のキー 10,000 個、文字列 1 つあたり 1 MiB、文字列データの合計 4 MiB という上限を設けています。hook の標準入力は生のバイト数で 8 MiB が上限です。いずれかを超えた時点で、その呼び出しを拒否します。
   </Step>
-  <Step title="Parser resource の枯渇">
-    131,072 UTF-16 code unit を超える input、16,384 を超える word、64 level を超える nesting は、不完全に解析せず deny します。別の 16,384 derived token budget は、initial parse 後に nested / embedded command が追加する作業を制限します。[Parser と runtime dependency surface](/ja/guides/architecture#parsers-and-the-runtime-dependency-surface)を参照してください。どちらも standard を含む**すべての** safety level に適用します。
+  <Step title="パーサーのリソース枯渇">
+    131,072 UTF-16 コードユニットを超える入力、16,384 を超える語数、64 段を超えるネストは、中途半端に解析せずに拒否します。これとは別に、派生トークン 16,384 個という上限があり、最初のパースの後にネストされたコマンドや埋め込まれたコマンドが追加する処理量を制限します。[パーサーと実行時の依存関係](/ja/guides/architecture#parsers-and-the-runtime-dependency-surface)を参照してください。いずれの上限も、standard を含む**すべての**安全レベルに適用されます。
   </Step>
-  <Step title="Strict mode の動作">
-    [Strict mode](/ja/configuration/modes#strict-mode)は、shell parser が安全に tokenize できない command まで fail-closed を拡張します。このため unparseable input を通さず block します。Standard mode は安全に見える unparseable text を許可します。
+  <Step title="strict モードでの動作">
+    [strict モード](/ja/configuration/modes#strict-mode)は、シェルのパーサーが安全にトークン化できないコマンドにまで fail closed を広げます。そのため、パースできない入力は通さずにブロックします。standard モードでは、安全に見えるパース不能なテキストは許可されます。
   </Step>
 </Steps>
 
 <Note>
-  無効な configuration は意図的にこの一覧に含めません。拒否した rule source は drop し、読み取れない policy file は protective default に fallback するため、通常作業を続行できます。上記の [Configuration recovery boundary](#configuration-recovery-boundary) を参照してください。
+  設定が無効な場合は、意図的にこの一覧に含めていません。拒否されたルールの設定元は破棄され、読み取れないポリシーファイルは安全側の既定値にフォールバックするため、通常の作業はそのまま続けられます。上記の[設定復旧の境界](#configuration-recovery-boundary)を参照してください。
 </Note>
 
-理由は[設計原則](/ja/guides/design-principles#解析を完了できない場合は-fail-closed)を参照してください。
+この方針の理由は、[設計原則](/ja/guides/design-principles#解析を完了できない場合は-fail-closed)を参照してください。
 
-## Secret redaction
+## シークレットのマスク
 
-command または segment text は、audit log への書き込みまたはエージェントへの返却前に、自動 secret redaction を通ります。redactor は PEM private key、database URL environment variable、一般的な secret-bearing env assignment、一般的な secret HTTP header、URL credential、presigned-URL signature query parameter（`x-amz-signature`、`x-goog-signature`、`sig`、`signature`）、既知の provider token prefix（GitHub、Slack、npm、Stripe、PyPI）、JWT、AWS access key ID を削除します。一致した各 value は `<redacted>` に置き換えます。
+コマンドやセグメントのテキストは、監査ログに書き込まれる前、またはエージェントに返される前に、自動的なシークレットのマスク処理を通ります。マスク対象は、PEM 形式の秘密鍵、データベース URL の環境変数、シークレットを含みやすい環境変数への代入、シークレットを含みやすい HTTP ヘッダー、URL 内の資格情報、署名付き URL のクエリパラメーター（`x-amz-signature`、`x-goog-signature`、`sig`、`signature`）、既知のプロバイダーのトークン接頭辞（GitHub、Slack、npm、Stripe、PyPI）、JWT、AWS のアクセスキー ID です。一致した値は `<redacted>` に置き換えられます。
 
-Redaction は保守的な pattern-based 処理です。command argument に現れた secret の漏えい risk を減らしますが、**認識済み credential shape に限定**されます。absolute filesystem path、project / directory name、hostname、IP address、username、pattern list にない形式の credential はそのまま保持します。新しい secret format は定期的に現れるため、エージェントが実行する command に実際の credential を pipe しないでください。完全な redaction scope は[監査ログのリファレンス](/ja/reference/audit-log#シークレットの編集)を参照してください。
+このマスク処理は、パターンに基づく保守的な仕組みです。コマンドの引数に現れたシークレットが漏れるリスクは下げられますが、**対象は認識済みの資格情報の形式に限られます**。絶対パス、プロジェクト名やディレクトリ名、ホスト名、IP アドレス、ユーザー名、パターン一覧にない形式の資格情報は、そのまま残ります。新しいシークレットの形式は次々に登場するため、エージェントが実行するコマンドに本物の資格情報を渡さないでください。マスク処理の対象範囲は[監査ログのリファレンス](/ja/reference/audit-log#シークレットのマスク)にまとめてあります。
 
-同じ制限が `cc-safety-net explain` にも適用されます。実際の trace は、指定した command text、parsed token、home directory を含む absolute path を保持します。貼り付ける前に trace を確認してください。[Explain trace](/ja/reference/explain-trace)を参照してください。
+同じ制限は `cc-safety-net explain` にも当てはまります。トレースには、指定したコマンド文字列、解析後のトークン、ホームディレクトリを含む絶対パスがそのまま残ります。どこかに貼り付ける前に、必ず内容を確認してください。[explain トレース](/ja/reference/explain-trace)を参照してください。
 
-## Attack surface
+## 攻撃対象領域
 
-threat model は、主な attack surface と mitigation を列挙します。
+脅威モデルとして想定している主な攻撃対象領域と、その緩和策は次のとおりです。
 
-| Attack surface | 攻撃者の試み | Mitigation |
+| 攻撃対象領域 | 攻撃者の狙い | 緩和策 |
 | --- | --- | --- |
-| **Shell command parser** | parser edge case（通常でない quoting、nested substitution、operator ambiguity）を使う command string を作り、destructive payload を隠す | unclosed-quote guard は raw string を 1 segment として返す。dynamic substitution を検出できるよう variable reference を展開せず保持する。strict mode は unparseable command を block。parser error は fail-closed を発生させる |
-| **Wrapper と interpreter の stripping** | `sudo`、`env`、`bash -c`、interpreter one-liner の背後に destructive command を隠す | wrapper を反復して削除（iteration cap あり）。shell wrapper と interpreter code を最大 10 level まで再帰的に再解析。`transparent_wrappers` で宣言した command は、解析前に見える child まで展開 |
-| **Sensitive-file access** | command、path、search、patch shape を使い、`.env`、`~/.ssh/id_*`、`~/.aws/credentials` などの credential を読み取るか発見する | Sensitive-path protection は、対応する command、path、search、patch shape と unknown-tool fallback inspection を対象にする。user-configured deny path とその子孫は最初に一致し、緩和しない。literal の secret allow path は CLI 以外の組み込み match を除外できるが、Coding CLI path は引き続き保護する。strict と paranoid では metadata-only discovery も block。一般的な read boundary ではなく上限付き pattern set |
-| **rm analysis の path traversal** | symlink または path trick で危険な `rm -rf` target を classification から通過させる | target を canonical path に解決。既知の temp dir 外を指す `$TMPDIR` override を検出。residual TOCTOU window は残る（[既知の制限](/ja/guides/known-limitations#symlink-toctou-risk)を参照） |
-| **Rulebook supply chain** | GitHub source から malicious rulebook を提供する | remote rulebook は lockfile に対して SHA-256 verification と schema validation を受ける。malicious rulebook は rule を追加できるが built-in blocking を削除できない |
-| **Audit log での secret leakage** | disk 上の audit log に secret を書き込ませる | log write 前に `redactSecrets` を実行。pattern list を段階的に保守 |
-| **Hook input parsing** | malformed JSON で hook を crash させる | `JSON.parse` failure は crash ではなく deny を発生。platform adapter が追加 validation を実行 |
-| **Audit log path traversal** | logs directory 外に書き込む session ID を作る | session ID を filesystem-safe form に sanitize し、length cap を適用して `.` と `..` を拒否 |
+| **シェルコマンドのパーサー** | 通常でないクオート、入れ子のコマンド置換、演算子の曖昧さといったパーサーの境界事例を突くコマンド文字列を作り、破壊的な処理を隠す | 引用符が閉じていない場合のガードは、生の文字列を 1 つのセグメントとして返す。動的なコマンド置換を検出できるよう、変数参照は展開せずに保持する。strict モードはパースできないコマンドをブロックし、パーサーのエラーは fail closed になる |
+| **ラッパーとインタープリターの除去** | `sudo`、`env`、`bash -c`、インタープリターの 1 行コードの背後に破壊的コマンドを隠す | ラッパーを繰り返し取り除く（回数に上限あり）。シェルのラッパーとインタープリターのコードは、最大 10 階層まで再帰的に解析し直す。`transparent_wrappers` で宣言したコマンドは、解析前に見える子コマンドまで透過する |
+| **機密ファイルへのアクセス** | コマンド、パス、検索、patch の各形式を使って、`.env`、`~/.ssh/id_*`、`~/.aws/credentials` などの資格情報を読み取る、または存在を突き止める | 機密パスの保護は、対応するコマンド、パス、検索、patch の各形式と、未知のツールに対するフォールバック検査を対象とする。ユーザーが設定した deny path とその配下が最初に一致し、緩和されることはない。シークレットの allow path は CLI 以外の組み込みルールの一致を除外できるが、コーディング CLI のパスは引き続き保護される。strict と paranoid では、メタデータのみによる探索もブロックする。汎用の読み取り境界ではなく、範囲の限られたパターン群である |
+| **rm 解析でのパストラバーサル** | シンボリックリンクやパスの小細工で、危険な `rm -rf` の対象を分類から逃れさせる | 対象を正規化したパスに解決する。既知の一時ディレクトリの外を指す `$TMPDIR` の上書きを検出する。ただし TOCTOU の隙は残る（[既知の制限](/ja/guides/known-limitations#symlink-toctou-risk)を参照） |
+| **rulebook のサプライチェーン** | GitHub の設定元から悪意ある rulebook を配布する | リモートの rulebook は、ロックファイルに対する SHA-256 検証とスキーマ検証を受ける。悪意ある rulebook はルールを追加できても、組み込みのブロックを取り除くことはできない |
+| **監査ログへのシークレット混入** | ディスク上の監査ログにシークレットを書き込ませる | ログ書き込みの前に `redactSecrets` を実行する。パターン一覧は継続的に整備している |
+| **hook 入力のパース** | 不正な JSON で hook をクラッシュさせる | `JSON.parse` の失敗はクラッシュではなく拒否になる。各プラットフォームのアダプターが追加の検証を行う |
+| **監査ログのパストラバーサル** | ログディレクトリの外に書き込ませるセッション ID を作る | セッション ID をファイルシステムで安全な形に正規化し、長さの上限を設け、`.` と `..` を拒否する |
 
-network-level attack と agent platform 自身への attack は範囲外です。CC Safety Net は command analysis 中に network request を行わず、network layer を持ちません。resource exhaustion は containment ではなく bound で処理します。parser または tool-input limit を超える input は、不完全に解析せず deny します。
+ネットワークレベルの攻撃と、エージェントのプラットフォーム自体に対する攻撃は対象外です。CC Safety Net はコマンド解析中にネットワーク通信を行わず、ネットワーク層を持ちません。リソース枯渇は封じ込めではなく上限で対処します。パーサーやツール入力の上限を超える入力は、中途半端に解析せずに拒否します。
 
-## 開示分類
+## 開示の分類
 
-[セキュリティポリシー](/ja/security)に完全な報告手順があります。次の表で report type を選択します。
+報告手順の全体は[セキュリティポリシー](/ja/security)にあります。どちらの経路で報告すべきかは、次の表で判断してください。
 
-| Class | 例 | Channel |
+| 分類 | 例 | 報告先 |
 | --- | --- | --- |
-| **Bug**：CC Safety Net が destructive command を阻止できなかった | coverage gap（rule がまだ block しない command shape）、parser / tokenizer / wrapper-analysis edge case、command を通過させる analysis error、安全な command を block する false positive | 公開 GitHub issue |
-| **Vulnerability**：CC Safety Net が実行すべきでない harmful action を実行した | block message、audit log、diagnostics、debug output、false-positive report prefill からの secret leakage（redaction bypass を含む）。crafted input が intended directory 外に書き込む audit logging / configuration handling の path traversal または filesystem issue。rulebook integrity を含む公開 npm package または plugin distribution の supply-chain / packaging issue | 非公開開示 |
+| **バグ**：CC Safety Net が破壊的コマンドを止められなかった | 未対応のコマンド（ルールがまだブロックしない形式）、パーサー・トークナイザー・ラッパー解析の境界事例、コマンドを通してしまう解析エラー、安全なコマンドをブロックする誤検知 | 公開の GitHub Issue |
+| **脆弱性**：CC Safety Net 自身が、本来しないはずの有害な動作をした | ブロックメッセージ、監査ログ、診断出力、デバッグ出力、誤検知レポートの入力補完からのシークレット漏えい（マスク処理の回避を含む）。細工された入力によって意図したディレクトリの外に書き込まれる、監査ログ記録や設定処理におけるパストラバーサルやファイルシステムの問題。rulebook の完全性を含む、公開 npm パッケージやプラグイン配布のサプライチェーン・パッケージングの問題 | 非公開での開示 |
 
-coverage gap では command shape だけを報告してください。すぐに貼り付けて使える weaponized prompt-injection payload を含めないでください。両 submission channel は[セキュリティポリシー](/ja/security)を参照してください。
+未対応のコマンドを報告する場合は、コマンドの形式だけを示してください。そのまま貼り付けて悪用できるプロンプトインジェクションの攻撃コードは含めないでください。どちらの報告経路についても、[セキュリティポリシー](/ja/security)を参照してください。
 
 ## 関連ページ
 
-- [セキュリティポリシー](/ja/security)：bug または vulnerability の報告方法。
-- [設定の復旧](/ja/configuration/recovery)：完全な `ready` / `degraded` contract。
-- [設計原則](/ja/guides/design-principles)：fail-closed と semantic analysis の理由。
-- [既知の制限](/ja/guides/known-limitations)：symlink TOCTOU window などの residual risk。
-- [監査ログ](/ja/reference/audit-log)：redacted command record の書き込み場所。
+- [セキュリティポリシー](/ja/security)：バグや脆弱性の報告方法。
+- [設定の復旧](/ja/configuration/recovery)：`ready` と `degraded` の完全な取り決め。
+- [設計原則](/ja/guides/design-principles)：fail closed と意味解析を選んだ理由。
+- [既知の制限](/ja/guides/known-limitations)：シンボリックリンクの TOCTOU など、残るリスク。
+- [監査ログ](/ja/reference/audit-log)：マスク済みのコマンド記録が書き込まれる場所。

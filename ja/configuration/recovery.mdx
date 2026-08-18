@@ -1,222 +1,222 @@
 ---
-title: "設定の復旧：ready と degraded state"
+title: "設定の復旧：ready 状態と degraded 状態"
 sidebarTitle: "設定の復旧"
-description: "設定を検証できない場合の CC Safety Net の動作を説明します。ready と degraded state、維持される保護、状態の報告方法、修復する正確なコマンドを含みます。"
+description: "設定を検証できないときの CC Safety Net の動作を説明します。ready と degraded の違い、強制され続ける保護、状態の報告のされ方、復旧に使う具体的なコマンドを扱います。"
 ---
 
-CC Safety Net は、tool call ごとに policy snapshot を読み込みます。local policy file、`rule.json`、rule lockfile、digest 検証済みの rulebook cache を読み取ります。この load は書き込み、network access、結果の cache をしないため、snapshot は常に disk 上の現在の設定を反映します。
+CC Safety Net は、ツール呼び出しのたびにポリシーのスナップショットを読み込みます。読み取る対象は、ローカルのポリシーファイル、`rule.json`、ルールのロックファイル、ダイジェスト検証済みの rulebook キャッシュです。この読み込みでは、書き込みもネットワークアクセスも結果のキャッシュも行わないため、スナップショットは常にディスク上の最新の設定を反映します。
 
-snapshot には **ready** と **degraded** の 2 state だけがあります。このページでは、拒否された source で強制されなくなるものと、`ready` に戻す方法を含む完全な仕様を説明します。
+スナップショットの状態は **ready** と **degraded** の 2 つだけです。このページでは、設定元が拒否されたときに何が強制されなくなるのか、どうすれば `ready` に戻せるのかを含め、両方の状態の仕様を説明します。
 
-## 設定 state
+## 設定の状態
 
-| State | 発生条件 | 意味 |
+| 状態 | 発生条件 | 意味 |
 | --- | --- | --- |
-| `ready` | すべての有効な source を読み込み、validation が成功 | 記述した設定どおりに通常の評価を実行 |
-| `degraded` | rule error、rule warning、または `policy.json` error がある | fallback で通常の評価を続け、すべての reporting surface に拒否された source を示す warning を表示 |
+| `ready` | 有効な設定元をすべて読み込み、検証にも成功した | 記述したとおりの設定で通常どおり評価する |
+| `degraded` | ルールのエラー、ルールの警告、`policy.json` のエラーのいずれかがある | フォールバックを使って通常どおり評価を続け、すべての表示箇所に、拒否された設定元を示す警告を出す |
 
-1 つの warning でも runtime は `degraded` になります。error と warning の違いは state の重大度ではなく、source の扱いです。
+警告が 1 つでもあれば、ランタイムは `degraded` になります。エラーと警告の違いは状態の深刻さではなく、その設定元がどう扱われるかにあります。
 
-- **error** は、**drop された** source を示します。その source はルールをまったく提供しません。
-- **warning** は、有効なままで、拒否された部分だけを無視する source を示します。
+- **エラー**は、その設定元が**破棄された**ことを示します。その設定元からはルールが一切読み込まれません。
+- **警告**は、その設定元は有効なままで、拒否された部分だけが無視されることを示します。
 
-どちらも `degraded` になります。
+どちらの場合も `degraded` になります。
 
 <Note>
-  `cc-safety-net status` が出力する verdict は `ready` と `degraded` だけです。verdict は snapshot state から直接読み取ります。無効な Claude Code プラグインは verdict を変更しません。`status` は `Not active` の最初の項目として次を報告します。"plugin cc-safety-net@cc-marketplace is disabled in Claude Code; nothing is enforced in Claude Code until it is re-enabled. Other integrations are not affected."
+  `cc-safety-net status` が出力する判定は `ready` と `degraded` の 2 つだけで、スナップショットの状態がそのまま反映されます。Claude Code のプラグインが無効でも判定は変わりません。その場合、`status` は `Not active` の先頭項目として次のように報告します。"plugin cc-safety-net@cc-marketplace is disabled in Claude Code; nothing is enforced in Claude Code until it is re-enabled. Other integrations are not affected."
 </Note>
 
-## 無効な設定の動作
+## 無効な設定の扱い
 
-無効であることだけを理由に、無効な設定が通常の作業を拒否することはありません。無効な candidate は強制されませんが、エージェントを lock out することもありません。
+設定が無効だというだけの理由で、通常の作業が拒否されることはありません。無効な設定は強制されませんが、それによってエージェントが何もできなくなることもありません。
 
-- 検証できない rule source は **drop** されます。そのルールは強制されなくなります。
-- その他の検証済み scope は、引き続きルールを強制します。
-- すべての組み込み保護は、すべての場合に適用されます。destructive-command rule、secret protection、policy-file protection、Git-metadata protection は rule configuration を読み取りません。
-- 読み取れない `policy.json` は**保護的な**既定値に戻るため、destructive-command protection と secret protection は有効なままです。
+- 検証できないルールの設定元は**破棄**され、そのルールは強制されなくなります。
+- 検証に成功した他のスコープは、引き続きルールを強制します。
+- 組み込みの保護は、どの場合でも適用されます。破壊的コマンドのルール、シークレット保護、ポリシーファイルの保護、Git メタデータの保護は、ルールの設定を読み取らないためです。
+- `policy.json` を読み取れない場合は**安全側の**既定値に戻るため、破壊的コマンドの保護とシークレット保護は有効なままです。
 
-degraded 中に特別な recovery mode や allowlist はありません。設定不能であることを理由に拒否される操作がないためです。`rule.json` の読み取り、in-place edit、`cc-safety-net rule sync` の実行は通常の tool call であり、それぞれの内容に基づいて成功または失敗します。そのため、エージェント自身が設定を修復できます。
-
-<Warning>
-  source の drop は security-neutral ではありません。その source が提供した拒否を**削除**するため、drop された rulebook で意図的にブロックしたコマンドは、修復して再 sync するまで実行できるようになります。error に名前がある rulebook がまだ保護していると想定しないでください。
-</Warning>
-
-すべての state で保護されるものは、正式な user `policy.json` です。policy-file protection と Git-metadata protection は configuration snapshot の読み込み**前**に動作するため、壊れた設定の影響を受けません。ブロックされる正確な操作については[ポリシー](/ja/configuration/policy)を参照してください。
-
-## 設定 fallback matrix
-
-### Error：source を drop
-
-| Failure | 強制されなくなるもの | 維持されるもの |
-| --- | --- | --- |
-| rule source 設定時に lockfile がない | その scope のすべての rulebook | 他の scope の検証済みルールとすべての組み込み保護 |
-| 設定済み source の lock entry がない | その 1 つの rulebook | その他のすべての rulebook と組み込み保護 |
-| source の cache entry がない | その 1 つの rulebook | その他のすべての rulebook と組み込み保護 |
-| Cache digest mismatch | その 1 つの rulebook | その他のすべての rulebook と組み込み保護 |
-| cache 済み rulebook が parse 不能または schema 不適合 | その 1 つの rulebook | その他のすべての rulebook と組み込み保護 |
-| lockfile entry が設定済み source identity と不一致。`kind` が誤っている、または `path`／`name` が source spec と異なる | その scope のすべての rulebook。lockfile 全体を malformed として拒否 | 他の scope の検証済みルールとすべての組み込み保護 |
-| `rule.json` が malformed、空、または未対応の `version` | `transparent_wrappers` を**含む**その scope 全体 | 他の scope の検証済みルールとすべての組み込み保護 |
-| policy filesystem を安全に読み取れない | その scope | 他の scope の検証済みルールとすべての組み込み保護 |
-
-各 message は、拒否した file または source を示し、修復方法がある場合は `cc-safety-net rule sync` の実行を指示します。
-
-### Warning：source は有効なまま
-
-| Failure | 無視するもの | 維持されるもの |
-| --- | --- | --- |
-| 2 つの有効な rulebook が同じ name を使用 | 後の rulebook。そのルールは無効 | 最初の claim。user scope を先に解決 |
-| `rule.json` に不明な override key がある | その 1 つの override | その他のすべての override とルールは設定どおり |
-| project override が user scope のルールを対象にする | その 1 つの override | ルールは user 設定の状態を維持 |
+degraded の間に使う特別な復旧モードや許可リストはありません。設定できないことを理由に拒否される操作がないためです。`rule.json` の読み取りも、その場での編集も、`cc-safety-net rule sync` の実行も通常のツール呼び出しであり、それぞれの内容に応じて成功または失敗します。そのため、エージェント自身が設定を修復できます。
 
 <Warning>
-  local rulebook source は、両方の表に意図的に含まれていません。runtime load は digest 検証済み cache だけを読み取ります。そのため、local rulebook の編集、破損、source directory の削除では warning は発生しません。最後の正常な sync 時点の cache 済み rulebook が強制されます。編集は `cc-safety-net rule sync` が成功した場合にのみ有効になります。
+  設定元の破棄は、安全性の面で中立ではありません。その設定元が提供していた拒否が**なくなる**ため、破棄された rulebook で意図的にブロックしていたコマンドは、修復して再同期するまで実行できてしまいます。エラーに名前が挙がっている rulebook が、まだ保護してくれていると思い込まないでください。
 </Warning>
 
-重複した rulebook name は決定的に解決されます。最初の claim が優先され、user scope を先に読み込むため、user scope の name が project の同名 rulebook を隠します。後の rulebook は、一部のルールを shadow するのではなく、何も提供しません。fatal error ではなく解決済みの状態であるため、他の scope が同じ name を使用しても、1 つの scope に対する `rule sync` は成功します。
+どの状態でも保護され続けるのが、正規のユーザー `policy.json` です。ポリシーファイルの保護と Git メタデータの保護は、設定スナップショットの読み込みより**前**に動作するため、設定が壊れていても影響を受けません。ブロックされる操作の詳細は[ポリシー](/ja/configuration/policy)を参照してください。
 
-### `policy.json`：salvage または保護的な既定値に置換
+## 設定のフォールバック一覧
 
-| 状況 | 結果 | State |
+### エラー：設定元が破棄される
+
+| 失敗の内容 | 強制されなくなるもの | 維持されるもの |
 | --- | --- | --- |
-| ファイルがない | 組み込みの既定値 | `ready`。diagnostic なし |
-| 空または空白だけ | 組み込みの保護的な既定値 | `degraded` |
-| 有効な JSON ではない | 組み込みの保護的な既定値 | `degraded` |
-| parse 結果が object ではない | 組み込みの保護的な既定値 | `degraded` |
-| object に parse できるが validation 失敗 | **field ごとの salvage**。認識された有効な section を維持し、その他を保護的な既定値に置換 | `degraded` |
-| ファイルが有効 | 記述した policy そのもの | `ready` |
+| ルールの設定元があるのにロックファイルがない | そのスコープのすべての rulebook | 他スコープの検証済みルールと、すべての組み込み保護 |
+| 設定済みの設定元にロックのエントリがない | その rulebook 1 つだけ | その他すべての rulebook と組み込み保護 |
+| 設定元のキャッシュエントリがない | その rulebook 1 つだけ | その他すべての rulebook と組み込み保護 |
+| キャッシュのダイジェストが一致しない | その rulebook 1 つだけ | その他すべての rulebook と組み込み保護 |
+| キャッシュ済み rulebook をパースできない、またはスキーマに適合しない | その rulebook 1 つだけ | その他すべての rulebook と組み込み保護 |
+| ロックファイルのエントリが設定元と一致しない（`kind` が誤っている、`path` や `name` が設定元の指定と異なる） | そのスコープのすべての rulebook。ロックファイル全体を不正として拒否する | 他スコープの検証済みルールと、すべての組み込み保護 |
+| `rule.json` が不正、空、または未対応の `version` | `transparent_wrappers` も**含めた**そのスコープ全体 | 他スコープの検証済みルールと、すべての組み込み保護 |
+| ポリシー用のファイルシステムを安全に読み取れない | そのスコープ | 他スコープの検証済みルールと、すべての組み込み保護 |
 
-field-level salvage により、1 つの無効な field が、ファイルのその他の部分に設定された保護を drop することを防ぎます。保護的な既定値は、意図的に拒否が多くなる側へ倒れます。destructive-command protection と secret protection を強制的に有効にし、両方の allow-path list にある無効な項目と disabling override を drop します。有効な secret allow path は salvaged policy に残ります。field ごとの動作については[ポリシー](/ja/configuration/policy)を参照してください。
+いずれのメッセージも、拒否したファイルまたは設定元を示し、修復手段がある場合は `cc-safety-net rule sync` の実行を促します。
 
-runtime は `policy.json` を書き換えません。手動で修復するか、dashboard の repair action を使用してください。
+### 警告：設定元は有効なまま
 
-ファイルに error がある間、dashboard form は salvage 済みの値ではなく完全な既定値を表示します。repair するまで保存できません。repair action は、認識された有効な設定を維持します。JSON を parse できない場合だけ、ファイル全体を既定値に置き換えます。
+| 失敗の内容 | 無視されるもの | 維持されるもの |
+| --- | --- | --- |
+| 有効な rulebook 2 つが同じ名前を使っている | 後から読み込まれた rulebook。そのルールは無効になる | 先に名前を確保した側。ユーザースコープを先に解決する |
+| `rule.json` に未知の override キーがある | その override 1 つだけ | その他の override とルールは設定どおり有効 |
+| プロジェクトの override がユーザースコープのルールを対象にしている | その override 1 つだけ | 対象のルールはユーザー設定の状態を維持する |
 
-## Transparent wrapper の coverage gap
+<Warning>
+  ローカルの rulebook は、意図的にどちらの表にも含めていません。実行時の読み込みではダイジェスト検証済みのキャッシュしか参照しないため、ローカル rulebook を編集しても、壊しても、元のディレクトリごと削除しても、警告は出ません。強制されるのは、最後に同期が成功した時点のキャッシュ済み rulebook です。編集内容は、`cc-safety-net rule sync` が成功して初めて反映されます。
+</Warning>
 
-`transparent_wrappers` は rulebook ではなく `rule.json` で宣言し、`rule.json` には lock も digest もありません。このため、次の 2 つの結果があります。
+rulebook の名前が重複した場合の解決は決定的です。先に名前を確保した側が優先され、ユーザースコープを先に読み込むため、ユーザースコープの名前が同名のプロジェクト rulebook を覆い隠します。後から読み込まれた rulebook は、一部のルールだけが隠れるのではなく、まったく読み込まれません。これは致命的なエラーではなく解決済みの状態として扱われるため、他のスコープが同じ名前を使っていても、あるスコープに対する `rule sync` は成功します。
 
-- **drop された rulebook** でも、その scope の wrapper は維持されます。`rule.json` 自体は読み取り可能なためです。
-- **読み取れない `rule.json`** では、その scope の wrapper が失われます。fallback に使える検証済み copy がないためです。analysis は、wrapper command の下にある protected command を確認しなくなります。
+### `policy.json`：救済するか、安全側の既定値に置き換える
 
-拒否された設定が独自のルールだけでなく組み込みの coverage も減らす場所はここだけです。この理由で scope が drop された場合は、最初に `rule.json` を修復してください。
+| 状況 | 結果 | 状態 |
+| --- | --- | --- |
+| ファイルがない | 組み込みの既定値 | `ready`。診断も出ない |
+| 空、または空白のみ | 組み込みの安全側の既定値 | `degraded` |
+| 有効な JSON ではない | 組み込みの安全側の既定値 | `degraded` |
+| パース結果がオブジェクトでない | 組み込みの安全側の既定値 | `degraded` |
+| オブジェクトにはパースできるが検証に失敗 | **フィールド単位で救済**。認識できた有効なセクションは残し、それ以外を安全側の既定値に置き換える | `degraded` |
+| ファイルが有効 | 記述したポリシーそのもの | `ready` |
 
-## Fail-closed case
+フィールド単位の救済によって、1 つの無効なフィールドのせいで、ファイルの他の部分で設定した保護まで失われることを防ぎます。安全側の既定値は、意図的に拒否が多くなる方向へ倒してあります。破壊的コマンドの保護とシークレット保護を強制的に有効にし、両方の allow path にある無効な項目と、保護を無効化する override を破棄します。有効なシークレットの allow path は、救済後のポリシーにも残ります。フィールドごとの挙動は[ポリシー](/ja/configuration/policy)を参照してください。
 
-"Fail closed" は runtime failure と analysis failure を正確に表し、**その 1 つの tool call** を拒否します。無効な設定の動作を表す言葉ではありません。
+ランタイムが `policy.json` を書き換えることはありません。手作業で修復するか、ダッシュボードの修復機能を使ってください。
 
-| Case | 動作 |
+ファイルにエラーがある間、ダッシュボードのフォームには救済後の値ではなく既定値一式が表示され、修復するまで保存できません。修復機能は、認識できた有効な設定を残します。ファイル全体が既定値に置き換わるのは、JSON をパースできない場合だけです。
+
+## transparent wrapper の対象範囲が欠ける場合
+
+`transparent_wrappers` は rulebook ではなく `rule.json` で宣言しますが、`rule.json` にはロックもダイジェストもありません。その結果、次の 2 点が生じます。
+
+- **rulebook が破棄された場合**でも、そのスコープの wrapper は維持されます。`rule.json` 自体は読み取れるためです。
+- **`rule.json` を読み取れない場合**は、そのスコープの wrapper が失われます。フォールバックに使える検証済みのコピーがないためです。解析は、wrapper 越しに実行される保護対象コマンドを見つけられなくなります。
+
+拒否された設定が、独自のルールだけでなく組み込みの対象範囲まで狭めてしまうのは、ここだけです。この理由でスコープが破棄された場合は、まず `rule.json` を修復してください。
+
+## fail closed になるケース
+
+「fail closed」は、実行時の失敗や解析の失敗に対して**その 1 回のツール呼び出し**を拒否することを指す言葉であり、設定が無効なときの動作を指す言葉ではありません。
+
+| ケース | 動作 |
 | --- | --- |
-| analyzer または dependency が任意の guard stage で予期せず例外を投げる | すべての mode で、"failed closed" reason により tool call を拒否 |
-| malformed または oversized hook／tool payload | すべての mode で拒否 |
-| command route の空または空白だけのコマンド | すべての mode で拒否 |
-| コマンドが recursion depth limit を超える | すべての mode で拒否 |
-| コマンド構造が safe validation limit を超える | すべての mode で拒否 |
-| `fail_closed` 機能が有効でコマンドを tokenize できない | 拒否。[strict mode](/ja/configuration/modes#strict-mode)を参照 |
-| worktree relaxation で linked worktree を明確に確認できない | relaxation を適用せず、より厳しい既定値を維持 |
+| いずれかのガードステージで、アナライザーまたは依存ライブラリが予期しない例外を投げる | どのモードでも、「failed closed」の理由を付けてツール呼び出しを拒否 |
+| hook やツールのペイロードが不正、またはサイズ超過 | どのモードでも拒否 |
+| コマンド判定に回されたコマンドが空、または空白のみ | どのモードでも拒否 |
+| コマンドが再帰の深さ上限を超える | どのモードでも拒否 |
+| コマンドの構造が安全に検証できる上限を超える | どのモードでも拒否 |
+| `fail_closed` 機能が有効で、コマンドをトークン化できない | 拒否。[strict モード](/ja/configuration/modes#strict-mode)を参照 |
+| worktree の緩和で、linked worktree だと確実に判定できない | 緩和を適用せず、より厳しい既定値を維持 |
 
-無効な設定は逆の動作です。rule source を drop し、`policy.json` を salvage するか保護的な既定値に置き換え、作業を続けます。
+設定が無効な場合の動作は、これとは逆です。ルールの設定元を破棄し、`policy.json` を救済するか安全側の既定値に置き換えたうえで、作業は続行します。
 
-## Degraded-state の報告
+## degraded 状態の報告
 
-| Surface | 表示内容 |
+| 表示箇所 | 表示内容 |
 | --- | --- |
-| 次の利用者に見える拒否 | block message に、完全な reason を含む `Config warning:` 行を追加 |
-| Audit record | 許可と拒否の両方の判定に設定される `configFallback` flag |
-| `cc-safety-net status` | verdict `ready` または `degraded` と、`Not active` 内の diagnostic ごとの 1 行 |
-| `cc-safety-net doctor` | title が "Runtime is enforcing a fallback configuration" の `config.runtime-degraded` warning finding。detail は完全な reason |
-| `cc-safety-net rule list` | `Issues` section と `Warnings` section。rule configuration のみ |
-| Status line | snapshot が degraded の間の `⚠️` marker |
-| Dashboard | protection banner 内の state |
+| 次にユーザーの目に触れる拒否 | ブロックメッセージに、詳しい理由を含む `Config warning:` の行を追加 |
+| 監査レコード | 許可・拒否の両方の判定に付く `configFallback` フラグ |
+| `cc-safety-net status` | `ready` または `degraded` の判定と、`Not active` 内の診断 1 件につき 1 行 |
+| `cc-safety-net doctor` | タイトルが "Runtime is enforcing a fallback configuration" の警告 `config.runtime-degraded`。詳細欄には理由の全文 |
+| `cc-safety-net rule list` | `Issues` と `Warnings` のセクション。ルールの設定のみが対象 |
+| ステータスライン | スナップショットが degraded の間に表示される `⚠️` |
+| ダッシュボード | 保護状況のバナーに表示される状態 |
 
-rule configuration と `policy.json` の両方を報告するコマンドは `doctor` だけです。各コマンドの option と終了動作については[CLI コマンド](/ja/reference/cli-commands)を参照してください。
+ルールの設定と `policy.json` の両方を報告するのは `doctor` だけです。各コマンドのオプションと終了時の挙動は[CLI コマンド](/ja/reference/cli-commands)を参照してください。
 
-次の 2 つの構造上の制限があります。
+構造上の制限が 2 つあります。
 
-- `Config warning:` 行と audit `configFallback` flag は、snapshot の読み込み**後**に行った判定にのみ表示されます。policy-file と Git-metadata の拒否はその前に発生するため、どちらも含みません。
-- diagnostic は、拒否した file と condition の**名前**を示します。file の byte を copy しません。malformed config file 内のシークレットが message に再出力されることはありません。
+- `Config warning:` の行と監査ログの `configFallback` フラグが付くのは、スナップショットを読み込んだ**後**に行われた判定だけです。ポリシーファイルと Git メタデータによる拒否はそれより前に起きるため、どちらも含まれません。
+- 診断は、拒否したファイルと条件の**名前**を示すだけで、ファイルの中身をそのまま写すことはありません。不正な設定ファイルに含まれるシークレットがメッセージに再出力されることはありません。
 
-## 見える failure と見えない failure
+## 気づきやすい失敗と気づきにくい失敗
 
-- **drop された rule source は静かです。** 拒否を追加せず削除するため、問題のない session では friction も signal もありません。rule configuration の変更後と upgrade 後には、意識して確認してください。`cc-safety-net status` を習慣にし、完全な report には `doctor` を使います。
-- **local rulebook の編集と未移行の legacy configuration はさらに静かです。** どちらも runtime diagnostic を発生させません。digest 検証済み cache は編集前の rulebook を強制し続け、legacy file は読み込まれません。`rule sync` で編集を有効にし、`rule verify` で legacy file を検出します。
-- **無効な `policy.json` は通常明らかです。** 拒否された section は、両方の保護を有効化し、allow path と disabling override を drop する保護的な既定値に戻るため、設定より*多く*の拒否が発生します。
-- **無効な `policy.json` の静かな部分：**無効な `safety.level` は暗黙に `standard` に戻るため、`paranoid` の typo は preset を**下げます**。無効な `secret_protection.deny_paths` 項目と、既定値より上にルールを引き上げる per-rule override は修復されず破棄されます。
-- passive な signal は status line marker だけです。`Config warning:` 行は無関係の拒否が発生した場合にのみ表示され、その他の surface はコマンドの実行または dashboard の表示を待ちます。
+- **設定元の破棄は、何も知らせません。** 拒否を増やすのではなく減らす方向に働くため、問題のないセッションでは引っかかりも手がかりもありません。ルールの設定を変更した後と、アップグレードの後は、意識して確認してください。`cc-safety-net status` を習慣にし、詳しく見たいときは `doctor` を使います。
+- **ローカル rulebook の編集と、未移行の旧設定は、さらに気づきにくい失敗です。** どちらも実行時の診断を出しません。ダイジェスト検証済みのキャッシュは編集前の rulebook を強制し続け、旧形式のファイルはそもそも読み込まれません。編集を反映するには `rule sync`、旧形式のファイルを検出するには `rule verify` を使います。
+- **無効な `policy.json` は、たいてい自分から気づけます。** 拒否されたセクションは、2 つの保護を有効にし、allow path と保護を無効化する override を破棄する安全側の既定値に戻るため、設定したつもりより*多く*の拒否が発生するからです。
+- **無効な `policy.json` の、気づきにくい側面：**無効な `safety.level` は黙って `standard` に戻るため、`paranoid` の綴り間違いは preset を**引き下げて**しまいます。無効な `secret_protection.deny_paths` の項目や、ルールを既定より強くするルール単位の override も、修復されずに破棄されます。
+- 常時表示されるサインは、ステータスラインの表示だけです。`Config warning:` の行は無関係な拒否が起きたときにしか現れず、その他の表示箇所は、コマンドを実行するかダッシュボードを開くまで何も知らせません。
 
 ## 設定を復旧する
 
-次の各コマンドは通常の tool call であるため、runtime が degraded の間もエージェントが sequence 全体を実行できます。各コマンドの完全な option と終了動作は[CLI コマンド](/ja/reference/cli-commands)を参照してください。
+以下のコマンドはいずれも通常のツール呼び出しなので、ランタイムが degraded の間でも、エージェント自身が一連の手順をすべて実行できます。各コマンドのオプションと終了時の挙動は[CLI コマンド](/ja/reference/cli-commands)にあります。
 
 <Steps>
-  <Step title="Verdict を確認する">
+  <Step title="判定を確認する">
     ```bash
     npx cc-safety-net status
     ```
 
-    `ready` または `degraded` と、`Not active` 内の diagnostic ごとの 1 行を出力します。無効な Claude Code プラグインは別の verdict ではなく、最初の `Not active` 項目として表示されます。これは情報だけを示すため、gate ではなく、負荷が低い日常的な check として使用します。
+    `ready` または `degraded` の判定と、`Not active` 内の診断 1 件につき 1 行を出力します。Claude Code のプラグインが無効な場合は、別の判定になるのではなく `Not active` の先頭項目として表示されます。あくまで情報表示なので、ゲートとしてではなく、負荷の軽い日常的な確認手段として使ってください。
   </Step>
-  <Step title="完全な report を取得する">
+  <Step title="詳細なレポートを取得する">
     ```bash
     npx cc-safety-net doctor
     ```
 
-    rule configuration と `policy.json` の両方を対象にする唯一のコマンドです。degraded runtime は `config.runtime-degraded` warning として表示され、finding の detail は拒否されたすべての source を示す完全な reason です。
+    ルールの設定と `policy.json` の両方を対象にする唯一のコマンドです。ランタイムが degraded の場合は `config.runtime-degraded` の警告として表示され、その詳細欄に、拒否されたすべての設定元を含む理由の全文が出ます。
   </Step>
   <Step title="実際に有効なものを確認する">
     ```bash
     npx cc-safety-net rule list
     ```
 
-    実際に有効なものと、その後に `Issues` と `Warnings` を一覧表示します。drop された source と一緒に失われたルールを確認します。policy に error がある場合だけ non-zero で終了します。warning だけの場合は `Warnings` に出力し、`0` で終了します。
+    実際に有効になっているものを一覧表示し、続けて `Issues` と `Warnings` を表示します。破棄された設定元と一緒に失われたルールを確認するときに使います。終了コードが 0 以外になるのは、設定にエラーがある場合だけです。警告だけの場合は `Warnings` に出力したうえで `0` を返します。
   </Step>
-  <Step title="Rule configuration を検証する">
+  <Step title="ルールの設定を検証する">
     ```bash
     npx cc-safety-net rule verify
     ```
 
-    user と project の `rule.json` を schema に対して検証し、runtime load を再実行するため、guard と同じ問題を検出します。移行が必要な legacy file も検出します。1 つの write が発生する場合があります。有効な `rule.json` に `$schema` key がない場合は追加して `Added $schema to <scope> config.` と出力します。それ以外は変更しません。
+    ユーザーとプロジェクトの `rule.json` をスキーマに照らして検証し、実行時と同じ読み込みを再現するため、ガードが遭遇するのと同じ問題を検出できます。移行が必要な旧形式のファイルも検出します。書き込みが 1 つだけ発生する場合があります。有効な `rule.json` に `$schema` キーがない場合は追加し、`Added $schema to <scope> config.` と出力します。それ以外の変更は行いません。
   </Step>
-  <Step title="修復して再 sync する">
+  <Step title="修復して再同期する">
     ```bash
     npx cc-safety-net rule sync
     ```
 
-    sync 対象 scope の lockfile と cache を書き換え、guard と同じ方法でその scope を reload します。diagnostic が残る場合は、それを報告して non-zero で終了し、成功とは報告しません。そのため、`Rule config synced.` はその scope が正常であることを示します。
+    同期対象のスコープについてロックファイルとキャッシュを書き直し、ガードとまったく同じ方法でそのスコープを読み込み直します。診断が残っている場合は、成功したとは報告せず、その診断を出力して 0 以外の終了コードを返します。そのため、`Rule config synced.` はそのスコープに問題がないことを示す本当の合格サインです。
 
-    verification は、sync 対象 scope だけを対象にします。
+    検証の対象は、同期しているスコープだけです。
   </Step>
-  <Step title="policy.json を手動で修正する">
-    runtime は `policy.json` を書き換えません。diagnostic が示す field を自分で修正するか、dashboard の repair action を使用し、`status` を再実行します。完全な schema と既定値については[ポリシー](/ja/configuration/policy)を参照してください。
+  <Step title="policy.json を手作業で直す">
+    ランタイムが `policy.json` を書き換えることはありません。診断に挙がったフィールドを自分で修正するか、ダッシュボードの修復機能を使ったうえで、`status` を実行し直してください。スキーマ全体と既定値は[ポリシー](/ja/configuration/policy)を参照してください。
   </Step>
 </Steps>
 
-各修復後に `status` を再実行してください。runtime は次の tool call で reload するため、再起動は不要です。
+修復のたびに `status` を実行し直してください。ランタイムは次のツール呼び出しで再読み込みするため、何かを再起動する必要はありません。
 
-## Legacy inline rule を移行する
+## 旧形式のインラインルールを移行する
 
-legacy inline config file（`~/.cc-safety-net/config.json` と `.safety-net.json`）は runtime で読み込まれず、runtime diagnostic も発生しません。その他は動作し続けますが、**そのルールはまったく強制されず**、snapshot は `ready` のままです。これは upgrade 後の代表的な silent degradation です。何も壊れず、これらのルールは何も保護せず、session 中は何も報告しません。`cc-safety-net rule verify` が、移行待ちの legacy file を検出します。
+旧形式のインライン設定ファイル（`~/.cc-safety-net/config.json` と `.safety-net.json`）は、実行時に読み込まれず、実行時の診断も出ません。他の部分はそのまま動作しますが、**それらのルールはまったく強制されず**、スナップショットは `ready` のままです。これはアップグレード後によくある、静かな機能低下です。何も壊れず、それらのルールは何も保護せず、セッション中は何も報告されません。移行待ちの旧形式ファイルを検出できるのは `cc-safety-net rule verify` です。
 
-変換する legacy configuration があるプロジェクトから migration を実行します。
+変換したい旧設定があるプロジェクトで、移行コマンドを実行します。
 
 ```bash
 npx -y cc-safety-net rule migrate
 ```
 
-`rule migrate` は sync result を伝播します。移行後の scope に diagnostic が残る場合は、成功を報告せず、その diagnostic を報告します。移行済み file は書き込まれ、legacy file は維持されるため、報告された問題を修正して再実行できます。移行先の rulebook layout については[カスタムルール](/ja/configuration/custom-rules)を参照してください。
+`rule migrate` は同期の結果をそのまま引き継ぎます。移行後のスコープに診断が残っている場合は、成功とは報告せず、その診断を出力します。移行後のファイルは書き込まれ、旧形式のファイルも残るため、報告された問題を直してから再実行できます。移行先となる rulebook の構成は[カスタムルール](/ja/configuration/custom-rules)を参照してください。
 
 ## 関連ページ
 
 <CardGroup cols={2}>
   <Card title="ポリシー" icon="file-lock" href="/ja/configuration/policy">
-    完全な `policy.json` の仕様、既定値、field ごとの salvage。
+    `policy.json` の完全な仕様、既定値、フィールド単位の救済。
   </Card>
   <Card title="カスタムルール" icon="list-checks" href="/ja/configuration/custom-rules">
-    Rulebook layout、source、lock と cache、override、transparent wrapper。
+    rulebook の構成、設定元、ロックとキャッシュ、override、transparent wrapper。
   </Card>
   <Card title="CLI コマンド" icon="terminal" href="/ja/reference/cli-commands">
-    `status`、`doctor`、すべての `rule` subcommand の完全な option と終了動作。
+    `status`、`doctor`、および各 `rule` サブコマンドのオプションと終了時の挙動。
   </Card>
-  <Card title="Audit log" icon="scroll-text" href="/ja/reference/audit-log">
-    判定の記録場所、entry schema、retention。
+  <Card title="監査ログ" icon="scroll-text" href="/ja/reference/audit-log">
+    判定が記録される場所、エントリのスキーマ、保持期間。
   </Card>
 </CardGroup>

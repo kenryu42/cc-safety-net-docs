@@ -1,7 +1,7 @@
 ---
 title: "CLI コマンドリファレンス"
 sidebarTitle: "CLI コマンド"
-description: "CC Safety Net のすべての CLI コマンドに関するリファレンス。status、doctor、logs、explain、rule、install、update、uninstall、hook、gui、statusline のオプションと終了動作を説明します。"
+description: "CC Safety Net のすべての CLI コマンドのリファレンスです。status、doctor、logs、explain、rule、install、update、uninstall、hook、gui、statusline の各オプションと終了時の挙動を説明します。"
 keywords:
   - "cli"
   - "コマンドライン"
@@ -82,16 +82,16 @@ plugin cc-safety-net@cc-marketplace is disabled in Claude Code; nothing is enfor
 | 行 | 値 |
 | --- | --- |
 | `Protection` | `destructive` と `secrets`。それぞれ `ok` または `OFF` として表示 |
-| `Level` | 有効レベル。`standard`、`strict`、`paranoid`、`custom` のいずれか。有効な破壊的コマンドルールが、レベルから継承する状態と異なる場合は ` (customised)` suffix が付く |
+| `Level` | 有効なレベル。`standard`、`strict`、`paranoid`、`custom` のいずれか。有効になっている破壊的コマンドのルールが、レベルから継承される状態と異なる場合は ` (customised)` が付く |
 | `Rules` | `none active`、または有効なカスタムルール数を示す `<n> active` |
 | `Policy` | ユーザーポリシーファイルのパス。`~` で短縮される |
-| `Worktree` | `relaxations active`。worktree モードが on の場合に**のみ**出力される |
+| `Worktree` | `relaxations active`。worktree モードが有効な場合に**のみ**出力される |
 
 情報行は 1 行です。長い値は折り返さず、`…` で切り詰めます。
 
 情報ブロックの後に、`status` は `Everything configured is active.`、または `Not active` セクションを出力します。後者には、問題ごとに折り返した項目があり、該当する場合はプラグイン無効の項目が最初、その後にスナップショット診断が続きます。最後に `Full report: cc-safety-net doctor` を出力します。
 
-`NO_COLOR` が設定されている場合、または stdout が TTY でない場合、出力は ASCII になります。チェックとクロスのグリフの代わりに `ok` / `OFF`、`·` の代わりに `-` を使い、シールドの接頭辞はありません。
+`NO_COLOR` が設定されている場合、または標準出力が端末でない場合、出力は ASCII のみになります。チェックマークとバツ印の代わりに `ok` / `OFF`、`·` の代わりに `-` を使い、先頭の盾のアイコンも付きません。
 
 ### 終了コード
 
@@ -130,7 +130,7 @@ bunx cc-safety-net doctor
 
 `doctor` は、`codex plugin list` から Codex の状態を読み取ります。CC Safety Net に一致する行に `installed, enabled` がある場合は `Detected` かつ `Configured` です。それ以外の `installed,` がある一致行は `Detected` かつ `Not configured` です。登録済みのマーケットプレイス行が `not installed` の場合は、無効ではなく `Not detected` です。
 
-GitHub Copilot CLI では、`doctor` はプラグインの checkout とフック定義を確認します。インライン設定の優先順は、`<repo>/.github/copilot/settings.local.json`、`<repo>/.github/copilot/settings.json`、`<repo>/.claude/settings.local.json`、`<repo>/.claude/settings.json`、`$COPILOT_HOME/settings.json`、`$COPILOT_HOME/config.json` です（`COPILOT_HOME` のデフォルトは `~/.copilot`）。さらに、`<repo>/.github/hooks/*.json` と `$COPILOT_HOME/hooks/*.json` も調べます。`.claude` ファイルのエントリは、コマンドに `hook --copilot-cli` または `hook -cp` がある場合だけ対象です。Claude Code 用のフックだけでは対象になりません。インライン設定には GitHub Copilot CLI `1.0.8+`、ユーザーフックファイルには `0.0.422+` が必要です。
+GitHub Copilot CLI では、`doctor` はプラグインのチェックアウト状態と hook の定義を確認します。インライン設定の優先順は、`<repo>/.github/copilot/settings.local.json`、`<repo>/.github/copilot/settings.json`、`<repo>/.claude/settings.local.json`、`<repo>/.claude/settings.json`、`$COPILOT_HOME/settings.json`、`$COPILOT_HOME/config.json` です（`COPILOT_HOME` のデフォルトは `~/.copilot`）。さらに、`<repo>/.github/hooks/*.json` と `$COPILOT_HOME/hooks/*.json` も調べます。`.claude` ファイルのエントリは、コマンドに `hook --copilot-cli` または `hook -cp` がある場合だけ対象です。Claude Code 用のフックだけでは対象になりません。インライン設定には GitHub Copilot CLI `1.0.8+`、ユーザーフックファイルには `0.0.422+` が必要です。
 
 `doctor` は、失敗を検出するとゼロ以外のコードで終了します。設定済みのエージェントがない、フック検査に失敗した、セルフテストに失敗した、ユーザーまたはプロジェクト設定が無効な場合などが失敗です。
 
@@ -239,10 +239,10 @@ npx cc-safety-net explain --cwd /tmp "git status"
 最上位パーサーも同じ方法で `--` を処理します。最初の `--` で `--help` と `--version` の検索を停止します。そのため、`explain -- --help` はヘルプを出力せず、リテラルコマンド `--help` を explain します。
 
 <Warning>
-  explain 出力は、そのまま安全に共有できるとは限りません。入力したコマンド、解析済みトークン、ホームディレクトリを含む絶対パスをそのまま表示します。issue またはチャットにトレースを貼り付ける前に、[explain トレース](/ja/reference/explain-trace)を参照してください。
+  explain の出力は、そのまま安全に共有できるとは限りません。入力したコマンド、解析後のトークン、ホームディレクトリを含む絶対パスがそのまま表示されます。Issue やチャットにトレースを貼り付ける前に、[explain トレース](/ja/reference/explain-trace)を確認してください。
 </Warning>
 
-`--json` が返す JSON スキーマ、つまり `ExplainResult` フィールドとすべての `TraceStep` バリエーションについては、[explain トレースリファレンス](/ja/reference/explain-trace)を参照してください。
+`--json` が返す JSON のスキーマ、つまり `ExplainResult` のフィールドと `TraceStep` の全種類については、[explain トレースリファレンス](/ja/reference/explain-trace)を参照してください。
 
 ## rule
 
@@ -341,13 +341,13 @@ npx -y cc-safety-net rule wrapper add rtk
 npx -y cc-safety-net rule wrapper remove rtk
 ```
 
-- action は必須で、正確に `add`、`remove`、`list` のいずれかである必要があります。
+- 操作の指定は必須で、`add`、`remove`、`list` のいずれかでなければなりません。
 - `wrapper list` は追加の引数を受け取りません。`Transparent wrappers: (none)` または番号付きリストを出力します。
 - `wrapper add` と `wrapper remove` は、それぞれ正確に 1 つのコマンド名が必要です。
 - ラッパー名は `^[a-zA-Z][a-zA-Z0-9_-]*$` に一致する必要があります。予約済みコマンドはラッパーとして登録できません。
 - `add` は重複を除去し、`remove` はフィルタリングします。範囲は `-g` / `--global` に従います。
 
-登録済みラッパーは、[explain トレース](/ja/reference/explain-trace)に `transparent-wrapper` 手順として表示されます。
+登録済みのラッパーは、[explain トレース](/ja/reference/explain-trace)に `transparent-wrapper` のステップとして表示されます。
 
 ### rule verify
 
@@ -380,19 +380,19 @@ npx -y cc-safety-net rule migrate --cleanup
 
 ### rule doc
 
-ルールブック作成ガイドを stdout に出力します。ルールブックの作成または検証のため、ガイドをエージェントへパイプできます。
+rulebook の作成ガイドを標準出力に出力します。このガイドをエージェントにパイプで渡して、rulebook を作成・検証させることができます。
 
 ```bash
 npx -y cc-safety-net rule doc
 ```
 
-ガイドの出力後、`rule doc` は新しいバージョンが npm レジストリにあるかを確認します。検査は 24 時間に最大 1 回で、結果は `~/.cc-safety-net/update-check.json` にキャッシュされます。新しいバージョンがある場合は、stderr に正確に 1 行を書き込みます。
+ガイドを出力した後、`rule doc` は npm レジストリに新しいバージョンがあるかを確認します。確認は 24 時間に 1 回までで、結果は `~/.cc-safety-net/update-check.json` にキャッシュされます。新しいバージョンがある場合は、標準エラー出力にちょうど 1 行だけ出力します。
 
 ```text
 UPDATE_AVAILABLE: cc-safety-net v<latest> is available (running v<current>). Ask the user once whether to run `npx -y cc-safety-net@latest update`; continue the current task either way and do not raise this again.
 ```
 
-ガイド自体は stdout に出力されるため、パイプはクリーンな状態を保ちます。同じバージョンは 7 日間再通知されません。検査を完全に無効にするには `CC_SAFETY_NET_NO_UPDATE_CHECK` を設定します。レジストリ検査の失敗は通知されず、いずれの場合も終了コードは `0` のままです。
+ガイド自体は標準出力に出るため、パイプで渡す内容が混ざることはありません。同じバージョンについては 7 日間、再通知されません。この確認を完全に無効にするには `CC_SAFETY_NET_NO_UPDATE_CHECK` を設定します。レジストリへの問い合わせが失敗しても通知はされず、いずれの場合も終了コードは `0` のままです。
 
 ## install
 
@@ -411,7 +411,7 @@ npx -y cc-safety-net install --claude-code
 
 | フラグ | エージェント | インストール方法 |
 | --- | --- | --- |
-| `--amp` | Amp Code | amp CLI を通じて、アカウントのホスト型 Amp Personal Plugins リポジトリに管理対象プラグインを公開する |
+| `--amp` | Amp Code | amp CLI を使って、アカウントがホストする Amp Personal Plugins リポジトリに管理対象のプラグインを公開する |
 | `--agy-cli` | Antigravity CLI | `~/.gemini/config/hooks.json` にフックエントリを書き込む |
 | `--claude-code` | Claude Code | Claude Code 自身のプラグインマーケットプレイスコマンドを実行する |
 | `--codex` | Codex | Codex 自身のプラグインマーケットプレイスコマンドを実行する |
@@ -516,7 +516,7 @@ Amp Code、Codex、OpenClaw、OpenCode、Pi には、独自の `hook` フラグ�
 
 `install --cursor` は、コマンド `npx -y cc-safety-net hook --cursor` を `~/.cursor/hooks.json` の `hooks.preToolUse` に書き込みます。`"version": 1` のドキュメントで、30 秒のタイムアウトと `failClosed: true` を設定します。インストーラーはドキュメントのバージョンと形式を検証し、認識できないものを書き換えず、説明付きエラーで失敗します。重複する管理対象エントリは 1 つにまとめられます。
 
-実行時に、フックは Cursor の `Shell` ツール呼び出しを読み、`conversation_id` からセッション ID を取得し、`{ "permission": "deny", … }` または `{ "permission": "allow" }` で応答します。Cursor の `working_directory` フィールドは workspace root に対して包含検査されます。宣言されているのに値がない場合、または workspace root の外を指す場合は fail-closed になります。
+実行時、hook は Cursor の `Shell` ツール呼び出しを読み取り、`conversation_id` からセッション ID を取得して、`{ "permission": "deny", … }` または `{ "permission": "allow" }` を返します。Cursor の `working_directory` フィールドは、ワークスペースのルート内に収まっているかを検査されます。宣言されているのに値がない場合、または workspace root の外を指す場合は fail-closed になります。
 
 ## gui
 
@@ -538,7 +538,7 @@ npx cc-safety-net gui --no-open
 
 サーバーは常に先に起動し、フラグの有無に関係なく、URL は常に `CC Safety Net policy GUI: <url>` として出力されます。`--no-open` はブラウザーの起動だけを抑制します。ブラウザーの起動失敗は致命的ではありません。`gui` は手動で開く URL を出力し、サーバーは動作を続けます。
 
-サーバーはエフェメラルポートの `127.0.0.1` に bind し、実行ごとに新しいトークンを作成します。そのため、URL は `http://127.0.0.1:<port>/?token=<token>` のようになります。すべての要求にトークンが必要です。書き込みでは、さらにトークンをヘッダーで送る必要があります。その後、プロセスは中断されるまで動作します。
+サーバーは `127.0.0.1` の一時ポートにバインドし、実行のたびに新しいトークンを生成します。そのため URL は `http://127.0.0.1:<port>/?token=<token>` のような形になります。すべてのリクエストにトークンが必要で、書き込みを伴うリクエストではヘッダーにもトークンを付ける必要があります。プロセスは、中断するまで動作し続けます。
 
 ## statusline
 
@@ -550,7 +550,7 @@ bunx cc-safety-net statusline --claude-code
 bunx cc-safety-net statusline -cc
 ```
 
-プラグインが無効な場合、行には `🛡️ CC Safety Net ❌` と表示されます。それ以外は、レベルを絵文字で表示します。standard は `✅`、strict は `🔒`、paranoid は `👁️`、customised は `🔧` です。worktree の緩和が有効な場合は `🌳`、ポリシースナップショットが degraded の場合は末尾に `⚠️` が付きます。
+プラグインが無効な場合、この行は `🛡️ CC Safety Net ❌` になります。それ以外の場合はレベルを絵文字で表します。standard は `✅`、strict は `🔒`、paranoid は `👁️`、customised は `🔧` です。worktree の緩和が有効な場合は `🌳` が、ポリシーのスナップショットが degraded の場合は末尾に `⚠️` が付きます。
 
 入力がパイプされると、`statusline` は標準入力を読み取ります。Claude Code の JSON ステータスペイロードは破棄します。それ以外のパイプされたテキストは維持し、`<stdin> | <status>` としてインジケーターの前に置きます。
 

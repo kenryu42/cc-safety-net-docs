@@ -1,109 +1,109 @@
 ---
 title: "設計原則"
 sidebarTitle: "設計原則"
-description: "CC Safety Net の設計理由：wildcard より semantic analysis、常時有効な保護を先に置く固定 guard order、ツール自身の failure で fail closed、エージェントが作業を続けられる denial、最小限の dependency surface、rulebook、多層防御、worktree relaxation。"
+description: "CC Safety Net の設計理由を説明します。ワイルドカードではなく意味解析を選んだ理由、常時有効な保護を先頭に置く固定のガード順序、ツール自身の失敗時に fail closed にする方針、エージェントが作業を続けられる拒否メッセージ、最小限の依存関係、rulebook、多層防御、worktree の緩和を扱います。"
 ---
 
-これは技術 sequence の最後のページです。新しい動作は追加せず、[アーキテクチャ](/ja/guides/architecture)と[解析エンジン](/ja/guides/analysis-engine)が規定する内容の理由と tradeoff を説明します。*何が*起きるかを知るには、先にそれらを読んでください。*なぜ*起きるかを知るには、このページを読んでください。
+これは技術解説の最後のページです。新しい動作の説明は加えず、[アーキテクチャ](/ja/guides/architecture)と[解析エンジン](/ja/guides/analysis-engine)が規定する内容について、その理由とトレードオフを説明します。*何が*起きるかを知りたい場合は先にその 2 ページを、*なぜ*そうなっているかを知りたい場合はこのページを読んでください。
 
-CC Safety Net は、AI コーディングエージェントが home directory 全体を削除した実際の incident を受けて構築されました。すべての設計判断は 1 つの目標に基づきます。エージェントが破壊的コマンドを実行する*前*に阻止し、誤った安心感を与えないことです。
+CC Safety Net は、AI コーディングエージェントがホームディレクトリ全体を削除したという実際の事故を受けて作られました。設計上の判断はすべて、次の 1 つの目標から導かれています。エージェントが破壊的コマンドを実行する*前*に止めること、そして誤った安心感を決して与えないことです。
 
-## Wildcard pattern より semantic analysis
+## ワイルドカードではなく意味解析を選ぶ
 
-コーディングエージェントは、`git reset --hard` に対する wildcard rule など、wildcard matching を使う deny rule に対応します。wildcard pattern は raw command string と pattern を比較するため、space、flag order、command wrapping の変化で block が静かに失敗する可能性があります。flag の並べ替え（`rm -r -f /`）、shell での wrapping（`sh -c "rm -rf /"`）、interpreter の背後への隠蔽は、すべて string matching を回避します。
+コーディングエージェントは、`git reset --hard` に対するワイルドカードルールのように、ワイルドカード照合による deny ルールに対応しています。ワイルドカードはコマンド文字列とパターンをそのまま比較するため、空白の入れ方、フラグの順序、コマンドの包み方が少し変わるだけで、ブロックが黙って効かなくなることがあります。フラグの並べ替え（`rm -r -f /`）、シェルによるラップ（`sh -c "rm -rf /"`）、インタープリターの背後への隠蔽は、いずれも文字列照合をすり抜けます。
 
-代わりに CC Safety Net は各 command を parse し、`git`、`rm`、`Remove-Item`、`find`、`xargs`、`parallel` の実際の option grammar を理解する analyzer に渡します。このため、判定は command の*見た目*ではなく、command が*実行する動作*に基づきます。
+そこで CC Safety Net は、各コマンドをパースしたうえで、`git`、`rm`、`Remove-Item`、`find`、`xargs`、`parallel` の実際のオプション文法を理解するアナライザーに渡します。これにより判定は、コマンドの*見た目*ではなく*実際の動作*に基づいて行われます。
 
-tradeoff は複雑さです。parser は shell syntax を正しく処理する必要があり、対応する各 command には独自の analyzer が必要です。利点は、最も重要な command に対する bypass resistance です。pipeline は[アーキテクチャ](/ja/guides/architecture#inside-command-analysis)で、各 analyzer の正確な動作は[解析エンジン](/ja/guides/analysis-engine)で規定します。
+トレードオフは実装の複雑さです。パーサーはシェルの構文を正しく扱う必要があり、対応するコマンドごとに専用のアナライザーが要ります。その代わりに得られるのが、最も重要なコマンドに対する回避しにくさです。処理の流れは[アーキテクチャ](/ja/guides/architecture#inside-command-analysis)で、各アナライザーの正確な挙動は[解析エンジン](/ja/guides/analysis-engine)で規定しています。
 
-## 常時有効な保護を先に置く 1 つの固定順序
+## 常時有効な保護を先頭に置く、1 つの固定順序
 
-すべての連携で、各ツール呼び出しは同じ順序付き stage を通ります。そのうち 2 stage（canonical policy file と Git metadata の保護）は、意図的に policy snapshot の読み込み*前*に実行します。
+どの連携でも、ツール呼び出しは同じ順序のステージを通ります。そのうち 2 つのステージ、すなわち正規のポリシーファイルの保護と Git メタデータの保護は、意図的にポリシースナップショットの読み込み*より前*に実行されます。
 
-この順序が重要です。設定後に評価する保護の強さは設定に依存し、侵害されたエージェントが最初に編集しようとするのは設定だからです。policy file を読み込む前に拒否することで、この 2 guard は config state を持たず、preset や override で緩和できず、保護対象の file 自身で無効化できません。その代わり、safety level と fallback reason はまだ不明なため、denial で報告できません。これは unconditional guarantee のために diagnostic detail を減らす意図的な tradeoff です。
+この順序こそが要点です。設定を読み込んだ後に評価される保護は、結局その設定の強度までしか保証できません。そして、侵害されたエージェントが真っ先に編集しようとするのは、まさにその設定です。ポリシーファイルを読む前に拒否することで、この 2 つのガードは設定の状態を一切持たず、preset や override で緩められず、自分が守っているファイル自身によって無効化されることもありません。その代償として、これらの拒否は安全レベルもフォールバックの理由も報告できません。どちらもまだ判明していないからです。無条件の保証と引き換えに診断情報を減らす、意図的なトレードオフです。
 
-Sensitive-path protection は snapshot の後にあります。これは policy で制御できます。どの path を sensitive とするかは実際に local decision であり、独自の deny path を追加できなければ役に立たないためです。
+一方、機密パスの保護は境界の反対側、スナップショットの後にあります。こちらは*意図的に*ポリシーで制御できるようにしています。どのパスを機密とみなすかは本質的にローカルな判断であり、自分で deny path を追加できなければ役に立たないからです。
 
-具体的な stage table は[アーキテクチャ](/ja/guides/architecture#the-ordered-guard-stages)にあります。
+具体的なステージの一覧は[アーキテクチャ](/ja/guides/architecture#the-ordered-guard-stages)にあります。
 
 ## 解析を完了できない場合は fail closed
 
-CC Safety Net は解析を完了できない場合に、許可せずブロックします。
+CC Safety Net は、解析を完了できない場合、許可ではなくブロックを選びます。
 
-- guard 内の throw error は、すべての entry point で、throw した stage に属する deny になります。
-- tool-input bound または parser budget の超過は、すべての safety level で deny になります。
-- [Strict mode](/ja/configuration/modes#strict-mode)は fail-closed をさらに拡張し、parser が完全に理解できない command と検証できない destructive target を対象にします。
+- ガード内のどこかで例外が投げられた場合、どのエントリーポイントであっても、例外を投げたステージに紐づく拒否になります。
+- ツール入力の上限やパーサーの処理上限を超えた場合は、どの安全レベルでも拒否になります。
+- [strict モード](/ja/configuration/modes#strict-mode)は fail closed の範囲をさらに広げ、パーサーが完全には理解できないコマンドと、検証できない破壊的対象までを対象にします。
 
-理由は明確です。fail open する safety net は、誤った安心感を与えるため、safety net がない場合より危険です。予期しない error での block は不便ですが復旧できます。destructive command の通過は復旧できません。
+理由は単純です。fail open するセーフティネットは、誤った安心感を与える分だけ、セーフティネットがない場合よりも危険です。予期しないエラーでブロックされるのは不便ですが、あとから取り返せます。破壊的コマンドを通してしまうと、取り返しがつきません。
 
-**無効な設定は意図的にこの対象ではありません。** 拒否された configuration source は deny に変換せず drop します。rulebook の typo だけで machine が全作業を block すると、ユーザーに対する denial-of-service になり、file の修正ではなく tool の uninstall を促すためです。[設定の復旧](/ja/configuration/recovery)が、その contract と修復手順を定めます。
+**無効な設定は、意図的にこの対象から外しています。** 拒否された設定元は、拒否に変換されるのではなく破棄されます。rulebook のちょっとした書き間違いがマシン上のすべての作業をブロックしてしまえば、それはユーザーに対するサービス妨害であり、ファイルを直すのではなくツールをアンインストールする方向へ人を追いやってしまうからです。この取り決めと修復手順は[設定の復旧](/ja/configuration/recovery)が担っています。
 
-各 trust boundary での適用方法は[セキュリティモデル](/ja/guides/security-model)を参照してください。
+これらの性質が各信頼境界でどう強制されるかは、[セキュリティモデル](/ja/guides/security-model)を参照してください。
 
-## エージェントが作業を続けられる denial
+## エージェントが作業を続けられる拒否
 
-denial は error state ではありません。active session で通常の tool result としてエージェントに届きます。この動作が、各 block message の書き方を決めます。
+拒否はエラー状態ではありません。実行中のセッションに、通常のツール結果としてエージェントへ届きます。この性質が、ブロックメッセージの書き方を決めています。
 
-単なる「permission denied」は、エージェントに類似 command を再試行させるか、task 全体を停止させる可能性があります。variant の反復は未保護の形式を見つけ、agent turn を消費する可能性があります。task 全体を止めると、1 つの safety action が作業停止になります。
+素っ気ない「permission denied」だけでは、エージェントは似たコマンドを試し続けるか、タスク全体を止めてしまいかねません。書き方を変えて試し続ければ、保護されていない形にたどり着いてしまうこともあり、エージェントのターンも浪費します。タスク全体を止めてしまえば、1 回の安全措置が作業の停止に変わってしまいます。
 
-そのため、各 message はエージェントに生産的な次の操作を渡すよう構成します。reason は command が実行したはずの動作を平易に示し、安全な代替がある場合はその名前を示します。各 rule には、closing instruction を選択する **intent** もあります。block を報告して task の残りを続行する、指定した代替に切り替える、狭い明示 target で再試行する、操作をユーザーに渡す、variant の総当たりではなく command を再構成する、のいずれかです。internal error の fail-closed denial にも intent（retry せず再構成）があるため、tool 自身の予期しない failure でも、有用な response へ導きます。
+そこで各メッセージは、エージェントに次の生産的な一手を渡すように組み立てられています。理由の欄では、そのコマンドが何をするはずだったのかを平易な言葉で示し、より安全な代替手段があればその名前を挙げます。さらに各ルールは、末尾の指示を決める **intent** を持ちます。ブロックを報告して残りのタスクを続ける、示された代替手段に切り替える、対象を絞って明示的に指定し直す、操作をユーザーに委ねる、書き方を総当たりせずコマンドを組み立て直す、のいずれかです。内部エラーによる fail closed の拒否にも intent（再試行ではなく組み立て直し）があるため、ツール自身の予期しない失敗であっても、エージェントは有用な次の行動へ導かれます。
 
-instruction は意図的に advisory です。エージェントに強制はしません。enforcement は guard が行い、従わない retry も同じように block します。message の目的は compliant path を最も簡単にすることです。このため通常は、session が block を吸収して続行します。message の構造と完全な intent table は[仕組み](/ja/guides/how-it-works#ブロック結果の形式)を参照してください。
+この指示は、意図的に助言にとどめています。エージェントに従うことを強制するものではありません。強制はガードが担い、指示に従わない再試行も同じようにブロックします。メッセージの役割は、素直に従う道を最も簡単な選択肢にすることです。その結果、たいていの場合はセッションがブロックを吸収してそのまま進みます。メッセージの構成と intent の一覧は、[仕組み](/ja/guides/how-it-works#ブロック結果の形式)にあります。
 
-## 最小限の dependency surface
+## 依存関係を最小限に保つ
 
-CC Safety Net は runtime dependency surface を遅延読み込みする 1 package に保ちます。segment splitting、quoting、redirection、command substitution、dynamic-word provenance という構造情報はすべて、third-party grammar ではなく**独自の上限付き POSIX parser と PowerShell parser**から取得します。これは意図的な build-versus-buy decision です。
+CC Safety Net は、実行時の依存関係を、遅延読み込みされる 1 つのパッケージだけに抑えています。セグメントの分割、クオート、リダイレクト、コマンド置換、動的な語の出どころといった構造情報はすべて、サードパーティの文法定義ではなく**自前の上限付き POSIX パーサーと PowerShell パーサー**から得ています。これは「作るか買うか」を意図的に選んだ結果です。
 
-- 小さい dependency tree は supply-chain attack surface を縮小します。parser は攻撃者が最も混乱させたい構成要素です。
-- analysis には一般的な tokenizer が保持しない fact が必要です。どの word が expansion 由来か、どの target が working directory に固定されるか、どの quoting form が使われたかです。owned parser だけが、これらを first-class fact にできます。
-- parser budget を configuration ではなく fixed constant にできるため、resource exhaustion は open-ended problem ではなく、上限付きで test 可能な failure mode になります。
-- CC Safety Net を hook subprocess として実行するエージェントでは、shell tool call ごとに新しく開始するため startup time が重要です。dependency が少ないと cold start が速くなります。
+- 依存関係が小さいほど、サプライチェーンの攻撃対象領域も小さくなります。しかもパーサーは、攻撃者が最も混乱させたがる構成要素です。
+- この解析には、汎用のトークナイザーが保持しない情報が必要です。どの語が展開に由来するか、どの対象が作業ディレクトリに固定されているか、どのクオート形式が使われたか、といった情報です。これらを一級の情報として扱えるのは、自前のパーサーだけです。
+- パーサーの処理上限を設定項目ではなく固定値にできるため、リソース枯渇は際限のない問題ではなく、上限が決まっていてテスト可能な失敗モードになります。
+- CC Safety Net を hook subprocess として実行するエージェントでは、シェルのツール呼び出しのたびにプロセスが起動し直されるため、起動時間が重要です。依存関係が少ないほどコールドスタートが速くなります。
 
-parser budget と各 dependency の使用方法は[アーキテクチャ](/ja/guides/architecture#parsers-and-the-runtime-dependency-surface)を参照してください。
+パーサーの処理上限と、各依存関係の使われ方は[アーキテクチャ](/ja/guides/architecture#parsers-and-the-runtime-dependency-surface)を参照してください。
 
-## Rulebook system
+## rulebook という仕組み
 
-以前の version は、custom rule を 1 つの project file に inline JSON として保存しました。CC Safety Net は、4 つの理由で rulebook system に置き換えました。
+以前のバージョンでは、カスタムルールを 1 つのプロジェクトファイル内にインライン JSON として保存していました。CC Safety Net がこれを rulebook の仕組みに置き換えたのは、次の 4 つの理由からです。
 
-- **共有**：rulebook は GitHub repository から取得し、lockfile の SHA-256 digest で固定できるため、team は JSON を copy-paste せず blocking policy を共有できます。
-- **Integrity**：remote rulebook content は使用前に lockfile digest に対して検証します。inline config には integrity の仕組みがありませんでした。
-- **Scoping**：rulebook は、別々の config directory を持つ user（global）scope と project scope に対応します。
-- **Validation**：rulebook content は、blocking decision に影響する前に schema validation を受けます。
+- **共有できる** — rulebook は GitHub リポジトリから取得し、ロックファイル内の SHA-256 ダイジェストで固定できます。チームは JSON をコピー＆ペーストせずにブロックのポリシーを共有できます。
+- **完全性を検証できる** — リモートの rulebook の内容は、使用前にロックファイルのダイジェストと照合されます。インライン設定には、こうした仕組みがまったくありませんでした。
+- **スコープを分けられる** — rulebook は、設定ディレクトリが別々のユーザー（グローバル）スコープとプロジェクトスコープに対応します。
+- **検証できる** — rulebook の内容は、ブロックの判定に影響する前にスキーマ検証を受けます。
 
-custom rule は厳密に additive です。制限を追加することだけができ、built-in protection を緩和できません。これにより trust boundary が簡潔になります。authoring workflow は[カスタムルール](/ja/configuration/custom-rules)を参照してください。
+カスタムルールは厳密に「追加のみ」です。制限を足すことしかできず、組み込みの保護を緩めることはできません。これによって信頼境界が単純に保たれます。ルールの書き方は[カスタムルール](/ja/configuration/custom-rules)を参照してください。
 
-## 1 設定ではなく段階的な level
+## 1 つの設定ではなく段階的なレベルにする
 
-保護は単一の on/off switch ではなく、standard、strict、paranoid の 3 preset として提供します。「検証できない command を block すべきか」への正しい答えは、command の source によって異なるためです。
+保護は単一のオン／オフではなく、standard、strict、paranoid という 3 つの preset として提供しています。「検証できないコマンドはブロックすべきか」という問いへの正直な答えは、そのコマンドがどこから来たかによって変わるからです。
 
-Standard は、人間が監督する session 向けに最適化しています。認識できる destructive command と sensitive-content access を block し、parse できないが無害な text は許容するため、日常作業を中断しません。敵対的または動的な input に対しては明示的に **best-effort** であり、prompt injection や他の信頼できない context から command が来る場合には適しません。
+standard は、人間が見ているセッションに最適化してあります。認識できる破壊的コマンドと機密情報へのアクセスはブロックしつつ、パースできないだけの無害なテキストは通すため、日々の作業を妨げません。ただし、敵対的な入力や動的な入力に対しては明示的に**ベストエフォート**であり、コマンドがプロンプトインジェクションなど信頼できない経路から来る可能性がある場面には向きません。
 
-Strict と paranoid は摩擦と引き換えに確実性を高めます。Strict は検証できないものを block し、paranoid は通常は問題ないが時に壊滅的な category も block します。この設計は、standard-mode parser heuristic の追加によって standard の gap を閉じようとはしません。静的に解決できない target は、推測を増やしても安全にはならないためです。新たな gap への所定の対応は、strict または paranoid の fail-closed fixture です。このため、standard mode の residual-risk family を隠さず記録します。
+strict と paranoid は、多少の手間と引き換えに確実性を買う設定です。strict は検証できないものをブロックし、paranoid はさらに、普段は問題ないが時に致命的になりうる種類の操作までブロックします。この設計では、standard 側にパーサーのヒューリスティックを足して穴をふさぐ、という方向はあえて採っていません。静的に解決できない対象は、推測を重ねても安全にはならないからです。新たな穴が見つかったときの標準的な対応は、strict または paranoid の fail closed なフィクスチャを追加することです。だからこそ、standard モードに残るリスクの類型を隠さず記録しています。
 
-個別 capability は別々に設定でき、rule ごとの override で standard 下でも strict-tier rule を強制できます。ただし、catastrophic rule または always-on protection を override で弱めることはできません。level は[モード](/ja/configuration/modes)、各 boundary の正確な位置は[解析エンジン](/ja/guides/analysis-engine#safety-level-boundaries)を参照してください。
+個々の機能は引き続き別々に設定でき、ルール単位の override を使えば standard でも strict 相当のルールを強制的に有効にできます。一方で、どの override をもってしても、致命的な操作のルールと常時有効な保護を弱めることはできません。各レベルについては[モード](/ja/configuration/modes)を、それぞれの境界が具体的にどこにあるかは[解析エンジン](/ja/guides/analysis-engine#safety-level-boundaries)を参照してください。
 
-## 代替ではなく多層防御
+## 置き換えではなく多層防御
 
-CC Safety Net は完全な security solution とは主張しません。多層防御 stack の 1 layer と位置づけます。
+CC Safety Net は、完全なセキュリティ対策だとは主張しません。多層防御の一つのレイヤーという位置づけです。
 
-- **Permission deny rule** は、迅速でユーザー設定可能な block を提供します。CC Safety Net は permission system の*前*に実行するため、deny rule の設定に関係なく各 command を検査します。
-- **OS-level sandboxing** は filesystem と network access を制限しますが、その境界*内*の操作が destructive かは理解しません。sandboxed directory 内の `git reset --hard` は sandbox の視点では技術的に安全ですが、依然として危険な操作です。
+- **権限の deny ルール**は、ユーザー自身が設定できる手軽なブロック手段です。CC Safety Net は権限システムの*前*に動作するため、deny ルールの設定内容にかかわらず、すべてのコマンドを検査します。
+- **OS レベルのサンドボックス**は、ファイルシステムとネットワークへのアクセスを制限しますが、その境界の*内側*で行われる操作が破壊的かどうかまでは理解しません。サンドボックス内のディレクトリで実行された `git reset --hard` は、サンドボックスの視点では技術的に安全ですが、実際には自分の足を撃つ操作です。
 
-これらを併用してください。deny rule は迅速な iteration、sandboxing は未知の threat と containment、CC Safety Net は既知の destructive pattern に対する bypass-resistant protection を担当します。[CC Safety Net とサンドボックス](/ja/guides/vs-sandboxing)を参照してください。
+これらのレイヤーは併用してください。deny ルールは素早い調整に、サンドボックスは未知の脅威と封じ込めに、CC Safety Net は既知の破壊的パターンに対する回避しにくい保護に向いています。[CC Safety Net とサンドボックス](/ja/guides/vs-sandboxing)を参照してください。
 
-## Worktree relaxation
+## worktree での緩和
 
-linked git worktree には usability problem があります。worktree で作業する developer は、その worktree の local change を破棄するために `git checkout -- .` または `git reset --hard` を実行したい場合がありますが、default rule は local-discard operation として block します。
+Git の linked worktree には、使い勝手の問題があります。worktree で作業している開発者は、*その worktree の*ローカルな変更を捨てるために `git checkout -- .` や `git reset --hard` を実行したくなりますが、既定のルールはこれらをローカル破棄の操作としてブロックします。
 
-rule 全般を緩和する代わりに、[worktree mode](/ja/configuration/modes#worktree-mode)は local discard だけを、linked worktree と確実に検証された directory 内だけで、かつ git context が redirect されていない場合だけ許可します。verification が設計を支える要素です。worktree のように見えるだけの directory は対象外で、check を完了できない場合は command を block したままにします。
+そこで、ルールそのものを緩めるのではなく、[worktree モード](/ja/configuration/modes#worktree-mode)ではローカル破棄だけを、linked worktree だと確実に検証できたディレクトリ内でだけ、しかも git のコンテキストが別の場所へ向けられていない場合にかぎって許可します。この設計を支えているのが検証の部分です。worktree のように見えるだけのディレクトリは対象外で、検証を完了できない場合はコマンドをブロックしたままにします。
 
-この緩和は意図的に狭くしています。remote-affecting operation（force push、branch delete、stash drop）はすべて block のままです。使い捨て worktree の外へ到達できる local discard も block します。正確な条件と緩和不能な場合は[解析エンジン](/ja/guides/analysis-engine#worktree-relaxation)、mode の有効化方法は[モード](/ja/configuration/modes)を参照してください。
+緩和の範囲は意図的に狭くしてあります。リモートに影響する操作（force push、ブランチの削除、stash の破棄）はすべてブロックのままで、使い捨ての worktree の外にまで及びうるローカル破棄も同様です。正確な条件と緩和されないケースは[解析エンジン](/ja/guides/analysis-engine#worktree-relaxation)を、モードの有効化方法は[モード](/ja/configuration/modes)を参照してください。
 
 ## 次に読むページ
 
-技術ガイドは、ユーザー向け lifecycle から設計理由まで順に説明します。このページは最後の step 5 です。
+技術ガイドは、ユーザー向けのライフサイクルの説明から、設計の背景にある考え方へと順に降りていく構成です。このページはその 5 番目、最後にあたります。
 
-- 前：[解析エンジン](/ja/guides/analysis-engine)：これらの tradeoff から生じる正確な classification behavior。[アーキテクチャ](/ja/guides/architecture)：それらが正当化する guard order。
-- 最初から：[仕組み](/ja/guides/how-it-works)：同じ system をユーザー向けの深さで説明します。
+- 戻る：[解析エンジン](/ja/guides/analysis-engine)には、ここで述べたトレードオフから生まれる具体的な分類の挙動が、[アーキテクチャ](/ja/guides/architecture)には、それが正当化するガードの順序があります。
+- 最初から読む：[仕組み](/ja/guides/how-it-works)では、同じ仕組みをユーザー向けの粒度で説明しています。
 
-関連ページ：[セキュリティモデル](/ja/guides/security-model)：これらの decision が保護する trust boundary。[既知の制限](/ja/guides/known-limitations)：対応できない範囲。[設定の復旧](/ja/configuration/recovery)：上記の `ready` / `degraded` contract。
+関連ページ：これらの判断が守る信頼境界は[セキュリティモデル](/ja/guides/security-model)、対応できない範囲は[既知の制限](/ja/guides/known-limitations)、ここで触れた `ready` と `degraded` の取り決めは[設定の復旧](/ja/configuration/recovery)にあります。

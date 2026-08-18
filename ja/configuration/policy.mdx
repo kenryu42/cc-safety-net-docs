@@ -1,61 +1,61 @@
 ---
-title: "Policy file：policy.json の完全な仕様"
+title: "ポリシーファイル：policy.json の完全な仕様"
 sidebarTitle: "ポリシー"
-description: "CC Safety Net の policy.json の完全なリファレンスです。場所、schema、安全 preset と機能 override、worktree mode、破壊的コマンドとシークレットの保護、deny path と allow path の rule、audit retention、既定値、優先順位を説明します。"
+description: "CC Safety Net の policy.json の完全なリファレンスです。ファイルの場所、スキーマ、安全 preset と機能の override、worktree モード、破壊的コマンドとシークレットの保護、deny path と allow path のルール、監査ログの保持期間、既定値、優先順位を扱います。"
 ---
 
-`policy.json` は、CC Safety Net の user scope 設定ファイルです。安全 preset の選択、個別の組み込み保護の有効化と無効化、保護するパスの追加、audit record の保持期間の設定に使用します。
+`policy.json` は、CC Safety Net のユーザースコープの設定ファイルです。安全 preset の選択、組み込み保護の個別の有効化と無効化、保護対象パスの追加、監査レコードの保持期間の設定に使います。
 
-独自の custom blocking rule を定義する `rule.json` および rulebook とは別のファイルです。その schema については[カスタムルール](/ja/configuration/custom-rules)を参照してください。
+独自のブロックルールを定義する `rule.json` や rulebook とは別のファイルです。それらのスキーマは[カスタムルール](/ja/configuration/custom-rules)を参照してください。
 
-## Policy file の場所
+## ポリシーファイルの場所
 
 | セットアップ | パス |
 | --- | --- |
 | 既定 | `~/.cc-safety-net/policy.json` |
 | `CC_SAFETY_NET_HOME` を設定 | `$CC_SAFETY_NET_HOME/policy.json` |
 
-`CC_SAFETY_NET_HOME` を設定すると、ファイルはそのディレクトリの**直下**に、`rules/` と同じ階層で配置されます。override 自体については[環境変数](/ja/configuration/environment)を参照してください。
+`CC_SAFETY_NET_HOME` を設定すると、このファイルはそのディレクトリの**直下**に、`rules/` と並ぶ形で置かれます。上書きの指定方法自体は[環境変数](/ja/configuration/environment)を参照してください。
 
-policy file は 1 つだけです。**project scope の `policy.json` はありません。** runtime はその 1 つのパスだけを読み取るため、プロジェクトが利用者の policy を上げたり下げたりすることはできません。
+ポリシーファイルは 1 つだけです。**プロジェクトスコープの `policy.json` は存在しません。** ランタイムはこの 1 つのパスしか読み取らないため、プロジェクト側からユーザーのポリシーを引き上げたり引き下げたりすることはできません。
 
-dashboard がファイルを書き込む場合、directory は `0700`、file は `0600` で作成します。
+ダッシュボードがこのファイルを書き込むときは、ディレクトリを `0700`、ファイルを `0600` で作成します。
 
-## Policy file の保護
+## ポリシーファイルの保護
 
-正式な user `policy.json` は、ready と degraded の**すべて**の runtime state で保護対象です。policy file の保護は configuration snapshot の読み込み前に動作するため、壊れた設定でも弱体化できません。次の操作は hard-stop します。
+正規のユーザー `policy.json` は、ready でも degraded でも、**すべての**ランタイム状態で保護対象のパスです。ポリシーファイルの保護は設定スナップショットの読み込みより前に動作するため、設定が壊れていても弱められません。次の操作は即座にブロックされます。
 
-- 任意のツールによるファイルへの write、edit、patch
-- operand にファイル名を含む shell command
-- ファイルへの write redirection
-- その directory または任意の ancestor に対する recursive `rm`
-- そのファイルに到達する `find … -delete` と `find … -exec rm`
-- ファイル、その directory、または ancestor を source とする `mv`
+- 任意のツールによる、このファイルへの書き込み、編集、パッチ適用
+- ファイル名をオペランドに含むシェルコマンド
+- このファイルへの書き込みリダイレクト
+- そのディレクトリ、またはその上位ディレクトリに対する再帰的な `rm`
+- このファイルに到達する `find … -delete` と `find … -exec rm`
+- このファイル、そのディレクトリ、または上位ディレクトリを移動元とする `mv`
 
-読み取りは許可されます。read-only command whitelist には、`[`、`cat`、`file`、`grep`、`head`、`jq`、`less`、`ls`、`more`、`rg`、`sed`、`stat`、`tail`、`test`、`wc` が含まれます。`sed` は `-i` または `--in-place` で in-place edit しない場合だけ対象です。Grep や Glob などの read-only tool は完全に除外されます。
+読み取りは許可されます。読み取り専用コマンドの許可リストには、`[`、`cat`、`file`、`grep`、`head`、`jq`、`less`、`ls`、`more`、`rg`、`sed`、`stat`、`tail`、`test`、`wc` が含まれます。ただし `sed` は、`-i` や `--in-place` によるその場編集を行わない場合にかぎります。Grep や Glob のような読み取り専用ツールは、完全に対象外です。
 
 <Warning>
-  エージェントはこのファイルを書き込めないため、変更内容を*表示*するように依頼してください。policy の変更は、自分で editor を使って適用するか、dashboard から適用します。
+  エージェントはこのファイルを書き込めないため、変更内容を*提示*してもらうようにしてください。ポリシーの変更は、自分でエディターを使って適用するか、ダッシュボードから適用します。
 </Warning>
 
-## Policy file を編集する
+## ポリシーファイルを編集する
 
-次のいずれかを選択します。
+次のいずれかの方法を選びます。
 
-- **Dashboard を使用する。** `cc-safety-net gui` を実行します。dashboard は正しい permission でファイルを書き込み、validation に失敗するファイルを修復できます。ファイルに error がある間、form にはファイル内の有効な値ではなく、完全な既定値が表示されます。ファイルを修復するまで保存できません。修復では、認識された有効な設定を維持し、無効な field を破棄します。この修復動作を使用しない場合は、ファイルを手動で編集して `status` で確認してください。
-- **JSON を直接編集する。** editor でファイルを開き、手動で変更します。runtime は次の tool call で変更を読み取ります。再起動は不要です。
+- **ダッシュボードを使う。** `cc-safety-net gui` を実行します。ダッシュボードは適切なパーミッションでファイルを書き込み、検証に通らないファイルを修復できます。ファイルにエラーがある間は、フォームにファイル内の有効な値ではなく既定値一式が表示され、ファイルを修復するまで保存できません。修復では、認識できる有効な設定は残し、無効なフィールドを破棄します。この修復動作を使いたくない場合は、ファイルを手動で編集して `status` で確認してください。
+- **JSON を直接編集する。** エディターでファイルを開いて手作業で変更します。ランタイムは次のツール呼び出しで変更を読み込むため、再起動は必要ありません。
 
-手動で編集した後に結果を確認します。
+手作業で編集したら、結果を確認します。
 
 ```bash
 npx cc-safety-net status
 ```
 
-`degraded` verdict は、ファイルの一部が拒否されたことを意味します。`npx cc-safety-net doctor` は、該当する field を正確に示します。runtime が `policy.json` を自動的に書き換えることは**ありません**。無効なファイルは、修正するか dashboard の repair action を使うまで、変更されずに残ります。
+判定が `degraded` になった場合は、ファイルの一部が拒否されています。どのフィールドかは `npx cc-safety-net doctor` が正確に示します。ランタイムが `policy.json` を自ら書き換えることは**ありません**。無効なファイルは、自分で直すかダッシュボードの修復機能を使うまで、そのまま残ります。
 
-## 完全な policy の例
+## ポリシーの完全な例
 
-すべての field とその既定値を次に示します。
+すべてのフィールドと、その既定値は次のとおりです。
 
 ```json
 {
@@ -84,71 +84,71 @@ npx cc-safety-net status
 }
 ```
 
-必須なのは `version` だけです。その他の field はすべて省略でき、省略時は上記の既定値を使用します。ファイル自体がない場合も、CC Safety Net はこの既定値で動作し、`ready` のままです。
+必須のフィールドは `version` だけです。ほかはすべて省略でき、省略した場合は上記の既定値が使われます。ファイル自体が存在しない場合も、CC Safety Net はこの既定値で動作し、判定は `ready` のままです。
 
-root object は **strict** です。認識されない top-level key は error です。`safety`、`workflow`、`destructive_command_protection`、`secret_protection`、`audit` 内の認識されない key も error です。
+ルートオブジェクトは**厳密**に検証されます。認識できないトップレベルのキーはエラーです。`safety`、`workflow`、`destructive_command_protection`、`secret_protection`、`audit` の中に認識できないキーがある場合も同様にエラーです。
 
-## Schema リファレンス
+## スキーマリファレンス
 
 <ParamField body="version" type="integer" required>
-  Schema version。`1` である必要があります。唯一の必須 field です。値がない、または誤っている場合の diagnostic は `version must be 1` です。
+  スキーマのバージョン。`1` である必要があります。唯一の必須フィールドで、値がない場合や誤っている場合の診断メッセージは `version must be 1` です。
 </ParamField>
 
 <ParamField body="safety.level" type="string" default="standard">
-  安全 preset。`"standard"`、`"strict"`、`"paranoid"` のいずれかです。各 preset は継承する機能の既定値を提供します。`strict` は `fail_closed` を有効にし、`paranoid` は `fail_closed`、`paranoid_rm`、`paranoid_interpreters` を有効にします。各機能の変更点については[安全レベル](/ja/configuration/modes)を参照してください。
+  安全 preset。`"standard"`、`"strict"`、`"paranoid"` のいずれかです。各 preset は、継承される機能の既定値を定めます。`strict` は `fail_closed` を、`paranoid` は `fail_closed`、`paranoid_rm`、`paranoid_interpreters` を有効にします。各機能の効果は[安全レベル](/ja/configuration/modes)を参照してください。
 </ParamField>
 
 <ParamField body="safety.overrides.fail_closed" type="boolean">
-  preset に関係なく、fail-closed 機能を上または下に明示的に設定します。preset から継承するには key を省略します。
+  preset にかかわらず、fail closed 機能を明示的に有効または無効にします。preset から継承する場合は、このキーを省略します。
 </ParamField>
 
 <ParamField body="safety.overrides.paranoid_rm" type="boolean">
-  paranoid `rm` 機能を上または下に明示的に設定します。preset から継承するには key を省略します。
+  paranoid の `rm` 機能を明示的に有効または無効にします。preset から継承する場合は、このキーを省略します。
 </ParamField>
 
 <ParamField body="safety.overrides.paranoid_interpreters" type="boolean">
-  paranoid interpreter 機能を上または下に明示的に設定します。preset から継承するには key を省略します。
+  paranoid のインタープリター機能を明示的に有効または無効にします。preset から継承する場合は、このキーを省略します。
 </ParamField>
 
 <ParamField body="workflow.worktree_mode" type="boolean" default="false">
-  **確認済み**の linked worktree 内で、ローカル変更を破棄する Git ルールを緩和します。検出は fail-closed です。working directory が linked worktree であると明確に判定できない場合は、より厳しい既定のルールが有効なままです。緩和する操作と、緩和しない操作の正確な一覧については[安全レベル](/ja/configuration/modes)を参照してください。
+  **確認済み**の linked worktree 内で、ローカルの変更を破棄する Git ルールを緩和します。検出は fail closed です。作業ディレクトリが linked worktree だと確実に判定できない場合は、より厳しい既定のルールがそのまま適用されます。緩和される操作と緩和されない操作の正確な一覧は、[安全レベル](/ja/configuration/modes)を参照してください。
 </ParamField>
 
 <ParamField body="destructive_command_protection.enabled" type="boolean" default="true">
-  登録された destructive-command rule の master switch です。`false` にすると、すべての登録済みルールを short-circuit します。ただし、常に強制される catastrophic rule は除きます。
+  登録済みの破壊的コマンドルールのマスタースイッチです。`false` にすると、登録済みのルールをすべてスキップします。ただし、常に強制される致命的操作のルールは除きます。
 </ParamField>
 
 <ParamField body="destructive_command_protection.overrides" type="object" default="{}">
-  登録済みの destructive-command rule id を key にする、ルールごとの状態です。値は `"on"` または `"off"` です。機能から算出した状態の上に適用されるため、`"on"` は preset が無効にしたルールを有効化でき、`"off"` は preset が有効にしたルールを無効化できます。
+  登録済みの破壊的コマンドルール ID をキーとする、ルール単位の状態です。値は `"on"` または `"off"` です。機能から決まった状態の上に適用されるため、`"on"` は preset が無効にしているルールを有効にでき、`"off"` は preset が有効にしているルールを無効にできます。
 </ParamField>
 
 <ParamField body="destructive_command_protection.allow_paths" type="string[]" default="[]">
-  destructive-command rule から除外するパスです。項目は absolute path、または `~/` で始まる必要があります。
+  破壊的コマンドのルールから除外するパスです。各項目は絶対パスであるか、`~/` で始まる必要があります。
 </ParamField>
 
 <ParamField body="secret_protection.enabled" type="boolean" default="true">
-  secret protection の master switch です。`false` にすると、利用者の `deny_paths` を含む secret stage 全体を skip します。
+  シークレット保護のマスタースイッチです。`false` にすると、ユーザーが設定した `deny_paths` も含め、シークレット判定のステージ全体をスキップします。
 </ParamField>
 
 <ParamField body="secret_protection.overrides" type="object" default="{}">
-  登録済みの secret-protection rule id を key にする、ルールごとの状態です。値は `"on"` または `"off"` です。多くの secret rule は secret protection が有効なときに有効であるため、通常は `"off"` を使用します。[既定で無効な Coding CLI config tier](#既定で無効なルール)は既定で無効です。これらのルールを使うには、明示的に `"on"` を指定します。
+  登録済みのシークレット保護ルール ID をキーとする、ルール単位の状態です。値は `"on"` または `"off"` です。ほとんどのシークレットルールはシークレット保護が有効なかぎり有効なので、通常使うのは `"off"` の方向です。一方、[Coding CLI 設定階層](#既定で無効なルール)は既定で無効なので、これらのルールを使う場合は明示的に `"on"` を指定します。
 </ParamField>
 
 <ParamField body="secret_protection.deny_paths" type="string[]" default="[]">
-  組み込みの機密パスに加えて、シークレットとして保護する追加パスです。validation rule については [Deny path](#deny-path) を参照してください。
+  組み込みの機密パスに加えて、シークレットとして保護するパスです。検証ルールは [Deny path](#deny-path) を参照してください。
 </ParamField>
 
 <ParamField body="secret_protection.allow_paths" type="string[]" default="[]">
-  組み込みの secret pattern rule から除外する正確な file または directory tree です。設定済みの deny path と Coding CLI protection は引き続き適用します。validation rule と優先順位については、[Secret allow path](#secret-allow-path)を参照してください。
+  組み込みのシークレットパターンルールから除外する、特定のファイルまたはディレクトリツリーです。設定済みの deny path と Coding CLI の保護は引き続き適用されます。検証ルールと優先順位は、[Secret allow path](#secret-allow-path)を参照してください。
 </ParamField>
 
 <ParamField body="audit.retention_days" type="integer" default="30">
-  sweep が削除するまで audit history を保持する日数です。`1` から `365` までの integer である必要があります。
+  sweep によって削除されるまで監査履歴を保持する日数です。`1` から `365` までの整数である必要があります。
 </ParamField>
 
-## 安全レベルと機能 override
+## 安全レベルと機能の override
 
-`safety.level` が preset を選択し、次に `safety.overrides` が個別の機能を明示的に設定します。機能を**下げられる**のはここだけです。environment flag は上げることしかできません。
+`safety.level` で preset を選び、その上で `safety.overrides` が個別の機能を明示的に設定します。機能を**引き下げられる**のはここだけで、環境変数のフラグは引き上げることしかできません。
 
 ```json
 {
@@ -162,15 +162,15 @@ root object は **strict** です。認識されない top-level key は error �
 }
 ```
 
-この例では `paranoid` preset を使用しますが、interpreter one-liner は対象にしません。最終的な機能の組み合わせがどの preset にも一致しない場合、報告される有効レベルは `custom` になります。
+この例では `paranoid` preset を使いつつ、インタープリターの 1 行コードだけは対象外にしています。最終的な機能の組み合わせがどの preset にも一致しない場合、報告される有効なレベルは `custom` になります。
 
 <Note>
-  環境は policy のレベルを上げ、機能を強制的に有効にできますが、逆の操作はできません。`policy.json` と環境の完全な優先順位（`worktree_mode` の OR と legacy `SAFETY_NET_*` alias を含む）については、[環境変数](/ja/configuration/environment)を参照してください。
+  環境変数はポリシーのレベルを引き上げたり機能を強制的に有効にしたりできますが、その逆はできません。`policy.json` と環境変数の優先順位の全体像（`worktree_mode` の OR と以前の `SAFETY_NET_*` エイリアスを含む）は、[環境変数](/ja/configuration/environment)を参照してください。
 </Note>
 
 ## 破壊的コマンドの保護
 
-`destructive_command_protection.overrides` は、次のように組み込みルールを id で指定します。
+`destructive_command_protection.overrides` では、次のように組み込みルールを ID で指定します。
 
 ```json
 {
@@ -184,27 +184,27 @@ root object は **strict** です。認識されない top-level key は error �
 }
 ```
 
-登録されていない id は `unknown destructive command rule id "<id>"` で拒否されます。`"on"` または `"off"` 以外の値は、`destructive_command_protection.overrides.<id> must be "on" or "off"` で拒否されます。
+登録されていない ID は `unknown destructive command rule id "<id>"` で拒否されます。`"on"` と `"off"` 以外の値は、`destructive_command_protection.overrides.<id> must be "on" or "off"` で拒否されます。
 
-**Catastrophic rule は常に強制され、利用者は設定できません。** `enabled: false` と `"off"` override を無視します。これらは、`/` またはホームディレクトリの削除、Git metadata の削除、および対応する PowerShell と `find` の操作を対象にします。各ルールの動作については[ブロック対象コマンド](/ja/reference/blocked-commands)を参照してください。
+**致命的な操作に対するルールは常に強制され、ユーザーが設定を変えることはできません。** これらは `enabled: false` も `"off"` の override も無視します。対象となるのは、`/` やホームディレクトリの削除、Git メタデータの削除、およびそれらに相当する PowerShell と `find` の操作です。各ルールが何を強制するかは、[ブロックされるコマンド](/ja/reference/blocked-commands)を参照してください。
 
 ### Allow path
 
-`destructive_command_protection.allow_paths` は、特定の場所を destructive-command rule から除外します。validation は deny path より厳格です。
+`destructive_command_protection.allow_paths` は、特定の場所を破壊的コマンドのルールから除外します。検証は deny path より厳格です。
 
 | 項目 | 結果 |
 | --- | --- |
-| string ではない、または trim 後に空になる string | 無効 — `must be a non-empty path string` |
-| Relative path | 無効 — `must be an absolute path or start with ~/` |
+| 文字列でない、または前後の空白を除くと空になる文字列 | 無効 — `must be a non-empty path string` |
+| 相対パス | 無効 — `must be an absolute path or start with ~/` |
 | ホームディレクトリそのもの | 無効 — `cannot be the home directory` |
-| `/` など、ホームディレクトリを含む上位 path | 無効 — `cannot contain the home directory` |
-| その他の absolute path または `~/` を root とするパス | 有効 |
+| `/` など、ホームディレクトリを内側に含むパス | 無効 — `cannot contain the home directory` |
+| 上記以外の絶対パス、または `~/` から始まるパス | 有効 |
 
 ## シークレット保護
 
-secret protection は、資格情報を含むファイルの読み取りと書き込みをブロックします。この section は設定の仕様です。すべての id、保護対象パス、除外を含む組み込みルールの完全な一覧は、[シークレット保護リファレンス](/ja/reference/secret-protection)を参照してください。
+シークレット保護は、資格情報を含むファイルの読み取りと書き込みをブロックします。このセクションで扱うのは設定の仕様です。組み込みルールの全一覧（各 ID、保護対象のパス、除外条件）は、[シークレット保護リファレンス](/ja/reference/secret-protection)を参照してください。
 
-`secret_protection.overrides` は、個別の組み込みルールを id で指定し、値に `"on"` または `"off"` を使用します。`"off"` は既定で有効なルールを無効にし、`"on"` は既定で無効な tier のルールを有効にします。
+`secret_protection.overrides` では、組み込みルールを個別に ID で指定し、値として `"on"` または `"off"` を使います。`"off"` は既定で有効なルールを無効にし、`"on"` は既定で無効な階層のルールを有効にします。
 
 ```json
 {
@@ -220,67 +220,67 @@ secret protection は、資格情報を含むファイルの読み取りと書�
 }
 ```
 
-未登録の id は `unknown secret protection rule id "<id>"` で拒否され、その他の値は `secret_protection.overrides.<id> must be "on" or "off"` で拒否されます。
+登録されていない ID は `unknown secret protection rule id "<id>"` で、それ以外の値は `secret_protection.overrides.<id> must be "on" or "off"` で拒否されます。
 
 ### 既定で無効なルール
 
-多くの組み込み secret rule は、secret protection が有効な場合に有効です。1 つだけ例外があります。対応するコーディングエージェントの settings file と MCP configuration file を対象にする **Coding CLI config** rule です。これらのファイルは資格情報を inline で含む場合がありますが、エージェントが通常の作業で編集する場合もあります。そのため、この tier は既定で無効です。ルールごとに明示的な `"on"` override を指定して有効にします。有効にした config rule は、エージェントの user-level config file と、任意の `.mcp.json` など、任意の repository root で名前が一致する project-level file も保護します。
+組み込みのシークレットルールは、ほとんどがシークレット保護の有効時に一緒に有効になります。例外が 1 階層だけあります。対応するコーディングエージェントの設定ファイルと MCP 設定ファイルを対象とする **Coding CLI config** のルールです。これらのファイルは資格情報を直接含むことがある一方で、エージェントが通常の作業で編集するファイルでもあります。そのため、この階層は既定で無効になっており、使う場合はルールごとに明示的な `"on"` の override で有効にします。有効にした config ルールは、エージェントのユーザーレベルの設定ファイルに加え、任意のリポジトリルートで名前が一致するプロジェクトレベルのファイル（`.mcp.json` など）も保護します。
 
-既定で無効な 10 個の id、既定で有効な対応する **Coding CLI credential** rule、各ルールが保護する正確なパスは、[シークレット保護リファレンス](/ja/reference/secret-protection#コーディング-cli-設定階層（既定では-off）)に記載されています。
+既定で無効な 10 個の ID、それぞれに対応する既定で有効な **Coding CLI credential** ルール、各ルールが保護する正確なパスは、[シークレット保護リファレンス](/ja/reference/secret-protection#コーディング-cli-設定階層（既定では-off）)に記載しています。
 
 ### Deny path
 
-`secret_protection.deny_paths` は、組み込みの機密パスに加えて独自の保護対象を追加します。deny path は組み込みルールより**先に**確認され、一致すると rule id `secret.deny-path` による hard stop になります。
+`secret_protection.deny_paths` は、組み込みの機密パスに加えて独自の保護対象を追加します。deny path は組み込みルールより**先に**評価され、一致した場合はルール ID `secret.deny-path` による即時ブロックになります。
 
-Validation：
+検証：
 
 | 項目 | 結果 |
 | --- | --- |
-| string ではない、または trim 後に空になる string | 無効 — `must be a non-empty path string` |
-| `config/secrets` や `./secrets` などの relative path | **有効** — session ごとに config working directory を基準に解決 |
-| `~`、`$HOME`、`${HOME}` だけ | 無効 — ホームディレクトリそのものは拒否 |
-| `~/…`、`$HOME/…` | 展開後に home またはその上位にならない場合は有効 |
-| 解決後にホームディレクトリそのものになるパス | 無効 — `cannot be the home directory or a path above it (this would block every command the agent runs)` |
-| `/`、`/Users`、`/home` など、解決後に home の ancestor になるパス | 無効 — 同じ message |
-| その他の absolute path | 有効 |
+| 文字列でない、または前後の空白を除くと空になる文字列 | 無効 — `must be a non-empty path string` |
+| `config/secrets` や `./secrets` などの相対パス | **有効** — セッションごとに、設定時の作業ディレクトリを基準に解決 |
+| `~`、`$HOME`、`${HOME}` 単体 | 無効 — ホームディレクトリそのものは拒否 |
+| `~/…`、`$HOME/…` | 展開後にホームディレクトリまたはその上位にならなければ有効 |
+| 解決するとホームディレクトリそのものになるパス | 無効 — `cannot be the home directory or a path above it (this would block every command the agent runs)` |
+| `/`、`/Users`、`/home` など、解決するとホームディレクトリの上位になるパス | 無効 — 同じメッセージ |
+| 上記以外の絶対パス | 有効 |
 
-relative 項目を受け入れる理由は、ファイルの保存時には不明な各 session の working directory を基準に解決するためです。拒否される分類は、home、home より上位のパス、`/` です。これらに正当な解釈はなく、home 下のほぼすべての workspace ですべてのコマンドをブロックします。
+相対パスを受け付けるのは、ファイルを保存する時点では分からない各セッションの作業ディレクトリを基準に解決するためです。拒否されるのは、ホームディレクトリ、それより上位のパス、`/` の 3 種類です。これらを指定する正当な理由はなく、指定するとホームディレクトリ配下のほぼすべての作業環境で、あらゆるコマンドがブロックされてしまいます。
 
-**有効な deny path の保護範囲：**パス自体とすべての descendant です。比較前に、target は execution working directory を基準に、設定済みパスは config working directory を基準に正規化されます。
+**有効な deny path が保護する範囲：**そのパス自体と、**その配下すべて**です。比較の前に、対象は実行時の作業ディレクトリを基準に、設定されたパスは設定時の作業ディレクトリを基準に正規化されます。
 
-次の 2 つの制限があります。
+知っておくべき制限が 2 つあります。
 
-- deny path は `secret_protection.enabled` が `true` の場合だけ適用されます。`false` にすると、secret stage のその他すべての保護と一緒に無効になります。
-- `secret.deny-path` は登録済みの secret rule id ではないため、`secret_protection.overrides` では無効にできません。無効にできるのは `secret_protection.enabled: false` だけです。
+- deny path が適用されるのは、`secret_protection.enabled` が `true` の間だけです。`false` にすると、シークレット判定ステージの他の保護もろとも無効になります。
+- `secret.deny-path` は登録済みのシークレットルール ID ではないため、`secret_protection.overrides` では無効にできません。無効にできるのは `secret_protection.enabled: false` だけです。
 
 ### Secret allow path
 
-`secret_protection.allow_paths` は、正確な file または directory とそのすべての descendant を、組み込みの basename、home-directory、key-variant、extension rule から除外します。repository の `.env.test` や、secret ではない credential 形式の filename を含む fixture directory など、利用者が意図して管理する file に使用します。
+`secret_protection.allow_paths` は、特定のファイル、またはディレクトリとその配下すべてを、組み込みのベース名ルール、ホームディレクトリルール、鍵ファイルの派生形ルール、拡張子ルールから除外します。リポジトリ内の `.env.test` や、シークレットではないものの資格情報らしいファイル名を含むフィクスチャ用ディレクトリなど、意図して管理しているファイルに使います。
 
 優先順位は固定です。
 
-1. 設定済みの deny path が常に優先します。同じ target が両方の list にある場合、結果は `secret.deny-path` です。
-2. Coding CLI credential rule と config rule（`secret.cli.*`）が常に優先します。allow path は agent 自身の credential または configuration を公開できません。
-3. allow path に一致すると、その target に対するその他の組み込み secret rule を抑制します。
+1. 設定済みの deny path が常に優先します。同じ対象が両方のリストにある場合、結果は `secret.deny-path` になります。
+2. Coding CLI の credential ルールと config ルール（`secret.cli.*`）が常に優先します。allow path でエージェント自身の資格情報や設定を露出させることはできません。
+3. allow path に一致した対象については、その他の組み込みシークレットルールが抑制されます。
 
-Validation：
+検証：
 
 | 項目 | 結果 |
 | --- | --- |
-| string ではない、または trim 後に空になる string | 無効 — `must be a non-empty path string` |
-| `.env.test` や `fixtures/credentials` などの relative path | **有効** — session ごとに config working directory を基準に解決 |
+| 文字列でない、または前後の空白を除くと空になる文字列 | 無効 — `must be a non-empty path string` |
+| `.env.test` や `fixtures/credentials` などの相対パス | **有効** — セッションごとに、設定時の作業ディレクトリを基準に解決 |
 | `*` または `?` を含む項目 | 無効 — `cannot contain glob characters (* or ?); list the exact file or directory` |
-| `~`、`$HOME`、`${HOME}` だけ、または home より上位の path | 無効 — `cannot cover the home directory or a path above it (this would disable secret protection everywhere)` |
+| `~`、`$HOME`、`${HOME}` 単体、またはホームディレクトリより上位のパス | 無効 — `cannot cover the home directory or a path above it (this would disable secret protection everywhere)` |
 | `~/.cc-safety-net` またはその配下 | 無効 — `cannot cover the guard's own configuration` |
-| その他の literal absolute path、`~/…`、`$HOME/…`、`${HOME}/…` | 有効 |
+| 上記以外のリテラルな絶対パス、`~/…`、`$HOME/…`、`${HOME}/…` | 有効 |
 
-項目は literal path であり、glob pattern ではありません。target は execution working directory を基準に解決し、relative allow entry は config working directory を基準に解決します。same-or-descendant comparison の前に両側の既存 symlink を解決するため、allow root は symlink 経由の target も対象にします。
+各項目はリテラルなパスであり、glob パターンではありません。対象は実行時の作業ディレクトリから、相対指定の allow path は設定時の作業ディレクトリから解決されます。一致判定（同一または配下かどうか）の前に、両側とも既存のシンボリックリンクをたどるため、allow path の起点はシンボリックリンク経由で到達する対象も含みます。
 
-runtime は解決後に safety boundary を再確認します。home または home の ancestor に解決される項目は無視します。有効な guard configuration root 配下の target は除外しません。`CC_SAFETY_NET_HOME` で root を移動した場合や、home または `~/.cc-safety-net` が symlink の場合も同じです。
+ランタイムは、解決後にもう一度安全性の境界を確認します。ホームディレクトリやその上位に解決される項目は無視されます。また、実効的なガード設定ルートの配下にある対象は除外されません。これは、`CC_SAFETY_NET_HOME` でルートを移した場合や、ホームディレクトリや `~/.cc-safety-net` がシンボリックリンクである場合も同じです。
 
-## Audit retention
+## 監査ログの保持期間
 
-`audit.retention_days` は、retention sweep が削除するまで audit record を保持する期間を設定します。既定値は **30 日**で、許容範囲は **1 から 365** です。
+`audit.retention_days` は、保持期間の sweep によって削除されるまで監査レコードを保持する期間を指定します。既定値は **30 日**、指定できる範囲は **1〜365** です。
 
 ```json
 {
@@ -291,60 +291,60 @@ runtime は解決後に safety boundary を再確認します。home または h
 }
 ```
 
-pruning は opportunistic です。audit write の後、audit read の前に、audit root ごとに UTC の 1 日あたり 1 traversal まで実行します。例外を投げず、symlink をたどりません。record schema と記録内容については、[Audit log](/ja/reference/audit-log)を参照してください。
+削除処理は日和見的に実行されます。監査ログの書き込み後・読み取り前に、監査ルートごとに UTC の 1 日あたり最大 1 回だけ走査します。例外を投げることはなく、シンボリックリンクもたどりません。レコードのスキーマと記録内容は、[監査ログ](/ja/reference/audit-log)を参照してください。
 
 <Note>
-  retention は policy のその他の部分とは別に解決されます。sweep はこの 1 field をファイルから直接読み取るため、別の場所で validation に失敗する policy でも pruning を実行します。値がない、integer ではない、または使用できない場合は 30 に戻ります。`1` 未満は `1` に、`365` より大きい値は `365` に clamp されます。
+  保持期間は、ポリシーの他の部分とは独立して解決されます。sweep はこのフィールドだけをファイルから直接読み取るため、他の箇所で検証に失敗するポリシーでも削除処理は動作します。値がない、整数でない、または使用できない場合は 30 に戻ります。`1` 未満は `1` に、`365` を超える値は `365` に丸められます。
 
-  そのため、範囲外の値では 2 つの動作が同時に発生します。schema は値を**拒否**して runtime を degraded にし、sweep は値を **clamp** します。`"retention_days": 1000` は diagnostic に表示され、365 日で pruning します。
+  そのため、範囲外の値を指定すると 2 つのことが同時に起こります。スキーマ検証はその値を**拒否**してランタイムを degraded にし、sweep のほうは値を**丸めて**使います。`"retention_days": 1000` は診断に表示されつつ、実際には 365 日で削除されます。
 </Note>
 
-## 無効な policy の動作
+## 無効なポリシーの扱い
 
-無効な `policy.json` は通常の作業をブロックしません。runtime は `degraded` に移行し、fallback を使用します。
+`policy.json` が無効でも、通常の作業がブロックされることはありません。ランタイムは `degraded` に移行し、フォールバックを使用します。
 
-| ファイルの状態 | Runtime の動作 |
+| ファイルの状態 | ランタイムの動作 |
 | --- | --- |
-| 読み取り可能だが無効 | field ごとに salvage します。認識された有効な section は維持し、その他の section は保護的な既定値に置き換えます。 |
-| 空、parse 不能、または JSON object ではない | ファイル全体に組み込みの保護的な既定値を使用します。 |
-| 存在しない | diagnostic なしで組み込みの既定値を使用します。runtime は `ready` のままです。 |
+| 読み取れるが無効 | フィールド単位で救済します。認識できた有効なセクションはそのまま有効にし、それ以外のセクションは安全側の既定値で置き換えます。 |
+| 空、パースできない、または JSON オブジェクトでない | ファイル全体に組み込みの安全側の既定値を使用します。 |
+| 存在しない | 診断を出さずに組み込みの既定値を使用します。判定は `ready` のままです。 |
 
-salvage は意図的に保護的です。そのため、壊れたファイルでは通常、設定より*多く*の拒否が発生します。
+救済処理は意図的に安全側へ倒してあります。そのため、壊れたファイルでは通常、設定したつもりより*多く*の操作が拒否されます。
 
-| Field | 無効な場合 |
+| フィールド | 無効な場合の扱い |
 | --- | --- |
 | `version` | `1` に書き換え |
-| `safety.level` | `standard` に戻る |
-| `safety.overrides.*` | 無効な key を破棄し、機能は preset から継承 |
-| `workflow.worktree_mode` | `false` に戻る |
-| `destructive_command_protection.enabled` | `true` に戻る。保護は**有効** |
-| `destructive_command_protection.overrides` | 無効な項目を破棄。object ではない場合は `{}` |
-| `destructive_command_protection.allow_paths` | 無効な項目を破棄。array ではない場合は `[]`。allowance なし |
-| `secret_protection.enabled` | `true` に戻る。保護は**有効** |
-| `secret_protection.overrides` | 無効な項目を破棄。object ではない場合は `{}` |
-| `secret_protection.deny_paths` | 無効な項目を破棄。array ではない場合は `[]` |
-| `secret_protection.allow_paths` | 無効な項目を破棄。array ではない場合は `[]`。secret exemption なし |
-| `audit.retention_days` | clamp、または使用できない場合は `30` |
+| `safety.level` | `standard` に戻す |
+| `safety.overrides.*` | 無効なキーを破棄し、その機能は preset から継承 |
+| `workflow.worktree_mode` | `false` に戻す |
+| `destructive_command_protection.enabled` | `true` に戻す。保護は**有効** |
+| `destructive_command_protection.overrides` | 無効な項目を破棄。オブジェクトでない場合は `{}` |
+| `destructive_command_protection.allow_paths` | 無効な項目を破棄。配列でない場合は `[]`。除外はなし |
+| `secret_protection.enabled` | `true` に戻す。保護は**有効** |
+| `secret_protection.overrides` | 無効な項目を破棄。オブジェクトでない場合は `{}` |
+| `secret_protection.deny_paths` | 無効な項目を破棄。配列でない場合は `[]` |
+| `secret_protection.allow_paths` | 無効な項目を破棄。配列でない場合は `[]`。シークレットの除外はなし |
+| `audit.retention_days` | 範囲内に丸める。使用できない場合は `30` |
 
 <Warning>
-  無効な項目は**破棄され、修復されません**。typo がある deny path はその場所を保護しなくなり、無効な `safety.level` は暗黙に `standard` へ下げます。この 2 つは気付きにくい failure mode です。手動で編集するたびに `npx cc-safety-net status` を実行してください。
+  無効な項目は**破棄されるだけで、修復はされません**。書き間違えた deny path はその場所を保護しなくなり、無効な `safety.level` は黙って `standard` に下がります。この 2 つが、特に気づきにくい失敗パターンです。手作業で編集したら、そのつど `npx cc-safety-net status` を実行してください。
 </Warning>
 
-[設定の復旧](/ja/configuration/recovery)では、degraded state の完全な仕様、報告方法、`ready` に戻す方法を説明します。
+degraded 状態の完全な仕様、その報告のされ方、`ready` に戻す方法は、[設定の復旧](/ja/configuration/recovery)で説明しています。
 
 ## 関連ページ
 
 <CardGroup cols={2}>
   <Card title="安全レベル" icon="toggle-right" href="/ja/configuration/modes">
-    各安全機能の変更点と、worktree mode が緩和する操作。
+    各安全機能が何を変えるか、worktree モードが何を緩和するか。
   </Card>
   <Card title="環境変数" icon="variable" href="/ja/configuration/environment">
-    policy level を上げる変数を含む、すべての変数。
+    ポリシーのレベルを引き上げる変数を含む、すべての環境変数。
   </Card>
   <Card title="カスタムルール" icon="list-checks" href="/ja/configuration/custom-rules">
-    独自の blocking rule 用の、別の `rule.json` および rulebook schema。
+    独自のブロックルールを定義する `rule.json` と rulebook のスキーマ。
   </Card>
   <Card title="設定の復旧" icon="life-buoy" href="/ja/configuration/recovery">
-    Ready と degraded、fallback matrix、repair sequence。
+    ready と degraded の違い、フォールバックの一覧、修復の手順。
   </Card>
 </CardGroup>
