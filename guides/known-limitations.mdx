@@ -1,7 +1,7 @@
 ---
 title: "Known limitations and pitfalls"
 sidebarTitle: "Known limitations"
-description: "What CC Safety Net cannot catch: opaque command proxies, in-binary behavior, filesystem containment and network, symlink TOCTOU, interpreter flags, eval-based execution, and the Hermes Agent and OpenClaw coverage boundaries."
+description: "What CC Safety Net cannot catch: opaque command proxies, in-binary behavior, filesystem containment and network, symlink TOCTOU, interpreter flags, eval-based execution, the Codex interactive-session gap, and the Hermes Agent and OpenClaw coverage boundaries."
 ---
 
 CC Safety Net analyzes the command string your agent attempts to run. It is a strong guardrail against accidental data loss from known-destructive git and filesystem operations, but it is not a complete security solution. This page is an honest list of the **residual** limits that remain today, so you can set correct expectations and know when to use [sandboxing](/guides/vs-sandboxing) instead.
@@ -127,6 +127,12 @@ The Codex-native relay is untested and therefore unclaimed: the live end-to-end 
 ### Windows is not supported for either integration
 
 Both integrations assume the POSIX state layout. Relocated state is handled the way the hosts resolve it — `HERMES_HOME` for Hermes, then `OPENCLAW_STATE_DIR` and the directory of `OPENCLAW_CONFIG_PATH` for OpenClaw, falling back to `~/.hermes` and `~/.openclaw`. The Windows defaults are not: install and detection target the POSIX path there, so the Hermes install writes the plugin to a directory Hermes does not read, and OpenClaw's own CLI installs correctly while `doctor` misreports the state.
+
+## Codex coverage boundary
+
+Codex's unified exec path — the default shell path on macOS and Linux — sends a `PreToolUse` payload when a command opens a session, but none for `write_stdin`. Only the command that opened the session is evaluated. Text the model then types into the already-running interactive session reaches the shell without inspection and without an audit entry.
+
+This gap cannot be closed from the hook side: the host emits no event for that call, so there is nothing to analyze. If injection into a running session is a concern in your environment, use [sandboxing](/guides/vs-sandboxing) as the containment layer.
 
 ## Resolve stale integration caches
 
