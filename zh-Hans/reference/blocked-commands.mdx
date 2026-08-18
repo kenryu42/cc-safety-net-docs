@@ -1,7 +1,7 @@
 ---
 title: "被阻止的命令及其原因"
 sidebarTitle: "被阻止的命令"
-description: "CC Safety Net 阻止的 Git、rm、find、设备、PowerShell 和敏感路径操作，以及每项规则需要的安全级别。"
+description: "CC Safety Net 阻止的 Git、rm、find、设备、PowerShell 和敏感路径命令的完整参考，以及每项规则所需的安全级别。"
 keywords:
   - "被阻止的命令"
   - "危险命令"
@@ -19,21 +19,21 @@ keywords:
   - "policy.json 保护"
 ---
 
-CC Safety Net 阻止这些命令，因为它们可能永久破坏数据，包括未提交的更改、stash、远程历史或整个磁盘。下表涵盖默认内置规则；你可以用[自定义规则](/zh-Hans/configuration/custom-rules)扩展它们。
+CC Safety Net 阻止这些命令，因为它们可能永久破坏数据，包括未提交的更改、stash、远程历史或整个磁盘。下表涵盖默认内置规则，[自定义规则](/zh-Hans/configuration/custom-rules)可以在此基础上扩展。
 
-默认情况下，所有未标记的行在三个安全级别中都会阻止。标记为 **Strict** 或 **Paranoid** 的行需要对应级别或能力。策略可以禁用部分非灾难性规则。启用各级别的方法见[模式](/zh-Hans/configuration/modes)。
+默认情况下，未标记的行在三个安全级别下都会阻止。标记为 **Strict** 或 **Paranoid** 的行需要对应级别或能力。策略可以禁用部分非灾难性规则。启用各级别的方法见[模式](/zh-Hans/configuration/modes)。
 
-本页是行为矩阵，说明*阻止什么*以及每项边界的位置。它不是架构页面：有序防护流程见[架构](/zh-Hans/guides/architecture)，分类器如何得到判定见[分析引擎](/zh-Hans/guides/analysis-engine)，可通过的安全变体见[被允许的命令](/zh-Hans/reference/allowed-commands)。
+本页是行为矩阵，说明*阻止什么*以及各条边界的位置。它不是架构页面：有序防护流程见[架构](/zh-Hans/guides/architecture)，分类器如何得到判定见[分析引擎](/zh-Hans/guides/analysis-engine)，可通过的安全变体见[被允许的命令](/zh-Hans/reference/allowed-commands)。
 
 ## 每个级别增加的阻止
 
 | 级别 | 增加的阻止 |
 | --- | --- |
-| `standard` | 阻止所有未标记项。无法解析但看似安全的文本可以通过；包含可识别破坏性模式的文本仍被阻止。动态 `rm -rf` 目标不一定被阻止。 |
-| `strict` | 加上无法解析的命令、无法验证的破坏性目标、不支持的 heredoc 和内置敏感路径的元数据发现。 |
-| `paranoid` | 加上当前工作目录内的非临时递归强制删除，以及所有解释器单行命令。 |
+| [`standard`](/zh-Hans/configuration/modes#默认模式) | 阻止所有未标记项。`echo 'unterminated` 这类看似安全的无法解析文本可以通过；含有可识别破坏性模式的无法解析文本仍会被启发式扫描阻止。动态 `rm -rf` 目标**不会**一律阻止。 |
+| [`strict`](/zh-Hans/configuration/modes#strict-mode) | `standard` 阻止的全部内容，再加上无法解析的命令、无法验证的破坏性目标、[受支持范围之外的 heredoc](#strict-和-paranoid-中的-heredoc)，以及对内置敏感路径的纯元数据发现。 |
+| [`paranoid`](/zh-Hans/configuration/modes#paranoid-mode) | `strict` 阻止的全部内容，再加上即使位于当前工作目录内的非临时递归强制删除，以及所有解释器单行命令，无论其内容。 |
 
-<Note>根目录和主目录递归删除、Git 元数据保护和规范 `policy.json` 保护不依赖安全级别，也不能通过规则覆盖关闭。</Note>
+<Note>部分灾难性保护不依赖所选安全级别：根目录和主目录的递归删除保护、Git 元数据保护和规范 `policy.json` 保护会忽略主破坏性命令开关和单条规则的 `off` 覆盖。</Note>
 
 ## Git 命令
 
@@ -41,17 +41,17 @@ CC Safety Net 阻止这些命令，因为它们可能永久破坏数据，包括
 | --- | --- |
 | `git checkout -- <files>` | 永久丢弃未提交的更改 |
 | `git checkout --force` / `-f` | 强制丢弃未提交的更改 |
-| `git checkout <ref> -- <path>` | 用 ref 中的版本覆盖工作区 |
-| `git checkout <ref> <path>` | Git 区分 ref 和 pathspec 时可能覆盖工作区 |
+| `git checkout <ref> -- <path>` | 用 ref 中的版本覆盖工作树 |
+| `git checkout <ref> <path>` | Git 区分 ref 和 pathspec 时可能覆盖工作树 |
 | `git checkout --pathspec-from-file` | 可以从文件列表覆盖多个文件 |
 | `git restore <files>` | 丢弃未提交的更改；仅取消暂存请使用 `--staged` |
-| `git restore --worktree` / `-W` | 明确丢弃工作区更改 |
+| `git restore --worktree` / `-W` | 明确丢弃工作树中的更改 |
 | `git switch --discard-changes` | 切换分支时丢弃未提交的更改 |
 | `git switch --force` / `-f` | 强制切换并丢弃未提交的更改 |
 | `git reset --hard` | 删除所有未提交的更改 |
 | `git reset --merge` | 可能丢失未提交的更改 |
 | `git clean -f` / `--force` | 永久删除未跟踪文件 |
-| `git push --force` / `-f` | 改写远程历史；请使用 `--force-with-lease` |
+| `git push --force` / `-f` | 破坏远程历史；请改用 `--force-with-lease` |
 | `git branch -D` | 不检查合并状态就强制删除分支 |
 | `git rebase --abort` | 丢弃 rebase 冲突解决结果 |
 | `git merge --abort` | 丢弃 merge 冲突解决结果 |
@@ -59,13 +59,13 @@ CC Safety Net 阻止这些命令，因为它们可能永久破坏数据，包括
 | `git reflog delete` | 删除恢复历史 |
 | `git stash drop` | 永久删除已 stash 的更改 |
 | `git stash clear` | 删除所有已 stash 的更改 |
-| `git worktree remove --force` | 不检查更改就强制删除 worktree |
+| `git worktree remove --force` | 不检查是否有更改就强制删除 worktree |
 
 同时带强制标志和创建/重置标志的 Git 分支变更命令（例如 `git checkout -Bf`、`git switch -Cf --discard-changes`）会被视为强制分支重置并阻止。
 
 ### Git SSH 环境覆盖
 
-Git 接受 `GIT_SSH_COMMAND`、`GIT_SSH` 和 `GIT_SSH_VARIANT`，以在网络操作期间运行任意程序。CC Safety Net 会阻止这些覆盖与网络子命令的组合：
+Git 接受 `GIT_SSH_COMMAND`、`GIT_SSH` 和 `GIT_SSH_VARIANT`，以在网络操作期间运行任意程序。CC Safety Net 会阻止这些覆盖与网络子命令的组合，因为它们可以执行任意命令：
 
 | 被阻止的模式 | 阻止原因 |
 | --- | --- |
@@ -77,76 +77,82 @@ Git 接受 `GIT_SSH_COMMAND`、`GIT_SSH` 和 `GIT_SSH_VARIANT`，以在网络操
 
 | 命令模式 | 阻止原因 | 级别 |
 | --- | --- | --- |
-| `rm -rf /`, `~`, `$HOME` | 删除根目录或主目录 | 全部，灾难性 |
-| `rm -rf .git` 和受保护 hooks | 破坏仓库历史和 hooks | 全部，灾难性 |
-| `rm -rf .` | 删除当前工作目录本身 | 全部 |
-| `rm -rf` 到 cwd 以外 | 删除工作区以外的绝对、父级或非临时路径 | 全部 |
-| 主目录为 cwd 时运行 `rm -rf` | 以主目录为删除基准不安全 | 全部 |
-| `rm -rf "$target"` | 动态目标无法在执行前验证 | **Strict**、paranoid |
-| `rm -rf ./cache` | 即使在 cwd 内也限制非临时递归删除 | **Paranoid**（[`CC_SAFETY_NET_PARANOID_RM=1`](/zh-Hans/configuration/modes)） |
-| `cleanup() { rm -rf ../outside; }; cleanup` | 在调用位置分析被调用的 shell 函数正文；仅定义函数不会执行任何操作 | 全部 |
-| `find ... -delete` | 永久删除匹配文件；先用 `-print` 预览 | 全部 |
+| `rm -rf /`、`~`、`$HOME` | 删除根目录或主目录极其危险 | 全部，灾难性 |
+| `rm -rf .git` 和受保护的 hooks | 破坏仓库历史和 hooks | 全部，灾难性 |
+| `rm -rf .`（cwd 本身） | 删除整个工作目录会移除你当前所在的工作区 | 全部 |
+| cwd 以外的 `rm -rf` | 递归删除 cwd 之外的绝对路径、父级路径或非临时路径 | 全部 |
+| 主目录为 cwd 时运行 `rm -rf` | 以主目录为递归删除的起点并不安全，请先切换到项目目录 | 全部 |
+| `rm -rf "$target"` 等动态目标 | 由变量、反引号或替换拼出的目标无法在执行前验证 | **Strict**、paranoid |
+| `rm -rf ./cache`（cwd 内的非临时路径） | 即使在工作目录内，也限制递归强制删除 | **Paranoid**（[`CC_SAFETY_NET_PARANOID_RM=1`](/zh-Hans/configuration/modes#paranoid-rm-check)） |
+| `cleanup() { rm -rf ../outside; }; cleanup` | shell 函数的正文会在调用位置分析；只定义而不调用不会执行任何操作 | 全部 |
+| `find ... -delete` | 永久删除符合条件的文件；可先用 `-print` 预览 | 全部 |
 | `find .git -delete` | 选择受保护的 Git 元数据进行删除 | 全部，灾难性 |
-| `find -exec rm -rf ...` | 在 `find` 中执行递归强制删除 | 全部 |
+| `find -exec rm -rf ...` | 在 `find` 的 `-exec` 块中执行递归强制删除 | 全部 |
 | `xargs rm -rf` | 动态输入使目标不可预测 | 全部 |
 | `xargs <shell> -c` | 可以执行任意命令 | 全部 |
 | `parallel rm -rf` | 动态输入使目标不可预测 | 全部 |
 | `parallel <shell> -c` | 可以执行任意命令 | 全部 |
 
-`rm -rf` 目标使用以下首个匹配分类顺序：不受支持的 Windows UNC 或设备目标、根目录或主目录、受保护的 Git 元数据、临时路径、动态目标、配置的 allow path、主目录作为工作目录、工作目录本身、工作目录内部、工作目录外部。临时路径在所有级别都允许。当前工作目录内的其他路径在 paranoid `rm` 未启用时允许。安全变体见[被允许的命令](/zh-Hans/reference/allowed-commands)。
+`rm -rf` 目标使用以下首个匹配分类顺序：不受支持的 Windows UNC 或设备目标、根目录或主目录、受保护的 Git 元数据、临时路径、动态目标、配置的允许路径、主目录作为工作目录、工作目录本身、工作目录内部、工作目录外部。临时路径在所有级别都允许。当前工作目录内的其他路径在 paranoid `rm` 未启用时允许。安全变体见[被允许的命令](/zh-Hans/reference/allowed-commands)。
 
-将破坏性命令隐藏在 POSIX 函数中不会改变这些规则：函数正文会在调用位置使用调用者的 cwd 进行分析；调用可经由引号（`'cleanup'`）、`time`/`!` 前缀和 `eval` 解析。未调用的定义不产生作用。有关调用解析和 scope，请参阅 [POSIX shell 函数](/zh-Hans/guides/analysis-engine)。
+将破坏性命令隐藏在 POSIX 函数中不会改变这些规则：函数正文会在调用位置使用调用者的 cwd 进行分析；调用可经由引号（`'cleanup'`）、`time`/`!` 前缀和 `eval` 解析。从未被调用的定义不会产生任何作用。调用解析和作用域见 [POSIX shell 函数](/zh-Hans/guides/analysis-engine#posix-shell-函数)。
 
 <Warning>
-  `standard` 不会一律阻止动态 `rm -rf` 目标。`rm -rf "$target"` 只有在启用 `fail_closed` 的 `strict` 或 `paranoid` 中才被阻止。不可信来源可能构造命令时，请使用更高级别。
+  `standard` 不会一律阻止动态 `rm -rf` 目标。`rm -rf "$target"` 在 `standard` 中允许，只有启用 `fail_closed` 能力后，也就是在 [`strict`](/zh-Hans/configuration/modes#strict-mode) 或 [`paranoid`](/zh-Hans/configuration/modes#paranoid-mode) 中，才会被阻止。`standard` 对对抗性或动态生成的命令文本只提供尽力保护；命令可能来自提示注入或其他不可信来源时，请使用 `strict` 或 `paranoid`。
 </Warning>
 
-Git 元数据和动态目标都会在配置的 allow path 前分类，因此 `destructive_command_protection.allow_paths` 中的项绝不会放宽 Git 元数据保护，也绝不会应用于无法验证的目标。
+Git 元数据和动态目标都会在配置的允许路径之前分类，因此 `destructive_command_protection.allow_paths` 中的项绝不会放宽 Git 元数据保护，也绝不会应用于无法验证的目标。
 
 ## 设备和磁盘破坏
 
-CC Safety Net 在每个安全级别分析 `dd`、`mkfs` 和 `shred`。这些规则不是灾难性规则，因此主破坏性命令开关和单条规则的 `off` 覆盖仍可应用。
+CC Safety Net 在每个安全级别分析 `dd`、`mkfs` 和 `shred`。这些规则不是灾难性规则，因此主破坏性命令开关和单条规则的 `off` 覆盖仍然适用。
 
 | 命令模式 | 阻止原因 |
 | --- | --- |
-| `dd ... of=/dev/...` | 直接写入设备路径可能破坏磁盘或分区。重新排序和带引号的操作数也涵盖在内（`dd of=/dev/nvme0n1 if=/dev/zero`、`of="/dev/sda"`） |
+| `dd ... of=/dev/...` | 用 `dd` 直接写入设备路径可能破坏磁盘或分区。重新排序和带引号的操作数也涵盖在内（`dd of=/dev/nvme0n1 if=/dev/zero`、`of="/dev/sda"`） |
 | `mkfs /dev/...` 和任何 `mkfs.*` 变体 | 格式化设备会清除其中的全部内容（`mkfs.ext4 /dev/sda1`、`mkfs -t ext4 /dev/sdb`） |
-| `shred <target>` | 永久破坏目标；包括 `shred --help` 和 `shred --version` 在内的所有目标都被阻止 |
+| `shred <target>` | `shred` 会永久破坏交给它的任何东西，因此所有目标都被阻止——包括 `shred --help` 和 `shred --version` |
 
-只有对设备的*写入*会触发 `dd` 规则。从设备读取到文件（`dd if=/dev/sda of=./backup.img`）可以通过，对文件镜像运行 `mkfs.ext4 disk.img` 也可以通过。三条规则也适用于包装器和载体：`bash -c "dd if=/dev/zero of=/dev/sda"`、`sudo mkfs.ext4 /dev/sda`、`env dd of=/dev/sda if=/dev/zero` 和 `eval "shred secret"` 都会被阻止。
+只有对设备的*写入*会触发 `dd` 规则。从设备读取到文件（`dd if=/dev/sda of=./backup.img`）是允许的，对文件镜像运行 `mkfs.ext4 disk.img` 同样允许。三条规则也适用于包装器和载体：`bash -c "dd if=/dev/zero of=/dev/sda"`、`sudo mkfs.ext4 /dev/sda`、`env dd of=/dev/sda if=/dev/zero` 和 `eval "shred secret"` 都会被阻止。
 
 ## Git 元数据
 
-CC Safety Net 解析执行目录最近的祖先 `.git` 入口，并保护该入口、解析出的 Git 目录及其 `hooks` 子树。即使你位于工作目录内，此保护也会生效。它在加载任何配置前求值，因此没有安全级别，策略也无法关闭它。
+CC Safety Net 会解析出执行目录最近的祖先 `.git` 条目，并保护该条目、解析出的 Git 目录及其 `hooks` 子树。即使你位于工作目录内，此保护也会生效。它在加载任何配置之前判定，因此不带安全级别，策略也无法将其关闭。
 
 | 被阻止的形式 | 说明 |
 | --- | --- |
-| `rm .git`, `rm -rf .git`, `rm .*` | 直接删除 Git 控制入口 |
-| `rm -rf <resolved gitDir>`, `rm -rf <commonDir>` | 对于 **linked worktree** 或 submodule，`.git` 是标记文件；它所指向的解析后 `gitDir` 和 `commonDir` 也受保护 |
-| `rm -rf <root>/.git/modules/<submodule>` | 保护 submodule Git 目录 |
-| `rm -rf <dirname(gitDir)>/*` | glob 覆盖受保护目录 |
-| `mv` 使用受保护源或目标 | 阻止移动路径 |
-| `> .git` 和其他写入重定向 | 阻止覆盖 |
-| `Write` 或 patch 的目标是 `.git/hooks/new-hook` | 写入工具、patch 和未知工具路径；只读工具除外 |
+| `rm .git`、`rm -rf .git`、`rm .*` | 直接删除控制面条目 |
+| `rm -rf <resolved gitDir>`、`rm -rf <commonDir>` | 对于 **linked worktree** 或 submodule，`.git` 是标记文件；它所指向的解析后 `gitDir` 和 `commonDir` 也受保护 |
+| `rm -rf <root>/.git/modules/<submodule>` | submodule 的 Git 目录 |
+| `rm -rf <dirname(gitDir)>/*` | 覆盖受保护目录的 glob |
+| 源或目标为受保护路径的 `mv` | 移动途径 |
+| `> .git` 和其他写入重定向 | 重定向途径 |
+| `Write` 或 patch 的目标是 `.git/hooks/new-hook` | 写入工具、patch 和未知工具三条途径；只读工具除外 |
 | `find .git -delete` | 即使将 `find.delete-git-metadata` 设置为 `off`，也始终是灾难性操作 |
 
-符号链接的 `.git` 和 hooks 会同时按字面路径和规范路径保护，指向缺失 Git 目录的 `.git` 标记仍会阻止。POSIX shell 中末尾的 `*` 不匹配 dot-entry，因此仓库根目录中的 `rm -rf ./*` 不涵盖 `.git`，但 `rm -rf .git/worktrees/*` 和 PowerShell 通配符会涵盖。
+符号链接的 `.git` 和 hooks 会同时按字面路径和规范路径保护，指向缺失 Git 目录的 `.git` 标记仍会阻止。POSIX shell 中末尾的 `*` 不匹配以点开头的条目，因此仓库根目录中的 `rm -rf ./*` 不涵盖 `.git`，但 `rm -rf .git/worktrees/*` 和 PowerShell 通配符会涵盖。
 
-<Note>保护范围是执行目录最近的 Git 控制面，不包括执行目录下其他嵌套仓库，也不包括解析集合外的 Git 内部路径。</Note>
+<Note>边界：此防护覆盖执行目录最近的祖先 Git 控制面，不包括执行目录下的其他嵌套仓库，也不包括解析集合之外的 Git 内部路径。</Note>
 
 ## 规范 `policy.json`
 
-修改或删除 `~/.cc-safety-net/policy.json`，或设置变量时的 `$CC_SAFETY_NET_HOME/policy.json`，始终被阻止。此检查在加载配置前运行，因此其保护策略无法禁用它，拒绝不带安全级别或配置状态。原因字符串严格为：
+修改或删除规范用户策略文件——`~/.cc-safety-net/policy.json`，或在设置了 `CC_SAFETY_NET_HOME` 时的 `$CC_SAFETY_NET_HOME/policy.json`——始终被阻止。此检查在加载配置**之前**运行，因此它所保护的那份策略永远无法禁用它，其拒绝也不带安全级别和配置状态。原因字符串固定为：
 
 ```text
 This path contains the protected policy config and you must not modify or delete it.
 ```
 
-检查覆盖文件、其目录和祖先目录的直接写入、编辑、patch、准确 shell 操作数、写入重定向、受支持的环境变量/相对路径/现有符号链接别名、递归删除，以及以文件、目录或祖先为源的移动。
+匹配覆盖该文件、它所在的目录以及该目录的各级祖先，涵盖以下形式：
 
-以下只读命令允许检查该文件：`[`, `cat`, `file`, `grep`, `head`, `jq`, `less`, `ls`, `more`, `rg`, `sed`, `stat`, `tail`, `test`, `wc`。
+- 直接的写入、编辑和 patch 目标。
+- 精确的 shell 操作数和写入重定向。
+- 受支持的环境变量、相对路径和现有符号链接别名。
+- 对策略目录或其祖先的递归 `rm`。
+- 以该文件、其目录或祖先为源的 `mv`。
 
-<Warning>这是有意保持最小范围的精确路径保护，不是命令模拟。它跟踪仅赋值 shell 变量和明确的 `cd`，但不会展开 glob 或 brace，不会推断解释器计算路径、检查解释器正文、推断归档成员、模拟 `find` 操作或推断传输后的最终文件名。Rulebook、lockfile、缓存、同级文件和对策略目录的检查不在此防护范围内，只有 `policy.json` 防篡改。</Warning>
+只读的检查命令在允许列表中，可以通过：`[`、`cat`、`file`、`grep`、`head`、`jq`、`less`、`ls`、`more`、`rg`、`sed`、`stat`、`tail`、`test`、`wc`。
+
+<Warning>这是有意保持最小范围的精确路径保护，不是命令模拟。它会跟踪只做赋值的 shell 变量和显式的 `cd`，但不会展开 glob 或 brace，不会推断计算得出的解释器路径、检查解释器正文、推断归档成员、模拟 `find` 操作或推断传输后的最终文件名。rulebook、lockfile、缓存、同级文件和对策略目录的检查都不在此防护范围内，只有 `policy.json` 具备防篡改能力。</Warning>
 
 ## PowerShell `Remove-Item`
 
@@ -154,20 +160,20 @@ PowerShell 支持是以 `Remove-Item` 及其别名和现有跨 shell 规则为�
 
 | 命令模式 | 阻止原因 | 级别 |
 | --- | --- | --- |
-| `Remove-Item C:\`, `~`, `$HOME`, `$env:USERPROFILE`, `$env:HOME` | 删除根目录或主目录，包括末尾 `\`、`\*` 和 `/` 变体 | 全部，灾难性 |
-| `Remove-Item .git -Recurse -Force` | 受保护的 Git 元数据；PowerShell 通配符*会*匹配 dot-entry | 全部，灾难性 |
-| `Remove-Item . -Recurse -Force` | 删除当前目录本身，包括位于 `--` 参数结束标记后时 | 全部 |
-| `Remove-Item ../other -Recurse -Force` | 删除 cwd 以外路径，包括 `..\other`、`../{other}`、含有外部元素的逗号分隔数组，以及 Windows UNC/namespace 目标 | 全部 |
+| `Remove-Item C:\`、`~`、`$HOME`、`$env:USERPROFILE`、`$env:HOME` | 删除根目录或主目录，包括末尾 `\`、`\*` 和 `/` 变体 | 全部，灾难性 |
+| `Remove-Item .git -Recurse -Force` | 受保护的 Git 元数据；PowerShell 通配符*会*匹配以点开头的条目 | 全部，灾难性 |
+| `Remove-Item . -Recurse -Force` | 当前目录本身，包括出现在 `--` 参数结束标记之后的形式 | 全部 |
+| `Remove-Item ../other -Recurse -Force` | cwd 以外的路径，包括 `..\other`、`../{other}`、含有外部元素的逗号分隔数组，以及 Windows UNC/namespace 目标 | 全部 |
 | `Set-Location $HOME; Remove-Item ./build -Recurse -Force` | cwd 为主目录时递归删除 | 全部 |
-| `Remove-Item $target -Recurse -Force` | 无法验证动态目标 | **Strict**、paranoid |
-| `Get-ChildItem . -Recurse \| Remove-Item -Force` | 无法验证管道输入 | **Strict**、paranoid |
-| `Remove-Item -Recurse -Force -Path` | 缺少 `-Path` 值，因此分类为动态目标 | **Strict**、paranoid |
-| `Remove-Item @params -Recurse -Force` | splatted 参数分类为动态目标 | **Strict**、paranoid |
-| `Remove-Item ./cache -Recurse -Force` | cwd 内的非临时路径 | **Paranoid**（[`CC_SAFETY_NET_PARANOID_RM=1`](/zh-Hans/configuration/modes)） |
+| `Remove-Item $target -Recurse -Force` | 无法验证的动态目标 | **Strict**、paranoid |
+| `Get-ChildItem . -Recurse \| Remove-Item -Force` | 无法验证的管道输入 | **Strict**、paranoid |
+| `Remove-Item -Recurse -Force -Path` | 缺少 `-Path` 的值，会分类为动态目标 | **Strict**、paranoid |
+| `Remove-Item @params -Recurse -Force` | splat 传入的参数会分类为动态目标 | **Strict**、paranoid |
+| `Remove-Item ./cache -Recurse -Force` | cwd 内的非临时路径 | **Paranoid**（[`CC_SAFETY_NET_PARANOID_RM=1`](/zh-Hans/configuration/modes#paranoid-rm-check)） |
 
-系统解析别名和缩写参数，因此 `ri . -r -fo` 也会阻止。调用运算符形式（`& Remove-Item ...`、`& { ... }`、`. { ... }`）、带字面量字符串的 `iex` / `Invoke-Expression` 和 `$(...)` 子表达式都会被分析。行注释（`#`）和块注释（`<# ... #>`，包括嵌套）会被忽略，但其后的真实命令仍会阻止；格式错误或超过深度限制的块注释和子表达式会故障时拒绝。
+别名和缩写参数会被解析，因此 `ri . -r -fo` 同样阻止。调用运算符形式（`& Remove-Item ...`、`& { ... }`、`. { ... }`）、带字面量字符串的 `iex` / `Invoke-Expression` 和 `$(...)` 子表达式都会被分析。行注释（`#`）和块注释（`<# ... #>`，包括嵌套）会被忽略，但其后的真实命令仍会阻止；格式错误或超过深度限制的块注释和子表达式则按故障时拒绝处理。
 
-<Note>`-WhatIf` 会取消删除，因此 `-WhatIf`、`-WhatIf:$true` 和 `-wi` 允许原本被阻止的命令；显式 `-WhatIf:$false` 仍会阻止。Strict 行有一个例外：`Remove-Item $HOME -Recurse -Force` 在 `standard` 中也会阻止，因为它分类为根目录/主目录目标，而不是动态目标。</Note>
+<Note>`-WhatIf` 会解除阻止，因为 PowerShell 并不会真正删除任何内容：`-WhatIf`、`-WhatIf:$true` 和 `-wi` 缩写都会允许原本被阻止的 `Remove-Item . -Recurse -Force`；显式 `-WhatIf:$false` 则重新阻止。上面仅 strict 的那些行有一个例外：`Remove-Item $HOME -Recurse -Force` 在 `standard` 中也会阻止，因为它分类为根目录/主目录目标，而不是动态目标。</Note>
 
 ## 敏感路径
 
@@ -175,37 +181,43 @@ PowerShell 支持是以 `Remove-Item` 及其别名和现有跨 shell 规则为�
 
 内置敏感集合不只阻止写入，也阻止读取：`cat .env`、`env cat .env`、`sudo command cat .env`、`strings id_rsa`、`xxd .env`、`base64 .env`、`dd if=.env`、`cat ~/.ssh/id_rsa`、`bash -c "cat .env"` 和 `node -e 'require("child_process").execSync("cat .env")'` 都会被阻止。
 
-command 形式的提取是有界且结构化的：达到结构 shell 语法限制时会故障时拒绝，无效解析会抛出错误。配置的 deny path 在内置规则前匹配，并且绝不会被任何 `standard` 模式放宽。
+command 形式的提取是有界且结构化的：触及结构性 shell 语法限制时按故障时拒绝处理，解析无效时抛出错误。配置的拒绝路径在内置规则之前匹配，且不受 `standard` 模式下任何放宽的影响。
 
-完整目录（每个规则 ID 和系列、受保护路径、两个 Coding CLI 层级、匹配顺序和豁免）见[机密保护参考](/zh-Hans/reference/secret-protection)。可用 `secret_protection.enabled: false` 禁用整个功能，也可通过 `secret_protection.overrides` 开关单项规则，详情见[策略](/zh-Hans/configuration/policy)。
+完整目录（每个规则 ID 和系列、受保护路径、两个 Coding CLI 层级、匹配顺序和豁免）见[机密保护参考](/zh-Hans/reference/secret-protection)。可用 `secret_protection.enabled: false` 禁用整个功能，也可通过 `secret_protection.overrides` 逐条开启或关闭规则，详情见[策略](/zh-Hans/configuration/policy#机密保护)。
 
 ## Shell 包装器和解释器单行命令
 
-系统也会阻止包在 `bash -c` 或 `sh -c` 等 shell 解释器中的命令。CC Safety Net 最多递归分析 10 层嵌套包装器；超过该深度时会拒绝，而不会放行。
+包在 `bash -c` 或 `sh -c` 等 shell 解释器中的命令同样会被阻止。CC Safety Net 最多递归分析 10 层嵌套包装器；超过该深度时会拒绝，而不会放行。
 
 | 示例 | 结果 |
 | --- | --- |
 | `bash -c 'git reset --hard'` | 阻止 |
 | `sh -lc 'rm -rf /'` | 阻止 |
 
-默认情况下，会检测并阻止解释器单行命令中嵌入的破坏性代码。CC Safety Net 提取传给解释器 `-c` 或 `-e` 标志的代码，并扫描嵌入的破坏性操作，因此智能体无法将 `os.system("rm -rf /")` 包在 Python 或 Node 调用中来绕过 hook。
+默认情况下，会检测并阻止解释器单行命令中嵌入的破坏性代码。CC Safety Net 提取传给解释器 `-c` 或 `-e` 标志的代码，并扫描嵌入的破坏性操作，因此智能体无法把 `os.system("rm -rf /")` 包在 Python 或 Node 调用里来绕过 hook。
 
 | 示例 | 结果 |
 | --- | --- |
-| `python -c 'import os; os.system("rm -rf /")'` | 默认阻止 |
+| `python -c 'import os; os.system("rm -rf /")'` | 默认阻止（检测到嵌入的 `rm -rf`） |
 | `node -e 'require("child_process").exec("git reset --hard")'` | 默认阻止 |
 
 分析的解释器是 `python`、`python2`、`python3`、`node`、`ruby` 和 `perl`。触发阻止的是嵌入的破坏性命令，默认情况下不会只因单行命令形式而阻止。
 
 ### 阻止所有解释器单行命令
 
-设置 `CC_SAFETY_NET_PARANOID_INTERPRETERS=1` 后，所有这些解释器单行命令都会被阻止，即使不含危险代码。`python -c "print(1)"` 在 `standard` 和 `strict` 中允许，在此处被阻止。详情见[模式](/zh-Hans/configuration/modes)。
-
-这会阻止每个 `python -c`、`node -e`、`ruby -e` 和 `perl -e` 单行命令，而不论其内容。
+如果想不论内容一律阻止解释器单行命令，可设置 `CC_SAFETY_NET_PARANOID_INTERPRETERS=1`。此后每个 `python -c`、`node -e`、`ruby -e` 和 `perl -e` 单行命令都会被阻止，即使其中不含危险代码——`python -c "print(1)"` 在 `standard` 和 `strict` 中允许，在这里则被阻止。详情见[模式](/zh-Hans/configuration/modes#paranoid-interpreters)。
 
 ## `strict` 和 `paranoid` 中的 heredoc
 
-启用 `fail_closed` 能力时，heredoc 仅在以下条件全部满足时允许：只有一个 heredoc；用于标准输入；分隔符带引号；没有其他输入重定向；消费者是字面量 `cat`、`tee`、`git apply`、`git commit`、`gh pr create` 或 `gh issue create`。`fail_closed` 在 [`strict`](/zh-Hans/configuration/modes) 和 [`paranoid`](/zh-Hans/configuration/modes) 中启用。
+启用 `fail_closed` 能力时，heredoc 命令仅在以下条件全部满足时才允许：
+
+- 命令只有一个 heredoc。
+- heredoc 用于标准输入。
+- 分隔符带引号。
+- 命令没有其他输入重定向。
+- 消费者是字面量 `cat`、`tee`、`git apply`、`git commit`、`gh pr create` 或 `gh issue create`。
+
+`fail_closed` 在 [`strict`](/zh-Hans/configuration/modes#strict-mode) 和 [`paranoid`](/zh-Hans/configuration/modes#paranoid-mode) 中启用。
 
 不带引号的分隔符会使用以下拒绝消息：
 
@@ -219,20 +231,20 @@ Unquoted heredoc input is not supported safely. Quote the delimiter or ask the u
 This heredoc form or stdin consumer is not supported safely. Use a quoted heredoc with a supported consumer (cat, tee, git apply, git commit, gh pr create, gh issue create), or ask the user to verify.
 ```
 
-完整 heredoc 合同（包括 `standard` 模式处理 heredoc 内容的方式）见[分析引擎](/zh-Hans/guides/analysis-engine)。
+完整的 heredoc 契约（包括 `standard` 模式处理 heredoc 内容的方式）见[分析引擎](/zh-Hans/guides/analysis-engine)。
 
 ## 无法解析的命令文本
 
+shell 解析器无法对命令分词时（例如引号未闭合），行为取决于安全级别。
+
 | 输入 | `standard` | `strict` 和 `paranoid` |
 | --- | --- | --- |
-| `echo 'unterminated` | 允许 | 阻止，无法安全分析 |
-| `git reset --hard 'unterminated` | 后备扫描阻止 | 阻止 |
-| `dd if=/dev/zero of=/dev/sda 'oops` | 后备扫描阻止 | 阻止 |
+| `echo 'unterminated` | 允许——看似安全的无法解析文本可以通过 | 阻止，理由是“无法安全分析” |
+| `git reset --hard 'unterminated` | 被启发式扫描**阻止** | 阻止 |
+| `dd if=/dev/zero of=/dev/sda 'oops` | 被启发式扫描**阻止** | 阻止 |
 
-解析器资源限制与级别无关，在所有模式下都会拒绝。使用 `npx cc-safety-net explain "<command>"` 可查看具体规则和分析结果。
+启发式扫描会查找 `rm -rf`、`git reset --hard`、`git reset --merge`、`git clean -f`、`git checkout --force`、`git checkout --`、`git push --force`、`git push --delete`、`git branch -D`、`git tag -d`、`git stash drop`、`git stash clear`、不带 `--staged` 的 `git restore`、`find -delete`、`dd of=/dev/`、`mkfs /dev/` 和 `shred <arg>`。匹配会以规则 `raw-text.dangerous-command` 拒绝。文本以 `echo ` 或 `rg ` 开头时会跳过 `find`、`dd`、`mkfs` 和 `shred` 模式，因此把这些字符串引用进 echo 或 ripgrep 调用不会触发扫描。
 
-启发式扫描会查找 `rm -rf`、`git reset --hard`、`git reset --merge`、`git clean -f`、`git checkout --force`、`git checkout --`、`git push --force`、`git push --delete`、`git branch -D`、`git tag -d`、`git stash drop`、`git stash clear`、不带 `--staged` 的 `git restore`、`find -delete`、`dd of=/dev/`、`mkfs /dev/` 和 `shred <arg>`。匹配会以规则 `raw-text.dangerous-command` 拒绝。文本以 `echo ` 或 `rg ` 开头时会跳过 `find`、`dd`、`mkfs` 和 `shred` 模式，避免引用这些字符串触发扫描。
+<Warning>资源耗尽限制独立于级别系统，并在包括 `standard` 在内的**每个**模式中拒绝：超出声明命令递归限制或结构命令校验限制一律拒绝，绝不放行。</Warning>
 
-<Warning>资源耗尽限制独立于级别系统，并在包括 `standard` 在内的**每个**模式中拒绝：超过声明命令递归限制或结构命令验证限制始终拒绝，绝不会放行。</Warning>
-
-<Note>`explain` 命令可准确跟踪 CC Safety Net 阻止或允许任意命令的原因。参数见 [CLI 命令](/zh-Hans/reference/cli-commands)，JSON schema 见 [Explain 跟踪](/zh-Hans/reference/explain-trace)。</Note>
+<Note>`explain` 命令可以精确追踪 CC Safety Net 阻止或允许某条具体命令的原因。它的标志见 [CLI 命令](/zh-Hans/reference/cli-commands#explain)，JSON schema 见 [Explain 跟踪](/zh-Hans/reference/explain-trace)。</Note>

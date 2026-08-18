@@ -4,205 +4,205 @@ sidebarTitle: "配置恢复"
 description: "CC Safety Net 在配置无法验证时的行为：ready 与 degraded 状态、哪些保护继续执行、如何报告状态，以及修复状态的确切命令。"
 ---
 
-CC Safety Net 在每次工具调用时加载策略快照，读取本地策略文件、`rule.json`、规则 lockfile和经过digest验证的 rulebook 缓存。该负载永远不会写入，永远不会到达网络，也永远不会缓存结果，因此快照始终反映磁盘上当前的配置。
+CC Safety Net 在每次工具调用时加载策略快照，读取本地策略文件、`rule.json`、规则 lockfile 和经过 digest 验证的 rulebook 缓存。该加载过程从不写入、从不访问网络，也从不缓存结果，因此快照始终反映磁盘上当前的配置。
 
-快照有两种状态：**`ready`**和**`degraded`**。此页面是两者的完整契约，包括当来源被拒绝时停止执行的内容以及如何返回 `ready`。
+快照只有两种状态：**`ready`** 和 **`degraded`**。本页是两者的完整契约，包括某个来源被拒绝时哪些内容不再执行，以及如何回到 `ready`。
 
 ## 配置状态
 
-|状态|当它发生时 |这意味着什么 |
+| 状态 | 何时发生 | 含义 |
 | --- | --- | --- |
-| `ready` |每个活动源都已干净地加载和验证|完全针对你编写的配置进行普通评估 |
-| `degraded` |任何规则错误、任何规则警告或任何 `policy.json` 错误 |普通评估继续进行，以防止回退，每个报告表面都带有一条警告，指出被拒绝的来源 |
+| `ready` | 每个生效的来源都完整加载并通过验证 | 完全按照你编写的配置进行常规评估 |
+| `degraded` | 任何规则错误、任何规则警告或任何 `policy.json` 错误 | 常规评估继续进行，但依据的是回退配置，并且每个报告位置都会带上一条警告，指出被拒绝的来源 |
 
-单个警告足以将运行时移至 `degraded`。错误和警告之间的区别在于来源，而不是状态的严重性：
+一条警告就足以让运行时进入 `degraded`。错误与警告的区别在于来源，而不是状态的严重程度：
 
-- **错误**指定了**已删除**的源。该来源根本没有贡献任何规则。
-- **警告**指定一个**保持活动**的源，仅忽略被拒绝的部分。
+- **错误**指出某个来源已被**丢弃**。该来源不再提供任何规则。
+- **警告**指出某个来源**仍然生效**，只是被拒绝的那部分被忽略。
 
 两者都产生 `degraded`。
 
 <Note>
-`ready` 和 `degraded` 是 `cc-safety-net status` 打印的唯一结论。结论直接从快照状态读取。禁用 Claude Code 插件不会改变结论；`status` 将它报告为 `Not active` 下的第一项："plugin cc-safety-net@cc-marketplace is disabled in Claude Code; nothing is enforced in Claude Code until it is re-enabled. Other integrations are not affected."
+`ready` 和 `degraded` 是 `cc-safety-net status` 打印的仅有两种判定，判定直接读自快照状态。禁用 Claude Code 插件不会改变判定；`status` 会把它报告为 `Not active` 下的第一项："plugin cc-safety-net@cc-marketplace is disabled in Claude Code; nothing is enforced in Claude Code until it is re-enabled. Other integrations are not affected."
 </Note>
 
-## 无效的配置行为
+## 无效配置的行为
 
-无效配置绝不会仅仅因为它无效而拒绝正常工作。无效的候选者永远不会被强制执行，但它也永远不会将智能体锁定在外面。
+无效配置绝不会仅仅因为无效就拒绝正常工作。无效的候选配置不会被执行，但也不会把智能体挡在门外。
 
-- 无法验证的规则源将被**删除**。它的规则不再被执行。
-- 所有其他经过验证的范围都会继续执行其规则。
-- 每个内置保护都适用于每种情况 - 破坏性命令规则、机密保护、策略文件保护和 Git 元数据保护根本不读取任何规则配置。
-- 不可读的 `policy.json` 会回退到**保护**默认值，因此破坏性命令保护和机密保护都会保留。
+- 无法验证的规则来源会被**丢弃**，其规则不再执行。
+- 其他每个通过验证的范围都会继续执行自己的规则。
+- 每项内置保护在任何情况下都继续生效——破坏性命令规则、机密保护、策略文件保护和 Git 元数据保护根本不读取任何规则配置。
+- 无法读取的 `policy.json` 会回退到**保护性**默认值，因此破坏性命令保护和机密保护都保持开启。
 
-`degraded`时没有特殊的恢复模式，也没有白名单，因为不会因不可配置而拒绝任何内容。读取 `rule.json`、就地编辑它以及运行 `cc-safety-net rule sync` 都是普通的工具调用，它们的通过或失败取决于其自身的优点，因此你的智能体可以自行修复配置。
+处于 `degraded` 时没有特殊的恢复模式，也没有允许列表，因为没有任何操作会仅仅因为配置不可用而被拒绝。读取 `rule.json`、就地编辑它以及运行 `cc-safety-net rule sync` 都是普通的工具调用，各自独立地通过或失败，因此智能体可以自行修复配置。
 
 <Warning>
-删除源并不是安全中立的。它**删除**源造成的拒绝，因此你在删除的 rulebook中故意阻止的命令可以再次运行，直到你修复并重新同步它。永远不要假设错误中指定的 rulebook仍然可以保护你。
+丢弃某个来源并非安全中立。它**移除**了该来源带来的拒绝，因此你在被丢弃的 rulebook 中刻意阻止的命令又能运行了，直到你修复并重新同步它。永远不要以为错误中提到的 rulebook 仍在保护你。
 </Warning>
 
-在每个状态中受到保护的一件事是规范用户 `policy.json`。策略文件保护和 Git 元数据保护在加载配置快照之前运行，因此它们不会受到损坏的配置的影响。请参阅[策略](/zh-Hans/configuration/policy) 了解具体阻止哪些操作。
+在所有状态下始终受保护的只有一样东西：规范的用户 `policy.json`。策略文件保护和 Git 元数据保护在加载配置快照**之前**运行，因此不会受到损坏配置的影响。具体阻止哪些操作见[策略](/zh-Hans/configuration/policy)。
 
 ## 配置回退矩阵
 
-### 错误 — 源已被删除
+### 错误 —— 来源被丢弃
 
-|失败|什么停止执行？仍然适用的内容 |
+| 失败 | 哪些内容不再执行 | 仍然适用的内容 |
 | --- | --- | --- |
-|配置规则源时缺少lockfile |该范围内的每个 rulebook|其他范围的已验证规则和所有内置规则 |
-|缺少已配置源的锁定条目 |那一本rulebook|所有其他 rulebook和所有内置规则 |
-|缺少源的缓存条目 |那一本rulebook|所有其他 rulebook和所有内置规则 |
-|缓存digest不匹配 |那一本rulebook|所有其他 rulebook和所有内置规则 |
-|缓存的 rulebook无法解析或schema失败 |那一本rulebook|所有其他 rulebook和所有内置规则 |
-|lockfile条目与其配置的源标识不匹配 - 错误的 `kind`，或与源规范不同的 `path`/`name` |该范围内的每个 rulebook - 整个lockfile因格式错误而被拒绝 |其他范围的已验证规则和所有内置规则 |
-| `rule.json` 格式错误、为空或具有不受支持的 `version` |整个范围，**包括其 `transparent_wrappers`** |其他范围的已验证规则和所有内置规则 |
-|策略文件系统无法安全读取 |那个范围|其他范围的已验证规则和所有内置规则 |
+| 已配置规则来源但缺少 lockfile | 该范围内的每个 rulebook | 另一范围中已验证的规则和所有内置保护 |
+| 已配置的来源缺少 lock 条目 | 该 rulebook | 其他所有 rulebook 和所有内置保护 |
+| 来源缺少缓存条目 | 该 rulebook | 其他所有 rulebook 和所有内置保护 |
+| 缓存 digest 不匹配 | 该 rulebook | 其他所有 rulebook 和所有内置保护 |
+| 缓存的 rulebook 无法解析或未通过 schema 校验 | 该 rulebook | 其他所有 rulebook 和所有内置保护 |
+| lockfile 条目与其配置的来源标识不匹配——`kind` 有误，或 `path`/`name` 与来源声明不一致 | 该范围内的每个 rulebook——整个 lockfile 因格式错误而被拒绝 | 另一范围中已验证的规则和所有内置保护 |
+| `rule.json` 格式错误、为空或使用了不受支持的 `version` | 整个范围，**包括其 `transparent_wrappers`** | 另一范围中已验证的规则和所有内置保护 |
+| 无法安全读取策略所在的文件系统 | 该范围 | 另一范围中已验证的规则和所有内置保护 |
 
-这些消息中的每一条都会为其拒绝的文件或源命名，并且如果存在修复，则会告诉你运行 `cc-safety-net rule sync`。
+上述每一条消息都会指明它拒绝的文件或来源，并在存在修复办法时提示你运行 `cc-safety-net rule sync`。
 
-### 警告 — 源保持活动状态
+### 警告 —— 来源仍然生效
 
-|失败|被忽视的是什么|哪些内容仍需强制执行 |
+| 失败 | 被忽略的内容 | 仍然执行的内容 |
 | --- | --- | --- |
-|两本有效的 rulebook声称同名 |后来的 rulebook，其规则未激活 |第一个主张，首先解决用户范围|
-| `rule.json` 中未知的覆盖密钥 |只有那一个覆盖 |所有其他覆盖和每个规则都保持其配置状态 |
-|项目覆盖针对用户范围的规则 |只有那一个覆盖 |规则保持其用户配置的状态 |
+| 两个生效的 rulebook 声明了相同的名称 | 后声明的 rulebook，其规则不生效 | 先声明的一方；解析时用户范围优先 |
+| `rule.json` 中存在未知的覆盖键 | 仅该条覆盖 | 其他所有覆盖和每条规则都保持已配置的状态 |
+| 项目覆盖指向用户范围的规则 | 仅该条覆盖 | 该规则保持用户配置的状态 |
 
 <Warning>
-两个表中都故意缺少本地rulebook源。运行时加载仅读取经过digest验证的缓存，因此编辑本地rulebook、破坏它或删除其源目录会产生**根本不会发出警告** - 强制执行的是缓存的 rulebook，就像上次成功同步时的情况一样，而不是你刚刚编辑的文件。仅当 `cc-safety-net rule sync` 成功时，你的编辑才会生效。
+两张表中都刻意没有列出本地 rulebook 来源。运行时加载只读取经过 digest 验证的缓存，因此编辑本地 rulebook、把它改坏，或删除其源目录，都**不会产生任何警告**——真正执行的是缓存中的 rulebook，即上次成功同步时的那一份，而不是你刚刚编辑的文件。只有 `cc-safety-net rule sync` 成功后，你的编辑才会生效。
 </Warning>
 
-重复的 rulebook 名称会确定性地解析：第一个声明获胜，并且首先加载用户范围，因此用户范围声明的名称会掩盖项目名称。后来的 rulebook除了部分隐藏规则之外没有任何贡献。因为这是已解决的而不是致命的，所以当另一个作用域已使用该名称时，一个作用域的 `rule sync` 仍然会成功。
+重复的 rulebook 名称按确定的规则解析：先声明者胜出，而用户范围先加载，因此用户范围声明的名称会遮蔽项目范围的同名 rulebook。后声明的 rulebook 不提供任何规则，而不是部分遮蔽规则。由于这种冲突会被解决而不是视为致命错误，当另一个范围已经使用该名称时，某一个范围的 `rule sync` 仍会成功。
 
-### `policy.json` — 挽救或替换为保护性默认值
+### `policy.json` —— 逐字段保留或替换为保护性默认值
 
-|情况|结果 |状态|
+| 情况 | 结果 | 状态 |
 | --- | --- | --- |
-|文件不存在 |内置默认值 | `ready` — 无诊断 |
-|文件为空或只有空格 |内置保护默认值 | `degraded` |
-|文件不是有效的 JSON |内置保护默认值 | `degraded` |
-|文件解析为非对象 |内置保护默认值 | `degraded` |
+| 文件不存在 | 内置默认值 | `ready`，没有诊断 |
+| 文件为空或只有空白字符 | 内置保护性默认值 | `degraded` |
+| 文件不是有效的 JSON | 内置保护性默认值 | `degraded` |
+| 文件解析结果不是对象 | 内置保护性默认值 | `degraded` |
 | 文件解析为对象但验证失败 | **逐字段保留**：每个已识别的有效部分继续生效，其余部分使用保护性默认值 | `degraded` |
-| 文件有效 | 完全按你写入的策略执行 | `ready` |
+| 文件有效 | 完全按你编写的策略执行 | `ready` |
 
-逐字段保留意味着一个无效字段不会丢弃文件其余部分配置的保护。保护性默认值会优先产生更多拒绝：强制开启破坏性命令保护和机密保护，丢弃两个允许路径列表中的无效条目，并丢弃用于关闭规则的覆盖。有效的机密允许路径保留在挽救的策略中。每个字段的保留行为见[策略](/zh-Hans/configuration/policy)。
+逐字段保留意味着一个无效字段不会连带丢掉文件其余部分配置的保护。保护性默认值刻意偏向更多拒绝：强制开启破坏性命令保护和机密保护，丢弃两个允许路径列表中的无效条目，并丢弃用于关闭规则的覆盖。有效的机密允许路径仍会保留在策略中。每个字段的保留行为见[策略](/zh-Hans/configuration/policy)。
 
 运行时永远不会重写 `policy.json`。手动修复，或使用仪表板中的修复操作。
 
-虽然文件有错误，但仪表板表单显示完整的默认值而不是残值。在修复文件之前，你无法保存。修复操作会保留每个已识别的有效设置。仅当无法解析 JSON 时，它才会用默认值替换完整文件。
+在文件仍有错误期间，仪表板表单显示的是完整默认值，而不是保留下来的值。修复文件之前无法保存。修复操作会保留每个已识别的有效设置；只有在无法解析 JSON 时，它才会用默认值替换整个文件。
 
-## 透明包装覆盖间隙
+## 透明包装器的覆盖缺口
 
-`transparent_wrappers` 在 `rule.json` 中声明，而不是在 rulebook中声明，并且 `rule.json` 不携带锁或digest。这有两个后果：
+`transparent_wrappers` 声明在 `rule.json` 中，而不是在 rulebook 中，而 `rule.json` 本身没有 lock 也没有 digest。这有两个后果：
 
-- **删除的 rulebook**保留其范围的包装器，因为 `rule.json` 本身仍然可读。
-- **不可读的 `rule.json`** 会丢失该作用域的包装器，因为没有经过验证的副本可供回退。分析停止通过这些包装器命令查找下面受保护的命令。
+- **被丢弃的 rulebook** 仍保留其范围的包装器，因为 `rule.json` 本身仍然可读。
+- **无法读取的 `rule.json`** 会丢失该范围的包装器，因为没有经过验证的副本可以回退。分析不再穿透这些包装命令去识别其下受保护的命令。
 
-这是被拒绝配置减少内置覆盖范围，而不只是移除自定义规则的唯一情况。当某个范围因此被丢弃时，请先修复 `rule.json`。
+这是唯一一处被拒绝的配置会削弱内置覆盖，而不只是移除你自己的规则。当某个范围因此被丢弃时，请先修复 `rule.json`。
 
-## 失败关闭案例
+## 故障时拒绝的情形
 
-“失败关闭”对于运行时和分析失败是准确的，并且它否认**一个工具调用** - 它从来都不是对无效配置的描述。
+“故障时拒绝”用来描述运行时和分析失败是准确的，它拒绝的是**那一次工具调用**——它从来都不是对无效配置行为的描述。
 
-|案例 |行为 |
+| 情形 | 行为 |
 | --- | --- |
-|分析器或依赖项在任何保护阶段意外抛出 |在每种模式下，工具调用均因“关闭失败”原因而被拒绝 |
-|钩子或工具有效载荷畸形或过大 |在每种模式下都被拒绝 |
-|命令路径上的空命令或仅包含空格的命令 |在每种模式下都被拒绝 |
-|命令超出递归深度限制 |在每种模式下都被拒绝 |
-|命令结构超出安全验证限制 |在每种模式下都被拒绝 |
-|当 `fail_closed` 能力开启时，命令无法标记化 |被拒绝 — 请参阅[strict 模式](/zh-Hans/configuration/modes#strict-mode) |
-|worktree松弛不能肯定地确认链接的worktree |不应用放宽，并保留更严格的默认值 |
+| 分析器或某个依赖在任一防护阶段意外抛出异常 | 在所有模式中，该工具调用都以“failed closed”为原因被拒绝 |
+| hook 或工具负载格式错误或过大 | 在所有模式中都被拒绝 |
+| 命令路由上的空命令或仅含空白字符的命令 | 在所有模式中都被拒绝 |
+| 命令超出递归深度限制 | 在所有模式中都被拒绝 |
+| 命令结构超出安全验证限制 | 在所有模式中都被拒绝 |
+| `fail_closed` 能力开启时命令无法拆分成 token | 被拒绝——见 [strict 模式](/zh-Hans/configuration/modes#strict-mode) |
+| worktree 放宽无法明确确认当前位于 linked worktree | 不应用放宽，保留更严格的默认值 |
 
-无效配置的行为相反：规则源被丢弃，`policy.json` 按字段保留或替换为保护性默认值，然后工作继续。
+无效配置正相反：规则来源被丢弃，`policy.json` 逐字段保留或替换为保护性默认值，而工作继续进行。
 
-## `degraded`状态报告
+## `degraded` 状态的报告方式
 
-|表面|你所看到的|
+| 呈现位置 | 你会看到什么 |
 | --- | --- |
-|下一个用户可见的拒绝 | `Config warning:` 行携带完整原因，附加到块消息 |
-|审计记录| `configFallback` 标志，在允许和拒绝的决策上设置类似 |
-| `cc-safety-net status` | 判定为 `ready` 或 `degraded`，并在 `Not active` 下逐行显示诊断 |
-| `cc-safety-net doctor` |标题为“运行时正在强制执行回退配置”的 `config.runtime-degraded` 警告结果，详细原因如下 |
-| `cc-safety-net rule list` | `Issues` 和 `Warnings` 部分。仅规则配置|
-|状态行|快照`degraded`时的 `⚠️` 标记 |
+| 下一次用户可见的拒绝 | 追加在阻止消息后的 `Config warning:` 行，其中带有完整原因 |
+| 审计记录 | `configFallback` 标志，在允许和拒绝的决策上同样会设置 |
+| `cc-safety-net status` | 判定 `ready` 或 `degraded`，并在 `Not active` 下逐行列出诊断 |
+| `cc-safety-net doctor` | 一条标题为 "Runtime is enforcing a fallback configuration" 的 `config.runtime-degraded` 警告项，详情是完整原因 |
+| `cc-safety-net rule list` | `Issues` 与 `Warnings` 两个部分，仅涉及规则配置 |
+| 状态行 | 快照处于 `degraded` 期间显示 `⚠️` 标记 |
 | 仪表板 | 保护横幅中显示的状态 |
 
 `doctor` 是唯一同时报告规则配置和 `policy.json` 的命令。有关每个命令的选项和退出行为，请参阅 [CLI 命令](/zh-Hans/reference/cli-commands)。
 
 有两个结构性限制值得了解：
 
-- `Config warning:` 行和审计 `configFallback` 标志仅出现在快照加载**之后**做出的决策中。策略文件和 Git 元数据拒绝发生在此之前，因此它们两者都不携带。
-- 诊断**名称**被拒绝的文件和条件；他们从不复制它的字节。消息中不会重现恰好位于格式错误的配置文件中的机密。
+- `Config warning:` 行和审计 `configFallback` 标志只出现在快照加载**之后**做出的决策上。策略文件和 Git 元数据的拒绝发生在此之前，因此两者都不会带上它们。
+- 诊断只**指明**被拒绝的文件和触发条件，绝不会复制其中的字节。恰好位于格式错误配置文件中的机密不会出现在消息里。
 
-## 可见的和无声的故障
+## 可见的失败与静默的失败
 
-- **删除的规则源是安静的。** 它会删除拒绝而不是添加拒绝，因此干净的会话不会产生任何摩擦，也不会产生任何信号。在对规则配置进行任何更改后以及每次升级后，需要仔细检查这种情况。让`cc-safety-net status`成为一种习惯；运行 `doctor` 以获得完整报告。
-- **本地rulebook编辑和未迁移的旧配置更加安静。** 两者都不会产生运行时诊断。经过digest验证的缓存会继续执行预编辑 rulebook，并且不会加载旧文件。 `rule sync` 使编辑处于活动状态。 `rule verify` 标记旧文件。
-- **无效的 `policy.json` 大多会自行宣告**，因为被拒绝的部分会回退到保护默认值：强制启用两种保护，允许丢弃路径，丢弃禁用覆盖。你发现它的拒绝次数比你配置的“多”。
-- **无效 `policy.json` 的安静一半**：无效的 `safety.level` 默默地回落到 `standard`，因此 `paranoid` 中的拼写错误 **降低**你的预设。无效的 `secret_protection.deny_paths` 条目和每规则覆盖（会使规则高于其默认值）将被丢弃而不是修复。
-- 只有状态行标记是被动的。 `Config warning:` 线需要出现不相关的拒绝，并且所有其他表面都等待你运行命令或打开仪表板。
+- **被丢弃的规则来源是静默的。** 它移除的是拒绝，而不是增加拒绝，因此一次正常的会话既不会遇到摩擦，也不会收到任何信号。每次改动规则配置之后、每次升级之后，都要专门检查这一点。把 `cc-safety-net status` 变成习惯；需要完整报告时运行 `doctor`。
+- **本地 rulebook 的编辑和未迁移的旧配置更加静默。** 两者都不会产生运行时诊断：经过 digest 验证的缓存仍在执行编辑前的 rulebook，而旧配置文件根本不会被加载。`rule sync` 会让编辑生效，`rule verify` 会标记出旧文件。
+- **无效的 `policy.json` 大多会自己暴露出来**，因为被拒绝的部分会回退到保护性默认值：两项保护被强制开启，允许路径被丢弃，用于关闭规则的覆盖被丢弃。你会因为出现*比配置更多*的拒绝而发现它。
+- **无效 `policy.json` 静默的那一半**：无效的 `safety.level` 会静默回退到 `standard`，因此把 `paranoid` 拼错反而会**降低**你的预设。无效的 `secret_protection.deny_paths` 条目，以及会把规则提到高于默认值的按规则覆盖，都会被丢弃而不是被修复。
+- 只有状态行标记是被动呈现的。`Config warning:` 行需要依附一次无关的拒绝才会出现，其他所有呈现位置都要等你运行命令或打开仪表板。
 
 ## 恢复配置
 
-下面的每个命令都是普通的工具调用，因此你的智能体可以在运行时`degraded`时自行运行整个序列。 [CLI 命令](/zh-Hans/reference/cli-commands) 具有每个命令的完整选项和退出行为。
+下面的每个命令都是普通的工具调用，因此即使运行时处于 `degraded`，智能体也可以自行跑完整个流程。[CLI 命令](/zh-Hans/reference/cli-commands)给出了每个命令的完整选项和退出行为。
 
 <Steps>
-<Step title="检查判决结果">
+<Step title="检查判定结果">
     ```bash
     npx cc-safety-net status
     ```
 
-打印 `ready` 或 `degraded`，并在 `Not active` 下为每项诊断打印一行。禁用的 Claude Code 插件显示为第一个 `Not active` 项，而不是单独的结论。此命令只提供信息，因此可将它用作快速日常检查，不要把它当作质量门。
+打印 `ready` 或 `degraded`，并在 `Not active` 下为每项诊断打印一行。禁用的 Claude Code 插件显示为第一个 `Not active` 项，而不是单独的判定。它纯粹提供信息，因此把它当作低成本的日常检查，而不是一道关卡。
 </Step>
 <Step title="获取完整报告">
     ```bash
     npx cc-safety-net doctor
     ```
 
-一条命令涵盖规则配置和 `policy.json`。运行时间`degraded`显示为 `config.runtime-degraded` 警告，并且调查结果的详细信息是命名每个被拒绝源的完整原因。
+唯一一条同时涵盖规则配置和 `policy.json` 的命令。运行时处于 `degraded` 时会显示为 `config.runtime-degraded` 警告，该检查项的详情就是指明每个被拒绝来源的完整原因。
 </Step>
-<Step title="查看实际活跃的内容">
+<Step title="查看实际生效的内容">
     ```bash
     npx cc-safety-net rule list
     ```
 
-列出实际活动的内容，后跟 `Issues` 和 `Warnings`。用它来确认被删除的源所遵循的规则。仅当策略有错误时，它才以非零值退出；仅在 `Warnings` 下打印警告并退出 `0`。
+列出实际生效的内容，之后是 `Issues` 和 `Warnings`。用它确认被丢弃的来源带走了哪些规则。只有在策略存在错误时它才以非零值退出；只有警告时会打印在 `Warnings` 下并以 `0` 退出。
 </Step>
 <Step title="验证你的规则配置">
     ```bash
     npx cc-safety-net rule verify
     ```
 
-根据模式验证用户和项目 `rule.json` 并重播运行时负载，因此它可以捕获防护程序会遇到的相同问题。它还标记仍需要迁移的旧文件。一种写入预期：当有效的 `rule.json` 没有 `$schema` 密钥时，`rule verify` 添加 1 并打印 `Added $schema to <scope> config.` - 否则它不会改变任何内容。
+根据 schema 校验用户和项目的 `rule.json`，并重放运行时的加载过程，因此能发现防护在运行时会遇到的同样问题。它还会标记出仍需迁移的旧文件。有一处写入需要留意：当有效的 `rule.json` 缺少 `$schema` 键时，`rule verify` 会补上一个并打印 `Added $schema to <scope> config.`——除此之外它不会改动任何内容。
 </Step>
 <Step title="修复并重新同步">
     ```bash
     npx cc-safety-net rule sync
     ```
 
-重写你正在同步的范围的lockfile和缓存，然后按照防护加载的方式重新加载该范围。如果仍有任何诊断，它会报告该诊断并以非零值退出，而不是声明成功 - 因此 `Rule config synced.` 对该范围来说是真正的解除警报。
+重写所同步范围的 lockfile 和缓存，然后完全按照防护的加载方式重新加载该范围。如果仍有诊断，它会报告该诊断并以非零值退出，而不是声称成功——所以 `Rule config synced.` 对该范围来说确实表示一切正常。
 
 验证仅涵盖正在同步的范围。
 </Step>
 <Step title="手动修复 policy.json">
-运行时永远不会重写 `policy.json`。自行更正诊断中指定的字段，或使用仪表板中的修复操作，然后重新运行 `status`。有关完整schema和默认值，请参阅[策略](/zh-Hans/configuration/policy)。
+运行时永远不会重写 `policy.json`。自行更正诊断中指出的字段，或使用仪表板中的修复操作，然后重新运行 `status`。完整 schema 和默认值见[策略](/zh-Hans/configuration/policy)。
 </Step>
 </Steps>
 
-每次修复后重复 `status`。运行时会在下一次工具调用时重新加载，因此无需重新启动。
+每次修复后都重新运行一次 `status`。运行时会在下一次工具调用时重新加载，因此不需要重启任何东西。
 
 ## 迁移旧的内联规则
 
-旧的内联配置文件 - `~/.cc-safety-net/config.json` 和 `.safety-net.json` - 不再在运行时加载，并且运行时不会发出有关它们的诊断：**它们的规则根本不执行**，而其他一切都继续工作，并且快照保持 `ready`。这是升级后典型的静默保护缺失：没有任何中断，没有任何内容受到这些规则的保护，并且在会话期间没有任何报告。`cc-safety-net rule verify` 可标记仍在等待迁移的旧文件。
+旧的内联配置文件——`~/.cc-safety-net/config.json` 和 `.safety-net.json`——不再在运行时加载，运行时也不会发出与之相关的诊断：**它们的规则根本不会执行**，而其他一切照常工作，快照仍保持 `ready`。这是升级后典型的静默保护缺失：什么都没坏，那些规则却什么也没保护，会话期间也没有任何提示。`cc-safety-net rule verify` 才是标记出仍待迁移旧文件的地方。
 
-从要转换其旧配置的项目运行迁移：
+在要转换旧配置的那个项目中运行迁移：
 
 ```bash
 npx -y cc-safety-net rule migrate
 ```
 
-`rule migrate` 传播同步结果，因此如果迁移的范围仍然有诊断，它会报告该情况而不是成功。已写入迁移的文件并保留旧文件，因此你可以修复报告的问题并再次运行。请参阅[自定义规则](/zh-Hans/configuration/custom-rules) 了解其迁移到的 rulebook 布局。
+`rule migrate` 会传递同步结果，因此如果迁移后的范围仍有诊断，它会报告该诊断而不是报告成功。迁移后的文件已经写入，旧文件也会保留，所以你可以修复报告出的问题后再运行一次。它迁移成的 rulebook 布局见[自定义规则](/zh-Hans/configuration/custom-rules)。
 
 ## 相关页面
 
@@ -211,12 +211,12 @@ npx -y cc-safety-net rule migrate
 完整的 `policy.json` 契约、默认值和逐字段保留行为。
 </Card>
 <Card title="自定义规则" icon="list-checks" href="/zh-Hans/configuration/custom-rules">
-rulebook 布局、源、锁定和缓存、覆盖和透明包装器。
+rulebook 布局、来源、lock 与缓存、覆盖和透明包装器。
 </Card>
 <Card title="CLI 命令" icon="terminal" href="/zh-Hans/reference/cli-commands">
 `status`、`doctor` 和每个 `rule` 子命令的完整选项和退出行为。
 </Card>
 <Card title="审计日志" icon="scroll-text" href="/zh-Hans/reference/audit-log">
-记录决策、条目模式和保留的位置。
+决策记录在哪里、条目 schema 以及保留期。
 </Card>
 </CardGroup>

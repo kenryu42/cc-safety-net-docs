@@ -1,7 +1,7 @@
 ---
-title: "解释 JSON 跟踪引用"
-sidebarTitle: "解释跟踪"
-description: "cc-safety-net explain --json 返回的 JSON 的模式：ExplainResult 字段、描述每个分析步骤的 TraceStep 变体，以及在共享跟踪之前可以揭示的内容。"
+title: "Explain JSON 跟踪参考"
+sidebarTitle: "Explain 跟踪"
+description: "cc-safety-net explain --json 返回的 JSON schema：ExplainResult 字段、描述每个分析步骤的 TraceStep 变体，以及分享一条跟踪之前它会暴露哪些内容。"
 keywords:
   - "explain"
   - "explain --json"
@@ -13,16 +13,16 @@ keywords:
   - "why blocked"
 ---
 
-`explain --json` 命令返回命令分析的结构化跟踪。此页面定义了用于脚本和其他工具的 JSON 形状。它还解释了在共享跟踪之前可以揭示的内容。
+`explain --json` 命令返回命令分析的结构化跟踪。本页定义供脚本和其他工具使用的 JSON 结构，并说明一条跟踪在你分享之前可能暴露哪些内容。
 
-有关标志和退出行为，请参阅 [CLI 命令](/zh-Hans/reference/cli-commands)。有关意外阻止的帮助，请参阅 [故障排除](/zh-Hans/guides/troubleshooting)。
+有关标志和退出行为，请参阅 [CLI 命令](/zh-Hans/reference/cli-commands#explain)。命令被意外阻止时的排查方法，请参阅 [故障排除](/zh-Hans/guides/troubleshooting)。
 
 ```bash
 npx cc-safety-net explain --json "git checkout -- file.txt"
 ```
 
 <Warning>
-  跟踪不能自动安全共享。请先阅读 [共享跟踪之前](#before-you-share-a-trace)。
+  跟踪并不自动适合分享。请先阅读 [分享跟踪之前](#before-you-share-a-trace)。
 </Warning>
 
 ## ExplainResult
@@ -34,127 +34,127 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 | `result` | `"blocked" \| "allowed"` | 始终 | 命令的最终结果 |
 | `reason` | `string` | 仅在 blocked 时 | 阻止原因 |
 | `segment` | `string` | 仅在 blocked 时 | 触发决策的具体片段 |
-| `ruleId` | `string` | 仅在 blocked 并匹配规则时 | 产生阻止的规则的 ID |
-| `trace` | `ExplainTrace` | 始终 | 包含顶级和每个片段步骤的跟踪容器 |
-| `customRule` | `object` | 当匹配自定义规则或规则集规则时 | `id`，以及可选的 `rulebook` (`name`, `version`)、`source` 和 `override` (`{ type: "reason", reason }`) |
-| `configSource` | `string \| null` | 始终 | 加载有效配置的配置文件 |
-| `configValid` | `boolean` | 始终 | 加载的配置是否已成功验证 |
-| `effectiveLevel` | `"standard" \| "strict" \| "paranoid" \| "custom"` | 始终 | 实际生效的级别，在环境标志和覆盖之后 |
+| `ruleId` | `string` | 仅在 blocked 并匹配规则时 | 产生该阻止的规则 ID |
+| `trace` | `ExplainTrace` | 始终 | 跟踪容器，含顶级步骤和各片段的步骤 |
+| `customRule` | `object` | 匹配到自定义规则或 rulebook 规则时 | `id`，以及可选的 `rulebook`（`name`、`version`）、`source` 和 `override`（`{ type: "reason", reason }`） |
+| `configSource` | `string \| null` | 始终 | 有效配置所来自的配置文件 |
+| `configValid` | `boolean` | 始终 | 加载的配置是否顺利通过校验 |
+| `effectiveLevel` | `"standard" \| "strict" \| "paranoid" \| "custom"` | 始终 | 环境标志和覆盖生效之后实际采用的级别 |
 | `selectedPreset` | `"standard" \| "strict" \| "paranoid"` | 始终 | 策略中命名的预设，默认为 `standard` |
-| `effectiveCapabilities` | `object` | 始终 | 每个功能的状态 — 见下文 |
-| `destructiveCommandRuleOverrides` | `Record<string, "on" \| "off">` | 始终，可能为空 `{}` | 存储在策略中的每个规则的覆盖 |
-| `ruleActivation` | `object` | 条件性 — 见下文 | 相关规则如何获得其开启/关闭状态 |
+| `effectiveCapabilities` | `object` | 始终 | 各项能力的状态 — 见下文 |
+| `destructiveCommandRuleOverrides` | `Record<string, "on" \| "off">` | 始终，可能为空 `{}` | 策略中存储的按规则覆盖 |
+| `ruleActivation` | `object` | 视情况 — 见下文 | 相关规则的开启/关闭状态是怎么来的 |
 
-四个配置字段 — `effectiveLevel`、`selectedPreset`、`effectiveCapabilities` 和 `destructiveCommandRuleOverrides` — 会一次性构建并包含在每个返回路径中，因此即使解释空命令时它们也存在。
+这四个配置字段——`effectiveLevel`、`selectedPreset`、`effectiveCapabilities` 和 `destructiveCommandRuleOverrides`——只构建一次，并出现在每条返回路径中，因此即使解释的是空命令，它们也存在。
 
 ### `effectiveCapabilities`
 
-`effectiveCapabilities` 是一个记录，键为 `fail_closed`、`paranoid_rm` 和 `paranoid_interpreters`。每个值包含：
+`effectiveCapabilities` 是一个以 `fail_closed`、`paranoid_rm` 和 `paranoid_interpreters` 为键的记录。每个值包含：
 
 | 字段 | 类型 | 描述 |
 | --- | --- | --- |
-| `enabled` | `boolean` | 该功能是否已开启 |
-| `source` | `"preset" \| "capability_override" \| "environment"` | 决定最终状态的原因 |
-| `sources` | `array` | 所有贡献的输入，按优先级顺序排列 |
+| `enabled` | `boolean` | 该能力是否已开启 |
+| `source` | `"preset" \| "capability_override" \| "environment"` | 决定最终状态的因素 |
+| `sources` | `array` | 所有起了作用的输入，按优先级顺序排列 |
 
-请参阅 [模式](/zh-Hans/configuration/modes)，了解每个功能会改变什么。
+各项能力分别改变什么，请参阅 [模式](/zh-Hans/configuration/modes)。
 
 ### `ruleActivation`
 
-`ruleActivation` 仅在相关规则声明激活功能时存在。相关规则是要么匹配的规则，要么是受模式限制的候选规则。受模式限制的候选规则是指如果其所需的级别或功能处于活动状态就会匹配的规则。
+`ruleActivation` 只在相关规则声明了激活能力时才存在。相关规则要么是匹配到的规则，要么是受模式门控的候选规则；后者指的是只要所需的级别或能力处于启用状态就会匹配的规则。
 
 | 字段 | 类型 | 描述 |
 | --- | --- | --- |
 | `id` | `string` | 规则 ID |
-| `enabled` | `boolean` | 规则当前是否处于活动状态 |
-| `inheritedEnabled` | `boolean` | 规则是否仅通过继承而处于活动状态 |
-| `changesInherited` | `boolean` | 有效状态是否与继承状态不同 |
-| `source` | `string` | 决定因素：`catastrophic`、`master_disabled`、`rule_override`、`preset`、`capability_override`、`environment` 或 `built_in_default` |
-| `activationCapability` | `string` | 可选。限制规则的功能 |
-| `override` | `"on" \| "off"` | 可选。存储的每个规则的覆盖，当存在时 |
+| `enabled` | `boolean` | 该规则当前是否启用 |
+| `inheritedEnabled` | `boolean` | 该规则是否仅凭继承就会启用 |
+| `changesInherited` | `boolean` | 生效状态是否与继承来的状态不同 |
+| `source` | `string` | 由什么决定：`catastrophic`、`master_disabled`、`rule_override`、`preset`、`capability_override`、`environment` 或 `built_in_default` |
+| `activationCapability` | `string` | 可选。门控该规则的能力 |
+| `override` | `"on" \| "off"` | 可选。若存在，即为存储的该规则覆盖值 |
 
-在人类可读的输出中，这会渲染为一行：`Rule activation: <id> — on|off via <source>`。
+在人类可读输出中，它渲染成一行：`Rule activation: <id> — on|off via <source>`。
 
 ## `ExplainTrace`
 
 | 字段 | 类型 | 描述 |
 | --- | --- | --- |
-| `steps` | `TraceStep[]` | 顶级步骤。大多数跟踪以全局 `parse` 步骤开始。保护短路可以省略它。 |
-| `segments` | `object[]` | 每个片段的条目，每个条目都有一个 `index` 和自己的 `steps` 数组 |
+| `steps` | `TraceStep[]` | 顶级步骤。大多数跟踪以全局的 `parse` 步骤开始，保护短路时可能没有这一步。 |
+| `segments` | `object[]` | 各片段的条目，每个条目都有一个 `index` 和自己的 `steps` 数组 |
 
-跟踪是被动的：记录它永远不会改变决策，普通的保护评估也永远不会构建它。它仅用于 `explain`。
+跟踪是被动的：记录跟踪不会改变任何决策，普通的防护评估也从不构建跟踪。它只为 `explain` 而存在。
 
-**边界。** 记录器会限制其保留的内容：最多 512 个事件，每个文本值最多 2,048 个字符，每个列表最多 128 个项，每个对象最多 128 个属性，以及 16 个嵌套级别。超出限制的事件会被计数而不是存储，并且每个记录的值都会被深度冻结。丢弃事件的数量不会在 `ExplainTrace` 中暴露 — 仅暴露 `steps` 和 `segments`。
+**上限。** 记录器会限制自己保留的内容：最多 512 个事件、每个文本值最多 2,048 个字符、每个列表最多 128 项、每个对象最多 128 个属性、最多 16 层嵌套。超出上限的事件只计数而不存储，并且每个记录下来的值都会被深度冻结。被丢弃的事件数量不会在 `ExplainTrace` 中暴露——它只有 `steps` 和 `segments`。
 
 ## `TraceStep` 变体
 
-在读取其其他字段之前，请使用 `type` 来选择变体。
+先用 `type` 选出变体，再读取它的其他字段。
 
 | `type` | 关键字段 | 何时出现 |
 | --- | --- | --- |
-| `parse` | `input`, `segments` | 初始 shell 分解为 token 片段 |
-| `env-strip` | `input`, `envVars`, `output` | 从片段开头剥离的环境赋值（值已隐藏） |
+| `parse` | `input`, `segments` | 最初的 shell 拆分，得到 token 片段 |
+| `env-strip` | `input`, `envVars`, `output` | 从片段开头剥离的环境赋值（值已脱敏） |
 | `leading-tokens-stripped` | `input`, `removed`, `output` | 分析前删除的前导 token（例如 `env`、`command`） |
-| `shell-wrapper` | `wrapper`, `innerCommand` | 解开了 `bash -c` 等 shell 包装器 |
-| `interpreter` | `interpreter`, `codeArg`, `paranoidBlocked` | 检查了解释器单行命令；`paranoidBlocked` 标记了偏执模式的直接拒绝 |
+| `shell-wrapper` | `wrapper`, `innerCommand` | 解开了 `bash -c` 之类的 shell 包装器 |
+| `interpreter` | `interpreter`, `codeArg`, `paranoidBlocked` | 检查了解释器单行命令；`paranoidBlocked` 标记 paranoid 模式下的直接拒绝 |
 | `busybox` | `subcommand` | busybox 风格的分派解析为子命令 |
-| `transparent-wrapper` | `wrapper`, `output` | 看到的已注册的透明包装器 — 见下文 |
+| `transparent-wrapper` | `wrapper`, `output` | 看穿了一个已注册的透明包装器 — 见下文 |
 | `recurse` | `reason`, `innerCommand`, `depth` | 触发了递归重新分析 |
 | `rule-check` | `ruleModule`, `ruleFunction`, `matched`, `reason?` | 评估了内置规则模块 |
-| `worktree-relaxation` | `originalReason`, `gitCwd` | 由于目标是链接的工作树，git discard 命令被放宽 |
+| `worktree-relaxation` | `originalReason`, `gitCwd` | 因为目标是链接的工作树，git 丢弃类命令被放宽 |
 | `tmpdir-check` | `tmpdirValue`, `isOverriddenToNonTemp`, `allowTmpdirVar` | `$TMPDIR` 解析和覆盖检测 |
-| `fallback-scan` | `tokensScanned`, `embeddedCommandFound?` | 对剩余 token 进行的备用危险文本扫描 |
+| `fallback-scan` | `tokensScanned`, `embeddedCommandFound?` | 对剩余 token 的危险文本 fallback 扫描 |
 | `custom-rules-check` | `rulesChecked`, `matched`, `reason?` | 评估了用户定义的规则 |
-| `cwd-change` | `segment`, `effectiveCwdNowUnknown` | `cd`/`pushd` 更改了有效的工作目录；后续分类使用新的或未知的工作目录 |
-| `dangerous-text` | `token`, `matched`, `reason?` | token 被扫描了危险文本模式 |
-| `strict-unparseable` | `rawCommand`, `reason` | 严格模式因无法解析的命令而关闭 |
-| `segment-skipped` | `index`, `reason` | 由于之前的片段已阻止，因此跳过了该片段 |
+| `cwd-change` | `segment`, `effectiveCwdNowUnknown` | `cd`/`pushd` 改变了有效 cwd；后续分类使用新的或未知的 cwd |
+| `dangerous-text` | `token`, `matched`, `reason?` | 按危险文本模式扫描了某个 token |
+| `strict-unparseable` | `rawCommand`, `reason` | strict 模式在无法解析的命令上 fail closed |
+| `segment-skipped` | `index`, `reason` | 因为前一个片段已经阻止，所以跳过了该片段 |
 | `error` | `message`, `partial?` | 捕获了分析错误；`partial` 标记了部分输出 |
 
 ### `recurse` 原因
 
-`recurse.reason` 有八个值之一：`shell-wrapper`、`interpreter`、`busybox`、`shell-eval`、`shell-trap`、`shell-stdin`、`shell-heredoc` 或 `heredoc-file`。
+`recurse.reason` 取以下八个值之一：`shell-wrapper`、`interpreter`、`busybox`、`shell-eval`、`shell-trap`、`shell-stdin`、`shell-heredoc` 或 `heredoc-file`。
 
-当命令运行一个分析引擎已知的脚本文件时（通过 `cat >` 或 `tee` 在同一命令的早期通过 quoted heredoc body 写入该路径），并且存储的 body 被作为脚本重新分析时，会记录 `heredoc-file`；请参阅 [Heredoc 分析](/zh-Hans/guides/analysis-engine)。
+当命令运行的是分析已经知道其内容的脚本文件时——即同一命令中此前经由 `cat >` 或 `tee` 写入该路径的带引号 heredoc body——就会记录 `heredoc-file`，并把存储的 body 当作该脚本重新分析；请参阅 [Heredoc 分析](/zh-Hans/guides/analysis-engine#heredoc-分析)。
 
 ### `transparent-wrapper` 步骤
 
-`transparent-wrapper` 是一个片段范围的步骤，当看到您使用 `rule wrapper add` 注册的命令被看穿时会记录。每个候选子命令 — 主要子命令加上每个替代项 — 会发出一个步骤，每个步骤携带：
+`transparent-wrapper` 是片段范围的步骤，当你用 `rule wrapper add` 注册的命令被看穿时记录。每个候选子命令——主子命令加上每个备选项——都会发出一个步骤，每个步骤携带：
 
 | 字段 | 类型 | 描述 |
 | --- | --- | --- |
 | `wrapper` | `string` | 包装器命令名称 |
 | `output` | `string[]` | 分析将递归进入的候选 token 列表 |
 
-该步骤在递归进入这些 token 之前立即记录，因此它总是出现在包装命令的分析之前。人类可读的输出将其渲染为编号的 `Transparent wrapper` 步骤，显示 `Wrapper:` 和 `Tokens:`。
+该步骤在递归进入这些 token 之前立刻记录，因此总是排在被包装命令的分析之前。人类可读输出把它渲染为带编号的 `Transparent wrapper` 步骤，显示 `Wrapper:` 和 `Tokens:`。
 
-使用 `rule wrapper add`、`rule wrapper remove` 和 `rule wrapper list` 命令管理包装器。请参阅 [`rule wrapper`](/zh-Hans/reference/cli-commands)。
+使用 `rule wrapper add`、`rule wrapper remove` 和 `rule wrapper list` 命令管理包装器。请参阅 [`rule wrapper`](/zh-Hans/reference/cli-commands#rule-wrapper)。
 
 ## 跟踪顺序
 
-典型的跟踪流程为 `parse` → 每个片段的 `env-strip` / `leading-tokens-stripped` → 检测 (`shell-wrapper` / `interpreter` / `busybox` / `transparent-wrapper`) → `rule-check` 或 `custom-rules-check` → 决策。递归显示为具有增加的 `depth` 的 `recurse` 步骤 — 除了 `busybox` 分派，它会记录一个 `recurse` 步骤但不会消耗递归深度，因此一系列 busybox 包装器会重复相同的 `depth` 值。当您只需要结果时，请阅读顶级的 `result`（加上 `reason`、`segment` 和 `ruleId`），而不是遍历跟踪。
+典型的跟踪流程为 `parse` → 每个片段的 `env-strip` / `leading-tokens-stripped` → 检测（`shell-wrapper` / `interpreter` / `busybox` / `transparent-wrapper`）→ `rule-check` 或 `custom-rules-check` → 决策。递归表现为 `depth` 递增的 `recurse` 步骤——`busybox` 分派除外，它会记录 `recurse` 步骤但不消耗递归深度，因此一连串 busybox 包装器会重复同一个 `depth` 值。只需要判定结果时，直接读顶级的 `result`（以及 `reason`、`segment` 和 `ruleId`），不必遍历整条跟踪。
 
-三个保护措施在评估器运行之前会短路：策略文件保护、Git 元数据保护和秘密保护。当其中一个阻止命令时，跟踪将包含一个**单一的合成 `rule-check` 步骤，没有 `parse` 步骤**，`ruleId` 设置为 `policy-protection`、`git-metadata-protection` 或匹配的秘密规则的 ID。假定每个跟踪都以 `parse` 步骤开始的工具需要处理这种情况。
+有三种保护会在评估器运行之前短路：策略文件保护、Git 元数据保护和机密保护。其中之一阻止命令时，跟踪只含**一个合成的 `rule-check` 步骤，且没有 `parse` 步骤**，`ruleId` 设为 `policy-protection`、`git-metadata-protection` 或匹配到的机密规则的 ID。假定每条跟踪都以 `parse` 步骤开头的工具需要处理这种情况。
 
 <span id="before-you-share-a-trace"></span>
 
-## 共享跟踪之前
+## 分享跟踪之前
 
 <Warning>
-  **解释跟踪本身并不安全。** `parse` 步骤会记录您提供的原始命令字符串以及从中解析出的每个 token。许多其他步骤也包含原始文本 — `fallback-scan.tokensScanned`、`dangerous-text.token`、`shell-wrapper.innerCommand`、`interpreter.codeArg`、`recurse.innerCommand`、`strict-unparseable.rawCommand`、`transparent-wrapper.output`、`worktree-relaxation.gitCwd` 和 `cwd-change.segment`。`configSource` 是一个绝对路径，通常在您的主目录中。
+  **explain 跟踪本身并不天然可以安全分享。** `parse` 步骤会记录你提供的原始命令字符串，以及从中解析出的每一个 token。许多其他步骤同样携带原始文本——`fallback-scan.tokensScanned`、`dangerous-text.token`、`shell-wrapper.innerCommand`、`interpreter.codeArg`、`recurse.innerCommand`、`strict-unparseable.rawCommand`、`transparent-wrapper.output`、`worktree-relaxation.gitCwd` 和 `cwd-change.segment`。`configSource` 是绝对路径，通常位于你的主目录内。
 
-  隐藏会移除已识别的凭证**形状** — 与 [审计日志](/zh-Hans/reference/audit-log) 使用的边界模式列表相同。它不对文件路径、主机名、IP 地址、用户名、项目或客户端名称，或任何格式不在列表中的秘密做出声明，并且它无法隐藏它未识别的内容。
+  脱敏只移除已识别的凭证**形式**——用的正是 [审计日志](/zh-Hans/reference/audit-log#机密脱敏) 那份有界的模式列表。它对文件路径、主机名、IP 地址、用户名、项目或客户名称，以及任何格式不在列表中的机密都不作任何保证，也无法脱敏它认不出来的内容。
 
-  在共享跟踪之前：使用**占位符凭证和占位符路径**重现案例，然后**从头到尾阅读输出**并删除任何您不会公开发布的内容。
+  分享跟踪之前：用**占位凭证和占位路径**复现该场景，然后**从头到尾读一遍输出**，删掉任何你不愿公开的内容。
 </Warning>
 
-例如，解释一个包含 `--token=…` 赋值的命令会隐藏 token，但同一命令中的路径 `/srv/acme-prod/customer-dump.sql` 会完整返回，以及命令文本中的任何主机名、IP 地址或帐户名。
+例如，解释包含 `--token=…` 赋值的命令时，token 会被脱敏，但同一命令中 `/srv/acme-prod/customer-dump.sql` 这样的路径会完整返回，命令文本里的任何主机名、IP 地址或账户名也一样。
 
-您可以将 `explain` 输出包含在漏洞报告中。隐藏是一种尽力而为的控制，而不是保证。隐藏绕过是可报告的漏洞。粘贴之前请检查完整输出。
+可以在漏洞报告中附上 `explain` 输出。脱敏是尽力而为的控制手段，而不是保证；脱敏绕过属于可上报的漏洞。粘贴之前请通读完整输出。
 
 ## 相关页面
 
-- [CLI 命令](/zh-Hans/reference/cli-commands) — `explain` 标志、示例和退出行为。
-- [审计日志](/zh-Hans/reference/audit-log) — 隐藏模式列表，以及应用于已记录记录的相同边界。
+- [CLI 命令](/zh-Hans/reference/cli-commands#explain) — `explain` 的标志、示例和退出行为。
+- [审计日志](/zh-Hans/reference/audit-log#机密脱敏) — 脱敏模式列表，以及同样适用于已记录条目的边界。
 - [分析引擎](/zh-Hans/guides/analysis-engine) — 每个跟踪步骤对应的行为。
-- [故障排除](/zh-Hans/guides/troubleshooting) — 使用 `explain` 来诊断意外的阻止。
+- [故障排除](/zh-Hans/guides/troubleshooting) — 用 `explain` 诊断意外的阻止。

@@ -1,7 +1,7 @@
 ---
 title: "审计日志参考"
 sidebarTitle: "审计日志"
-description: "CC Safety Net 审计日志参考：文件布局、JSONL 记录模式、记录内容、保留和清理以及秘密 redaction 的有限范围。"
+description: "CC Safety Net 审计日志参考：文件布局、JSONL 记录模式、记录内容、保留与清理，以及机密脱敏的有限边界。"
 keywords:
   - "审计日志"
   - "日志文件"
@@ -10,16 +10,16 @@ keywords:
   - "日志模式"
   - "审计追踪"
   - "保留"
-  - "秘密 redaction"
+  - "机密脱敏"
 ---
 
-CC Safety Net 会写入结构化的命令决策审计追踪。使用它来审查您的代理尝试执行的操作以及发生的情况。日志使用 JSON Lines (JSONL)，每行一个 JSON 对象。CC Safety Net 将这些日志存储在您的机器上。
+CC Safety Net 会为命令决策写入结构化的审计追踪。用它来回顾智能体尝试做了什么、结果如何。日志采用 JSON Lines（JSONL）格式，每行一个 JSON 对象。CC Safety Net 把这些日志存储在你的机器上。
 
-本页定义了文件布局、记录模式、范围、保留和 redaction 限制。要通过 UI 读取日志，请参阅 [Dashboard](/zh-Hans/guides/dashboard)。要在终端中读取日志，请参阅 [`logs`](/zh-Hans/reference/cli-commands)。
+本页定义文件布局、记录模式、范围、保留以及脱敏的边界。要在 UI 中查看日志，请参阅 [Dashboard](/zh-Hans/guides/dashboard)。要在终端中查看，请参阅 [`logs`](/zh-Hans/reference/cli-commands#logs)。
 
 ## 日志布局
 
-记录被写入到每个项目、每个月的路径中：
+记录写入按项目、按月划分的路径：
 
 ```text
 ~/.cc-safety-net/logs/<encoded-cwd>/<YYYY-MM>/<YYYY-MM-DD>-<session-id>.jsonl
@@ -27,53 +27,53 @@ CC Safety Net 会写入结构化的命令决策审计追踪。使用它来审查
 
 | 路径部分 | 如何推导 |
 | --- | --- |
-| `~/.cc-safety-net/logs` | 审计根目录。主目录取自 `CC_SAFETY_NET_AUDIT_HOME`，然后是 `HOME`，然后是操作系统的主目录查找，并且必须是绝对路径 |
-| `<encoded-cwd>` | 工作目录，所有非字母数字字符都替换为 `-`，截断为 180 个字符，或者在没有内容可编码时为 `no-cwd` |
+| `~/.cc-safety-net/logs` | 审计根目录。主目录依次取自 `CC_SAFETY_NET_AUDIT_HOME`、`HOME`、操作系统的主目录查找，且必须是绝对路径 |
+| `<encoded-cwd>` | 工作目录，其中每个非字母数字字符都替换为 `-`，并截断到 180 个字符；没有内容可编码时为 `no-cwd` |
 | `<YYYY-MM>` | 记录时间戳的月份 |
-| `<YYYY-MM-DD>-<session-id>` | 记录的日期加上代理会话 ID |
+| `<YYYY-MM-DD>-<session-id>` | 记录的日期加上智能体会话 ID |
 
-会话 ID 在到达文件名之前会被清理：非 `A-Za-z0-9_.-` 字符的运行会折叠为 `_`，前导和尾随的 `.`、`-` 和 `_` 会被剥离，结果会被截断为 128 个字符。如果清理后留下空字符串、`.` 或 `..`，**写入将完全放弃** — 这是路径遍历防御，而不是格式化上的便利。
+会话 ID 在进入文件名之前会先经过清理：`A-Za-z0-9_.-` 之外的连续字符折叠为 `_`，开头和结尾的 `.`、`-`、`_` 一律去掉，结果截断到 128 个字符。如果清理后剩下空字符串、`.` 或 `..`，**整次写入会被彻底放弃**——这是路径遍历防御，而不是为了格式好看。
 
 目录以模式 `0700` 创建，日志文件以模式 `0600` 追加。
 
-写入失败将被忽略。审计日志记录不会改变允许或阻止的决策。
+写入失败会被忽略。审计日志记录不会改变允许或阻止的决策。
 
 <Note>
-  直接位于 `~/.cc-safety-net/logs/` 中的平面文件是早期版本的**旧版**布局。它们仍然被 `logs` 读取，并且仍然被保留策略清理，它们是 [`logs --prune-legacy`](#deleting-legacy-logs) 的目标。新记录永远不会写入那里。
+  直接位于 `~/.cc-safety-net/logs/` 下的平面文件是早期版本的**旧版**布局。`logs` 仍会读取它们，保留清理也仍会扫过它们，[`logs --prune-legacy`](#deleting-legacy-logs) 针对的正是它们。新记录不会再写入那里。
 </Note>
 
 ## 每条记录包含一个决策
 
-每行记录一个允许或阻止的命令决策：命令、驱动决策的片段、原因以及匹配的规则。
+每行恰好记录一条允许或阻止的命令决策：命令、促成该决策的片段、原因，以及匹配的规则。
 
-- 没有命令输出、模型提示、工具结果或对话内容被读取或存储在写入路径的任何位置。
-- 拒绝总是会被记录。
-- 允许的决策仅在工具调用实际路由到命令时才会被记录。允许的非命令工具调用根本不会产生记录。
-- 来自故障关闭路径的阻止 — 分析器出错且保护程序拒绝而不是猜测 — **会被**记录，并标记有 `failureStage` 和 `errorCode`，以便您能够找到它们。`logs --suspect` 就是基于该字段构建的。
+- 写入路径上的任何环节都不会读取或存储命令输出、模型提示词、工具结果或对话内容。
+- 拒绝始终会被记录。
+- 允许的决策只有在工具调用确实路由到命令时才会记录。被允许的非命令工具调用完全不产生记录。
+- 来自 fail-closed 路径的阻止——分析器出错，防护选择拒绝而不是猜测——**会**被记录，并带上 `failureStage` 和 `errorCode` 标记，正是为了让你能找到它们。`logs --suspect` 就建立在该字段之上。
 
 ## 记录模式
 
 | 字段 | 类型 | 存在性 | 描述 |
 | --- | --- | --- | --- |
 | `ts` | string | 始终 | 决策的 ISO 8601 时间戳 |
-| `id` | string | 始终写入 | 16 个十六进制字符。这是 `logs --id` 使用的 ID |
+| `id` | string | 始终写入 | 16 个十六进制字符。这是 `logs --id` 接受的 ID |
 | `v` | string | 可选 | 写入记录的 CC Safety Net 版本，或 `dev` |
-| `sessionId` | string | 可选 | 清理后的代理会话 ID |
+| `sessionId` | string | 可选 | 清理后的智能体会话 ID |
 | `decision` | `"allow" \| "deny"` | 可选，默认为 `"deny"` | 所做的决策 |
 | `agent` | string | 可选 | 集成 ID，例如 `claude-code`。也用作显示名称的键 |
-| `shape` | string | 可选 | 记录来自的适配器输入形状 |
+| `shape` | string | 可选 | 该记录来自的适配器输入形态 |
 | `level` | string | 可选 | 决策时生效的安全级别 |
-| `configFallback` | `true` | 可选 | 当决策是基于回退策略运行时存在 |
+| `configFallback` | `true` | 可选 | 决策基于回退策略运行时存在 |
 | `toolName` | string | 可选 | 工具名称，最多 256 个字符 |
-| `command` | string | 始终 | 完整的命令，经过 redaction 后截断 |
-| `segment` | string | 始终 | 驱动决策的具体片段，经过 redaction 后截断 |
-| `truncated` | `true` | 可选 | 仅在某些内容被截断时存在。请参阅下文 |
+| `command` | string | 始终 | 完整命令，先脱敏后截断 |
+| `segment` | string | 始终 | 促成决策的具体片段，先脱敏后截断 |
+| `truncated` | `true` | 可选 | 仅当有内容被截断时存在。参见下文 |
 | `reason` | string | 始终 | 人类可读的决策原因 |
 | `ruleId` | string | 可选 | 匹配规则的 ID |
 | `intent` | string | 可选 | 阻止意图分类 |
-| `failureStage` | string | 可选 | 当拒绝来自保护程序失败时设置 — 即，它故障关闭 |
-| `errorCode` | string | 可选 | `path-canonicalization-limit`、`tool-input-limit`、`structural-shell-syntax-limit`、`unexpected-error` 中的一个 |
-| `cwd` | string \| `null` | 可选 | 工作目录，经过 redaction 后截断 |
+| `failureStage` | string | 可选 | 拒绝源于防护失败时设置，也就是 fail-closed 的情况 |
+| `errorCode` | string | 可选 | `path-canonicalization-limit`、`tool-input-limit`、`structural-shell-syntax-limit`、`unexpected-error` 之一 |
+| `cwd` | string \| `null` | 可选 | 工作目录，先脱敏后截断 |
 
 示例记录：
 
@@ -81,33 +81,33 @@ CC Safety Net 会写入结构化的命令决策审计追踪。使用它来审查
 {"ts":"2025-01-15T10:30:00.000Z","id":"3fa9c2d1a70e8b42","v":"2.0.0","sessionId":"a1b2c3","decision":"deny","agent":"claude-code","level":"standard","command":"git reset --hard","segment":"git reset --hard","reason":"git reset --hard destroys all uncommitted changes permanently. Use 'git stash' first.","ruleId":"git-reset-hard","cwd":"/path/to/project"}
 ```
 
-### 长度限制和截断指示器
+### 长度上限和截断标志
 
-| 字段 | 限制 |
+| 字段 | 上限 |
 | --- | --- |
 | `command` | 10,000 个字符 |
 | `segment` | 2,000 个字符 |
 | `toolName` | 256 个字符 |
 | `cwd` | 32,768 个字符 |
 
-限制是在 redaction **之后**应用的，因此 redaction 永远不会在令牌中间被截断。
+上限在脱敏**之后**才应用，因此脱敏不会在某个令牌中途被切断。
 
-如果 `command`、`segment`、`toolName` 或 `cwd` 中的任何一个超过其限制，记录将带有 `truncated: true`。该标志永远不会写入为 `false` — 它的缺失意味着没有内容被截断。`logs --id` 将其渲染为 `truncated: yes` 或 `-`。
+只要 `command`、`segment`、`toolName` 或 `cwd` 中有一个超出上限，记录就会带上 `truncated: true`。该标志不会写成 `false`——它不出现就表示没有内容被截断。`logs --id` 会把它显示为 `truncated: yes` 或 `-`。
 
 ## 记录内容：审计范围
 
-`CC_SAFETY_NET_AUDIT_SCOPE` 决定允许的命令决策是否会加入拒绝项到日志中。
+`CC_SAFETY_NET_AUDIT_SCOPE` 决定允许的命令决策是否与拒绝一起记入日志。
 
 | 值 | 效果 |
 | --- | --- |
 | 未设置 | **默认。** 与 `all` 相同 |
 | `all` | 记录允许和阻止的命令决策 |
-| `blocked` | 只记录拒绝。这是隐私最小化的设置 |
-| 其他任何值 | 被视为无效：回退到只记录拒绝，**并且**由 `doctor` 报告 |
+| `blocked` | 只记录拒绝。这是对隐私影响最小的设置 |
+| 其他任何值 | 视为无效：回退到只记录拒绝，**并且**会被 `doctor` 报出 |
 
-无效值不会静默。`doctor` 会以警告级别引发 `environment.audit-scope-invalid` 这一发现 — “审计范围值无效”，并附带修复提示，要求设置变量为 `all` 或 `blocked` 并重新启动集成。故意不回显有问题的具体值。
+无效值不会被悄悄放过。`doctor` 会以警告严重级别报出 `environment.audit-scope-invalid` 这条发现——“审计范围值无效”——并给出修复提示：把该变量设为 `all` 或 `blocked`，然后重启集成。有问题的值本身刻意不会回显出来。
 
-拒绝项永远不会被范围抑制。范围只控制允许分支。
+范围永远不会抑制拒绝，它只对允许分支起作用。
 
 ## 保留
 
@@ -117,76 +117,76 @@ CC Safety Net 会写入结构化的命令决策审计追踪。使用它来审查
 | 可配置范围 | **1 到 365 天** |
 | 配置键 | `policy.json` 中的 `audit.retention_days` |
 
-`audit.retention_days` 必须是 1 到 365 之间的整数；任何其他值都会被验证拒绝，任何完全无法使用的值将回退到 30 天的默认值。保留策略直接从策略文件中读取，因此即使其余策略验证失败，清理也会继续工作。
+`audit.retention_days` 必须是 1 到 365 之间的整数；其他任何值都会在校验时被拒绝，而完全无法使用的值会回退到 30 天的默认值。保留期是单独直接从策略文件读取的，因此即使策略的其余部分校验失败，清理仍能正常工作。
 
-相同的值限制了 `logs --since` 的上限以及 GUI Activity 视图提供的窗口。
+同一个值也限定了 `logs --since` 的上限，以及 GUI Activity 视图提供的窗口。
 
 <Warning>
-  缩短保留期是**不可逆的**。清理程序在每次运行时都会重新计算其截止日期，因此降低该值会使已存在的记录立即符合删除条件，并且它们将被取消链接 — 没有存档，没有回收站，也没有撤销。GUI 会出于这个原因在降低该值之前要求您确认。
+  缩短保留期**不可逆**。清理扫描每次运行都会重新计算截止时间，因此调低该值会让已有记录立刻符合删除条件并被直接删除——没有归档、没有回收站，也无法撤销。正因如此，GUI 在调低该值之前会要求你确认。
 </Warning>
 
-### 清理是机会性的
+### 清理是伺机进行的
 
-没有定时器运行。保留清理由活动触发：
+没有任何定时任务。保留清理由活动触发：
 
-- 每次审计写入后（故意放在后面，因此清理失败永远不会导致记录丢失），
+- 每次审计写入之后（刻意放在写入之后，这样清理失败绝不会连累记录本身），
 - 在 `logs` 读取之前，
 - 在 `doctor` 构建其活动摘要之前，
-- 在 GUI 活动提要加载之前。
+- 在 GUI 活动信息流加载之前。
 
-清理程序每个审计根目录每天最多遍历一次，由审计根目录中的零字节 `.last-prune` 标记进行节流。它从不抛出异常，从不创建审计根目录，从不跟随符号链接，并且会忽略它不识别的任何文件形状。空的月份目录和空的目录会被回收，但当前月份除外，它会保持不变以避免与正在进行的写入发生冲突。旧的平面文件仅在文件的时间戳和其中所有记录都证明其已完全过期时才会被删除；具有混合年龄的文件永远不会被重写或拆分。
+清理扫描对每个审计根目录每个 UTC 日最多遍历一次，由审计根目录中零字节的 `.last-prune` 标记来节流。它从不抛出异常，从不创建审计根目录，从不跟随符号链接，任何它不认识的文件形态都原样保留。空的月份目录和空的项目目录会被回收，但当前月份除外——为避免与正在进行的写入发生竞争，它会被保留下来。旧版平面文件只有在文件时间戳和其中每一条记录都证明它已整体过期时才会被删除；记录新旧混杂的文件绝不会被重写或拆分。
 
-**当 CC Safety Net 处于空闲状态时，过期的记录可能会保留在磁盘上**，因为没有东西会启动清理程序。`logs --id` 会搜索磁盘上存在的记录。如果清理程序尚未触及，它可能会返回超出保留期但仍然存在的记录。
+**CC Safety Net 空闲期间，过期记录可能一直留在磁盘上**，因为没有任何东西会启动清理扫描。`logs --id` 搜索的是磁盘上现存的记录，如果清理还没轮到它，就仍可能返回一条已过保留期的记录。
 
 <span id="deleting-legacy-logs"></span>
 
 ### 删除旧版日志
 
 <Warning>
-  `cc-safety-net logs --prune-legacy` 会**立即且不可逆地**删除审计根目录中的所有旧版平面 `*.jsonl` 文件。没有确认提示，也没有 `--yes` 标志；唯一的预览是 `--dry-run`，它会报告将要删除的确切集合并且不删除任何内容。成员资格仅由文件位置决定 — 年龄、模式有效性和格式错误的行都无关紧要。
+  `cc-safety-net logs --prune-legacy` 会**立即且不可逆地**删除审计根目录中所有旧版平面 `*.jsonl` 文件。没有确认提示，也没有 `--yes` 标志；唯一的预览方式是 `--dry-run`，它会准确报告将被删除的文件集合，而不删除任何东西。是否属于该集合仅由文件位置决定——年龄、模式是否有效、行是否格式错误都无关紧要。
 </Warning>
 
-这不是保留清理。保留清理仅在旧版文件完全过期时才删除它们；`--prune-legacy` 会在不考虑年龄的情况下删除它们。嵌套的每个项目日志永远不会被进入，也永远不会被触及，并且命令会在其输出中说明这一点。有关该标志的退出行为以及它拒绝的组合，请参阅 [`logs --prune-legacy`](/zh-Hans/reference/cli-commands)。
+这不是保留清理。保留清理只在旧版文件整体过期时才删除它们；`--prune-legacy` 则不论年龄一律删除。它绝不会进入嵌套的按项目日志目录，也绝不会触碰那里的文件，命令的输出中也会说明这一点。有关该标志的退出行为及它拒绝的参数组合，请参阅 [`logs --prune-legacy`](/zh-Hans/reference/cli-commands#logs-prune-legacy)。
 
 ## 计数和返回的条目
 
-计数涵盖整个窗口。条目列表是有限制的，因此两个数字可能不同。
+计数覆盖整个窗口，而条目列表有数量上限，因此两个数字可能对不上。
 
 | 界面 | 窗口 | 计数 | 返回的条目 |
 | --- | --- | --- | --- |
-| GUI Activity 视图 | 整个本地日历天，因此每天的存储桶总和正好等于阻止的总数 | 阻止的、允许的、代理、规则、命令、错误以及每日系列都在整个窗口中计算 | 限制为 500。限制在决策之间分配，因此拒绝风暴不会挤占“允许”，并且响应会标记列表短于计数 |
-| `doctor` 活动 | 滚动 7 天 | 整个窗口的总阻止数和会话数。`doctor` 完全跳过允许的决策，无论审计范围如何 | 最近的 3 个 |
-| `logs` | `--since`，默认为 30 天 | 过滤和可疑重复检测在整个窗口中运行 | `--limit`，默认为 20 |
+| GUI Activity 视图 | 完整的本地日历日，因此每日分桶之和恰好等于阻止总数 | 阻止数、允许数、智能体、规则、命令、错误以及每日序列，都基于整个窗口计算 | 上限 500。该上限在两种决策之间分配，因此拒绝风暴不会挤掉“允许”；响应会标明列表少于计数 |
+| `doctor` 活动 | 滚动 7 天 | 整个窗口的阻止总数和会话数。无论审计范围如何，`doctor` 都完全跳过允许的决策 | 最近的 3 条 |
+| `logs` | `--since`，默认 30 天 | 过滤和可疑重复检测在整个窗口上运行 | `--limit`，默认 20 |
 
-当 `logs` 扫描日志时，它必须丢弃的每个源 — 一个不可读的目录、一个不可读的文件或一个格式错误的记录 — 都会被计数，并且一条警告会发送到 stderr：`warning: N audit log sources could not be read; these results are incomplete`（当 N 为 1 时为 `source`）。不命名任何路径，并且 stdout 和退出代码保持不变，因此 `--json` 输出保持可解析。缺少日志目录表示空历史记录，而不是丢失的记录，并且不会产生警告。
+`logs` 扫描日志时，每个不得不丢弃的来源——不可读的目录、不可读的文件或格式错误的记录——都会计入统计，并向 stderr 输出一条警告：`warning: N audit log sources could not be read; these results are incomplete`（N 为 1 时用 `source`）。警告不会给出任何路径，stdout 和退出码也保持不变，因此 `--json` 输出仍可解析。日志目录不存在意味着历史为空，而不是有来源被丢弃，因此不会产生警告。
 
-普通列表和 GUI 窗口不会查看早于保留期的记录。GUI 根据保留值生成窗口选项，而不是提供固定列表。但是，在清理程序删除过期记录之前，如果记录仍在磁盘上，直接运行 `logs --id` 仍可能返回该记录。有关每个保留设置可用的选项，请参阅 [Dashboard](/zh-Hans/guides/dashboard)。
+普通的列表窗口和 GUI 窗口都不会回溯到保留期之前。GUI 的窗口选项由你的保留期推导得出，而不是一份固定列表。只要过期记录还在磁盘上、清理尚未删除它，直接用 `logs --id` 查询仍可能把它返回。各保留期设置下可选的窗口，请参阅 [Dashboard](/zh-Hans/guides/dashboard#时间窗口由保留期决定)。
 
-## 秘密 redaction
+## 机密脱敏
 
-命令、片段、工具名称和工作目录在记录序列化**之前**会通过秘密 redaction。识别的值会被替换为 `<redacted>`：
+命令、片段、工具名称和工作目录会在记录序列化**之前**经过机密脱敏。识别出的值会被替换为 `<redacted>`：
 
 - 其名称包含 `TOKEN`、`SECRET`、`PASSWORD`、`PASS`、`KEY` 或 `CREDENTIALS` 的环境变量赋值
-- 数据库连接变量 (`DATABASE_URL`、`POSTGRES_URL`、`MYSQL_URL`、`REDIS_URL`、`MONGODB_URL` 以及其他 DSN/URL/URI/connection-string 变量)
-- PEM 私钥块 (`-----BEGIN ... PRIVATE KEY-----`)
-- 包含秘密的 HTTP 标头 (`Authorization`、`Cookie`、`X-API-KEY`、`API-KEY`)
-- URL 凭据 (`scheme://user:pass@host` 和 `scheme://token@host`) 以及 `-u user:pass`
-- 预签名 URL 签名查询参数 — `x-amz-signature`、`x-goog-signature`、`sig` 和 `signature` 的值，当参数名称遵循文本开头、空格、`?`、`&`、`;` 或 `|` 时，不区分大小写匹配
-- 固定列表的提供商令牌格式（`ghp_...`、`gho_...`、`xoxb-...`、`npm_...`、`sk_live_...`、`rk_live_...`、`pypi-...` 等）
-- JWTs (`eyJ...`) 和 AWS 访问密钥 ID (`AKIA...` / `ASIA...`)
+- 数据库连接变量（`DATABASE_URL`、`POSTGRES_URL`、`MYSQL_URL`、`REDIS_URL`、`MONGODB_URL`，以及其他 DSN/URL/URI/连接字符串变量）
+- PEM 私钥块（`-----BEGIN ... PRIVATE KEY-----`）
+- 携带机密的 HTTP 标头（`Authorization`、`Cookie`、`X-API-KEY`、`API-KEY`）
+- URL 凭证（`scheme://user:pass@host` 和 `scheme://token@host`）以及 `-u user:pass`
+- 预签名 URL 的签名查询参数——即 `x-amz-signature`、`x-goog-signature`、`sig` 和 `signature` 的值；当参数名紧跟在文本开头、空白、`?`、`&`、`;` 或 `|` 之后时，按不区分大小写匹配
+- 一份固定的提供商令牌格式列表（`ghp_...`、`gho_...`、`xoxb-...`、`npm_...`、`sk_live_...`、`rk_live_...`、`pypi-...` 等）
+- JWT（`eyJ...`）和 AWS 访问密钥 ID（`AKIA...` / `ASIA...`）
 
 <Warning>
-  **Redaction 是有限的。** 它是一个固定的模式列表，而不是一个分类器。它不识别的所有内容都会被原样保留：绝对文件系统路径、项目和目录名称、主机名、IP 地址、用户名、工单 ID、文件名以及不在列表中的任何凭据。`reason` 字段在写入时根本不会被 redaction。将审计日志视为敏感的本地数据，并在将任何摘录粘贴到问题或聊天中之前进行审查。
+  **脱敏是有边界的。** 它只是一份固定的模式列表，而不是分类器。凡是它不认识的内容都会原样保留：绝对文件系统路径、项目和目录名称、主机名、IP 地址、用户名、工单 ID、文件名，以及任何形式不在列表中的凭证。`reason` 字段在写入时完全不做脱敏。请把审计日志当作敏感的本地数据，把任何摘录粘贴到 issue 或聊天之前先检查一遍。
 </Warning>
 
-在 GUI 发送误报报告之前，它会删除您的主目录前缀。其他路径可能会保留在报告中。
+GUI 在发送误报报告前会去掉主目录前缀。其他路径仍可能留在报告里。
 
-权限（目录为 `0700`，文件为 `0600`）和本地存储限制了访问。它们不会 redaction 日志或使其可以安全共享。
+权限（目录 `0700`、文件 `0600`）和本地存储限制的是访问权。它们不会对日志脱敏，也不会让日志变得可以安全分享。
 
 ## 相关页面
 
-- [CLI 命令](/zh-Hans/reference/cli-commands) — `logs` 命令、其过滤器及其 JSON 输出。
-- [Dashboard](/zh-Hans/guides/dashboard) — 在 GUI Activity 提要中读取相同的记录。
-- [策略](/zh-Hans/configuration/policy) — `audit.retention_days` 字段及其验证。
-- [Explain trace](/zh-Hans/reference/explain-trace) — `explain` 输出也适用相同的 redaction 限制。
+- [CLI 命令](/zh-Hans/reference/cli-commands#logs) — `logs` 命令、它的过滤器和 JSON 输出。
+- [Dashboard](/zh-Hans/guides/dashboard#活动) — 在 GUI 活动信息流中读取同一批记录。
+- [策略](/zh-Hans/configuration/policy#审计保留) — `audit.retention_days` 字段及其校验。
+- [Explain 跟踪](/zh-Hans/reference/explain-trace) — `explain` 输出也适用同样的脱敏边界。
 - [安全模型](/zh-Hans/guides/security-model) — 审计日志在整体威胁模型中的位置。

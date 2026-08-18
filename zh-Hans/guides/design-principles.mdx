@@ -1,109 +1,109 @@
 ---
 title: "设计原则"
 sidebarTitle: "设计原则"
-description: "CC Safety Net 背后的设计依据：使用语义分析而不是通配符、固定且含始终启用保护的防护顺序、工具自身失败时阻止、让智能体继续任务的拒绝方式、最小依赖面、rulebook、纵深防御和 worktree 放宽。"
+description: "CC Safety Net 背后的设计依据：用语义分析取代通配符、固定的防护顺序与始终启用的保护、工具自身失败时一律阻止、让智能体继续任务的拒绝方式、最小依赖面、rulebook、纵深防御和 worktree 放宽。"
 ---
 
-这是技术序列的最后一页。它不增加新行为，而是说明<a href="/zh-Hans/guides/architecture">架构</a>和<a href="/zh-Hans/guides/analysis-engine">分析引擎</a>所定义行为的依据和取舍。如需了解*发生什么*，请先阅读这两页。如需了解*原因*，请阅读本页。
+这是技术序列的最后一页。它不增加新行为，而是说明<a href="/zh-Hans/guides/architecture">架构</a>和<a href="/zh-Hans/guides/analysis-engine">分析引擎</a>所规定行为背后的依据和取舍。想知道*发生了什么*，请先读那两页；想知道*为什么*，就读本页。
 
-CC Safety Net 源于一次真实事故：一个 AI 编码智能体删除了整个主目录。每项设计选择都服务于一个目标：在智能体执行破坏性命令*之前*阻止命令，并且绝不制造虚假的安全感。
+CC Safety Net 源于一次真实事故：一个 AI 编码智能体删除了整个主目录。每项设计选择都服务于同一个目标：在智能体执行破坏性命令*之前*就阻止它们，并且绝不制造虚假的安全感。
 
 ## 使用语义分析，而不是通配符模式
 
-编码智能体支持使用通配符匹配的 deny rule，例如匹配 `git reset --hard` 的通配符规则。通配符模式把原始命令字符串与模式比较。空格、标志顺序或命令包装的任何变化都可能让阻止静默失效。重新排列标志（`rm -r -f /`）、放入 shell 包装器（`sh -c "rm -rf /"`）或隐藏在解释器后都能绕过字符串匹配。
+编码智能体支持使用通配符匹配的 deny rule，例如匹配 `git reset --hard` 的通配符规则。这类规则拿原始命令字符串去和模式比对，因此空格、标志顺序或命令包装上的任何变化，都可能让阻止悄无声息地失效。调换标志顺序（`rm -r -f /`）、放进 shell 包装器（`sh -c "rm -rf /"`）或藏在解释器后面，都能绕过字符串匹配。
 
-CC Safety Net 会解析每条命令，并把命令交给理解 `git`、`rm`、`Remove-Item`、`find`、`xargs` 和 `parallel` 实际选项语法的分析器。因此，判定基于命令的*作用*，而不是命令的*外观*。
+CC Safety Net 会解析每条命令，再交给理解 `git`、`rm`、`Remove-Item`、`find`、`xargs` 和 `parallel` 实际选项语法的分析器。因此，判定基于命令的*作用*，而不是命令的*外观*。
 
-代价是复杂性：解析器必须正确处理 shell 语法，每个受支持命令都需要自己的分析器。收益是对最重要命令的抗绕过能力。管线见<a href="/zh-Hans/guides/architecture">架构</a>，每个分析器的具体行为见<a href="/zh-Hans/guides/analysis-engine">分析引擎</a>。
+代价是复杂性：解析器必须正确处理 shell 语法，每个受支持的命令都需要自己的分析器。收益是对最要紧的那些命令具备抗绕过能力。管线本身见<a href="/zh-Hans/guides/architecture#命令分析内部流程">架构</a>，每个分析器的具体行为见<a href="/zh-Hans/guides/analysis-engine">分析引擎</a>。
 
 ## 固定顺序，并先执行始终启用的保护
 
 在每个集成中，每次工具调用都经过相同的有序阶段。其中两个阶段，即规范策略文件保护和 Git 元数据保护，会刻意在加载策略快照*之前*运行。
 
-这种顺序就是设计重点。在配置之后评估的保护只能和配置一样可靠，而受损智能体首先会尝试修改配置。因为这两个防护在读取策略文件前拒绝，所以它们没有配置状态，preset 或 override 无法放宽它们，它们保护的文件也不能关闭它们。代价是这些拒绝不能报告安全级别或 fallback 原因，因为两者此时均未知。这是用诊断细节换取无条件保证的有意取舍。
+这个顺序正是设计的关键。放在配置之后评估的保护，可靠程度不会超过配置本身，而配置恰恰是被攻陷的智能体最先会去改的东西。由于这两个防护在读取策略文件之前就作出拒绝，它们不携带任何配置状态，preset 或 override 都无法放宽它们，它们所保护的那个文件也关不掉它们。代价是这类拒绝无法报告安全级别或 fallback 原因，因为此时两者都还未知——这是用诊断细节换取无条件保证的有意取舍。
 
-敏感路径保护位于边界另一侧，在快照之后执行。策略可以控制它，因为哪些路径属于敏感路径确实是本地决定，并且 deny path 只有在你能添加自己的路径时才有用。
+敏感路径保护则位于这条线的另一侧，在快照之后执行。它*确实*受策略控制，因为哪些路径算敏感本就该由本地决定，而且 deny path 只有在你能添加自己的路径时才有意义。
 
-具体阶段表见<a href="/zh-Hans/guides/architecture">架构</a>。
+具体阶段表见<a href="/zh-Hans/guides/architecture#有序防护阶段">架构</a>。
 
 ## 无法完成分析时阻止
 
 CC Safety Net 无法完成分析时会阻止，而不是允许：
 
 - 防护中任何位置抛出的错误都会在每个入口点变为拒绝，并归因于抛出错误的阶段。
-- 超过工具输入边界或解析器预算会在每个安全级别下拒绝。
-- <a href="/zh-Hans/configuration/modes">Strict 模式</a>把 fail-closed 扩展到解析器无法完全理解的命令和无法验证的破坏性目标。
+- 超过工具输入边界或解析器预算都会导致拒绝，在所有安全级别下都是如此。
+- <a href="/zh-Hans/configuration/modes#strict-mode">Strict 模式</a>把 fail-closed 进一步扩展到解析器无法完全理解的命令，以及它无法验证的破坏性目标。
 
-原因很直接：fail-open 的安全网比没有安全网更差，因为它会制造虚假的安全感。意外错误造成的阻止很烦人，但可以恢复。破坏性命令被放行则无法恢复。
+道理很简单：fail-open 的安全网比没有安全网更糟，因为它会制造虚假的安全感。意外错误造成的阻止固然烦人，但还能补救；让破坏性命令通过则无从挽回。
 
-**无效配置不属于这种情况。** 被拒绝的配置源会被丢弃，而不会转换为拒绝。rulebook 中的拼写错误如果让机器阻止所有工作，就会对用户造成拒绝服务，并促使用户卸载工具而不是修复文件。<a href="/zh-Hans/configuration/recovery">配置恢复</a>定义此约定和修复方法。
+**无效配置刻意不在此列。** 被拒绝的配置源会被丢弃，而不会转为一次拒绝——把 rulebook 里的一个拼写错误变成一道阻止所有工作的关卡，等于对用户发起拒绝服务，只会促使人们卸载工具，而不是去修文件。这项约定和修复路径由<a href="/zh-Hans/configuration/recovery">配置恢复</a>负责说明。
 
 这些属性在每个信任边界的执行方式见<a href="/zh-Hans/guides/security-model">安全模型</a>。
 
 ## 让智能体继续任务的拒绝方式
 
-拒绝不是错误状态。它在活动会话中作为普通工具结果返回给智能体。此行为决定 CC Safety Net 如何编写每条阻止消息。
+拒绝不是一种错误状态。它在当前会话中作为普通工具结果返回给智能体。正是这一行为决定了 CC Safety Net 如何撰写每一条阻止消息。
 
-只有 `permission denied` 的消息可能让智能体重试类似命令或停止整个任务。重复变体可能找到未受保护的形式，还会消耗智能体轮次。停止整个任务则把一次安全操作变成工作中断。
+一句干巴巴的 `permission denied` 可能让智能体去重试类似命令，或者干脆停下整个任务。反复换着变体尝试，有可能撞上一种未受保护的写法，还会白白消耗智能体的轮次；停下整个任务则把一次安全动作变成一次停工。
 
-因此，每条消息都会给智能体一个有效的后续动作。原因用清楚的语言说明命令的作用，并在有安全替代方案时给出该方案。每条规则还有一个 **intent**，用于选择结尾指令：报告阻止并继续任务其余部分、改用指定替代方案、用更窄的明确目标重试、把操作交给用户，或重构命令而不是穷举变体。即使内部错误产生 fail-closed 拒绝，也有 intent：重构，不要重试。因此，工具自身发生意外失败时仍会把智能体引向有效响应。
+因此，每条消息都力求给智能体一个有效的后续动作。原因会用平实的语言说明这条命令本会做什么，并在存在更安全的替代方案时点明该方案。每条规则还带有一个 **intent**，由它选择结尾指令：报告阻止并继续任务的其余部分、改用指定的替代方案、用更窄的明确目标重试、把操作交给用户，或者重构命令而不是穷举变体。即使是内部错误引发的 fail-closed 拒绝也带有 intent——重构，不要重试——这样即便工具自身意外失败，也仍会把智能体引向有用的应对。
 
-该指令只提供建议。没有机制强制智能体遵守。执行由防护完成，它也会阻止不遵守的重试。消息的作用是让合规路径最容易执行，使会话通常可以吸收一次阻止并继续。消息结构和完整 intent 表见<a href="/zh-Hans/guides/how-it-works">工作原理</a>。
+这条指令刻意只是建议性的。没有任何机制强制智能体遵守；执行由防护完成，不服从的重试同样会被阻止。消息的意义在于让合规路径成为最省事的一条，从而在常见情况下，会话吸收一次阻止后就能继续前进。消息结构和完整的 intent 表见<a href="/zh-Hans/guides/how-it-works#阻止消息的形式">工作原理</a>。
 
 ## 最小依赖面
 
-CC Safety Net 把运行时依赖面限制为一个延迟加载的软件包。所有结构信息，包括段拆分、引号、重定向、命令替换和动态 word 来源，都来自它**自有的有界 POSIX 和 PowerShell 解析器**，而不是第三方语法。这是有意的自建决策：
+CC Safety Net 把运行时依赖面限制为一个延迟加载的软件包。所有结构信息，包括命令段拆分、引号、重定向、命令替换和动态 word 来源，都来自它**自有的有界 POSIX 和 PowerShell 解析器**，而不是第三方语法。这是一次有意的自建与外购取舍：
 
 - 更小的依赖树意味着更小的供应链攻击面，而解析器是攻击者最想混淆的组件。
-- 分析需要通用 tokenizer 不保留的事实，例如哪些 word 来自展开、哪个目标锚定在工作目录、使用了哪种引用形式。因此，自有解析器是让这些事实成为一等数据的唯一方法。
-- 解析器预算可以是固定常量而不是配置，因此资源耗尽成为有界、可测试的失败模式，而不是开放式失败。
-- 对于把 CC Safety Net 作为 hook 子进程运行的智能体，它会在每次 shell 工具调用时重新启动。因此启动时间很重要，依赖项更少可缩短冷启动时间。
+- 分析需要通用 tokenizer 不会保留的事实，例如哪些 word 来自展开、哪个目标锚定在工作目录、使用了哪种引用形式。因此，自有解析器是让这些事实成为一等数据的唯一途径。
+- 解析器预算可以是固定常量而不是配置项，于是资源耗尽成为一种有界、可测试的失败模式，而不是开放式的失败。
+- 对于把 CC Safety Net 作为 hook 子进程运行的智能体，它在每次 shell 工具调用时都是全新启动，因此启动时间很重要，依赖越少冷启动越快。
 
-解析器预算和各依赖项的用途见<a href="/zh-Hans/guides/architecture">架构</a>。
+解析器预算和各依赖项的用途见<a href="/zh-Hans/guides/architecture#解析器和运行时依赖面">架构</a>。
 
 ## Rulebook 系统
 
-早期版本把自定义规则存为单个项目文件中的内联 JSON。CC Safety Net 因四个原因改用 rulebook 系统：
+早期版本把自定义规则存为单个项目文件中的内联 JSON。CC Safety Net 出于四个原因改用了 rulebook 系统：
 
 - **共享**：可以从 GitHub 仓库获取 rulebook，并在 lockfile 中用 SHA-256 digest 固定，使团队无需复制 JSON 即可共享阻止策略。
 - **完整性**：使用前会根据 lockfile digest 验证远程 rulebook 内容。内联配置没有完整性机制。
-- **作用域**：rulebook 支持独立的用户（全局）和项目作用域，并使用不同配置目录。
+- **范围**：rulebook 支持独立的用户（全局）和项目范围，并使用不同配置目录。
 - **验证**：rulebook 内容必须通过 schema 验证，才能影响阻止判定。
 
-自定义规则只能增加限制。它们不能放宽内置保护。这样可保持简单的信任边界。编写流程见<a href="/zh-Hans/configuration/custom-rules">自定义规则</a>。
+自定义规则严格只增不减：它们只能添加限制，绝不能放宽内置保护。这样信任边界才能保持简单。编写流程见<a href="/zh-Hans/configuration/custom-rules">自定义规则</a>。
 
 ## 使用分级级别，而不是一个设置
 
-保护以 standard、strict 和 paranoid 三个 preset 提供，而不是单个开关，因为“是否应阻止无法验证的命令”的正确答案取决于命令来源。
+保护以 standard、strict 和 paranoid 三个 preset 提供，而不是一个开关，因为对“无法验证的命令该不该阻止”这个问题，诚实的回答取决于命令从哪里来。
 
-Standard 针对有人监督的会话优化：它阻止可识别的破坏性命令和敏感内容访问，同时容许无法解析但无害的文本，因此不会中断日常工作。它对对抗性或动态输入明确只提供**尽力保护**。当命令可能来自提示注入或其他不可信上下文时，不应使用此设置。
+Standard 针对有人监督的会话做了优化：它阻止可识别的破坏性命令和敏感内容访问，同时容许无法解析但无害的文本，因此不会打断日常工作。面对对抗性或动态输入，它明确只提供**尽力保护**；当命令可能来自提示注入或其他不可信上下文时，它不是合适的设置。
 
-Strict 和 paranoid 用摩擦换取确定性。Strict 阻止无法验证的内容；paranoid 还阻止通常没有问题但偶尔会造成灾难的类别。设计不会通过增加更多 standard 模式解析启发式来填补 standard 的缺口。静态无法解析的目标不能通过更多猜测变得安全。对新缺口的规定响应是增加 strict 或 paranoid fail-closed fixture。因此，standard 模式的残余风险类别会被记录，而不会隐藏。
+Strict 和 paranoid 用摩擦换取确定性。Strict 阻止无法验证的内容；paranoid 还会阻止那些通常没问题、偶尔却会酿成灾难的类别。设计上刻意*不*去靠堆更多 standard 模式的解析启发式来填补 standard 的缺口——静态无法确定的目标，靠加大猜测力度也不会变安全。对新发现的缺口，规定的应对方式是补一条 strict 或 paranoid 的 fail-closed fixture，因此 standard 模式的残余风险类别是被记录下来，而不是被藏起来。
 
-各能力仍可单独设置，任何 per-rule override 都可以在 standard 下强制启用 strict tier 规则。但任何 override 都不能削弱灾难性规则或始终启用的保护。级别见<a href="/zh-Hans/configuration/modes">模式</a>，准确边界见<a href="/zh-Hans/guides/analysis-engine">分析引擎</a>。
+各项能力仍可单独设置，任何 per-rule override 都能在 standard 下强制启用 strict tier 的规则。而任何 override 都做不到的，是削弱灾难性规则或始终启用的保护。级别见<a href="/zh-Hans/configuration/modes">模式</a>，各条边界的准确位置见<a href="/zh-Hans/guides/analysis-engine#安全级别边界">分析引擎</a>。
 
 ## 纵深防御，而不是替代方案
 
 CC Safety Net 不声称自己是完整的安全方案。它是纵深防御堆栈中的一层：
 
-- **权限 deny rule**提供快速且用户可配置的阻止。CC Safety Net 在权限系统*之前*运行，因此无论 deny rule 如何配置，它都会检查每条命令。
+- **权限 deny rule** 提供快速且用户可配置的阻止。CC Safety Net 在权限系统*之前*运行，因此无论 deny rule 如何配置，它都会检查每条命令。
 - **操作系统级沙箱**限制文件系统和网络访问，但不理解边界*内*的操作是否具有破坏性。沙箱目录中的 `git reset --hard` 从沙箱角度看在技术上安全，但仍会造成严重误操作。
 
-请组合使用这些层：用 deny rule 快速迭代，用沙箱处理未知威胁和隔离，用 CC Safety Net 针对已知破坏性模式提供抗绕过保护。见<a href="/zh-Hans/guides/vs-sandboxing">CC Safety Net 与沙箱的对比</a>。
+请把这几层组合起来用：deny rule 用于快速迭代，沙箱用于应对未知威胁和做隔离，CC Safety Net 用于对已知的破坏性模式提供抗绕过保护。见 <a href="/zh-Hans/guides/vs-sandboxing">CC Safety Net 与沙箱的对比</a>。
 
 ## Worktree 放宽
 
 Linked Git worktree 会产生可用性问题：在 worktree 中工作的开发者通常需要运行 `git checkout -- .` 或 `git reset --hard` 来丢弃*该 worktree 中*的本地更改，但默认规则会把它们作为 local-discard 操作阻止。
 
-<a href="/zh-Hans/configuration/modes">Worktree 模式</a>不会全面放宽规则。它只对 local discard 放宽，只在被正向验证为 linked worktree 的目录中放宽，并且只在没有重定向 Git 上下文时放宽。验证是此设计的关键：看起来像 worktree 的目录不符合条件，如果检查无法完成，命令仍被阻止。
+<a href="/zh-Hans/configuration/modes#worktree-mode">Worktree 模式</a>没有全面放宽这条规则，而是只对 local discard 放宽，只在经过正向验证确属 linked worktree 的目录中放宽，并且只在没有任何东西重定向 Git 上下文时放宽。验证是这套设计的关键所在：仅仅看起来像 worktree 的目录并不算数，检查无法完成时命令依旧被阻止。
 
-放宽范围有意保持狭窄。所有影响远程的操作（force push、删除分支、丢弃 stash）仍被阻止，可能影响可丢弃 worktree 外部内容的 local discard 也仍被阻止。具体条件和不可放宽的情况见<a href="/zh-Hans/guides/analysis-engine">分析引擎</a>，启用方法见<a href="/zh-Hans/configuration/modes">模式</a>。
+这项放宽刻意保持狭窄：所有影响远程的操作（force push、删除分支、丢弃 stash）仍被阻止，可能波及这个可丢弃 worktree 之外的 local discard 同样仍被阻止。具体条件和不可放宽的情况见<a href="/zh-Hans/guides/analysis-engine#worktree-放宽">分析引擎</a>，启用方法见<a href="/zh-Hans/configuration/modes">模式</a>。
 
 ## 后续阅读
 
-技术指南从面向用户的生命周期逐步深入设计依据。本页是最后的第 5 步。
+技术指南从面向用户的生命周期一路深入到设计背后的依据。本页是第 5 步，也是最后一步。
 
 - 上一页：<a href="/zh-Hans/guides/analysis-engine">分析引擎</a>说明这些取舍产生的具体分类行为，<a href="/zh-Hans/guides/architecture">架构</a>说明这些取舍支持的防护顺序。
-- 从头开始：<a href="/zh-Hans/guides/how-it-works">工作原理</a>以用户层次说明同一系统。
+- 从头开始：<a href="/zh-Hans/guides/how-it-works">工作原理</a>以用户层面的深度说明同一套系统。
 
 相关页面：<a href="/zh-Hans/guides/security-model">安全模型</a>说明这些决定保护的信任边界，<a href="/zh-Hans/guides/known-limitations">已知限制</a>说明它们不能解决的问题，<a href="/zh-Hans/configuration/recovery">配置恢复</a>说明上文引用的 `ready` 和 `degraded` 约定。

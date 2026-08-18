@@ -4,58 +4,58 @@ sidebarTitle: "策略"
 description: "CC Safety Net policy.json 的完整参考：位置、schema、安全预设和能力覆盖、worktree 模式、破坏性命令和机密保护、拒绝和允许路径规则、审计保留期、默认值及优先级。"
 ---
 
-`policy.json` 是 CC Safety Net 的用户范围设置文件。它选择你的安全预设，打开或关闭各个内置保护，添加额外的受保护路径，并设置审计记录的保存时间。
+`policy.json` 是 CC Safety Net 的用户范围设置文件。它选择你的安全预设，打开或关闭各个内置保护，添加额外的受保护路径，并设置审计记录的保存时长。
 
-它与 `rule.json` 和rulebook分开，后者定义你自己的自定义阻止规则 - 有关该schema，请参阅[自定义规则](/zh-Hans/configuration/custom-rules)。
+它与 `rule.json` 和 rulebook 是分开的，后者定义你自己的自定义阻止规则——该 schema 参见[自定义规则](/zh-Hans/configuration/custom-rules)。
 
 ## 策略文件位置
 
-|设置 |路径|
+| 情形 | 路径 |
 | --- | --- |
-|默认 | `~/.cc-safety-net/policy.json` |
-| `CC_SAFETY_NET_HOME` 套装 | `$CC_SAFETY_NET_HOME/policy.json` |
+| 默认 | `~/.cc-safety-net/policy.json` |
+| 已设置 `CC_SAFETY_NET_HOME` | `$CC_SAFETY_NET_HOME/policy.json` |
 
-设置 `CC_SAFETY_NET_HOME` 后，该文件**直接**位于该目录下，作为 `rules/` 的同级文件。有关覆盖本身，请参阅[环境](/zh-Hans/configuration/environment)。
+设置 `CC_SAFETY_NET_HOME` 后，该文件**直接**位于该目录下，与 `rules/` 同级。覆盖变量本身参见[环境](/zh-Hans/configuration/environment)。
 
-只有一个策略文件。 **不存在项目范围内的 `policy.json`** - 运行时读取该单个路径，而不读取其他任何内容，因此项目无法降低或提高你的策略。
+策略文件有且只有一个。**不存在项目范围的 `policy.json`**——运行时只读取这一个路径，别无其他，因此项目无法降低或提高你的策略。
 
-当仪表板写入文件时，它会创建带有 `0700` 的目录和带有 `0600` 的文件。
+仪表板写入该文件时，会以 `0700` 创建目录、以 `0600` 创建文件。
 
 ## 策略文件保护
 
-规范用户 `policy.json` 在**每个**运行时状态（`ready`或`degraded`）中都是受保护的路径。策略文件保护在加载配置快照之前运行，因此损坏的配置不会削弱它。这些操作硬停止：
+规范的用户 `policy.json` 在**每个**运行时状态（`ready` 或 `degraded`）下都是受保护路径。策略文件保护在加载配置快照之前运行，因此损坏的配置无法削弱它。以下操作一律硬停止：
 
-- 通过任何工具写入、编辑和修补文件
-- Shell 命令将文件命名为操作数
-- 将重定向写入文件
-- 其目录或任何祖先的递归 `rm`
-- `find … -delete` 和 `find … -exec rm` 达到它
-- `mv` 以文件、其目录或祖先作为源
+- 通过任何工具对该文件的写入、编辑和修补
+- 以该文件作为操作数的 Shell 命令
+- 指向该文件的写入重定向
+- 对其所在目录或任何上级目录的递归 `rm`
+- 触及该文件的 `find … -delete` 和 `find … -exec rm`
+- 以该文件、其所在目录或上级目录为源的 `mv`
 
-允许阅读。只读命令白名单包括`[`、`cat`、`file`、`grep`、`head`、`jq`、`less`、`ls`、`more`、`rg`、`sed`、 `stat`、`tail`、`test` 和 `wc` — 仅当 `sed` 未与 `-i` 或 `--in-place` 就地编辑时。 Grep 和 Glob 等只读工具完全不受此限制。
+读取仍然允许。只读命令允许列表涵盖 `[`、`cat`、`file`、`grep`、`head`、`jq`、`less`、`ls`、`more`、`rg`、`sed`、`stat`、`tail`、`test` 和 `wc`——其中 `sed` 仅限没有用 `-i` 或 `--in-place` 就地编辑的情况。Grep、Glob 等只读工具完全不受此限制。
 
 <Warning>
-由于你的智能体无法写入此文件，因此请让它“向你显示”更改。你可以在编辑器中或通过仪表板自行应用策略编辑。
+智能体无法写入此文件，因此请改为让它把改动*展示*给你。策略修改由你自己在编辑器中应用，或通过仪表板应用。
 </Warning>
 
 ## 编辑策略文件
 
 选择以下选项之一：
 
-- **使用仪表板。**运行 `cc-safety-net gui`。仪表板使用正确的权限写入文件，并且可以修复未验证的文件。虽然文件有错误，但表单会显示完整的默认值，而不是文件中的有效值。在修复文件之前，你无法保存。修复保留每个已识别的有效设置并丢弃无效字段。如果你不希望出现此修复行为，请手动编辑文件并使用 `status` 进行检查。
-- **直接编辑 JSON。** 在编辑器中打开文件并手动更改它。运行时会在下一次工具调用时读取更改。你不需要重新启动任何东西。
+- **使用仪表板。**运行 `cc-safety-net gui`。仪表板会以正确的权限写入文件，并且能修复校验不通过的文件。文件存在错误期间，表单显示的是完整的默认值，而不是文件中那些有效的值。在修复文件之前无法保存。修复会保留每一项可识别的有效设置，并丢弃无效字段。如果不想要这种修复行为，请手动编辑文件，并用 `status` 检查。
+- **直接编辑 JSON。** 在编辑器中打开文件手动修改。运行时会在下一次工具调用时读取改动，无需重启任何东西。
 
-手工编辑后，确认结果：
+手动编辑后，确认结果：
 
 ```bash
 npx cc-safety-net status
 ```
 
-`degraded` 判决意味着你的文件的一部分被拒绝。 `npx cc-safety-net doctor` 准确命名了哪些字段。运行时**从不**自行重写 `policy.json`，因此无效文件将完全保持原样，直到你修复它或使用仪表板修复操作。
+判定为 `degraded` 说明文件中有一部分被拒绝。`npx cc-safety-net doctor` 会准确指出是哪些字段。运行时**从不**自行重写 `policy.json`，因此在你修复它或使用仪表板的修复操作之前，无效文件会原样保留。
 
 ## 完整的策略示例
 
-每个字段都有其默认值：
+包含每个字段及其默认值：
 
 ```json
 {
@@ -84,66 +84,66 @@ npx cc-safety-net status
 }
 ```
 
-仅需要 `version`。其他所有字段都可以省略，省略的字段采用上面显示的默认值。如果该文件根本不存在，CC Safety Net 将按这些默认值运行并保持 `ready`。
+只有 `version` 是必填的。其余字段都可以省略，省略时采用上面显示的默认值。如果该文件根本不存在，CC Safety Net 就按这些默认值运行，并保持 `ready`。
 
-根对象是 **严格**：无法识别的顶级密钥是错误，`safety`、`workflow`、`destructive_command_protection`、`secret_protection` 或 `audit` 内无法识别的密钥也是如此。
+根对象是**严格**的：无法识别的顶级键会报错，`safety`、`workflow`、`destructive_command_protection`、`secret_protection` 或 `audit` 内无法识别的键同样如此。
 
-## schema参考
+## Schema 参考
 
 <ParamField body="version" type="integer" required>
-schema版本。必须是 `1`。这是唯一必填字段；值缺失或错误的诊断为 `version must be 1`。
+Schema 版本。必须为 `1`。这是唯一的必填字段；值缺失或错误时的诊断信息是 `version must be 1`。
 </ParamField>
 
 <ParamField body="safety.level" type="string" default="standard">
-安全预设。 `"standard"`、`"strict"` 或 `"paranoid"` 之一。每个预设都提供继承的能力默认值：`strict` 启用 `fail_closed`； `paranoid` 启用 `fail_closed`、`paranoid_rm` 和 `paranoid_interpreters`。请参阅[模式](/zh-Hans/configuration/modes) 了解每种能力的变化。
+安全预设。取 `"standard"`、`"strict"` 或 `"paranoid"` 之一。每个预设都提供一组继承而来的能力默认值：`strict` 启用 `fail_closed`；`paranoid` 启用 `fail_closed`、`paranoid_rm` 和 `paranoid_interpreters`。各项能力具体改变了什么，参见[模式](/zh-Hans/configuration/modes)。
 </ParamField>
 
 <ParamField body="safety.overrides.fail_closed" type="boolean">
-明确设置故障关闭能力（向上或向下），无论预设如何。省略要从预设继承的键。
+无论预设如何，都显式设置 fail-closed 能力，可调高也可调低。省略该键则从预设继承。
 </ParamField>
 
 <ParamField body="safety.overrides.paranoid_rm" type="boolean">
-显式设置偏执 `rm` 能力，向上或向下。省略要从预设继承的键。
+显式设置偏执 `rm` 能力，可调高也可调低。省略该键则从预设继承。
 </ParamField>
 
 <ParamField body="safety.overrides.paranoid_interpreters" type="boolean">
-明确设置偏执解释器的能力，向上或向下。省略要从预设继承的键。
+显式设置偏执解释器能力，可调高也可调低。省略该键则从预设继承。
 </ParamField>
 
 <ParamField body="workflow.worktree_mode" type="boolean" default="false">
-在**已确认的**链接worktree中放宽本地丢弃 git 规则。检测是失败关闭的：如果工作目录不能被明确识别为链接的worktree，则更严格的默认规则仍然有效。请参阅[模式](/zh-Hans/configuration/modes) 了解放松和从不放松的确切列表。
+在**已确认**的 linked worktree 内放宽本地丢弃类 git 规则。检测采用 fail-closed：如果无法明确判定工作目录位于 linked worktree 中，仍然沿用更严格的默认规则。哪些规则会放宽、哪些永不放宽，确切列表参见[模式](/zh-Hans/configuration/modes)。
 </ParamField>
 
 <ParamField body="destructive_command_protection.enabled" type="boolean" default="true">
-已注册破坏性命令规则的主开关。将其设置为 `false` 会短路每个已注册的规则 - 除了始终强制执行的灾难性规则。
+已注册破坏性命令规则的总开关。设为 `false` 会短路所有已注册规则——但灾难性规则例外，它们始终强制执行。
 </ParamField>
 
 <ParamField body="destructive_command_protection.overrides" type="object" default="{}">
-每规则状态，由注册的破坏性命令规则 id 键入，值为 `"on"` 或 `"off"`。应用在能力派生状态之上，因此 `"on"` 可以启用你的预设未启用的规则，而 `"off"` 可以禁用它打开的规则。
+按已注册破坏性命令规则 id 设置的单项规则状态，值为 `"on"` 或 `"off"`。它叠加在能力推导出的状态之上，因此 `"on"` 可以启用预设未开启的规则，`"off"` 可以关闭预设开启的规则。
 </ParamField>
 
 <ParamField body="destructive_command_protection.allow_paths" type="string[]" default="[]">
-不受破坏性命令规则约束的路径。条目必须是绝对的或以 `~/` 开头。
+免于破坏性命令规则约束的路径。条目必须是绝对路径，或以 `~/` 开头。
 </ParamField>
 
 <ParamField body="secret_protection.enabled" type="boolean" default="true">
-机密保护总开关。将其设置为 `false` 会跳过整个机密阶段，包括你的 `deny_paths`。
+机密保护总开关。设为 `false` 会跳过整个机密阶段，包括你配置的 `deny_paths`。
 </ParamField>
 
 <ParamField body="secret_protection.overrides" type="object" default="{}">
-按已注册机密保护规则 id 设置的单项规则状态，值为 `"on"` 或 `"off"`。启用机密保护时，大多数机密规则默认开启，因此通常使用 `"off"`。[编码 CLI 配置层](#默认情况下关闭的规则)默认关闭，使用显式 `"on"` 可以启用其中一项规则。
+按已注册机密保护规则 id 设置的单项规则状态，值为 `"on"` 或 `"off"`。启用机密保护时，大多数机密规则默认开启，因此通常使用 `"off"`。[编码 CLI 配置层](#默认情况下关闭的规则)默认关闭，显式写 `"on"` 才能启用其中的规则。
 </ParamField>
 
 <ParamField body="secret_protection.deny_paths" type="string[]" default="[]">
-除内置敏感路径外，还要作为机密保护的其他路径。验证规则见[拒绝路径](#拒绝路径)。
+在内置敏感路径之外，额外作为机密加以保护的路径。验证规则见[拒绝路径](#拒绝路径)。
 </ParamField>
 
 <ParamField body="secret_protection.allow_paths" type="string[]" default="[]">
-从内置机密模式规则中豁免的精确文件或目录树。配置的拒绝路径和 Coding CLI 保护仍然适用。验证规则和优先顺序见[机密允许路径](#机密允许路径)。
+从内置机密模式规则中豁免的精确文件或目录树。配置的拒绝路径和编码 CLI 保护仍然适用。验证规则和优先顺序见[机密允许路径](#机密允许路径)。
 </ParamField>
 
 <ParamField body="audit.retention_days" type="integer" default="30">
-在清理删除审计历史记录之前要保留天数。必须是 `1` 和 `365` 之间的整数。
+清理删除前保留的审计历史天数。必须是 `1` 到 `365` 之间的整数。
 </ParamField>
 
 ## 安全级别和能力覆盖
@@ -162,15 +162,15 @@ schema版本。必须是 `1`。这是唯一必填字段；值缺失或错误的�
 }
 ```
 
-该示例使用 `paranoid` 预设，但不阻止解释器单行命令。最终的能力组合不匹配任何预设时，报告的有效级别会变为 `custom`。
+该示例采用 `paranoid` 预设，但不干预解释器单行命令。最终的能力组合不匹配任何预设时，报告的有效级别会变为 `custom`。
 
 <Note>
-环境可以提高你的策略水平并迫使其能力发挥作用，但绝不会相反。请参阅[环境](/zh-Hans/configuration/environment)，了解 `policy.json` 和环境之间的完整排序，包括 `worktree_mode` OR 和旧版 `SAFETY_NET_*` 别名。
+环境可以提高策略的级别、强制开启某些能力，但反过来不行。`policy.json` 与环境之间的完整优先顺序参见[环境](/zh-Hans/configuration/environment)，其中包括 `worktree_mode` 的逻辑 OR 组合和旧版 `SAFETY_NET_*` 别名。
 </Note>
 
 ## 破坏性命令保护
 
-`destructive_command_protection.overrides` 通过id来寻址内置规则，例如：
+`destructive_command_protection.overrides` 通过 id 指定内置规则，例如：
 
 ```json
 {
@@ -184,27 +184,27 @@ schema版本。必须是 `1`。这是唯一必填字段；值缺失或错误的�
 }
 ```
 
-未注册的 id 会被拒绝为 `unknown destructive command rule id "<id>"`，除 `"on"` 或 `"off"` 之外的任何值都会被拒绝为 `destructive_command_protection.overrides.<id> must be "on" or "off"`。
+未注册的 id 会被拒绝，报 `unknown destructive command rule id "<id>"`；除 `"on"` 或 `"off"` 之外的任何值都会被拒绝，报 `destructive_command_protection.overrides.<id> must be "on" or "off"`。
 
-**灾难性规则始终强制执行且用户不可配置。** 它们忽略 `enabled: false` 并忽略 `"off"` 覆盖。这些规则涵盖删除 `/` 或你的主目录以及删除 Git 元数据及其 PowerShell 和 `find` 等效项。有关每个规则强制执行的行为，请参阅[阻止的命令](/zh-Hans/reference/blocked-commands)。
+**灾难性规则始终强制执行，用户不可配置。** 它们忽略 `enabled: false`，也忽略 `"off"` 覆盖。这些规则涵盖删除 `/` 或主目录、删除 Git 元数据，以及它们在 PowerShell 和 `find` 下的等价形式。各规则强制执行的具体行为参见[被阻止的命令](/zh-Hans/reference/blocked-commands)。
 
 ### 允许路径
 
 `destructive_command_protection.allow_paths` 将特定位置排除在破坏性命令规则之外。验证比拒绝路径更严格：
 
-|进入|结果 |
+| 条目 | 结果 |
 | --- | --- |
-|非字符串，或清理为空的字符串 |无效 — `must be a non-empty path string` |
-|相对路径|无效 — `must be an absolute path or start with ~/` |
-|正是主目录 |无效 — `cannot be the home directory` |
-|包含主目录的路径，例如 `/` |无效 — `cannot contain the home directory` |
-|任何其他绝对路径或 `~/` 根路径 |有效 |
+| 非字符串，或去除空白后为空的字符串 | 无效 — `must be a non-empty path string` |
+| 相对路径 | 无效 — `must be an absolute path or start with ~/` |
+| 恰好就是主目录 | 无效 — `cannot be the home directory` |
+| 包含主目录的路径，例如 `/` | 无效 — `cannot contain the home directory` |
+| 其他任何绝对路径或以 `~/` 开头的路径 | 有效 |
 
 ## 机密保护
 
-机密保护阻止对包含凭据的文件的读取和写入。这部分是配置契约；内置规则的完整目录 - 每个 ID、每个保护的路径以及豁免 - 是[机密保护参考](/zh-Hans/reference/secret-protection)。
+机密保护阻止读写含凭证的文件。本节是配置契约；内置规则的完整目录——每个 id、各规则保护的路径以及豁免——见[机密保护参考](/zh-Hans/reference/secret-protection)。
 
-`secret_protection.overrides` 通过 id 寻址各个内置规则，其值为 `"on"` 或 `"off"`。 `"off"` 禁用默认启用的规则； `"on"` 选择默认关闭层中的规则：
+`secret_protection.overrides` 通过 id 指定单条内置规则，值为 `"on"` 或 `"off"`。`"off"` 关闭默认开启的规则；`"on"` 用于选择启用默认关闭层中的规则：
 
 ```json
 {
@@ -220,67 +220,67 @@ schema版本。必须是 `1`。这是唯一必填字段；值缺失或错误的�
 }
 ```
 
-未注册的 ID 将被拒绝，并显示为 `unknown secret protection rule id "<id>"`，任何其他值都会被拒绝，并显示为 `secret_protection.overrides.<id> must be "on" or "off"`。
+未注册的 id 会被拒绝，报 `unknown secret protection rule id "<id>"`；其他任何值都会被拒绝，报 `secret_protection.overrides.<id> must be "on" or "off"`。
 
 ### 默认情况下关闭的规则
 
-只要启用机密保护，大多数内置机密规则都会启用。第一层不是：**编码 CLI 配置**规则，它涵盖支持的编码智能体的设置和 MCP 配置文件。这些文件可以内嵌凭证，但智能体也会将它们作为日常工作进行编辑，因此该层会离开，你可以选择使用显式 `"on"` 覆盖的每个规则。你打开的配置规则可以保护智能体的用户级配置文件，并且还可以保护在任何存储库根（例如任何 `.mcp.json`）处与名称匹配的项目级文件。
+只要启用了机密保护，大多数内置机密规则都处于开启状态。有一层例外：**编码 CLI 配置**规则，它涵盖受支持的编码智能体的设置文件和 MCP 配置文件。这些文件可能内嵌凭证，但智能体也会把编辑它们当作日常工作，因此该层默认关闭，需要你逐条用显式的 `"on"` 覆盖来选择启用。启用某条配置规则后，它会保护该智能体的用户级配置文件，同时也会保护任意仓库根目录下按名称匹配的项目级文件，例如任何 `.mcp.json`。
 
-[机密保护参考](/zh-Hans/reference/secret-protection#编码-cli-配置层（默认关闭）)中列出了十个默认关闭的 ID、其默认打开的 **编码 CLI 凭证** 对应项以及每个规则保护的确切路径。
+十个默认关闭的 id、它们默认开启的 **编码 CLI 凭证** 对应规则，以及每条规则保护的确切路径，都列在[机密保护参考](/zh-Hans/reference/secret-protection#编码-cli-配置层（默认关闭）)中。
 
 ### 拒绝路径
 
-`secret_protection.deny_paths` 在内置敏感路径之上添加你自己的受保护位置。在内置规则之前**首先**检查拒绝路径，命中是归因于规则 ID `secret.deny-path` 的硬停止。
+`secret_protection.deny_paths` 在内置敏感路径之上添加你自己的受保护位置。拒绝路径会**先于**内置规则检查，一旦命中即为硬停止，归因于规则 id `secret.deny-path`。
 
 验证：
 
-|进入|结果 |
+| 条目 | 结果 |
 | --- | --- |
-|非字符串，或清理为空的字符串 |无效 — `must be a non-empty path string` |
-|相对路径，例如 `config/secrets` 或 `./secrets` | **有效** — 根据配置工作目录解析每个会话 |
-|单独的 `~`、`$HOME` 或 `${HOME}` |无效 — 主目录本身被拒绝 |
-| `~/…`、`$HOME/…` |展开后有效，除非它解析为 home 或以上 |
-|精确解析为主目录的路径 |无效 — `cannot be the home directory or a path above it (this would block every command the agent runs)` |
-|解析为 home 的祖先的路径，例如 `/`、`/Users` 或 `/home` |无效 — 相同消息 |
-|任何其他绝对路径 |有效 |
+| 非字符串，或去除空白后为空的字符串 | 无效 — `must be a non-empty path string` |
+| 相对路径，例如 `config/secrets` 或 `./secrets` | **有效** — 每个会话都按配置工作目录解析 |
+| 单独的 `~`、`$HOME` 或 `${HOME}` | 无效 — 主目录本身会被拒绝 |
+| `~/…`、`$HOME/…` | 展开后有效，除非解析到主目录或其上级 |
+| 恰好解析为主目录的路径 | 无效 — `cannot be the home directory or a path above it (this would block every command the agent runs)` |
+| 解析为主目录上级的路径，例如 `/`、`/Users` 或 `/home` | 无效 — 同一条消息 |
+| 其他任何绝对路径 | 有效 |
 
-相对条目之所以被接受，正是因为它们针对每个会话的工作目录进行解析，而保存文件时该工作目录是未知的。被拒绝的类 - home、home 之上的任何内容以及 `/` - 没有合法的读取，并且基本上会阻止 home 下每个工作区中的每个命令。
+之所以接受相对条目，正是因为它们按每个会话的工作目录解析，而保存文件时无从知道那是哪个目录。被拒绝的那一类——主目录、主目录之上的任何路径以及 `/`——没有任何合理的用途，而且几乎会阻止主目录下每个工作区中的每一条命令。
 
-**有效的拒绝路径保护什么：**路径本身**以及每个后代**。在比较之前，目标会根据执行工作目录进行规范化，每个配置的路径会根据配置工作目录进行规范化。
+**有效的拒绝路径保护什么：**路径本身**及其所有后代**。比较之前，目标按执行工作目录规范化，每个配置的路径按配置工作目录规范化。
 
-值得了解的两个限制：
+有两个限制值得了解：
 
-- 拒绝路径仅在 `secret_protection.enabled` 为 `true` 时适用。将其设置为 `false` 会关闭它们以及机密阶段中的其他所有内容。
-- `secret.deny-path` 不是已注册的机密规则 ID，因此 `secret_protection.overrides` 无法禁用它。只有 `secret_protection.enabled: false` 可以。
+- 拒绝路径仅在 `secret_protection.enabled` 为 `true` 时生效。设为 `false` 会连同机密阶段的其他一切一起关闭它们。
+- `secret.deny-path` 不是已注册的机密规则 id，因此 `secret_protection.overrides` 无法禁用它。只有 `secret_protection.enabled: false` 可以。
 
 ### 机密允许路径
 
-`secret_protection.allow_paths` 从内置的 basename、主目录、密钥变体和扩展名规则中豁免精确文件或目录及其所有后代。将它用于您有意管理的文件，例如存储库的 `.env.test`，或包含非机密凭据形式文件名的 fixture 目录。
+`secret_protection.allow_paths` 把精确的文件或目录及其所有后代从内置的 basename、主目录、密钥变体和扩展名规则中豁免出来。它适用于你有意管理的文件，例如仓库中的 `.env.test`，或包含形似凭证但并非机密的文件名的 fixture 目录。
 
 优先顺序是固定的：
 
-1. 配置的拒绝路径始终优先。如果同一目标在两个列表中，结果是 `secret.deny-path`。
-2. Coding CLI 凭据和配置规则 (`secret.cli.*`) 始终优先。允许路径不能公开智能体自己的凭据或配置。
-3. 允许路径匹配会抑制该目标的任何其他内置机密规则。
+1. 配置的拒绝路径始终优先。如果同一目标同时出现在两个列表中，结果是 `secret.deny-path`。
+2. 编码 CLI 凭证和配置规则（`secret.cli.*`）始终优先。允许路径无法暴露智能体自身的凭证或配置。
+3. 命中允许路径会抑制该目标上的其他任何内置机密规则。
 
 验证：
 
-|条目|结果 |
+| 条目 | 结果 |
 | --- | --- |
-|非字符串，或清理为空的字符串 |无效 — `must be a non-empty path string` |
-|相对路径，例如 `.env.test` 或 `fixtures/credentials` | **有效** — 根据配置工作目录解析每个会话 |
-|包含 `*` 或 `?` 的条目 |无效 — `cannot contain glob characters (* or ?); list the exact file or directory` |
-|单独的 `~`、`$HOME` 或 `${HOME}`，或 home 之上的路径 |无效 — `cannot cover the home directory or a path above it (this would disable secret protection everywhere)` |
-| `~/.cc-safety-net` 或其下的任何路径 |无效 — `cannot cover the guard's own configuration` |
-|任何其他字面绝对路径、`~/…`、`$HOME/…` 或 `${HOME}/…` 路径 |有效 |
+| 非字符串，或去除空白后为空的字符串 | 无效 — `must be a non-empty path string` |
+| 相对路径，例如 `.env.test` 或 `fixtures/credentials` | **有效** — 每个会话都按配置工作目录解析 |
+| 包含 `*` 或 `?` 的条目 | 无效 — `cannot contain glob characters (* or ?); list the exact file or directory` |
+| 单独的 `~`、`$HOME` 或 `${HOME}`，或主目录之上的路径 | 无效 — `cannot cover the home directory or a path above it (this would disable secret protection everywhere)` |
+| `~/.cc-safety-net` 或其下的任何路径 | 无效 — `cannot cover the guard's own configuration` |
+| 其他任何字面绝对路径、`~/…`、`$HOME/…` 或 `${HOME}/…` 路径 | 有效 |
 
-条目是字面路径，而不是 glob 模式。目标根据执行工作目录解析，相对允许条目根据配置工作目录解析。在进行相同或后代比较前，两边都会跟随现有符号链接，因此允许根目录也涵盖通过符号链接到达的目标。
+条目是字面路径，而不是 glob 模式。目标按执行工作目录解析，相对的允许条目按配置工作目录解析。在进行相同或后代比较前，两边都会跟随现有符号链接，因此允许根目录也涵盖通过符号链接到达的目标。
 
-运行时会在解析后再次检查安全边界。解析为 home 或 home 祖先的条目会被忽略。有效防护配置根目录下的目标永远不会被豁免，包括 `CC_SAFETY_NET_HOME` 移动该根目录，或 home 或 `~/.cc-safety-net` 是符号链接时。
+运行时会在解析后再次检查安全边界。解析结果为主目录或主目录上级的条目会被忽略。位于生效的防护配置根目录之下的目标永远不会被豁免，包括 `CC_SAFETY_NET_HOME` 改变了该根目录时，以及主目录或 `~/.cc-safety-net` 是符号链接时。
 
 ## 审计保留
 
-`audit.retention_days` 控制审计记录在保留扫描删除之前保留的时间。默认值为 **30 天**，接受的范围为 **1 到 365**。
+`audit.retention_days` 控制审计记录在保留期清理将其删除之前能保留多久。默认值为 **30 天**，接受的范围是 **1 到 365**。
 
 ```json
 {
@@ -291,60 +291,60 @@ schema版本。必须是 `1`。这是唯一必填字段；值缺失或错误的�
 }
 ```
 
-清理是机会性的：在审计写入之后和审计读取之前，它在每个 UTC 日对每个审计根最多运行一次遍历。它从不抛出也不遵循符号链接。有关记录schema和捕获的内容，请参阅[审计日志](/zh-Hans/reference/audit-log)。
+清理是机会性的：每个 UTC 日对每个审计根目录最多遍历一次，在审计写入之后、审计读取之前进行。它从不抛出异常，也不跟随符号链接。记录 schema 和采集的内容参见[审计日志](/zh-Hans/reference/audit-log)。
 
 <Note>
-保留期独立于策略的其余部分解析。清理扫描直接从文件中读取这一字段，因此即使策略的其他部分验证失败，审计记录仍会按独立解析出的保留期清理。缺失、非整数或不可用的值会回落至 30；低于 `1` 的值被限制到 `1`，高于 `365` 的值被限制到 `365`。
+保留期独立于策略的其余部分解析。清理扫描直接从文件中读取这一字段，因此即使策略的其他部分验证失败，清理仍会照常进行。缺失、非整数或不可用的值会回落至 30；低于 `1` 的值被限制到 `1`，高于 `365` 的值被限制到 `365`。
 
-因此，超出范围的值会同时执行两件事：模式**拒绝**它们，降低运行时间，而扫描**限制**它们。 `"retention_days": 1000` 均显示为诊断并在 365 天进行清理。
+因此，超出范围的值会同时引发两件事：schema **拒绝**它们，使运行时降级；而清理扫描把它们**限制**在范围内。`"retention_days": 1000` 既会作为诊断出现，又会按 365 天清理。
 </Note>
 
-## 无效的策略行为
+## 无效策略的行为
 
-无效的 `policy.json` 永远不会阻止正常工作。它将运行时移至 `degraded` 并使用回退。
+无效的 `policy.json` 永远不会阻止正常工作。它会把运行时置为 `degraded` 并改用回退值。
 
-|文件状态|运行时行为 |
+| 文件状态 | 运行时行为 |
 | --- | --- |
-| 可读但无效 | 逐字段保留文件。每个已识别的有效部分继续生效。其余部分使用保护性默认值。 |
-|空、不可解析或不是 JSON 对象 |对整个文件使用内置的保护默认值。 |
-|失踪|使用内置默认值，无需诊断。运行时间保持为 `ready`。 |
+| 可读但无效 | 逐字段挽救文件内容。每个已识别的有效部分继续生效。其余部分使用保护性默认值。 |
+| 空、无法解析或不是 JSON 对象 | 整个文件都使用内置的保护性默认值。 |
+| 缺失 | 使用内置默认值，且不产生诊断。运行时保持 `ready`。 |
 
-字段保留会优先提供保护，因此损坏的文件通常会产生比你配置的*更多*拒绝：
+挽救过程刻意偏向保护，因此损坏的文件通常会产生比你配置的*更多*拒绝：
 
-|领域 |无效时|
+| 字段 | 无效时 |
 | --- | --- |
-| `version` |重写为`1` |
-| `safety.level` |回落至 `standard` |
-| `safety.overrides.*` |无效的密钥被删除，因此该能力继承自预设 |
-| `workflow.worktree_mode` |回落至 `false` |
-| `destructive_command_protection.enabled` |回落至 `true` — 保护 **开启** |
-| `destructive_command_protection.overrides` |无效条目被丢弃；非对象变为 `{}` |
-| `destructive_command_protection.allow_paths` |无效条目被丢弃；非数组变为 `[]` — 没有余量 |
-| `secret_protection.enabled` |回落至 `true` — 保护 **开启** |
-| `secret_protection.overrides` |无效条目被丢弃；非对象变为 `{}` |
-| `secret_protection.deny_paths` |无效条目被丢弃；非数组变为 `[]` |
-| `secret_protection.allow_paths` |无效条目被丢弃；非数组变为 `[]` — 没有机密豁免 |
-| `audit.retention_days` |限制，或 `30` 无法使用时 |
+| `version` | 重写为 `1` |
+| `safety.level` | 回落至 `standard` |
+| `safety.overrides.*` | 丢弃无效的键，该能力因而从预设继承 |
+| `workflow.worktree_mode` | 回落至 `false` |
+| `destructive_command_protection.enabled` | 回落至 `true` — 保护**开启** |
+| `destructive_command_protection.overrides` | 无效条目被丢弃；非对象变为 `{}` |
+| `destructive_command_protection.allow_paths` | 无效条目被丢弃；非数组变为 `[]` — 不存在任何豁免 |
+| `secret_protection.enabled` | 回落至 `true` — 保护**开启** |
+| `secret_protection.overrides` | 无效条目被丢弃；非对象变为 `{}` |
+| `secret_protection.deny_paths` | 无效条目被丢弃；非数组变为 `[]` |
+| `secret_protection.allow_paths` | 无效条目被丢弃；非数组变为 `[]` — 没有任何机密豁免 |
+| `audit.retention_days` | 限制在范围内，无法使用时取 `30` |
 
 <Warning>
-无效条目将被**丢弃，而不是修复**。输入错误的拒绝路径会默默地停止保护该位置，而无效的 `safety.level` 会默默地将你降低到 `standard`。这是两种安静的故障模式 - 每次手动编辑后运行 `npx cc-safety-net status`。
+无效条目会被**丢弃，而不是修复**。拼错的拒绝路径会悄无声息地不再保护那个位置，无效的 `safety.level` 会悄无声息地把你降到 `standard`。这是两种无声的失效方式——每次手动编辑后都请运行 `npx cc-safety-net status`。
 </Warning>
 
-[配置恢复](/zh-Hans/configuration/recovery)是`degraded`状态的完整契约，包括如何上报以及如何回到`ready`。
+[配置恢复](/zh-Hans/configuration/recovery)是 `degraded` 状态的完整契约，包括它如何上报，以及如何回到 `ready`。
 
 ## 相关页面
 
 <CardGroup cols={2}>
 <Card title="模式" icon="toggle-right" href="/zh-Hans/configuration/modes">
-每种安全能力有何变化，以及worktree 模式放宽了哪些内容。
+每种安全能力改变了什么，以及 worktree 模式放宽了哪些规则。
 </Card>
 <Card title="环境" icon="variable" href="/zh-Hans/configuration/environment">
-每个变量，包括提高策略级别的变量。
+全部变量，包括那些能提高策略级别的变量。
 </Card>
 <Card title="自定义规则" icon="list-checks" href="/zh-Hans/configuration/custom-rules">
-你自己的阻止规则的单独 `rule.json` 和rulebookschema。
+用于自定义阻止规则的独立 `rule.json` 与 rulebook schema。
 </Card>
 <Card title="配置恢复" icon="life-buoy" href="/zh-Hans/configuration/recovery">
-`ready`与`degraded`、回退矩阵和修复顺序。
+`ready` 与 `degraded`、回退矩阵和修复步骤。
 </Card>
 </CardGroup>

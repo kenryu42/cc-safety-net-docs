@@ -8,12 +8,12 @@ description: "为 CC Safety Net 做贡献的方法：使用 Bun 1.3.14 和 Node.
 
 ## 构建前先提出建议
 
-CC Safety Net 的范围明确：**防止编码智能体意外犯错并造成数据丢失**。它不是通用的安全加固或攻击防护工具。在实现新的检测规则、命令类别、架构更改或配置选项前，请先创建 issue 进行讨论。拼写修正和解决方案明确的小型错误修正可以直接提交拉取请求。
+CC Safety Net 的范围明确：**防止编码智能体意外犯错并造成数据丢失**。它不是通用的安全加固或攻击防护工具。在实现新的检测规则、命令类别、架构更改或配置选项前，请先创建 issue 进行讨论。拼写修正和有明确解决方案的小 bug 修复可以直接提交拉取请求。
 
 ## 设置开发环境
 
-- **Bun 1.3.14** — 必需的构建和测试运行时，也是唯一受支持的包管理器（[安装指南](https://bun.sh/docs/installation)）。它在 `package.json` 中固定为 `packageManager`。
-- **Node.js 18 或更高版本** — 构建产物支持的运行时。运行已发布的 CLI 或插件不需要 Bun。
+- **Bun 1.3.14** — 必需的构建和测试运行时，也是唯一受支持的包管理器（[安装指南](https://bun.sh/docs/installation)）。它已在 `package.json` 的 `packageManager` 字段中固定版本。
+- **Node.js 18 或更高版本** — 构建产物受支持的运行时。运行已发布的 CLI 或插件不需要 Bun。
 - **Claude Code** 或 **OpenCode** — 仅当你要在本地加载并测试插件时需要。构建项目或运行测试套件不需要它们。
 
 ```bash
@@ -24,9 +24,9 @@ bun run build
 bun run check
 ```
 
-`bun run check` 是唯一的质量门。它依次运行 Biome lint 和格式检查、TypeScript 类型检查、`knip` 死代码检测、`jscpd` 重复检测、带覆盖率的测试套件，以及覆盖率阈值检查。完成更改后运行一次，不要分别运行各个子命令。创建拉取请求前，请确保它通过且没有错误。
+`bun run check` 是唯一的质量门。它依次运行 Biome lint 和格式检查、TypeScript 类型检查、`knip` 死代码检测、`jscpd` 重复检测、带覆盖率统计的测试套件，以及覆盖率阈值检查。完成更改后运行一次即可，不必分别运行各个子命令。创建拉取请求前，请确保它无错误通过。
 
-迭代期间可以使用单独的命令：
+迭代过程中也可以单独运行这些命令：
 
 ```bash
 bun run lint          # Biome lint + format
@@ -40,12 +40,12 @@ bun run build         # Build for distribution
 
 ## 测试本地插件
 
-先构建，然后加载本地插件，以测试实际阻止行为：
+先构建，然后加载本地插件，以便测试真实的阻止行为：
 
 - **Claude Code**：禁用任何已安装的 safety-net 插件，退出 Claude Code，然后在仓库根目录运行 `claude --plugin-dir .`。
 - **OpenCode**：将 `~/.config/opencode/opencode.json` 中的 `plugin[]` 数组指向已构建的 `file://.../cc-safety-net/dist/index.js`，删除 npm `cc-safety-net` 条目以避免冲突，然后重启 OpenCode。运行 `/status`，并确认插件名称显示为 `dist`。
 
-使用只含排除项的无害 pathspec 确认已知阻止行为：`git checkout -- ':(exclude,top)**'` 必须被阻止。即使保护未启用，此 pathspec 也不会选择任何文件。
+使用只含排除项的无害 pathspec 确认已知阻止行为：`git checkout -- ':(exclude,top)**'` 必须被阻止。如果保护未生效，该 pathspec 也不会选中任何文件。
 
 ## 遵循代码约定
 
@@ -54,14 +54,14 @@ bun run build         # Build for distribution
 | 构建/测试运行时 | Bun 1.3.14 |
 | 已发布版本的运行时 | Node.js 18+ |
 | 包管理器 | 仅使用 bun（`bun install`、`bun run`） |
-| 格式化程序/linter | Biome |
-| 类型 | 依赖类型推断；仅在导出或清晰度需要时添加显式注解。优先使用 `type \| null`，不要使用 `type \| undefined` |
+| 格式化工具/linter | Biome |
+| 类型 | 依赖类型推断；仅在导出需要或有助于清晰时才添加显式注解。优先使用 `type \| null`，不要使用 `type \| undefined` |
 | 文件命名 | `kebab-case`；`docs/` 中的文件也使用小写 kebab-case |
 | 函数/类型命名 | 函数使用 `camelCase`，类型使用 `PascalCase` |
 | 常量 | `SCREAMING_SNAKE_CASE`（例如原因常量） |
 | 导入 | 包内使用相对导入 |
-| 测试 | 位于 `tests/` 中并对应 `src/` 的结构，不得与代码并置在 `src/` 中 |
-| 构建输出 | 忽略 `dist/` — lefthook 提交前 hook 会重新构建它 |
+| 测试 | 放在 `tests/` 中，目录结构镜像 `src/`；绝不与源码并置在 `src/` 中 |
+| 构建输出 | 忽略 `dist/`——lefthook 的 pre-commit hook 会重新构建它 |
 
 ### 样式指南
 
@@ -73,7 +73,7 @@ bun run build         # Build for distribution
 
 ### 范围纪律
 
-过度工程是本项目的主要失败模式。实现满足请求的最小更改，并说明超出该范围的每项添加可以防止的具体故障。每项检查都必须可以在实践中证伪。在第一个实际条目出现之前，不要预先构建 schema、验证器、注册表或测试框架。优先记录流程，不要用代码强制执行流程。
+过度工程是本项目最主要的失败模式。只实现满足需求的最小更改；对超出这一范围的每项新增，都要说明它具体能防止哪种故障。每项检查都必须在实践中可证伪。在第一个真实条目出现之前，不要预先构建 schema、验证器、注册表或测试框架；与其用代码强制执行流程，不如把流程写进文档。
 
 ### Knip
 
@@ -84,7 +84,7 @@ bun run build         # Build for distribution
 - 代码遵循上述约定。
 - `bun run check` 通过且没有错误。
 - 为新规则添加测试，覆盖率至少为 90%。
-- 至少使用一个受支持的智能体进行本地测试，例如 Codex、Claude Code、Gemini CLI、GitHub Copilot CLI、Kimi Code 或 Pi。[安装](/zh-Hans/installation#安装指定智能体)页面列出了全部十二个智能体。
+- 在本地至少用一个受支持的智能体测试过，例如 Codex、Claude Code、Gemini CLI、GitHub Copilot CLI、Kimi Code 或 Pi。[安装](/zh-Hans/installation#安装指定智能体)页面列出了全部十二个智能体。
 - 在需要时更新文档（`README.md`、`AGENTS.md`）。
 - 不更改 `package.json` 中的版本。
 
@@ -92,8 +92,8 @@ bun run build         # Build for distribution
 
 ## 获取开发帮助
 
-- `bunx cc-safety-net doctor` 验证你的设置。
-- `bunx cc-safety-net explain "<command>"` 逐步显示命令的分析方式。
-- 检查源代码仓库中的 `CLAUDE.md` 或 `AGENTS.md`，了解架构和约定；在审查代码前阅读 `REVIEW.md`。
-- 查看 `src/analyzer/` 中的现有实现，了解代码模式；查看 `tests/helpers.ts`，了解测试工具。
-- 为错误或功能请求创建 issue。
+- `bunx cc-safety-net doctor` 验证你的环境配置。
+- `bunx cc-safety-net explain "<command>"` 逐步显示命令的分析过程。
+- 查看源代码仓库中的 `CLAUDE.md` 或 `AGENTS.md`，了解架构和约定；在审查代码前阅读 `REVIEW.md`。
+- 查看 `src/analyzer/` 中的现有实现，了解代码写法；查看 `tests/helpers.ts`，了解测试工具。
+- 遇到 bug 或有功能需求时，请创建 issue。

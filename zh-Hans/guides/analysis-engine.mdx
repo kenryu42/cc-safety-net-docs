@@ -6,7 +6,7 @@ description: "深入分析引擎：安全级别边界、包装器和解释器递
 
 这是技术序列的第四页，也是范围最窄的一页。它以[架构](/zh-Hans/guides/architecture)中的防护管线为基础，只说明破坏性命令分类器的准确分类行为和边缘情况。这些细节可帮助你阅读 `explain` 输出或编写精确的[自定义规则](/zh-Hans/configuration/custom-rules)。
 
-分类器是防护的**最后**一个阶段。在此之前，有界工具输入提取、解析器预算、策略文件和 Git 元数据保护、策略快照加载以及敏感路径保护都已运行。这些阶段在[有序防护阶段](/zh-Hans/guides/architecture#有序防护阶段)中定义。有界解析以及始终启用的策略文件和 Git 元数据防护，在每个安全级别下都会 fail closed。无效的策略快照使用保护性回退，敏感路径保护则遵循解析后的策略。破坏性命令分类器不能放宽前一阶段已经作出的判定。
+分类器是防护的**最后**一个阶段。在此之前，有界工具输入提取、解析器预算、策略文件和 Git 元数据保护、策略快照加载以及敏感路径保护都已运行。这些阶段在[有序防护阶段](/zh-Hans/guides/architecture#有序防护阶段)中定义。有界解析以及始终启用的策略文件和 Git 元数据防护，在每个安全级别下都会 fail closed。无效的策略快照使用保护性回退，敏感路径保护则遵循解析后的策略。破坏性命令分类器不能放宽更早阶段已经作出的判定。
 
 其分派流程包括拆分命令段、剥离环境变量赋值和包装器、识别主命令，再交给对应分析器。该流程图见[架构](/zh-Hans/guides/architecture#命令分析内部流程)。本页继续说明每个分析器如何处理收到的命令段，以及安全级别在哪些位置改变边界。
 
@@ -27,23 +27,23 @@ description: "深入分析引擎：安全级别边界、包装器和解释器递
 Standard 会阻止可识别的破坏性命令。它有意**不提供**对抗级保护，对动态或恶意输入只提供尽力分析。
 
 - **允许看似安全但无法解析的文本。** `echo 'unterminated` 会被允许。
-- **即使无法解析，可识别的破坏性文本仍然会被阻止。** `git reset --hard 'unterminated` 通过原始文本启发式扫描进行阻止，该扫描可识别 `rm -rf`、`git reset --hard`/`--merge`、`git clean -f`、`git checkout --force`、`git push --force`/`--delete`、`git branch -D`、`git tag -d`、 `git stash drop`/`clear`、`git checkout --`、`git restore`、`find -delete`、`dd of=/dev/`、`mkfs /dev/` 和 `shred <arg>`。
+- **即使无法解析，可识别的破坏性文本仍然会被阻止。** `git reset --hard 'unterminated` 会被原始文本启发式扫描阻止，该扫描可识别 `rm -rf`、`git reset --hard`/`--merge`、`git clean -f`、`git checkout --force`、`git push --force`/`--delete`、`git branch -D`、`git tag -d`、`git stash drop`/`clear`、`git checkout --`、`git restore`、`find -delete`、`dd of=/dev/`、`mkfs /dev/` 和 `shred <arg>`。
 - **带引号的字面量赋值中的危险文本延后到使用时判定。** `W='rm -rf ~'; echo "$W"` 会被允许：赋值本身不执行操作，而且参数位置中带引号的展开仍是一个 argv word，不能拆成命令和标志。任何风险更高的引用方式（未加引号、位于命令位置、位于替换中或位于未加引号的 heredoc body 中）仍会在赋值时触发阻止。把值交给 shell（`eval "$W"`、`bash -c "$W"`、`echo "$W" | sh`）也会拒绝，因为无法验证 shell 执行来源。Strict 从不延后判定。见[仅 Standard 允许的形式](/zh-Hans/reference/allowed-commands#仅标准允许)。
 - **不会一律阻止动态 `rm -rf` 目标。** Standard 允许 `rm -rf "$target"`；只有启用 fail-closed 能力后才会阻止。
 - Standard 还会有意允许动态可执行文件、通过替换组装的受防护命令结构、其他无法验证的递归删除目标，以及对内置敏感路径的独立仅元数据检查。
-- Standard 绝不放宽**敏感内容访问**、**配置的 deny path**或灾难性保护。
+- Standard 绝不放宽**敏感内容访问**和**配置的 deny path**，也绝不放宽灾难性保护。
 
 ### Strict
 
-[Strict 模式](/zh-Hans/configuration/modes#strict-mode)启用 fail-closed 能力。它不仅处理无法解析的命令，还会收紧其他边界。
+[Strict 模式](/zh-Hans/configuration/modes#strict-mode)启用 fail-closed 能力。它的作用远不止收紧无法解析的情形。
 
 - **阻止无法解析的命令。** `echo 'unterminated` 会被拒绝，原因说明该命令无法安全分析。
-- **仅元数据敏感路径发现被阻止。** `test -f ~/.ssh/id_rsa` 和 `find ~/.ssh -type f` 在标准中允许，在严格中阻止。
+- **阻止仅元数据的敏感路径发现。** `test -f ~/.ssh/id_rsa` 和 `find ~/.ssh -type f` 在 standard 中允许，在 strict 中阻止。
 - Standard 中把 Node 和 Bun 内联求值里的敏感路径字面量视为惰性诊断数据的放宽，在 strict 中会被禁用。
-- **Heredoc 会 fail closed。** 在其他分析器处理命令段之前，包含 heredoc 的命令会被拒绝，除非它通过下文“Heredoc 分析”中的狭窄支持门：恰好一个 heredoc、连接到 stdin、分隔符加引号、没有其他输入重定向，而且 consumer 是六种字面量数据 consumer 之一。分隔符未加引号时，拒绝消息为 "Unquoted heredoc input is not supported safely. Quote the delimiter or ask the user to verify."；其他失败的消息为 "This heredoc form or stdin consumer is not supported safely. Use a quoted heredoc with a supported consumer (cat, tee, git apply, git commit, gh pr create, gh issue create), or ask the user to verify."。实际上，strict 和 paranoid 都会拒绝 `python3 - <<'PY'` 和任何未加引号的 `<<EOF`。
-- **无法验证的破坏性目标被阻止。** 五个规则对故障关闭功能进行门控，因此它们在标准中被允许并在严格中被阻止：
+- **Heredoc 会 fail closed。** 在其他分析器处理命令段之前，包含 heredoc 的命令会被拒绝，除非它通过 [Heredoc 分析](#heredoc-分析)中描述的狭窄支持门：恰好一个 heredoc、连接到 stdin、分隔符加引号、没有其他输入重定向，而且使用六个字面量数据 consumer 中的一个。分隔符未加引号时，拒绝消息为 "Unquoted heredoc input is not supported safely. Quote the delimiter or ask the user to verify."；其他失败的消息为 "This heredoc form or stdin consumer is not supported safely. Use a quoted heredoc with a supported consumer (cat, tee, git apply, git commit, gh pr create, gh issue create), or ask the user to verify."。实际上，strict 和 paranoid 都会拒绝 `python3 - <<'PY'` 和任何未加引号的 `<<EOF`。
+- **阻止无法验证的破坏性目标。** 有五条规则以 fail-closed 能力为前提，因此在 standard 中允许，在 strict 中阻止：
 
-| Rule ID | 示例 | Intent |
+| Rule id | 示例 | Intent |
 | --- | --- | --- |
 | `rm.recursive-force-dynamic-target` | `rm -rf "$target"` | `scope_down` |
 | `powershell.remove-item-recursive-force-dynamic-target` | `Remove-Item $target -Recurse -Force` | `scope_down` |
@@ -51,14 +51,14 @@ Standard 会阻止可识别的破坏性命令。它有意**不提供**对抗级�
 | `shell.dynamic-executable` | `$(printf r)m -rf /` | `manual_only` |
 | `shell.dynamic-structure` | `git reset $(printf --hard)` | `stop_and_explain` |
 
-可以关闭单个 strict tier 规则，但对于没有注册破坏性命令 rule ID 的 fail-closed 结果，**strict 仍然保持 strict**，包括解析器 fail-closed 和敏感路径结果。
+单条 strict tier 规则可以关闭，但对于没有注册破坏性命令 rule id 的 fail-closed 结果，**strict 仍然保持 strict**，其中就包括解析器 fail-closed 和敏感路径结果。
 
 ### Paranoid
 
 [Paranoid 模式](/zh-Hans/configuration/modes#paranoid-mode)是在 strict 基础上增加两项能力。
 
-- [Paranoid `rm`](/zh-Hans/configuration/modes#paranoid-rm-check) 会阻止非临时递归强制删除，即使在当前工作目录内部也是如此 — `rm -rf ./cache` 和 `Remove-Item ./cache -Recurse -Force` 都会阻止。临时目标和配置的允许路径仍然是允许的。
-- [Paranoid 解释器](/zh-Hans/configuration/modes#paranoid-interpreters)会阻止所有解释器单行命令，不考虑内容，包括 `python -c "print(1)"`。
+- [Paranoid `rm`](/zh-Hans/configuration/modes#paranoid-rm-check) 会阻止非临时的递归强制删除，即使目标在当前工作目录内部也是如此——`rm -rf ./cache` 和 `Remove-Item ./cache -Recurse -Force` 都会被阻止。临时目标和配置的 allow path 仍然允许。
+- [Paranoid 解释器](/zh-Hans/configuration/modes#paranoid-interpreters)无论内容如何都会阻止所有解释器单行命令，包括 `python -c "print(1)"`。
 
 ### Per-rule override 与级别
 
@@ -66,188 +66,188 @@ Standard 会阻止可识别的破坏性命令。它有意**不提供**对抗级�
 
 **灾难性规则会忽略 master switch 和任何 `"off"` override。** 这些规则是 `rm.recursive-force-root-or-home`、`rm.git-metadata`、`powershell.remove-item-root-or-home`、`powershell.remove-item-recursive-force-root-or-home`、`powershell.remove-item-git-metadata` 和 `find.delete-git-metadata`，另有始终启用的策略文件防护。
 
-## Shell 包装器和解释器单行语句
+## Shell 包装器和解释器单行命令
 
-包装器和解释器的递归上限为 **10 层深度**，如果任何段阻塞，则整个命令将被拒绝。
+递归进入包装器和解释器的深度上限为 **10 层**；只要有任何命令段被阻止，整个命令都会被拒绝。
 
-从段中剥离环境分配和包装器后，将根据两个集合检查命令名称：
+剥离命令段中的环境变量赋值和包装器后，命令名会与两个集合比对：
 
-- **外壳包装** — `bash`、`sh`、`zsh`、`ksh`、`dash`、`fish`、`csh`、`tcsh`。提取并递归分析 `-c` 之后的参数。
-- **解释器** — `python`、`python2`、`python3`、`node`、`ruby`、`perl`。提取代码参数（`-c` 后的参数，或 node/ruby/perl 的 `-e` 后参数），并扫描其中的破坏性操作。
+- **Shell 包装器** — `bash`、`sh`、`zsh`、`ksh`、`dash`、`fish`、`csh`、`tcsh`。提取并递归分析 `-c` 之后的参数。
+- **解释器** — `python`、`python2`、`python3`、`node`、`ruby`、`perl`。提取代码参数（`-c` 后的参数，或 node/ruby/perl 的 `-e` 后参数），并扫描其中嵌入的破坏性操作。
 
-默认情况下，解释器的代码会扫描嵌入的破坏性命令，因此 `python -c 'import os; os.system("rm -rf /")'` 由于嵌入的 `rm -rf /` 而被阻止 - 仅允许单行形式。[偏执的解释器模式](/zh-Hans/configuration/modes#paranoid-interpreters)完全阻止每句话，无论内容如何。
+默认情况下，引擎会扫描解释器代码中嵌入的破坏性命令，因此 `python -c 'import os; os.system("rm -rf /")'` 会因嵌入的 `rm -rf /` 而被阻止——单行形式本身是允许的。[Paranoid 解释器模式](/zh-Hans/configuration/modes#paranoid-interpreters)则无论内容如何，都直接阻止所有单行命令。
 
-`busybox` 调度作为特殊情况处理：子命令移至命令位置并重新分析。扫描 `awk`/`gawk`/`mawk` 程序中的 `system()` 调用和反引号命令替换。
+`busybox` 分派按特殊情况处理：子命令被移到命令位置后重新分析。引擎会扫描 `awk`/`gawk`/`mawk` 程序中的 `system()` 调用和反引号命令替换。
 
 ### 透明包装器
 
-标准包装器（`sudo`、`env`、`command`、`builtin`）始终会被剥离。你声明为**透明包装器**的代理命令也会被剥离。声明和约束方式见[自定义规则](/zh-Hans/configuration/custom-rules#透明包装器)；这里关注的是引擎如何展开包装器。
+标准包装器（`sudo`、`env`、`command`、`builtin`）始终会被剥离。你声明为**透明包装器**的代理命令也会被剥离。声明和约束方式见[自定义规则](/zh-Hans/configuration/custom-rules#透明包装器)；对分类而言，重要的是引擎如何展开它们。
 
 展开过程会查找包装器标志和环境变量赋值后的第一个*可保护*子命令，或显式 `--` 后的 token。展开后，内置分析和**自定义规则**都会应用于子命令：`rtk git reset --hard` 会命中内置规则，`rtk docker system prune` 会命中匹配的自定义规则。没有任何保护适用的子命令不会被展开。
 
 未声明的代理，或改写、隐藏子命令而不是执行可见子命令的代理，不会被展开。只有顶层危险文本 fallback 扫描可能捕获它。
 
-Cwd 跨同一命令的各个段进行跟踪。带有文字目标的 `cd` 或 `pushd` 会更新后续 `rm` 和 `find` 分析的有效 cwd； `cd` 到动态目标（包含 `$` 或反引号）将 cwd 设置为未知，`rm` 分析将其视为没有 cwd 锚点。
+cwd 会在同一命令的各个命令段之间跟踪。目标为字面量的 `cd` 或 `pushd` 会更新后续 `rm` 和 `find` 分析使用的有效 cwd；`cd` 到动态目标（包含 `$` 或反引号）会把 cwd 置为未知，`rm` 分析会将其视为没有 cwd 锚点。
 
 <Note>
-一个已知的限制：解释器**长格式标志**（`--eval`、`--execute`、`--require` 和附加的 `=value` 形式）在每个代码路径中都无法识别，因此可能并不总是提取代码参数。请参阅[已知限制](/zh-Hans/guides/known-limitations#解释器长格式标志)。
+一项已知限制：解释器的**长格式标志**（`--eval`、`--execute`、`--require` 以及附带 `=value` 的形式）并非在所有代码路径中都能识别，因此代码参数不一定总能被提取。见[已知限制](/zh-Hans/guides/known-limitations#解释器长格式标志)。
 </Note>
 
 ## POSIX shell 函数
 
-POSIX 函数定义（例如 `name() { ... }`）被解析为定义而不是执行的代码。 CC Safety Net 通过调用者的有效工作目录和 shell 状态分析每个调用站点的主体。
+POSIX 函数定义（例如 `name() { ... }`）会被解析为定义，而不是待执行的代码。CC Safety Net 在每个调用点用调用者的有效工作目录和 shell 状态分析函数体。
 
-`cleanup() { rm -rf ../outside; }` 是允许的，因为它只定义了函数。添加调用（如 `cleanup() { rm -rf ../outside; }; cleanup` 中），命令块会出现在主体上。被调用体内的状态变化会继续下去。例如，`cleanup() { cd ..; }; cleanup && rm -rf build` 会阻塞，因为 `rm` 锚定在上一级目录。
+`cleanup() { rm -rf ../outside; }` 是允许的，因为它只定义了函数。加上调用后，例如 `cleanup() { rm -rf ../outside; }; cleanup`，命令就会因函数体而被阻止。被调用函数体内的状态变化会延续到后续命令。例如 `cleanup() { cd ..; }; cleanup && rm -rf build` 会被阻止，因为 `rm` 锚定在上一级目录。
 
 调用解析遵循 shell 自己的规则：
 
-- 调用解析过去的主导环境分配 (`X=1 cleanup`)、`time` 关键字及其 `-p` 选项和 `--` 终止符，以及 `!` 否定 — 包括组合 `time -p -- ! cleanup`。引用或转义名称（`'cleanup'`、`"cleanup"`、`\cleanup`）会抑制别名扩展，但不会抑制函数查找，因此它们也会调用该函数。
-- 由于关键字形式无法解析，真实 shell 的形状不会运行：`X=1 time cleanup`、`time "--" cleanup` 和 `!cleanup`（无空格）不被视为调用。
-- 调用之前的最新定义获胜，与 shell 的重新定义语义相匹配。
-- 在子 shell (`( ... )`) 内进行的定义不会转义它，而大括号组 (`{ ...; }`) 在同一 shell 中运行，因此它的定义会转义。
-- 定义对 `eval` 和 `trap` 保持可见，它们在同一 shell（`cleanup() { rm -rf ../outside; }; eval cleanup` 块）中运行，但不会被子 shell 继承，因此 `sh -c cleanup` 不会解析任何函数。
+- 调用解析会跳过前置的环境变量赋值（`X=1 cleanup`）、带 `-p` 选项和 `--` 终止符的 `time` 关键字，以及 `!` 取反——包括组合使用的 `time -p -- ! cleanup`。给函数名加引号或转义（`'cleanup'`、`"cleanup"`、`\cleanup`）只会抑制别名展开，不会抑制函数查找，因此这些写法同样会调用该函数。
+- 真实 shell 不会按关键字形式执行的写法不会解析为调用：`X=1 time cleanup`、`time "--" cleanup` 和 `!cleanup`（中间无空格）都不视为调用。
+- 调用前最后一次的定义生效，与 shell 的重定义语义一致。
+- 在子 shell（`( ... )`）中作出的定义不会传出子 shell；而花括号组（`{ ...; }`）在当前 shell 中运行，因此其中的定义会保留下来。
+- 定义对 `eval` 和 `trap` 仍然可见，因为它们在同一个 shell 中运行——`cleanup() { rm -rf ../outside; }; eval cleanup` 会被阻止——但子 shell 不会继承这些定义，因此 `sh -c cleanup` 解析不到任何函数。
 
-位置参数在体内保持不受约束：`f() { rm -rf "$1"; }; f ~` 是一个动态目标，在标准中允许，并在故障关闭功能打开后被阻止 - 与 `rm -rf "$X"` 完全相同。 [带引号的赋值延迟](#standard)也适用于被调用的体内：在`W='rm -rf ~'; f() { $W; }; f`中，不带引号的命令位置使用保留赋值时间块，而`f() { echo "$W"; }; f`仍然允许作为带引号的参数数据。
+函数体内的位置参数始终未绑定：`f() { rm -rf "$1"; }; f ~` 属于动态目标，在 standard 中允许，启用 fail-closed 能力后被阻止——与 `rm -rf "$X"` 完全一样。[带引号赋值的延后判定](#standard)同样适用于被调用的函数体：在 `W='rm -rf ~'; f() { $W; }; f` 中，未加引号的命令位置用法仍会触发赋值时的阻止，而 `f() { echo "$W"; }; f` 作为带引号的参数数据仍被允许。
 
-预分析保护阶段也可以透视调用：策略文件保护和敏感路径提取评估每个调用站点执行的大括号组和调用的函数体。
+分析前的防护阶段同样能看穿函数调用：策略文件保护和敏感路径提取会在每个调用点评估被执行的花括号组和被调用的函数体。
 
-每个级别都有两个结构边界无法关闭，标准包括：自递归 (`loop() { loop; }; loop`) 拒绝递归深度限制，分支调用链拒绝派生命令工作预算或 256 个内联调用站点的投影上限。附加在函数体内的定界符不受安全支持 - 它使命令无法解析，因此它落入标准中的启发式扫描，并在严格中被彻底拒绝。
+有两个结构边界在每个级别（包括 standard）都会 fail closed：自递归（`loop() { loop; }; loop`）因递归深度限制而拒绝，分支调用链因派生命令工作预算或投影的 256 个内联调用点上限而拒绝。函数体内附带的 heredoc 不在安全支持范围内——它会让命令无法解析，因此在 standard 中交由启发式扫描处理，在 strict 中直接拒绝。
 
 ## Heredoc 分析
 
-Heredoc body 是 stdin 上的文本，由 consumer 决定该文本是数据还是程序。在其他分析器处理命令段之前，引擎会用一组狭窄的支持条件检查命令。只有满足全部条件时才会通过：
+Heredoc body 是 stdin 上的文本，由 consumer 决定该文本是数据还是程序。在其他分析器处理命令段之前，引擎会先用一道狭窄的支持门检查命令。只有以下条件**全部**成立时才算通过：
 
 - 命令恰好有一个 heredoc（`<<` 或 `<<-`），并连接到 stdin（fd 0）。
-- 分隔符被引用（`<<'EOF'`），因此主体无法扩展替换。
-- 没有其他输入重定向竞争标准输入（`<`、`<<`、`<<-`、`<<<`、`<&`、`<>`）。
-- 消费者是字面值 `cat`、`tee`、`git apply`、`git commit`、`gh pr create` 或 `gh issue create` — 没有路径前缀，没有诸如 `env` 之类的包装器。当存在输出进程替换 (`>(...)`) 时，`cat` 和 `tee` 也会被拒绝，因为这会将主体交给另一个命令。
+- 分隔符带引号（`<<'EOF'`），因此 body 不会展开替换。
+- 没有其他输入重定向争用 stdin（`<`、`<<`、`<<-`、`<<<`、`<&`、`<>`）。
+- consumer 是字面量的 `cat`、`tee`、`git apply`、`git commit`、`gh pr create` 或 `gh issue create`——不能有路径前缀，也不能有 `env` 之类的包装器。存在输出进程替换（`>(...)`）时，`cat` 和 `tee` 还会被额外拒绝，因为那会把 body 交给另一个命令。
 
-通过门的命令在每个级别都将主体视为惰性数据。例如，即使正文描述了破坏性命令，也允许使用 `cat > note.md <<'EOF'` 和 `git commit -F - <<'EOF'`。
+通过支持门的命令在每个级别都把 body 视为惰性数据。例如，即使 body 中描述了破坏性命令，`cat > note.md <<'EOF'` 和 `git commit -F - <<'EOF'` 仍然允许。
 
-对于 `cat`、`tee`、`git commit`、`gh pr create` 和 `gh issue create`，还会在敏感路径提取前屏蔽 body。包含单词 "credentials" 的提交消息不会被视为文件名。`git apply` body 仍可见，因为 patch 会指明写入的文件。Heredoc 外的命令仍会分析。例如，`cat <<'EOF' && rm -rf ~` 会因 `rm` 而阻止。
+对于 `cat`、`tee`、`git commit`、`gh pr create` 和 `gh issue create`，还会在敏感路径提取前遮盖 body。包含“credentials”一词的提交消息不会被视为文件名。`git apply` body 仍可见，因为 patch 会指明写入的文件。Heredoc 外的命令仍会分析。例如，`cat <<'EOF' && rm -rf ~` 会因 `rm` 而阻止。
 
-未能通过门的命令在 [strict](#strict) 和偏执中被彻底拒绝。在标准中，仍然按照以下三种路径之一对身体进行分析：
+未通过支持门的命令在 [strict](#strict) 和 paranoid 中直接拒绝。在 standard 中，body 仍会按以下三条路径之一分析：
 
-1. 标准输入上引用的heredoc提供仅对其进行语法检查的shell（例如`bash -n`）是惰性的并且是允许的。
-2. 关于提供解释器的标准输入的引用 heredoc（`python` / `python2` / `python3`，`node`，`ruby`，`perl`），其中命令行上的每个其他单词都是以 `-` 开头的文字，是该解释器的程序：`python3 - <<'PY'` 合格，`python3 tool.py <<'PY'` 不合格（有 stdin 是脚本的数据）。根据解释器规则对主体进行分析 - [偏执的解释器](/zh-Hans/configuration/modes#paranoid-interpreters)将其完全阻止为 `interpreter.one-liner-paranoid`，包含危险代码块的主体为 `interpreter.dangerous-command`，并且允许干净的主体。
-3. 其他所有内容 - 未加引号的分隔符、未知的消费者、`bash` 此处文档脚本、带有脚本操作数的解释器调用 - 都会对连接体进行原始文本启发式扫描。匹配块为 `raw-text.dangerous-command`；不允许匹配。
+1. stdin 上带引号的 heredoc，若交给只做语法检查的 shell（例如 `bash -n`），则视为惰性内容，予以允许。
+2. stdin 上带引号的 heredoc，若交给解释器（`python`/`python2`/`python3`、`node`、`ruby`、`perl`），且命令行上其余每个词都是以 `-` 开头的字面量，则该 body 就是这个解释器的程序：`python3 - <<'PY'` 符合，`python3 tool.py <<'PY'` 不符合（此时 stdin 是脚本的数据）。body 按解释器规则分析——[Paranoid 解释器](/zh-Hans/configuration/modes#paranoid-interpreters)会直接以 `interpreter.one-liner-paranoid` 阻止它，包含危险代码的 body 以 `interpreter.dangerous-command` 阻止，干净的 body 则允许。
+3. 其余所有情况——未加引号的分隔符、未知的 consumer、`bash` heredoc 脚本、带脚本操作数的解释器调用——都会落到对拼接后 body 的原始文本启发式扫描。命中则以 `raw-text.dangerous-command` 阻止；未命中则允许。
 
-一个结构边界位于所有三个路径的下面：一个heredoc主体被重新解析为shell文本，并且一个主体可以声明它自己的更多heredocs。跨这些重新解析的嵌套上限为解析器的 64 级深度限制；更深层次的嵌套会报告 `structural-limit` 解析状态并拒绝 **每个** 安全级别（包括标准）中的命令。
+这三条路径下面还有一个共同的结构边界：heredoc body 会被当作 shell 文本重新解析，而 body 内部还能声明自己的 heredoc。这些重新解析之间的嵌套上限为解析器的 64 层深度限制；更深的嵌套会报告 `structural-limit` 解析状态，并在**每个**安全级别（包括 standard）拒绝该命令。
 
-Body 写入文件后，即使先前作为惰性数据通过支持门，也仍会继续跟踪。当通过支持门的 heredoc 被原样写入字面量路径（`cat > setup.sh <<'EOF'`，或未使用 append 的 `tee setup.sh <<'EOF'`）时，引擎会记住该路径下的 body。同一命令中随后执行 `bash setup.sh`、`sh setup.sh`、`source setup.sh`，或通过 shell 启动引用（`BASH_ENV`、`ENV`、`--rcfile`、`--init-file`）使用该文件时，会根据记住的脚本文本进行分析。跟踪中会显示 reason 为 `heredoc-file` 的 `recurse` 步骤。因此，如果 body 具有破坏性，`cat > x.sh <<'EOF' … EOF && bash x.sh` 会被阻止。跟踪范围有意保持狭窄：每次分析最多记住 64 个文件（`MAX_TRACKED_HEREDOC_FILES`；超过此值会在派生命令工作量限制处 fail closed）；永远不跟踪 `/dev`、`/proc` 和 `/sys` 下的路径；后续写入或重定向到已跟踪路径会使存储的 body 失效。
+当 body 落入文件时，以惰性数据通过支持门并不代表就此结束。当通过支持门的 heredoc 被原样写入字面量路径（`cat > setup.sh <<'EOF'`，或未使用 append 的 `tee setup.sh <<'EOF'`）时，引擎会记住该路径下的 body。同一命令中随后执行 `bash setup.sh`、`sh setup.sh`、`source setup.sh`，或通过 shell 启动引用（`BASH_ENV`、`ENV`、`--rcfile`、`--init-file`）使用该文件时，会根据记住的脚本文本进行分析。这在 explain 跟踪中显示为 reason 为 `heredoc-file` 的 `recurse` 步骤。因此，如果 body 具有破坏性，`cat > x.sh <<'EOF' … EOF && bash x.sh` 会被阻止。跟踪范围有意保持狭窄：每次分析最多记住 64 个文件（`MAX_TRACKED_HEREDOC_FILES`；超过此值会在派生命令工作量限制处 fail closed）；永远不跟踪 `/dev`、`/proc` 和 `/sys` 下的路径；后续写入或重定向到已跟踪路径会使存储的 body 失效。
 
 ## Git 规则引擎
 
-Git 分析器提取子命令及其选项，匹配危险选项模式，并返回原因和**分类**：`localDiscard` 或 `sharedState`。此分类决定是否可以进行 worktree 放宽。
+Git 分析器提取子命令及其选项，匹配危险选项模式，并返回原因和**分类**：`localDiscard` 或 `sharedState`。此分类决定能否进行 [worktree 放宽](#worktree-放宽)。
 
-|分类|意义|示例 |
+| 分类 | 含义 | 示例 |
 | --- | --- | --- |
-| **localDiscard** | 只丢弃本地 working tree 状态，可以考虑 worktree 放宽 | `checkout --`、`restore`、`clean -f`、`reset --hard`（无 ref）、`switch --force`、`rebase --abort`、`merge --abort` |
-| **共享状态** |影响共享、远程或恢复状态——从未放松 | `push --force`、`branch -D`、`stash drop`/`clear`、`worktree remove --force`、`tag -d`、`reflog delete`、`reset --hard <ref>` |
+| **localDiscard** | 只丢弃本地工作树状态，属于 worktree 放宽的候选 | `checkout --`、`restore`、`clean -f`、`reset --hard`（无 ref）、`switch --force`、`rebase --abort`、`merge --abort` |
+| **sharedState** | 影响共享、远程或用于恢复的状态，绝不放宽 | `push --force`、`branch -D`、`stash drop`/`clear`、`worktree remove --force`、`tag -d`、`reflog delete`、`reset --hard <ref>` |
 
-选项匹配处理 git 的实际语法：长选项使用前缀匹配（因此 `--forc`、`--force` 和 `--force-with-lease` 正确解析），短选项是解绑的（因此 `-Df` 被读取为 `-D` 加 `-f`），以及采用值的全局选项（`-c`、`-C`、`--git-dir`、定位子命令时会跳过 `--work-tree`)。有关被阻止的 git 模式的完整列表，请参阅[被阻止的命令](/zh-Hans/reference/blocked-commands)。
+选项匹配会处理 git 的真实语法：长选项使用前缀匹配（因此 `--forc`、`--force` 和 `--force-with-lease` 都能正确解析），短选项会解绑（因此 `-Df` 读作 `-D` 加 `-f`），定位子命令时会跳过带值的全局选项（`-c`、`-C`、`--git-dir`、`--work-tree`）。被阻止的 git 模式完整列表见[被阻止的命令](/zh-Hans/reference/blocked-commands)。
 
 <AccordionGroup>
 <Accordion title="Git SSH 环境覆盖">
-Git 接受 `GIT_SSH_COMMAND`、`GIT_SSH` 和 `GIT_SSH_VARIANT` 在网络操作期间运行任意程序。当与网络子命令（`clone`、`fetch`、`pull`、`push`、`ls-remote`、`submodule`）结合使用时，CC Safety Net 会阻止任何这些覆盖，因为它们可以在网络操作期间执行任意命令。
+Git 支持用 `GIT_SSH_COMMAND`、`GIT_SSH` 和 `GIT_SSH_VARIANT` 在网络操作期间运行任意程序。这些覆盖与网络子命令（`clone`、`fetch`、`pull`、`push`、`ls-remote`、`submodule`）同时出现时，CC Safety Net 会一律阻止，因为它们可以在网络操作期间执行任意命令。
 </Accordion>
 <Accordion title="checkout 细节">
-`checkout` 分析检查，顺序为：力（`--force`/`-f`）；新分支转义（`-b`/`-B`/`--orphan` 不返回任何块）； `--pathspec-from-file`;双破折号路径规范（`git checkout --` 丢弃未提交的更改；`git checkout <ref> -- <path>` 使用引用版本覆盖工作树）；以及不明确的多位置形式（两个或多个位置建议使用 `switch`/`restore` 代替）。
+`checkout` 分析按以下顺序检查：强制（`--force`/`-f`）；新建分支的例外（`-b`/`-B`/`--orphan` 不返回阻止）；`--pathspec-from-file`；双短横线 pathspec（`git checkout --` 丢弃未提交的更改；`git checkout <ref> -- <path>` 用该 ref 的版本覆盖工作树）；以及有歧义的多位置参数形式（出现两个或更多位置参数时，建议改用 `switch`/`restore`）。
 </Accordion>
-<Accordion title="重置分类">
-当引用在 `--` 之前（它移动分支指针）时，`reset --hard`/`--merge` 被分类为 `sharedState`，否则分类为 `localDiscard`（它只丢弃工作树更改）。
+<Accordion title="reset 分类">
+当 `--` 之前出现 ref 时，`reset --hard`/`--merge` 归类为 `sharedState`（因为它会移动分支指针），否则归类为 `localDiscard`（它只丢弃工作树更改）。
 </Accordion>
 </AccordionGroup>
 
-## 递归-删除目标分类
+## 递归删除目标分类
 
-`rm` 分析会检测递归和 force 标志、提取目标，并相对当前工作目录分类每个目标。目标按以下顺序检查，**第一个匹配项决定结果**，因此顺序本身非常关键：
+`rm` 分析会检测递归标志和 force 标志、提取目标，并相对当前工作目录对每个目标分类。目标按以下顺序检查，**第一个匹配项决定结果**，因此顺序本身非常关键：
 
-| ＃|分类|搭配什么 |结果|
+| # | 分类 | 匹配内容 | 结果 |
 | --- | --- | --- | --- |
-| 1 | **不安全的 `$TMPDIR` 分词** |不带引号的 `$TMPDIR` 可以拆分为多个单词 |被阻止（被视为在 cwd 之外）|
-| 2 | **不受支持的 Windows 命名空间** |分类器无法锚定的 UNC 和设备命名空间路径 |被阻止（被视为在 cwd 之外）|
-| 3 | **根/主目录目标** | `/`、`/*`、`~`、`~/`、`$HOME`、`${HOME}` 及其子项，字面或规范化 |总是被阻止——灾难性的|
-| 4 | **受保护的 Git 元数据** |已解析的 `.git` 条目、其目录或其钩子目录 |总是被阻止——灾难性的|
-| 5 | **临时目标** | `/tmp`、`/var/tmp`、系统临时目录、`$TMPDIR`（除非覆盖为非临时路径）|允许 |
-| 6 | **动态目标** |任何无法预测扩张的目标 |标准允许；一旦被阻止 [strict](/zh-Hans/configuration/modes#strict-mode) 打开故障关闭功能|
-| 7 | **配置允许路径** | `destructive_command_protection.allow_paths` | 下的文字、经过验证的目标允许（归类为临时）|
-| 8 | **home-cwd 目标** | cwd _是_主目录（首先移入项目目录）|已屏蔽 |
-| 9 | **cwd 自我定位** | `.`、`./` 或解析为与 cwd 相同 inode 的任何目标 |已屏蔽 |
-| 10 | 10 **cwd 目标内** |在当前工作目录中解析的路径 |允许；被封锁在[偏执 rm](/zh-Hans/configuration/modes#paranoid-rm-check) |
-| 11 | 11 **外部 cwd 目标** |其他任何内容（cwd 之外的绝对路径、父路径或非临时路径）|已屏蔽 |
+| 1 | **不安全的 `$TMPDIR` 分词** | 未加引号、可能拆成多个词的 `$TMPDIR` | 阻止（视为在 cwd 之外） |
+| 2 | **不受支持的 Windows 命名空间** | 分类器无法锚定的 UNC 和设备命名空间路径 | 阻止（视为在 cwd 之外） |
+| 3 | **根目录/主目录目标** | `/`、`/*`、`~`、`~/`、`$HOME`、`${HOME}` 及其子项，字面量或规范化后的形式 | 始终阻止——灾难性 |
+| 4 | **受保护的 Git 元数据** | 解析出的 `.git` 条目、其目录或其钩子目录 | 始终阻止——灾难性 |
+| 5 | **临时目标** | `/tmp`、`/var/tmp`、系统临时目录、`$TMPDIR`（除非被覆盖为非临时路径） | 允许 |
+| 6 | **动态目标** | 任何无法预测展开结果的目标 | standard 中允许；[strict](/zh-Hans/configuration/modes#strict-mode) 启用 fail-closed 能力后阻止 |
+| 7 | **配置的 allow path** | `destructive_command_protection.allow_paths` 下经过验证的字面量目标 | 允许（归类为临时） |
+| 8 | **home-cwd 目标** | cwd _就是_ 主目录（请先进入项目目录） | 阻止 |
+| 9 | **cwd 自身目标** | `.`、`./`，或解析到与 cwd 相同 inode 的任何目标 | 阻止 |
+| 10 | **cwd 内目标** | 解析后位于当前工作目录内的路径 | 允许；[paranoid rm](/zh-Hans/configuration/modes#paranoid-rm-check) 下阻止 |
+| 11 | **cwd 外目标** | 其他所有情况（cwd 之外的绝对路径、父目录路径或非临时路径） | 阻止 |
 
-该排序的两个后果值得明确说明：
+该顺序有两个后果值得明确说明：
 
-- 步骤 4 在步骤 7 之前，因此**包含存储库的允许路径不会放松 Git 元数据保护**。
-- 步骤 6 在步骤 7 之前，因此**允许路径永远不会应用于动态或其他无法验证的目标**。
+- 步骤 4 在步骤 7 之前，因此**包含仓库的 allow path 不会放宽 Git 元数据保护**。
+- 步骤 6 在步骤 7 之前，因此 **allow path 绝不会应用于动态目标或其他无法验证的目标**。
 
-Allow path 必须是绝对目录或带 `~/` 前缀的目录。它们在**每个**安全级别下都适用于 `rm`、`Remove-Item` 和 `find -delete`。它们绝不放宽机密保护、deny path、根目录、主目录或受保护的 Git 元数据。等于或包含 `$HOME` 的条目会在验证时拒绝，并在规范化后再次检查；allow path 不防止符号链接逃逸。
+Allow path 必须是绝对目录或带 `~/` 前缀的目录。它们在**每个**安全级别下都适用于 `rm`、`Remove-Item` 和 `find -delete`。它们绝不放宽机密保护、deny path、根目录、主目录或受保护的 Git 元数据。等于或包含 `$HOME` 的条目会在验证时被拒绝，规范化后再次被拒绝；符号链接逃逸不在覆盖范围内。
 
-必须同时存在递归 (`-r`/`-R`/`--recursive`) 和强制 (`-f`/`--force`) 标志才能运行此分类。路径比较使用规范（真实路径）解析，因此到 `/` 的符号链接被正确分类为危险，并且 `/tmp-malicious` 与 `/tmp` 临时规则不匹配。
+必须同时存在递归标志（`-r`/`-R`/`--recursive`）和强制标志（`-f`/`--force`），此分类才会运行。路径比较使用规范化（realpath）解析，因此指向 `/` 的符号链接会被正确判定为危险，而 `/tmp-malicious` 不会匹配 `/tmp` 临时规则。
 
 <Note>
-日常使用的重要区别：`rm -rf ./subdir`（cwd 内）是**允许**，但 `rm -rf .`（cwd 本身）是**阻止**。请参阅[允许的命令](/zh-Hans/reference/allowed-commands)。
+日常使用中最重要的区别：`rm -rf ./subdir`（cwd 内）会被**允许**，而 `rm -rf .`（cwd 本身）会被**阻止**。见[允许的命令](/zh-Hans/reference/allowed-commands)。
 </Note>
 
 ### PowerShell `Remove-Item`
 
-`Remove-Item` 及其别名使用与 `rm` 相同的目标分类法，通过保留本机引用、路径分隔符、连接器、管道和动态字出处的保守 PowerShell 子集。
+`Remove-Item` 及其别名通过一个保守的 PowerShell 子集，使用与 `rm` 相同的目标分类体系；该子集保留了原生引号、路径分隔符、连接符、管道以及动态词的来源信息。
 
-- `-WhatIf`、`-WhatIf:$true` 和 `-wi` 缩写可以中和否则会被阻止的删除；显式的 `-WhatIf:$false` 再次阻塞。
-- 动态形式仅限严格：`Remove-Item $target -Recurse -Force`、`Get-ChildItem … | Remove-Item -Force` 管道、无值的 `-Path` 以及展开 (`Remove-Item @params -Recurse -Force`) 在标准中均允许，在严格中则被阻止。 `Remove-Item $HOME -Recurse -Force` 是个例外，它会在 **标准** 中阻塞，因为它被归类为 root/home 目标而不是动态目标。
-- 别名和缩写参数解析，因此 `ri . -r -fo` 被阻止。分析调用运算符形式（`& Remove-Item …`、`& { … }`、`. { … }`），以及带有文字字符串和 `$(…)` 子表达式的 `Invoke-Expression`。
-- `#` 行注释和 `<# … #>` 块注释（包括嵌套注释）被忽略，但它们之后的实际命令仍然会阻塞。格式错误或深度受限的块注释和子表达式无法关闭。
-- PowerShell 通配符 **确实** 匹配点条目，与 POSIX `*` glob 不同。这就是为什么 `Remove-Item .git -Recurse -Force` 和存储库根目录处的 PowerShell 通配符都受到 Git 元数据保护，而 POSIX `./*` 不覆盖 `.git`。
-- Shell 选择很重要：`posix` 方言故意不应用 PowerShell 删除规则，而 `auto` 检测到显式 `Remove-Item` 并仍然保持跨 shell 规则（例如 `git.reset-hard`）有效。
+- `-WhatIf`、`-WhatIf:$true` 和缩写 `-wi` 会使原本会被阻止的删除不再触发阻止；显式的 `-WhatIf:$false` 则会重新阻止。
+- 动态形式仅在 strict 中阻止：`Remove-Item $target -Recurse -Force`、`Get-ChildItem … | Remove-Item -Force` 管道、没有值的 `-Path`，以及 splatting（`Remove-Item @params -Recurse -Force`），在 standard 中都允许，在 strict 中都被阻止。例外是 `Remove-Item $HOME -Recurse -Force`，它在 **standard** 中就会被阻止，因为它归类为根目录/主目录目标，而不是动态目标。
+- 别名和缩写参数都会解析，因此 `ri . -r -fo` 会被阻止。调用运算符形式（`& Remove-Item …`、`& { … }`、`. { … }`）也会分析，带字面量字符串的 `Invoke-Expression` 和 `$(…)` 子表达式同样如此。
+- `#` 行注释和 `<# … #>` 块注释（包括嵌套的）会被忽略，但注释之后的真实命令仍然会被阻止。格式错误或触及深度限制的块注释和子表达式会 fail closed。
+- PowerShell 通配符**确实**会匹配点开头的条目，这一点与 POSIX 的 `*` glob 不同。因此 `Remove-Item .git -Recurse -Force` 和位于仓库根目录的 PowerShell 通配符都会命中 Git 元数据保护，而 POSIX 的 `./*` 并不覆盖 `.git`。
+- shell 的选择很重要：`posix` 方言有意不套用 PowerShell 的删除规则，而 `auto` 会检测显式的 `Remove-Item`，同时继续让 `git.reset-hard` 之类的跨 shell 规则保持生效。
 
-### 设备和磁盘损坏
+### 设备和磁盘销毁
 
-|命令|触发|规则 ID |意向 |
+| 命令 | 触发条件 | Rule id | Intent |
 | --- | --- | --- | --- |
-| `dd` |与 `of=/dev/…` 匹配的操作数 — 直接写入设备路径。从设备读取数据本身并不是触发器。 | `dd.device-write` | `manual_only` |
+| `dd` | 匹配 `of=/dev/…` 的操作数——直接写入设备路径。从设备读取本身不构成触发条件。 | `dd.device-write` | `manual_only` |
 | `mkfs` | 命令头是 `mkfs` 或任意 `mkfs.*` 变体，且某个操作数以 `/dev/` 开头 | `mkfs.device` | `manual_only` |
 | `shred` | **任何**目标，包括 `shred --help` 和 `shred --version` | `shred.target` | `use_alternative` |
 
-这三种模式也会出现在无法解析文本的启发式扫描中。因此，无法解析文本中的 `dd of=/dev/…`、`mkfs /dev/…` 和 `shred <arg>` 会以 `raw-text.dangerous-command` 阻止，除非文本以 `echo ` 或 `rg ` 开头。这三条规则都不是灾难性规则，因此遵循 master switch 和 per-rule override 的优先级。
+这三个命令也会出现在无法解析文本的启发式扫描中。因此，无法解析文本中的 `dd of=/dev/…`、`mkfs /dev/…` 和 `shred <arg>` 会以 `raw-text.dangerous-command` 阻止，除非文本以 `echo ` 或 `rg ` 开头。这三条规则都不是灾难性规则，因此遵循 master switch 和 per-rule override 的优先级。
 
 ## `find`、`xargs` 和 `parallel` 的动态目标分析器
 
-|命令|什么被阻止了 |
+| 命令 | 阻止的内容 |
 | --- | --- |
-| `find ... -delete` |通过find Primary永久删除（使用`-print`预览） |
-| `find -exec rm -rf ...` | exec 命令被重新分析为嵌套段，因此破坏性的 exec 被阻止 |
-| `xargs rm -rf` | rm 由管道、动态输入驱动——目标是不可预测的 |
-| `xargs <shell> -c` |从动态输入执行 Shell |
-| `parallel rm -rf` | rm 由并行占位符或 stdin 驱动 |
-| `parallel <shell> -c` |从动态输入执行 Shell |
+| `find ... -delete` | 通过 find primary 永久删除（可用 `-print` 预览） |
+| `find -exec rm -rf ...` | exec 的命令会作为嵌套命令段重新分析，因此破坏性的 exec 会被阻止 |
+| `xargs rm -rf` | rm 由管道传入的动态输入驱动——目标不可预测 |
+| `xargs <shell> -c` | 由动态输入触发的 shell 执行 |
+| `parallel rm -rf` | rm 由 parallel 的占位符或 stdin 驱动 |
+| `parallel <shell> -c` | 由动态输入触发的 shell 执行 |
 
-对于 `xargs` 和 `parallel`，问题在于目标来自动态输入（管道标准输入或占位符扩展），因此无法根据 cwd 验证它们。 `parallel` (`-S`/`--sshlogin`) 中的 SSH 远程模式也会禁用工作树松弛。
+对于 `xargs` 和 `parallel`，问题在于目标来自动态输入（管道 stdin 或占位符展开），因此无法相对 cwd 验证。`parallel` 的 SSH 远程模式（`-S`/`--sshlogin`）也会禁用 worktree 放宽。
 
-## 工作树放松
+## Worktree 放宽
 
-当[工作树模式](/zh-Hans/configuration/modes#worktree-mode)处于活动状态时，在已确认的链接工作树中允许本地丢弃git命令。放松需要满足以下所有条件：
+启用 [worktree 模式](/zh-Hans/configuration/modes#worktree-mode)后，已确认的 linked worktree 内允许本地丢弃类的 git 命令。放宽需要同时满足以下条件：
 
-1. 匹配的规则分类为 `localDiscard`（参见 [Git 规则引擎](#git-规则引擎)表）。`sharedState` 规则永不放松。
-2. 工作树模式开启 — `policy.json` 或 `CC_SAFETY_NET_WORKTREE=1` 中的 `workflow.worktree_mode`，组合为逻辑 OR。
+1. 匹配的规则分类为 `localDiscard`（见 [Git 规则引擎](#git-规则引擎)一节的表格）。`sharedState` 规则绝不放宽。
+2. worktree 模式已开启——`policy.json` 中的 `workflow.worktree_mode` 或 `CC_SAFETY_NET_WORKTREE=1`，两者按逻辑 OR 组合。
 3. 不存在 git 上下文环境覆盖（`GIT_DIR`、`GIT_WORK_TREE`、`GIT_COMMON_DIR`、`GIT_INDEX_FILE`），并且命令行上不存在 `--git-dir`/`--work-tree`。
 
-链接的工作树是经过积极验证的——而不仅仅是假设的。检查确认 `.git` 条目是一个_文件_（不是目录或符号链接），其 `gitdir:` 指针解析为包含 `commondir` 文件的目录，反向链接指向此工作树，并且 `config.worktree` 匹配。主工作树、裸存储库和子模块都没有放松。如果验证因任何原因失败，该命令将保持阻塞状态（失败关闭）。
+linked worktree 会被正向验证，而不是简单假定。检查会确认 `.git` 条目是一个_文件_（不是目录或符号链接），其 `gitdir:` 指针指向的目录包含 `commondir` 文件，反向链接指回这个 worktree，并且 `config.worktree` 匹配。主 worktree、裸仓库和 submodule 不会获得放宽。只要验证因任何原因失败，命令就保持阻止（fail closed）。
 
 <AccordionGroup>
-<Accordion title="不可放松的本地丢弃">
-即使在已确认的链接工作树内，这些也永远不会放松：包含 `$`、`*`、`?` 或 `[` 的动态参数；强制分支复位（`git checkout -B`/`-Bf` 或 `git switch -C`/`-Cf` 与 `-f` 或 `--discard-changes`）； `git clean` 具有多个 `-f` 标志（需要删除跨越一次性工作树边界的嵌套 git 存储库）；以及任何 `--recurse-submodules` 选项或递归子模块配置。
+<Accordion title="不可放宽的本地丢弃">
+即使在已确认的 linked worktree 内，以下情况也绝不放宽：包含 `$`、`*`、`?` 或 `[` 的动态参数；强制分支重置（带 `-f` 或 `--discard-changes` 的 `git checkout -B`/`-Bf` 或 `git switch -C`/`-Cf`）；带多个 `-f` 标志的 `git clean`（删除嵌套的 git 仓库才需要，而这超出了一次性 worktree 的边界）；以及任何 `--recurse-submodules` 选项或递归 submodule 配置。
 </Accordion>
 <Accordion title="git -C 路径解析">
-有效的 git 工作目录是通过走领先的全局选项来解决的。 `-C <path>` 和内联 `-C<path>` 应用目录更改。 `--git-dir`/`--work-tree`（单独或 `=` 形式）标记显式 git 上下文，这完全禁用松弛。
+有效的 git 工作目录通过遍历前置的全局选项解析得出。`-C <path>` 和内联的 `-C<path>` 会改变目录。`--git-dir`/`--work-tree`（分开写或 `=` 形式）标记显式的 git 上下文，会完全禁用放宽。
 </Accordion>
 </AccordionGroup>
 
 ## 自定义规则
 
-当没有内置分析器匹配时，自定义规则将作为后备运行。它们是严格附加的——它们只能添加块，永远不会覆盖内置块或放松保护。规则的命名空间为 `<rulebook-name>/<rule-name>`，并在命令基本名称、可选子命令和文字 `block_args` 上进行匹配（使用短选项解绑，因此 `-Ap` 与 `-A` 匹配）。
+没有内置分析器匹配时，自定义规则会作为 fallback 运行。它们严格只增不减：只能新增阻止，绝不会覆盖内置的阻止或放宽保护。规则以 `<rulebook-name>/<rule-name>` 作为命名空间，按命令 basename、可选的子命令和字面量 `block_args` 匹配（短选项会解绑，因此 `-Ap` 能匹配 `-A`）。
 
-有关完整的创作指南和匹配语义，请参阅[自定义规则](/zh-Hans/configuration/custom-rules)。
+完整的编写指南和匹配语义见[自定义规则](/zh-Hans/configuration/custom-rules)。
 
 ## 检查分类
 
@@ -258,15 +258,15 @@ npx cc-safety-net explain "rm -rf ./build"
 npx cc-safety-net explain --json "git checkout -- file.txt"
 ```
 
-人类可读的输出遍历每个部分，显示解析步骤和规则评估。 JSON 输出返回结构化跟踪 - 请参阅[解释跟踪参考](/zh-Hans/reference/explain-trace) 以了解架构。
+人类可读输出会逐个命令段展示解析步骤和规则评估。JSON 输出返回结构化跟踪——schema 见[解释跟踪参考](/zh-Hans/reference/explain-trace)。
 
-如果您的配置而不是命令的决策看起来错误，请检查运行时是否强制执行回退策略：`npx cc-safety-net status` 打印 `ready` 或 `degraded`，并且 [配置恢复](/zh-Hans/configuration/recovery) 解释如何修复指定源。
+如果某个判定看起来不对，而问题出在你的配置而不是命令本身，请检查运行时是否正在强制执行 fallback 策略：`npx cc-safety-net status` 会打印 `ready` 或 `degraded`，[配置恢复](/zh-Hans/configuration/recovery)说明如何修复指定的来源。
 
-## 下一步去哪里
+## 后续阅读
 
-技术指南从面向用户的生命周期一直到设计背后的推理。此页面是第 4 步。
+技术指南从面向用户的生命周期逐步深入设计依据。本页是第 4 步。
 
-- 返回：[Architecture](/zh-Hans/guides/architecture) - 该分类器的有序保护阶段是最后一部分。
-- 下一步：[设计原则](/zh-Hans/guides/design-principles)——为什么分类是语义的而不是基于模式的，以及为什么级别边界落在它们所在的地方。
+- 上一页：[架构](/zh-Hans/guides/architecture)——本分类器所处的有序防护阶段，它是其中的最后一环。
+- 下一页：[设计原则](/zh-Hans/guides/design-principles)——为什么分类基于语义而不是模式匹配，以及级别边界为什么划在这些位置。
 
 相关页面：[模式](/zh-Hans/configuration/modes)用于选择级别，[被阻止的命令](/zh-Hans/reference/blocked-commands)和[被允许的命令](/zh-Hans/reference/allowed-commands)提供结果参考，[已知限制](/zh-Hans/guides/known-limitations)说明分类器看不到的内容。

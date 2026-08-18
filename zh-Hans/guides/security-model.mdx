@@ -6,7 +6,7 @@ description: "CC Safety Net 的信任模型：AI 到 shell 的边界、各安全
 
 CC Safety Net 位于不可信命令来源（例如 AI 编码智能体）与执行环境之间。本页说明信任边界、安全级别保证、配置失败处理、机密保护和攻击面。如需报告漏洞，请参阅<a href="/zh-Hans/security">安全策略</a>。
 
-CC Safety Net 是针对受支持编码智能体工具调用的尽力型静态执行前策略门。它不是操作系统沙箱、权限边界，也不能保护绕过已安装集成的命令。
+CC Safety Net 是一道尽力而为的静态执行前策略门，作用于受支持的编码智能体工具调用。它不是操作系统沙箱、权限边界，也不能保护绕过已安装集成的命令。
 
 ## 信任边界
 
@@ -14,52 +14,52 @@ CC Safety Net 是针对受支持编码智能体工具调用的尽力型静态执
 
 核心信任边界位于 AI 编码智能体和主机 shell 之间。CC Safety Net 是此边界的门卫。
 
-- **不可信侧**：AI 智能体生成的命令字符串。这些字符串可能有敌意，因为提示注入、上下文混淆或对抗性指令可能操纵智能体，使其生成破坏性命令。
-- **执行侧**：命令原本会在其中执行的主机 shell。
+- **不可信侧**：AI 智能体生成的命令字符串。这些字符串一律按可能有敌意处理，因为提示注入、上下文混淆或对抗性指令都可能操纵智能体生成破坏性命令。
+- **执行侧**：命令将要执行的主机 shell。
 
-在受支持平台上，每条到达 shell 工具的命令都先经过分析引擎。分析返回阻止原因时，命令会被拒绝。
+在受支持平台上，每条到达 shell 工具的命令都会先经过分析引擎，之后才允许运行。分析返回阻止原因时，命令会被拒绝。
 
-此边界止于受支持的工具名和形式。适配器仅向准确的集成专用工具名授予命令执行能力。未知工具仍接受保守的策略文件、Git 元数据和敏感路径检查，但其文本不会被当作 shell 命令。完全绕过已安装集成的命令位于边界之外。
+此边界止于受支持的工具名和形式。适配器只把命令执行能力授予精确匹配的集成专用工具名。未知工具仍接受保守的策略文件、Git 元数据和敏感路径检查，但其文本绝不会被当作 shell 命令。完全绕过已安装集成的命令位于边界之外。
 
 ### 次级边界
 
-四个次级边界从外部来源进入 CC Safety Net。每个来源都必须先验证，才能影响分析。
+四个次级边界从外部来源进入 CC Safety Net。每一个都会先经过验证，之后才能影响分析。
 
 | 边界 | 来源 | 验证方式 |
 | --- | --- | --- |
-| 用户配置 | 磁盘上的 `policy.json` 和规则配置 | 解析并进行 schema 验证；被拒绝的候选配置绝不会执行，运行时使用 fallback 而不是因配置无效阻止普通工作（见[配置恢复边界](#配置恢复边界)） |
+| 用户配置 | 磁盘上的 `policy.json` 和规则配置 | 解析并进行 schema 验证；被拒绝的候选配置绝不会生效，运行时会回退，而不是拒绝普通工作（见[配置恢复边界](#配置恢复边界)） |
 | Rulebook 来源 | 从 GitHub 或本地目录获取的 rulebook | 通过 lockfile 中的 SHA-256 digest 检查远程 rulebook 完整性；无法验证的来源不提供任何规则 |
 | Hook 输入 JSON | 各智能体在 stdin 上发送的 JSON payload | 防御性解析；格式错误或超大输入会触发拒绝 |
 | 环境变量 | 级别和能力标志以及路径 override（`CC_SAFETY_NET_*`、`TMPDIR` 等） | 显式读取；安全关键值按不可信数据处理 |
 
 ## 各安全级别的保证
 
-Standard、strict 和 paranoid 是三个 preset，为 `fail_closed`、`paranoid_rm` 和 `paranoid_interpreters` 三项能力提供默认值。各级别的保证不同。
+Standard、strict 和 paranoid 是三个预设，为 `fail_closed`、`paranoid_rm` 和 `paranoid_interpreters` 三项能力提供默认值。各级别的保证并不相同。
 
 | 级别 | 保证 |
 | --- | --- |
-| [Standard](/zh-Hans/configuration/modes#默认模式) | 对可识别破坏性命令提供**尽力型**保护。它有意允许动态可执行文件、通过替换组装的命令结构、无法验证的递归删除目标，以及对内置敏感路径的独立元数据检查。看似安全但无法解析的文本可通过，看似具有破坏性的文本仍会被保守启发式捕获。 |
-| [Strict](/zh-Hans/configuration/modes#strict-mode) | 增加 fail-closed 能力：拒绝无法解析的输入，阻止 `rm -rf "$target"` 等无法验证的破坏性目标，并阻止仅元数据的敏感路径发现。 |
+| [Standard](/zh-Hans/configuration/modes#默认模式) | 对可识别的破坏性命令提供**尽力而为**的保护。它有意允许动态可执行文件、通过替换组装的命令结构、无法验证的递归删除目标，以及针对内置敏感路径的仅元数据独立检查。看似安全但无法解析的文本会被允许通过；看似具有破坏性的文本仍会被保守的启发式规则捕获。 |
+| [Strict](/zh-Hans/configuration/modes#strict-mode) | 增加 fail-closed 能力：无法解析的输入会被拒绝而不是直接通过，`rm -rf "$target"` 等无法验证的破坏性目标会被阻止，仅元数据的敏感路径发现也会被阻止。 |
 | [Paranoid](/zh-Hans/configuration/modes#paranoid-mode) | 在 strict 基础上增加两项限制：即使在当前工作目录内也阻止非临时的[递归强制删除](/zh-Hans/configuration/modes#paranoid-rm-check)，并且无论内容如何都阻止[所有解释器单行命令](/zh-Hans/configuration/modes#paranoid-interpreters)。 |
 
 <Warning>
   Standard 模式**不具备对抗级能力**。它不会一律阻止动态 `rm -rf` 目标。`rm -rf "$target"` 在 standard 中允许，只有 strict 或 paranoid 会阻止。当命令可能来自提示注入或其他对抗性上下文时，必须使用 strict 或 paranoid。
 </Warning>
 
-启用机密保护时，安全级别不会放宽已匹配敏感**内容**的访问，也不会放宽用户配置的 deny path 及其后代。配置的 `secret_protection.allow_paths` 条目可以从非 CLI 内置机密规则中豁免字面文件或目录树；拒绝路径和 `secret.cli.*` 规则仍然优先。灾难性保护始终执行，包括递归删除根目录或用户主目录、破坏性更改受保护 Git 元数据，以及破坏性更改规范用户 `policy.json`。
+启用机密保护时，安全级别不会放宽已匹配敏感**内容**的访问，也不会放宽用户配置的拒绝路径及其后代。配置的 `secret_protection.allow_paths` 条目可以让字面文件或目录树豁免于非 CLI 的内置机密规则；拒绝路径和 `secret.cli.*` 规则仍然优先。灾难性保护始终强制执行，包括递归删除根目录或用户主目录、对受保护 Git 元数据的破坏性更改，以及对规范用户 `policy.json` 的破坏性更改。
 
 ## 配置恢复边界
 
-配置是信任边界，不是 kill switch。无效配置会解析为两种运行时状态之一，且**绝不会仅因无效而拒绝普通工作**。
+配置是信任边界，不是 kill switch。无效配置会落入两种运行时状态之一，且**绝不会仅因无效而拒绝普通工作**。
 
 - **`ready`**：每个活动来源都已通过验证。
-- **`degraded`**：一个候选来源被拒绝，并由安全内容替代：无法验证的规则来源被丢弃，不提供任何规则；发生 drift 或无效的本地 rulebook 继续使用通过 digest 验证的缓存；重复 rulebook 名保留第一次声明；无法读取的策略文件回退到可挽救的策略或内置保护默认值。
+- **`degraded`**：某个候选来源被拒绝，并由安全的替代方案接替生效：无法验证的规则来源被丢弃，不提供任何规则；发生 drift 或无效的本地 rulebook 继续使用通过 digest 验证的缓存；重复的 rulebook 名保留第一次声明；无法读取的策略文件回退到可挽救的策略或内置保护默认值。
 
-被拒绝的候选来源绝不会当作活动来源。丢弃来源会删除该来源提供的拒绝，因此相对你的配置策略确实降低执行力度。所有界面都会报告这种降低，而不会把它呈现为安全中性。丢弃来源不能削弱内置规则：rulebook 只能提供阻止规则，忽略无法读取的 `rule.json` 会恢复其中 `overrides` 原本禁用的内置规则。一个例外有明确范围和记录：`transparent_wrappers` 位于 `rule.json`，因此无法读取某个作用域的 `rule.json` 会减少该作用域内置分析可以展开的包装命令。系统不会因此 allowlist 任何命令或路径，因为配置失败本身不造成拒绝。
+被拒绝的候选来源绝不会当作活动来源。丢弃某个来源会移除该来源带来的拒绝，这相对于你配置的策略确实降低了执行力度；所有界面都会报告这种降低，而不会把它呈现为安全中性。丢弃来源不能削弱内置规则：rulebook 只能提供阻止规则，忽略无法读取的 `rule.json` 会恢复其中 `overrides` 原本禁用的内置规则。一个例外有明确范围和记录：`transparent_wrappers` 位于 `rule.json`，因此某个范围的 `rule.json` 无法读取时，内置分析在该范围内展开的包装命令范围会收窄。作为交换，系统不会把任何命令或路径加入允许列表，因为不会有任何东西因无法配置而被拒绝。
 
-策略文件保护和 Git 元数据保护在加载配置快照**之前**评估，因此它们在两种状态下完全相同，并且不带配置元数据。
+策略文件保护和 Git 元数据保护在加载配置快照**之前**评估，因此它们在两种状态下的行为完全相同，并且不携带配置元数据。
 
-每种失败、对应 fallback 和恢复命令的完整约定见<a href="/zh-Hans/configuration/recovery">配置恢复</a>。
+每种失败、对应回退和恢复命令的完整约定见<a href="/zh-Hans/configuration/recovery">配置恢复</a>。
 
 ## Fail-closed 执行
 
@@ -67,35 +67,35 @@ Standard、strict 和 paranoid 是三个 preset，为 `fail_closed`、`paranoid_
 
 <Steps>
   <Step title="Hook 入口点">
-    Hook 适配器用 try/catch 包装分析调用。如果分析抛出错误，hook 会发出含 "failed closed" 原因的 deny 判定，而不会让命令继续。所有基于 stdin hook 的智能体都适用：Antigravity CLI、Claude Code、Cursor、Gemini CLI、GitHub Copilot CLI 和 Kimi Code。
+    Hook 适配器用 try/catch 包装分析调用。如果分析抛出错误，hook 会发出以“failed closed”为原因的拒绝判定，而不会让命令继续。所有基于 stdin hook 的智能体都适用：Antigravity CLI、Claude Code、Cursor、Gemini CLI、GitHub Copilot CLI 和 Kimi Code。
   </Step>
   <Step title="插件和扩展入口点">
-    Amp Code、OpenCode、OpenClaw 和 Pi 进程内集成使用相同模式：捕获分析错误并再次作为阻止消息返回，使平台把命令视为已拒绝。Codex 以插件安装，但运行共享 stdin hook 入口点，因此属于上一步。Hermes Agent 叠加两层：其托管 Python 插件调用相同 stdin hook（`cc-safety-net hook --hermes-agent`），并在分析无法完成时自行阻止，包括缺少 `npx`、无法解析工作目录或 Hermes 会话记录、spawn 失败、30 秒超时、非零分析器退出码，或无法读取输出。各智能体使用的模型见<a href="/zh-Hans/guides/integration-architecture">集成架构</a>。
+    Amp Code、OpenCode、OpenClaw 和 Pi 进程内集成使用相同模式：捕获分析错误并再次作为阻止消息返回，使平台把命令视为已拒绝。Codex 以插件安装，但运行共享 stdin hook 入口点，因此属于上一步。Hermes Agent 叠加两层：其托管 Python 插件调用相同 stdin hook（`cc-safety-net hook --hermes-agent`），并在分析无法完成时由插件自身阻止该调用，包括缺少 `npx`、无法解析工作目录或 Hermes 会话记录、spawn 失败、30 秒超时、非零分析器退出码，或无法读取输出。各智能体采用哪种集成方式见<a href="/zh-Hans/guides/integration-architecture">集成架构</a>。
   </Step>
   <Step title="格式错误或超大的工具输入">
-    不可信递归工具输入限制为 64 个对象层级、10,000 个已访问值、10,000 个 own key、每个字符串 1 MiB，以及字符串数据总计 4 MiB。Hook stdin 原始字节上限为 8 MiB。超过任何边界都会拒绝调用。
+    不可信递归工具输入限制为 64 个对象层级、10,000 个已访问值、10,000 个自有键、每个字符串 1 MiB，以及字符串数据总计 4 MiB。Hook stdin 原始字节上限为 8 MiB。超过任何一项边界都会拒绝该调用。
   </Step>
   <Step title="解析器资源耗尽">
-    输入超过 131,072 个 UTF-16 code unit、超过 16,384 个 word，或嵌套超过 64 层时，会被拒绝，而不会进行不完整分析。另有 16,384 个 derived token 的预算，用于限制初次解析后嵌套和内嵌命令增加的工作量，见<a href="/zh-Hans/guides/architecture">解析器和运行时依赖面</a>。两种限制都适用于**每个**安全级别，包括 standard。
+    输入超过 131,072 个 UTF-16 码元、超过 16,384 个词，或嵌套超过 64 层时会被拒绝，而不是进行不完整的分析。另有 16,384 个 derived token 的预算，用于限制初次解析后嵌套和内嵌命令增加的工作量，见<a href="/zh-Hans/guides/architecture#解析器和运行时依赖面">解析器和运行时依赖面</a>。两种限制都适用于**每个**安全级别，包括 standard。
   </Step>
   <Step title="Strict 模式">
-    <a href="/zh-Hans/configuration/modes">Strict 模式</a>把 fail-closed 扩展到 shell 解析器无法安全 tokenize 的命令，因此无法解析的输入会被阻止，而不是通过。Standard 模式允许看似安全但无法解析的文本。
+    <a href="/zh-Hans/configuration/modes#strict-mode">Strict 模式</a>把 fail-closed 扩展到 shell 解析器无法安全 tokenize 的命令，因此无法解析的输入会被阻止，而不是直接通过。Standard 模式允许看似安全但无法解析的文本。
   </Step>
 </Steps>
 
 <Note>
-  无效配置明确**不在**此列表中。被拒绝的规则来源会被丢弃，无法读取的策略文件会回退到保护默认值，因此普通工作继续。见[配置恢复边界](#配置恢复边界)。
+  无效配置有意**不在**此列表中。被拒绝的规则来源会被丢弃，无法读取的策略文件会回退到保护默认值，因此普通工作继续。见[配置恢复边界](#配置恢复边界)。
 </Note>
 
-设计依据见<a href="/zh-Hans/guides/design-principles">设计原则</a>。
+设计依据见<a href="/zh-Hans/guides/design-principles#无法完成分析时阻止">设计原则</a>。
 
-## 机密遮盖
+## 机密脱敏
 
-任何命令或段文本写入审计日志或返回智能体之前，都会经过自动机密遮盖。遮盖器会清除 PEM 私钥、数据库 URL 环境变量、常见含机密 env assignment、常见机密 HTTP header、URL 凭证、预签名 URL 签名查询参数（`x-amz-signature`、`x-goog-signature`、`sig`、`signature`）、已知服务商 token 前缀（GitHub、Slack、npm、Stripe、PyPI），以及 JWT 和 AWS access key ID。每个匹配值替换为 `<redacted>`。
+任何命令或段文本写入审计日志或返回智能体之前，都会经过自动机密脱敏。脱敏器会清除 PEM 私钥、数据库 URL 环境变量、通用的携带机密的环境变量赋值、常见的机密 HTTP header、URL 凭证、预签名 URL 签名查询参数（`x-amz-signature`、`x-goog-signature`、`sig`、`signature`）、已知服务商 token 前缀（GitHub、Slack、npm、Stripe、PyPI），以及 JWT 和 AWS access key ID。每个匹配值替换为 `<redacted>`。
 
-遮盖采用保守的模式匹配。它降低命令参数中机密泄漏的风险，但**只限于已识别的凭证形式**。绝对文件系统路径、项目和目录名、主机名、IP 地址、用户名，以及不在模式列表中的凭证格式都会原样保留。新机密格式会不断出现，因此不要通过智能体运行的命令传递真实凭证。完整范围见<a href="/zh-Hans/reference/audit-log">审计日志参考</a>。
+脱敏采用保守的模式匹配，能降低偶然出现在命令参数中的机密被泄漏的风险，但**只限于已识别的凭证形式**。绝对文件系统路径、项目和目录名、主机名、IP 地址、用户名，以及不在模式列表中的凭证格式都会原样保留。新的机密格式会不断出现，因此请避免让真实凭证经过智能体运行的命令。完整脱敏范围见<a href="/zh-Hans/reference/audit-log#机密脱敏">审计日志参考</a>。
 
-相同边界适用于 `cc-safety-net explain`：真实跟踪包含你提供的命令文本、解析后的 token 和绝对路径，包括主目录。粘贴跟踪前先检查。见<a href="/zh-Hans/reference/explain-trace">Explain 跟踪</a>。
+相同边界也适用于 `cc-safety-net explain`：真实跟踪会包含你提供的命令文本、解析后的 token，以及包括主目录在内的绝对路径。把跟踪粘贴到任何地方之前，请先检查一遍。见 <a href="/zh-Hans/reference/explain-trace">Explain 跟踪</a>。
 
 ## 攻击面
 
@@ -103,16 +103,16 @@ Standard、strict 和 paranoid 是三个 preset，为 `fail_closed`、`paranoid_
 
 | 攻击面 | 攻击者尝试的操作 | 缓解措施 |
 | --- | --- | --- |
-| **Shell 命令解析器** | 构造利用解析器边缘情况（异常引号、嵌套替换、运算符歧义）的命令字符串，以隐藏破坏性 payload | 未闭合引号防护把原始字符串作为一个段返回；保留变量引用而不展开，以检测动态替换；strict 模式阻止无法解析的命令；解析器错误触发 fail-closed |
+| **Shell 命令解析器** | 构造利用解析器边缘情况（异常引号、嵌套替换、运算符歧义）的命令字符串，以隐藏破坏性 payload | 未闭合引号防护把原始字符串作为一个段返回；保留变量引用而不展开，以便检测动态替换；strict 模式阻止无法解析的命令；解析器错误触发 fail-closed |
 | **包装器和解释器剥离** | 在 `sudo`、`env`、`bash -c` 或解释器单行命令后隐藏破坏性命令 | 迭代剥离包装器（有迭代上限）；递归重新分析 shell 包装器和解释器代码，最多 10 层；在 `transparent_wrappers` 中声明的命令会在分析前展开到可见子命令 |
-| **敏感文件访问** | 通过 command、path、search 或 patch 形式读取或发现 `.env`、`~/.ssh/id_*` 或 `~/.aws/credentials` 等凭证 | 敏感路径保护覆盖受支持 command、path、search 和 patch 形式，并检查未知工具 fallback；用户配置的 deny path 及其后代最先匹配且绝不放宽；字面机密允许路径可以豁免非 CLI 内置匹配，但 Coding CLI 路径仍然受保护；strict 和 paranoid 还会阻止仅元数据发现。覆盖范围是有界模式集，不是通用读取边界 |
-| **rm 分析中的路径遍历** | 使用符号链接或路径技巧让危险 `rm -rf` 目标绕过分类 | 把目标解析为规范路径；检测指向已知临时目录外的 `$TMPDIR` override；仍有 TOCTOU 窗口（见<a href="/zh-Hans/guides/known-limitations">已知限制</a>） |
+| **敏感文件访问** | 通过 command、path、search 或 patch 形式读取或发现 `.env`、`~/.ssh/id_*` 或 `~/.aws/credentials` 等凭证 | 敏感路径保护覆盖受支持的 command、path、search 和 patch 形式，并包含未知工具的回退检查；用户配置的拒绝路径及其后代最先匹配且绝不放宽；字面机密允许路径可以豁免非 CLI 的内置匹配，但 Coding CLI 路径仍然受保护；strict 和 paranoid 还会阻止仅元数据的发现。覆盖范围是有界的模式集，不是通用的读取边界 |
+| **rm 分析中的路径遍历** | 使用符号链接或路径技巧让危险 `rm -rf` 目标绕过分类 | 把目标解析为规范路径；检测指向已知临时目录之外的 `$TMPDIR` override；仍存在残余的 TOCTOU 窗口（见<a href="/zh-Hans/guides/known-limitations#符号链接-toctou-风险">已知限制</a>） |
 | **Rulebook 供应链** | 从 GitHub 来源提供恶意 rulebook | 根据 lockfile 对远程 rulebook 做 SHA-256 验证和 schema 验证；恶意 rulebook 可以添加规则，但不能删除内置阻止 |
-| **审计日志机密泄漏** | 使机密写入磁盘审计日志 | 每次日志写入前运行 `redactSecrets`；模式列表持续维护 |
-| **Hook 输入解析** | 使用格式错误的 JSON 使 hook 崩溃 | `JSON.parse` 失败触发拒绝，而不是崩溃；平台适配器执行额外验证 |
-| **审计日志路径遍历** | 构造 session ID 以写入日志目录外 | Session ID 会转为文件系统安全形式，限制长度，并拒绝 `.` 和 `..` |
+| **审计日志机密泄漏** | 设法让机密写入磁盘上的审计日志 | 每次日志写入前运行 `redactSecrets`；模式列表持续增量维护 |
+| **Hook 输入解析** | 用格式错误的 JSON 让 hook 崩溃 | `JSON.parse` 失败触发拒绝，而不是崩溃；平台适配器执行额外验证 |
+| **审计日志路径遍历** | 构造会话 ID，使写入落到日志目录之外 | 会话 ID 会被清理为文件系统安全的形式，长度受限，并拒绝 `.` 和 `..` |
 
-网络级攻击和对智能体平台自身的攻击不在范围内。CC Safety Net 在命令分析期间不发出网络请求，也没有网络层。资源耗尽由边界处理，而不是由隔离缓解：超过解析器或工具输入限制的输入会被拒绝，而不会进行不完整分析。
+网络级攻击和对智能体平台自身的攻击不在范围内。CC Safety Net 在命令分析期间不发出网络请求，也没有网络层。资源耗尽通过设定上限来约束，而不是通过隔离来缓解：超过解析器或工具输入限制的输入会被拒绝，而不是进行不完整的分析。
 
 ## 披露分类
 
@@ -120,8 +120,8 @@ Standard、strict 和 paranoid 是三个 preset，为 `fail_closed`、`paranoid_
 
 | 类别 | 示例 | 渠道 |
 | --- | --- | --- |
-| **Bug**：CC Safety Net 未阻止破坏性命令 | 覆盖缺口（规则尚未阻止的命令形式）、解析器、tokenizer 或包装器分析边缘情况、放行命令的分析错误，或阻止安全命令的误报 | 公开 GitHub issue |
-| **Vulnerability**：CC Safety Net 执行了不应执行的有害操作 | 通过阻止消息、审计日志、诊断、调试输出或误报报告预填内容泄漏机密，包括遮盖绕过；审计日志或配置处理中通过构造输入写入预期目录外的路径遍历或文件系统问题；影响已发布 npm 软件包或插件分发的供应链或打包问题，包括 rulebook 完整性 | 私密披露 |
+| **Bug**：CC Safety Net 未阻止破坏性命令 | 覆盖缺口（规则尚未阻止的命令形式）、解析器、tokenizer 或包装器分析的边缘情况、让命令得以通过的分析错误，或阻止安全命令的误报 | 公开 GitHub issue |
+| **Vulnerability**：CC Safety Net 执行了不应执行的有害操作 | 通过阻止消息、审计日志、诊断、调试输出或误报报告预填内容泄漏机密，包括脱敏绕过；审计日志或配置处理中通过构造输入写入预期目录外的路径遍历或文件系统问题；影响已发布 npm 软件包或插件分发的供应链或打包问题，包括 rulebook 完整性 | 私密披露 |
 
 报告覆盖缺口时只报告命令形式。不要包含可直接粘贴的武器化提示注入 payload。两种提交渠道见<a href="/zh-Hans/security">安全策略</a>。
 
@@ -131,4 +131,4 @@ Standard、strict 和 paranoid 是三个 preset，为 `fail_closed`、`paranoid_
 - <a href="/zh-Hans/configuration/recovery">配置恢复</a>：完整的 `ready` 和 `degraded` 约定。
 - <a href="/zh-Hans/guides/design-principles">设计原则</a>：fail-closed 和语义分析背后的依据。
 - <a href="/zh-Hans/guides/known-limitations">已知限制</a>：符号链接 TOCTOU 窗口等残余风险。
-- <a href="/zh-Hans/reference/audit-log">审计日志</a>：写入已遮盖命令记录的位置。
+- <a href="/zh-Hans/reference/audit-log">审计日志</a>：写入已脱敏命令记录的位置。
