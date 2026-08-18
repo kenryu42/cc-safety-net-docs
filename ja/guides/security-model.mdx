@@ -46,7 +46,7 @@ Standard、strict、paranoid は、`fail_closed`、`paranoid_rm`、`paranoid_int
   Standard mode は **adversarial-grade ではありません**。dynamic `rm -rf` target は standard で一律に block されません。`rm -rf "$target"` は standard では allow され、strict または paranoid だけで block されます。command が prompt injection または他の adversarial context から来る可能性がある場合、strict または paranoid が必要です。
 </Warning>
 
-secret protection が有効な間、safety level は一致した sensitive **content** access または user-configured deny path とその子孫を緩和しません。Catastrophic protection は常に適用します。root または user home directory の recursive deletion、protected Git metadata の destructive change、canonical user `policy.json` の destructive change が含まれます。
+secret protection が有効な間、safety level は一致した sensitive **content** access または user-configured deny path とその子孫を緩和しません。設定済みの `secret_protection.allow_paths` 項目は、literal file または directory tree を CLI 以外の組み込み secret rule から除外できます。deny path と `secret.cli.*` rule は引き続き優先します。Catastrophic protection は常に適用します。root または user home directory の recursive deletion、protected Git metadata の destructive change、canonical user `policy.json` の destructive change が含まれます。
 
 <span id="configuration-recovery-boundary"></span>
 
@@ -107,7 +107,7 @@ threat model は、主な attack surface と mitigation を列挙します。
 | --- | --- | --- |
 | **Shell command parser** | parser edge case（通常でない quoting、nested substitution、operator ambiguity）を使う command string を作り、destructive payload を隠す | unclosed-quote guard は raw string を 1 segment として返す。dynamic substitution を検出できるよう variable reference を展開せず保持する。strict mode は unparseable command を block。parser error は fail-closed を発生させる |
 | **Wrapper と interpreter の stripping** | `sudo`、`env`、`bash -c`、interpreter one-liner の背後に destructive command を隠す | wrapper を反復して削除（iteration cap あり）。shell wrapper と interpreter code を最大 10 level まで再帰的に再解析。`transparent_wrappers` で宣言した command は、解析前に見える child まで展開 |
-| **Sensitive-file access** | command、path、search、patch shape を使い、`.env`、`~/.ssh/id_*`、`~/.aws/credentials` などの credential を読み取るか発見する | Sensitive-path protection は、対応する command、path、search、patch shape と unknown-tool fallback inspection を対象にする。user-configured deny path とその子孫は最初に一致し、緩和しない。strict と paranoid では metadata-only discovery も block。一般的な read boundary ではなく上限付き pattern set |
+| **Sensitive-file access** | command、path、search、patch shape を使い、`.env`、`~/.ssh/id_*`、`~/.aws/credentials` などの credential を読み取るか発見する | Sensitive-path protection は、対応する command、path、search、patch shape と unknown-tool fallback inspection を対象にする。user-configured deny path とその子孫は最初に一致し、緩和しない。literal の secret allow path は CLI 以外の組み込み match を除外できるが、Coding CLI path は引き続き保護する。strict と paranoid では metadata-only discovery も block。一般的な read boundary ではなく上限付き pattern set |
 | **rm analysis の path traversal** | symlink または path trick で危険な `rm -rf` target を classification から通過させる | target を canonical path に解決。既知の temp dir 外を指す `$TMPDIR` override を検出。residual TOCTOU window は残る（[既知の制限](/ja/guides/known-limitations#symlink-toctou-risk)を参照） |
 | **Rulebook supply chain** | GitHub source から malicious rulebook を提供する | remote rulebook は lockfile に対して SHA-256 verification と schema validation を受ける。malicious rulebook は rule を追加できるが built-in blocking を削除できない |
 | **Audit log での secret leakage** | disk 上の audit log に secret を書き込ませる | log write 前に `redactSecrets` を実行。pattern list を段階的に保守 |

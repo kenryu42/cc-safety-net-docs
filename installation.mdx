@@ -212,7 +212,7 @@ npx -y cc-safety-net@latest uninstall --copilot-cli
   Restart Copilot CLI after installing or removing the plugin for the change to take effect.
 </Note>
 
-Hook support in Copilot CLI is version-gated. Inline hook definitions in Copilot config files require Copilot CLI **1.0.8** or later, and user hook files under `~/.copilot/hooks` require **0.0.422** or later. The plugin handles this for you; if you configure hooks manually and hit issues, run `npx cc-safety-net doctor` — it reports the detected Copilot version and which hook sources are supported.
+Hook support in Copilot CLI is version-gated. Doctor checks repository hook files under `.github/hooks`; inline hook definitions in `.github/copilot/settings.local.json`, `.github/copilot/settings.json`, `.claude/settings.local.json`, `.claude/settings.json`, `~/.copilot/settings.json`, and `~/.copilot/config.json`; and user hook files under `~/.copilot/hooks`. Inline hook definitions require Copilot CLI **1.0.8** or later, and user hook files require **0.0.422** or later. The plugin handles this for you; if you configure hooks manually and hit issues, run `npx cc-safety-net doctor` — it reports the detected Copilot version and which hook sources are supported.
 
 ## Hermes Agent installation
 
@@ -254,7 +254,7 @@ Kimi Code supports two install methods: a global hook written to your Kimi Code 
 npx -y cc-safety-net@latest install --kimi-code
 ```
 
-This writes a `[[hooks]]` block to `~/.kimi-code/config.toml` (or `$KIMI_CODE_HOME/config.toml`) that runs `npx -y cc-safety-net hook --kimi-code` on each `PreToolUse` `Bash` call.
+This writes a `[[hooks]]` block to `~/.kimi-code/config.toml` (or `$KIMI_CODE_HOME/config.toml`) that runs `npx -y cc-safety-net hook --kimi-code` on each `PreToolUse` call. The adapter treats `Bash` as a shell-command tool and inspects other tool inputs for protected paths.
 
 Because the hook runs through `npx`, install first clears cached `cc-safety-net` copies from the npm `_npx` cache so the hook resolves the current release; uninstall does not touch the cache. The cache locations are listed in the [Antigravity CLI section](#antigravity-cli-installation).
 
@@ -270,7 +270,7 @@ To use the native plugin instead, run this inside Kimi Code:
 /plugins install https://github.com/kenryu42/cc-safety-net
 ```
 
-Confirm the trust prompt — it defaults to cancel — then run `/reload` or start a new session. The plugin declares one `PreToolUse` `Bash` hook that runs `node ./dist/bin/cc-safety-net.js hook --kimi-code` with a 30-second timeout: the same adapter the global hook uses.
+Confirm the trust prompt — it defaults to cancel — then run `/reload` or start a new session. The plugin declares one `PreToolUse` hook with no tool matcher. It runs `node ./dist/bin/cc-safety-net.js hook --kimi-code` for every tool call with a 30-second timeout, using the same adapter as the global hook.
 
 When the global hook is already configured, the Kimi Code row in the interactive installer stays selectable and is labeled `(global hook installed)`, and the printed plugin steps add a caution: run `cc-safety-net uninstall --kimi-code` only *after* the plugin is active. A brief overlap where both hooks run just duplicates the denial message, while a gap with neither active leaves you unprotected.
 
@@ -298,9 +298,9 @@ npx -y cc-safety-net@latest uninstall --openclaw
   Restart the OpenClaw Gateway after installing, updating, or uninstalling so the change takes effect. If `plugins.allow` is set in `openclaw.json`, it must also list `cc-safety-net` — an allowlist that omits it keeps the plugin from loading even when it is enabled.
 </Note>
 
-OpenClaw loads CC Safety Net as an in-process plugin rather than a hook subprocess, so there is no runtime hook flag. The plugin registers a `before_tool_call` handler for the `exec` tool only — OpenClaw's file tools are not covered. Each `exec` call is analyzed against the agent's workspace directory, and the plugin fails closed when that workspace cannot be resolved, when `workdir` resolves outside it, or when the call names an execution host other than `auto` or `gateway` (for example `sandbox` or `node`).
+OpenClaw loads CC Safety Net as an in-process plugin rather than a hook subprocess, so there is no runtime hook flag. The plugin registers a `before_tool_call` handler for the untagged `exec` tool only. OpenClaw's file tools and tagged `exec` variants are not covered. Each supported `exec` call is analyzed against the agent's workspace directory, and the plugin fails closed when that workspace cannot be resolved, when `workdir` resolves outside it, or when the call names an execution host other than `auto` or `gateway` (for example `sandbox` or `node`).
 
-OpenClaw's state directory is `OPENCLAW_STATE_DIR` when set, otherwise the directory holding `OPENCLAW_CONFIG_PATH`, otherwise `~/.openclaw`; the config file is `OPENCLAW_CONFIG_PATH` when set, otherwise `openclaw.json` in the state directory. Install and doctor resolve paths in that same order, so a relocated OpenClaw install is handled instead of reported as absent.
+OpenClaw's state directory is `OPENCLAW_STATE_DIR` when set, otherwise the directory holding `OPENCLAW_CONFIG_PATH`, otherwise `~/.openclaw`; the config file is `OPENCLAW_CONFIG_PATH` when set, otherwise `openclaw.json` in the state directory. A leading `~` path in either environment variable expands against the user's home directory. Install and doctor resolve paths in that same order, so a relocated OpenClaw install is handled instead of reported as absent.
 
 This integration is macOS and Linux only.
 
@@ -310,13 +310,13 @@ This integration is macOS and Linux only.
 npx -y cc-safety-net@latest install --opencode
 ```
 
-OpenCode can keep serving a stale cached plugin version, so the install command always clears `~/.cache/opencode/packages/cc-safety-net@latest` before running `opencode plugin -g -f cc-safety-net@latest`.
+OpenCode uses `$XDG_CACHE_HOME/opencode` as its cache directory when `XDG_CACHE_HOME` is set and non-empty, otherwise `~/.cache/opencode`. It can keep serving a stale cached plugin version, so the install command clears `packages/cc-safety-net@latest` under that directory before running `opencode plugin -g -f cc-safety-net@latest`. Install then proves that the cached package exists, its declared `main` entry loads, and it exports a callable `CCSafetyNetPlugin`; a failed proof stops the install because OpenCode would otherwise continue without protection.
 
 ```bash
 npx -y cc-safety-net@latest uninstall --opencode
 ```
 
-Uninstall removes `cc-safety-net` from the `plugin` array in `~/.config/opencode/opencode.json` (or `.jsonc`) and clears the cached package again.
+OpenCode uses `$XDG_CONFIG_HOME/opencode` as its config directory when `XDG_CONFIG_HOME` is set and non-empty, otherwise `~/.config/opencode`. Uninstall removes `cc-safety-net` from the `plugin` array in `opencode.json` or `opencode.jsonc` there and clears the cached package again.
 
 Restart OpenCode after installing or updating so the plugin is loaded from the refreshed cache.
 
@@ -332,7 +332,7 @@ This runs `pi install npm:cc-safety-net` and, if your Pi settings pin an `extens
 npx -y cc-safety-net@latest uninstall --pi
 ```
 
-Pi loads CC Safety Net as an in-process extension rather than a hook subprocess. The extension intercepts the `bash` tool and custom `Shell` tools (for example pi-grok-cli), resolving each call's working directory, and registers a `/cc-safety-net` builtin command for managing rulebooks. See [Integration architecture](/guides/integration-architecture) for details.
+Pi loads CC Safety Net as an in-process extension rather than a hook subprocess. The extension analyzes only Pi's built-in `bash` tool as a shell command. It also inspects other tool inputs for protected paths, but it does not support custom command tools named `Shell` (for example pi-grok-cli). It registers a `/cc-safety-net` builtin command for managing rulebooks. See [Integration architecture](/guides/integration-architecture) for details.
 
 ## Migrating from a legacy plugin identifier
 

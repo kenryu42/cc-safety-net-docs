@@ -1,7 +1,7 @@
 ---
 title: "Policy file：policy.json の完全な仕様"
 sidebarTitle: "ポリシー"
-description: "CC Safety Net の policy.json の完全なリファレンスです。場所、schema、安全 preset と機能 override、worktree mode、破壊的コマンドとシークレットの保護、deny path rule、audit retention、既定値、優先順位を説明します。"
+description: "CC Safety Net の policy.json の完全なリファレンスです。場所、schema、安全 preset と機能 override、worktree mode、破壊的コマンドとシークレットの保護、deny path と allow path の rule、audit retention、既定値、優先順位を説明します。"
 ---
 
 `policy.json` は、CC Safety Net の user scope 設定ファイルです。安全 preset の選択、個別の組み込み保護の有効化と無効化、保護するパスの追加、audit record の保持期間の設定に使用します。
@@ -75,7 +75,8 @@ npx cc-safety-net status
   "secret_protection": {
     "enabled": true,
     "overrides": {},
-    "deny_paths": []
+    "deny_paths": [],
+    "allow_paths": []
   },
   "audit": {
     "retention_days": 30
@@ -135,6 +136,10 @@ root object は **strict** です。認識されない top-level key は error �
 
 <ParamField body="secret_protection.deny_paths" type="string[]" default="[]">
   組み込みの機密パスに加えて、シークレットとして保護する追加パスです。validation rule については [Deny path](#deny-path) を参照してください。
+</ParamField>
+
+<ParamField body="secret_protection.allow_paths" type="string[]" default="[]">
+  組み込みの secret pattern rule から除外する正確な file または directory tree です。設定済みの deny path と Coding CLI protection は引き続き適用します。validation rule と優先順位については、[Secret allow path](#secret-allow-path)を参照してください。
 </ParamField>
 
 <ParamField body="audit.retention_days" type="integer" default="30">
@@ -209,7 +214,8 @@ secret protection は、資格情報を含むファイルの読み取りと書�
       "secret.ext-pattern.kdbx": "off",
       "secret.cli.claude-code.config": "on"
     },
-    "deny_paths": ["config/secrets", "~/work/vault"]
+    "deny_paths": ["config/secrets", "~/work/vault"],
+    "allow_paths": [".env.test", "fixtures/credentials"]
   }
 }
 ```
@@ -246,6 +252,31 @@ relative 項目を受け入れる理由は、ファイルの保存時には不�
 
 - deny path は `secret_protection.enabled` が `true` の場合だけ適用されます。`false` にすると、secret stage のその他すべての保護と一緒に無効になります。
 - `secret.deny-path` は登録済みの secret rule id ではないため、`secret_protection.overrides` では無効にできません。無効にできるのは `secret_protection.enabled: false` だけです。
+
+### Secret allow path
+
+`secret_protection.allow_paths` は、正確な file または directory とそのすべての descendant を、組み込みの basename、home-directory、key-variant、extension rule から除外します。repository の `.env.test` や、secret ではない credential 形式の filename を含む fixture directory など、利用者が意図して管理する file に使用します。
+
+優先順位は固定です。
+
+1. 設定済みの deny path が常に優先します。同じ target が両方の list にある場合、結果は `secret.deny-path` です。
+2. Coding CLI credential rule と config rule（`secret.cli.*`）が常に優先します。allow path は agent 自身の credential または configuration を公開できません。
+3. allow path に一致すると、その target に対するその他の組み込み secret rule を抑制します。
+
+Validation：
+
+| 項目 | 結果 |
+| --- | --- |
+| string ではない、または trim 後に空になる string | 無効 — `must be a non-empty path string` |
+| `.env.test` や `fixtures/credentials` などの relative path | **有効** — session ごとに config working directory を基準に解決 |
+| `*` または `?` を含む項目 | 無効 — `cannot contain glob characters (* or ?); list the exact file or directory` |
+| `~`、`$HOME`、`${HOME}` だけ、または home より上位の path | 無効 — `cannot cover the home directory or a path above it (this would disable secret protection everywhere)` |
+| `~/.cc-safety-net` またはその配下 | 無効 — `cannot cover the guard's own configuration` |
+| その他の literal absolute path、`~/…`、`$HOME/…`、`${HOME}/…` | 有効 |
+
+項目は literal path であり、glob pattern ではありません。target は execution working directory を基準に解決し、relative allow entry は config working directory を基準に解決します。same-or-descendant comparison の前に両側の既存 symlink を解決するため、allow root は symlink 経由の target も対象にします。
+
+runtime は解決後に safety boundary を再確認します。home または home の ancestor に解決される項目は無視します。有効な guard configuration root 配下の target は除外しません。`CC_SAFETY_NET_HOME` で root を移動した場合や、home または `~/.cc-safety-net` が symlink の場合も同じです。
 
 ## Audit retention
 
@@ -292,6 +323,7 @@ salvage は意図的に保護的です。そのため、壊れたファイルで
 | `secret_protection.enabled` | `true` に戻る。保護は**有効** |
 | `secret_protection.overrides` | 無効な項目を破棄。object ではない場合は `{}` |
 | `secret_protection.deny_paths` | 無効な項目を破棄。array ではない場合は `[]` |
+| `secret_protection.allow_paths` | 無効な項目を破棄。array ではない場合は `[]`。secret exemption なし |
 | `audit.retention_days` | clamp、または使用できない場合は `30` |
 
 <Warning>

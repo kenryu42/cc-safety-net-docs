@@ -29,7 +29,7 @@ CC Safety Net は 12 のコーディングエージェントに対応します�
 | Claude Code | `-cc` / `--coding-cli` | `PreToolUse` | `Bash`, `PowerShell` | `hookSpecificOutput.permissionDecision: "deny"` |
 | Cursor | `-cu` / `--cursor` | `preToolUse` | `Shell` | `{ "permission": "deny", "user_message": …, "agent_message": … }` |
 | Gemini CLI | `-gc` / `--gemini-cli` | `BeforeTool` | `run_shell_command` | `{ "decision": "deny", "reason": …, "systemMessage": … }` |
-| GitHub Copilot CLI | `-cp` / `--copilot-cli` | `PreToolUse` | `bash`, `Bash` | `{ "permissionDecision": "deny", "permissionDecisionReason": … }` |
+| GitHub Copilot CLI | `-cp` / `--copilot-cli` | `PreToolUse` | `bash`, `Bash`, `powershell`, `PowerShell` | `{ "permissionDecision": "deny", "permissionDecisionReason": … }` |
 | Hermes Agent | `-ha` / `--hermes-agent` | `pre_tool_call` | `terminal` | `{ "action": "block", "message": … }` |
 | Kimi Code | `-kc` / `--kimi-code` | `PreToolUse` | `Bash` | `hookSpecificOutput.permissionDecision: "deny"` |
 
@@ -61,7 +61,9 @@ CC Safety Net は 12 のコーディングエージェントに対応します�
 | Gemini CLI | `gemini-safety-net` repository から読み込む extension `gemini-safety-net`。`cc-marketplace` plugin ではない |
 | GitHub Copilot CLI | Plugin `cc-safety-net@cc-marketplace`、または `~/.copilot/hooks` 下の hook file / Copilot config 内の inline hook。hook support は version-gated のため、利用できる source は Copilot CLI version によって異なる。[インストール](/ja/installation#github-copilot-cli)を参照。`disableAllHooks: true` はすべての hook を無効にする |
 | Hermes Agent | 直接書き込み：`~/.hermes/plugins/cc-safety-net/` の管理対象 Python plugin（`__init__.py` と `plugin.yaml`。設定時の Hermes home は `$HERMES_HOME`）を追加し、`hermes plugins enable cc-safety-net --no-allow-tool-override` で有効化。enablement は Hermes 自身の `config.yaml` の `plugins.enabled` に記録 |
-| Kimi Code | 直接書き込み：`npx -y cc-safety-net hook --kimi-code` を実行する `[[hooks]]` block を `~/.kimi-code/config.toml`（または `$KIMI_CODE_HOME/config.toml`）に追加。もう 1 つの方法として、Kimi Code 内で `/plugins install https://github.com/kenryu42/cc-safety-net` を実行して native Kimi Code plugin を install できます。manifest は同じ hook entry（`node ./dist/bin/cc-safety-net.js hook --kimi-code`、`PreToolUse` event、`Bash` matcher、timeout 30 秒）を実行します |
+| Kimi Code | 直接書き込み：`npx -y cc-safety-net hook --kimi-code` を実行する `[[hooks]]` block を `~/.kimi-code/config.toml`（または `$KIMI_CODE_HOME/config.toml`）に追加。もう 1 つの方法として、Kimi Code 内で `/plugins install https://github.com/kenryu42/cc-safety-net` を実行して native Kimi Code plugin を install できます。manifest は同じ hook entry（`node ./dist/bin/cc-safety-net.js hook --kimi-code`、`PreToolUse` event、timeout 30 秒）を matcher なしで実行するため、file tool も hook に到達します |
+
+Kimi Code の `Bash` call では、`tool_input.cwd` がある場合、その値を execution directory として使います。値は session `cwd` の内側に解決できる空でない string である必要があります。無効な値や外側に出る値は fail closed します。GitHub Copilot CLI は `powershell` と `PowerShell` の call を PowerShell analyzer に route します。
 
 ### Hermes Agent が hook に到達する仕組み
 
@@ -71,7 +73,7 @@ plugin は 4 つの tool を渡します。command analysis 用の `terminal`、
 
 Hermes は raise する plugin callback を無視するため、plugin 自身がすべての failure を明示的な block に変換します。PATH にない `npx`、spawn failure、timeout（30 秒で analyzer process group 全体を kill）、non-zero exit、読み取れないか予期しない output が対象です。読み取れない Hermes session directory も block します。誤った directory を解析すると、path-scoped protection がすべて失われるためです。
 
-ここでは、2 つの directory detail が重要です。`terminal` call では、plugin は Hermes 自身の session ごとの cwd record（session の `cd` state）を読み取ります。このため、解析対象 directory は command が実際に動作する場所であり、使用できない `workdir` を持つ `terminal` call は fail closed します。また、analyzer subprocess は Hermes working directory ではなく home directory から開始します。このため、`npx` が正規版の代わりに repository-local `cc-safety-net` を解決することはありません。
+ここでは、2 つの directory detail が重要です。`terminal` call では、plugin は最初に Hermes の session ごとの cwd record を読み取ります。この record は session の `cd` state を保持します。最初の command で record がまだない場合は、`TERMINAL_CWD`、次に Hermes process directory を使います。使用できない `workdir` を持つ `terminal` call は fail closed します。analyzer subprocess は Hermes working directory ではなく home directory から開始します。このため、`npx` が正規版の代わりに repository-local `cc-safety-net` を解決することはありません。
 
 各 managed file は、CC Safety Net の file であることを示す header line で始まります。installer は、この header がない file の上書きを拒否します。Hermes は disk 上にない plugin を解決しないため、uninstall は file を削除する前に `hermes plugins disable cc-safety-net` を実行します。どちらの方向でも、Hermes を restart するまで plugin change は有効になりません。設定と削除 command は[インストール](/ja/installation#hermes-agent)を参照してください。
 
@@ -89,9 +91,9 @@ Codex は信頼されていない hook を実行しないため、Codex 内で t
 
 OpenClaw は、native OpenClaw plugin として CC Safety Net を **process 内**で読み込みます。plugin は 3 file の packaged directory として提供されます。runtime entry `index.js` は、local directory install では `node_modules` がないため、すべての dependency を inline にした self-contained bundle です。`openclaw.plugin.json` manifest は code 読み込み前に OpenClaw が validate します。`package.json` の `openclaw.extensions` は entry を指します。`hook` flag も JSON-over-stdio もありません。
 
-plugin は `exec` tool に一致する `before_tool_call` handler を登録します。対象は `exec` だけです。他の OpenClaw tool は guard に渡しません。handler は判定なし（allow）または `{ block: true, blockReason }` を返し、tool parameter を書き換えません。
+plugin は `exec` tool に一致する `before_tool_call` handler を登録します。解析するのは tag のない shell `exec` だけです。Code Mode の JavaScript `exec` など、`toolKind` discriminator がある `exec` event には判定を返しません。その `command` field が shell command を表すことは証明されていないためです。他の OpenClaw tool は guard に渡しません。handler は判定なし（allow）または `{ block: true, blockReason }` を返し、tool parameter を書き換えません。
 
-OpenClaw runtime API で agent workspace directory を解決し、policy directory と execution directory の両方に使います。call 内の `workdir` は workspace 内に contained するよう解決します。CC Safety Net は、malformed event、missing または empty command、解決できない workspace、workspace 外の `workdir`、すでに cancelled の call で fail closed します。`host` が `auto` または `gateway` 以外の `exec` call も block します。workspace が表す local Gateway filesystem 上で実行することが証明されているのは、この値だけだからです。`host: "auto"`（または `host` なし）の call は local Gateway call として解析します。plugin は OpenClaw が実際に route する場所を確認しません。
+OpenClaw runtime API で agent workspace directory を解決し、policy directory と execution directory の両方に使います。call 内の `workdir` は workspace 内に contained するよう解決します。CC Safety Net は、malformed event、missing または empty command、解決できない workspace、workspace 外の `workdir`、すでに cancelled の call で fail closed します。`host` が `auto` または `gateway` 以外の `exec` call も block します。`gateway` は local であることが証明されています。`host: "auto"`（または `host` なし）の call は local Gateway semantics で解析しますが、plugin は OpenClaw が実際に route する場所を確認しません。sandbox の場合は[既知の制限](/ja/guides/known-limitations)を参照してください。
 
 OpenClaw が plugin state を所有するため、installation は OpenClaw 自身の CLI を実行します。`openclaw plugins install <packaged dir> --force` の後に `openclaw plugins enable cc-safety-net` を実行します。`--force` command の前に、CC Safety Net は target extension directory が自身の managed file だけを保持することを検証します。このため、自身のものと証明できない plugin を上書きまたは削除することはありません。install 後に `openclaw plugins inspect cc-safety-net --runtime --json` を実行し、`loaded` status だけを success とします。bundle が壊れた enabled plugin は clean に install されても、保護を何もせずに失敗するためです。
 
@@ -106,23 +108,24 @@ OpenCode は、`~/.config/opencode/opencode.json`（または `.jsonc`）の `pl
 1. `tool.execute.before` を実装します。OpenCode は各 tool execution の前に呼び出します。CC Safety Net は call を解析し、command が destructive の場合は denial を throw します。JSON-over-stdio はありません。
 2. `config` hook を実装し、ユーザーがすでに定義した command を上書きせずに、CC Safety Net の builtin command を OpenCode command set に注入します。
 
+`bash` tool では、plugin は OpenCode の `shell` setting から analyzer dialect を選びます。setting が string でない場合、Windows では PowerShell を default とし、それ以外では `SHELL` を使います。認識した `powershell` と `pwsh` executable は PowerShell を選び、認識した POSIX shell は POSIX を選びます。他の値では自動検出を使います。指定された `workdir` は、read と search ができる directory に解決できる場合だけ execution directory になります。Windows では、documented `/C:`、`/C`、`/cygdrive/C`、`/mnt/C` 形式を normalize し、他の slash-rooted path は OpenCode が解決できるようそのまま渡します。
+
 OpenCode が古い cache copy の plugin を提供する場合があるため、cache を消去するまで wiring change が反映されないことがあります。[インストール](/ja/installation#opencode)を参照してください。
 
 ## Pi extension
 
 Pi は、package の `pi.extensions` field で宣言し、`~/.pi/agent/settings.json` に package source `npm:cc-safety-net` として記録した process 内 extension として CC Safety Net を読み込みます。extension は 2 つの動作をします。
 
-1. **`tool_call` event handler を登録します**（`pi.on('tool_call')`）。handler は shell tool call を実行前にインターセプトし、他のすべてと同じ engine で command を解析し、destructive の場合は block result を返します。process boundary を越えるものはありません。
+1. **`tool_call` event handler を登録します**（`pi.on('tool_call')`）。handler は Pi tool call を実行前に検査し、command または path が policy に違反する場合は block result を返します。process boundary を越えるものはありません。
 2. Pi 内で rulebook を対話的に管理する **`/cc-safety-net` builtin command を登録します**。
 
 ### Pi が保護する tool
 
-extension は、組み込み **`bash`** tool と custom **`Shell`** tool（pi-grok-cli が提供するものなど）の両方をインターセプトします。`Shell` tool では、call の `working_directory` を session cwd に対して解決してから command を解析します。このため、同じ cwd-aware rule（worktree relaxation、`rm -rf` target classification）が適用されます。tool call が malformed の場合、CC Safety Net は fail closed して block します。
+Pi の command-tool adapter は組み込み **`bash`** tool だけです。その `command` は session cwd に対して実行されます。古い custom `Shell` adapter はサポートしません。Pi の non-command tool は引き続き path protection と secret protection に到達します。特に、`find` は read-only glob tool として分類されるため、search 自体を write として扱わずに `pattern` と path value を検査します。command call または session cwd が malformed の場合、CC Safety Net は fail closed します。
 
 | Tool | Command field | Working directory |
 | --- | --- | --- |
 | `bash` | `command` | session cwd |
-| `Shell` | `command` | `working_directory`（session cwd に対して解決） |
 
 ### Pi の検出
 

@@ -46,7 +46,7 @@ Standard、strict 和 paranoid 是三个 preset，为 `fail_closed`、`paranoid_
   Standard 模式**不具备对抗级能力**。它不会一律阻止动态 `rm -rf` 目标。`rm -rf "$target"` 在 standard 中允许，只有 strict 或 paranoid 会阻止。当命令可能来自提示注入或其他对抗性上下文时，必须使用 strict 或 paranoid。
 </Warning>
 
-启用机密保护时，安全级别不会放宽已匹配敏感**内容**的访问，也不会放宽用户配置的 deny path 及其后代。灾难性保护始终执行，包括递归删除根目录或用户主目录、破坏性更改受保护 Git 元数据，以及破坏性更改规范用户 `policy.json`。
+启用机密保护时，安全级别不会放宽已匹配敏感**内容**的访问，也不会放宽用户配置的 deny path 及其后代。配置的 `secret_protection.allow_paths` 条目可以从非 CLI 内置机密规则中豁免字面文件或目录树；拒绝路径和 `secret.cli.*` 规则仍然优先。灾难性保护始终执行，包括递归删除根目录或用户主目录、破坏性更改受保护 Git 元数据，以及破坏性更改规范用户 `policy.json`。
 
 ## 配置恢复边界
 
@@ -105,7 +105,7 @@ Standard、strict 和 paranoid 是三个 preset，为 `fail_closed`、`paranoid_
 | --- | --- | --- |
 | **Shell 命令解析器** | 构造利用解析器边缘情况（异常引号、嵌套替换、运算符歧义）的命令字符串，以隐藏破坏性 payload | 未闭合引号防护把原始字符串作为一个段返回；保留变量引用而不展开，以检测动态替换；strict 模式阻止无法解析的命令；解析器错误触发 fail-closed |
 | **包装器和解释器剥离** | 在 `sudo`、`env`、`bash -c` 或解释器单行命令后隐藏破坏性命令 | 迭代剥离包装器（有迭代上限）；递归重新分析 shell 包装器和解释器代码，最多 10 层；在 `transparent_wrappers` 中声明的命令会在分析前展开到可见子命令 |
-| **敏感文件访问** | 通过 command、path、search 或 patch 形式读取或发现 `.env`、`~/.ssh/id_*` 或 `~/.aws/credentials` 等凭证 | 敏感路径保护覆盖受支持 command、path、search 和 patch 形式，并检查未知工具 fallback；用户配置的 deny path 及其后代最先匹配且绝不放宽；strict 和 paranoid 还会阻止仅元数据发现。覆盖范围是有界模式集，不是通用读取边界 |
+| **敏感文件访问** | 通过 command、path、search 或 patch 形式读取或发现 `.env`、`~/.ssh/id_*` 或 `~/.aws/credentials` 等凭证 | 敏感路径保护覆盖受支持 command、path、search 和 patch 形式，并检查未知工具 fallback；用户配置的 deny path 及其后代最先匹配且绝不放宽；字面机密允许路径可以豁免非 CLI 内置匹配，但 Coding CLI 路径仍然受保护；strict 和 paranoid 还会阻止仅元数据发现。覆盖范围是有界模式集，不是通用读取边界 |
 | **rm 分析中的路径遍历** | 使用符号链接或路径技巧让危险 `rm -rf` 目标绕过分类 | 把目标解析为规范路径；检测指向已知临时目录外的 `$TMPDIR` override；仍有 TOCTOU 窗口（见<a href="/zh-Hans/guides/known-limitations">已知限制</a>） |
 | **Rulebook 供应链** | 从 GitHub 来源提供恶意 rulebook | 根据 lockfile 对远程 rulebook 做 SHA-256 验证和 schema 验证；恶意 rulebook 可以添加规则，但不能删除内置阻止 |
 | **审计日志机密泄漏** | 使机密写入磁盘审计日志 | 每次日志写入前运行 `redactSecrets`；模式列表持续维护 |

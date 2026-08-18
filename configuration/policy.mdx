@@ -1,7 +1,7 @@
 ---
 title: "Policy file: the complete policy.json contract"
 sidebarTitle: "Policy"
-description: "Full reference for CC Safety Net's policy.json: location, schema, safety presets and capability overrides, worktree mode, destructive-command and secret protection, deny-path rules, audit retention, defaults, and precedence."
+description: "Full reference for CC Safety Net's policy.json: location, schema, safety presets and capability overrides, worktree mode, destructive-command and secret protection, deny- and allow-path rules, audit retention, defaults, and precedence."
 ---
 
 `policy.json` is CC Safety Net's user-scoped settings file. It selects your safety preset, turns individual built-in protections on or off, adds extra protected paths, and sets how long audit records are kept.
@@ -75,7 +75,8 @@ Every field, with its default value:
   "secret_protection": {
     "enabled": true,
     "overrides": {},
-    "deny_paths": []
+    "deny_paths": [],
+    "allow_paths": []
   },
   "audit": {
     "retention_days": 30
@@ -135,6 +136,10 @@ The root object is **strict**: an unrecognized top-level key is an error, as is 
 
 <ParamField body="secret_protection.deny_paths" type="string[]" default="[]">
   Extra paths to protect as secrets, in addition to the built-in sensitive paths. See [Deny paths](#deny-paths) for the validation rules.
+</ParamField>
+
+<ParamField body="secret_protection.allow_paths" type="string[]" default="[]">
+  Exact files or directory trees exempted from built-in secret-pattern rules. Configured deny paths and Coding CLI protections still apply. See [Secret allow paths](#secret-allow-paths) for the validation rules and precedence.
 </ParamField>
 
 <ParamField body="audit.retention_days" type="integer" default="30">
@@ -209,7 +214,8 @@ Secret protection blocks reads and writes of credential-bearing files. This sect
       "secret.ext-pattern.kdbx": "off",
       "secret.cli.claude-code.config": "on"
     },
-    "deny_paths": ["config/secrets", "~/work/vault"]
+    "deny_paths": ["config/secrets", "~/work/vault"],
+    "allow_paths": [".env.test", "fixtures/credentials"]
   }
 }
 ```
@@ -246,6 +252,31 @@ Two limits worth knowing:
 
 - Deny paths only apply while `secret_protection.enabled` is `true`. Setting it to `false` turns them off along with everything else in the secret stage.
 - `secret.deny-path` is not a registered secret rule id, so `secret_protection.overrides` cannot disable it. Only `secret_protection.enabled: false` does.
+
+### Secret allow paths
+
+`secret_protection.allow_paths` exempts an exact file or a directory and all its descendants from the built-in basename, home-directory, key-variant, and extension rules. Use it for files you manage deliberately, such as a repository's `.env.test`, or a fixture directory that contains non-secret credential-shaped filenames.
+
+The precedence is fixed:
+
+1. A configured deny path always wins. If the same target is in both lists, the result is `secret.deny-path`.
+2. Coding CLI credential and config rules (`secret.cli.*`) always win. An allow path cannot expose the agent's own credentials or configuration.
+3. An allow-path match suppresses any other built-in secret rule for that target.
+
+Validation:
+
+| Entry | Result |
+| --- | --- |
+| Non-string, or a string that trims to empty | Invalid — `must be a non-empty path string` |
+| Relative path, such as `.env.test` or `fixtures/credentials` | **Valid** — resolved per session against the config working directory |
+| An entry containing `*` or `?` | Invalid — `cannot contain glob characters (* or ?); list the exact file or directory` |
+| `~`, `$HOME`, or `${HOME}` alone, or a path above home | Invalid — `cannot cover the home directory or a path above it (this would disable secret protection everywhere)` |
+| `~/.cc-safety-net` or anything below it | Invalid — `cannot cover the guard's own configuration` |
+| Any other literal absolute, `~/…`, `$HOME/…`, or `${HOME}/…` path | Valid |
+
+Entries are literal paths, not glob patterns. The target is resolved from the execution working directory, and a relative allow entry is resolved from the config working directory. Both sides follow existing symlinks before the same-or-descendant comparison, so an allow root also covers a target reached through a symlink.
+
+The runtime repeats the safety-boundary checks after resolution. An entry that resolves to home or an ancestor of home is ignored. A target under the effective guard configuration root is never exempted, including when `CC_SAFETY_NET_HOME` moves that root or when home or `~/.cc-safety-net` is a symlink.
 
 ## Audit retention
 
@@ -292,6 +323,7 @@ Salvage is deliberately protective, which is why a broken file usually produces 
 | `secret_protection.enabled` | Falls back to `true` — protection **on** |
 | `secret_protection.overrides` | Invalid entries are discarded; a non-object becomes `{}` |
 | `secret_protection.deny_paths` | Invalid entries are discarded; a non-array becomes `[]` |
+| `secret_protection.allow_paths` | Invalid entries are discarded; a non-array becomes `[]` — no secret exemptions |
 | `audit.retention_days` | Clamped, or `30` when unusable |
 
 <Warning>

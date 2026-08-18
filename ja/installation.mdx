@@ -217,7 +217,7 @@ npx -y cc-safety-net@latest uninstall --copilot-cli
   変更を有効にするため、plugin の install または削除後に Copilot CLI を再起動してください。
 </Note>
 
-Copilot CLI の hook support には version 条件があります。Copilot 設定ファイル内の inline hook definition には Copilot CLI **1.0.8** 以降、`~/.copilot/hooks` 内の user hook file には **0.0.422** 以降が必要です。plugin がこれを処理します。hook を手動で設定して問題が発生した場合は、`npx cc-safety-net doctor` を実行してください。検出した Copilot version と、対応する hook source を報告します。
+Copilot CLI の hook support には version 条件があります。doctor は、`.github/hooks` 内の repository hook file、`.github/copilot/settings.local.json`、`.github/copilot/settings.json`、`.claude/settings.local.json`、`.claude/settings.json`、`~/.copilot/settings.json`、`~/.copilot/config.json` 内の inline hook definition、および `~/.copilot/hooks` 内の user hook file を確認します。inline hook definition には Copilot CLI **1.0.8** 以降、user hook file には **0.0.422** 以降が必要です。plugin がこれを処理します。hook を手動で設定して問題が発生した場合は、`npx cc-safety-net doctor` を実行してください。検出した Copilot version と、対応する hook source を報告します。
 
 ## Hermes Agent
 
@@ -259,7 +259,7 @@ Kimi Code には 2 つのインストール方法があります。Kimi Code の
 npx -y cc-safety-net@latest install --kimi-code
 ```
 
-`~/.kimi-code/config.toml`（または `$KIMI_CODE_HOME/config.toml`）に `[[hooks]]` block を書き込み、各 `PreToolUse` `Bash` call で `npx -y cc-safety-net hook --kimi-code` を実行します。
+`~/.kimi-code/config.toml`（または `$KIMI_CODE_HOME/config.toml`）に `[[hooks]]` block を書き込み、各 `PreToolUse` call で `npx -y cc-safety-net hook --kimi-code` を実行します。adapter は `Bash` を shell command tool として扱い、その他の tool input では保護対象 path を検査します。
 
 hook は `npx` で動作するため、install は最初に npm `_npx` cache から cache 済みの `cc-safety-net` copy を消去します。uninstall は cache を変更しません。cache の場所は、[Antigravity CLI の節](#antigravity-cli)にあります。
 
@@ -275,7 +275,7 @@ npx -y cc-safety-net@latest uninstall --kimi-code
 /plugins install https://github.com/kenryu42/cc-safety-net
 ```
 
-trust prompt を確認します。デフォルトは cancel です。その後、`/reload` を実行するか、新しい session を開始します。plugin は、`node ./dist/bin/cc-safety-net.js hook --kimi-code` を 30 秒の timeout で実行する `PreToolUse` `Bash` hook を 1 つ宣言します。global hook と同じ adapter です。
+trust prompt を確認します。デフォルトは cancel です。その後、`/reload` を実行するか、新しい session を開始します。plugin は、tool matcher のない `PreToolUse` hook を 1 つ宣言します。すべての tool call で `node ./dist/bin/cc-safety-net.js hook --kimi-code` を 30 秒の timeout で実行し、global hook と同じ adapter を使用します。
 
 global hook がすでに設定済みの場合、対話式 installer の Kimi Code 行は選択可能なままで、`(global hook installed)` と表示されます。また、表示される plugin の手順に注意書きが追加されます。`cc-safety-net uninstall --kimi-code` は、plugin が有効になった*後*にだけ実行してください。両方の hook が動作する短い重複は拒否メッセージが重複するだけですが、どちらも有効でない期間は保護されません。
 
@@ -303,9 +303,9 @@ npx -y cc-safety-net@latest uninstall --openclaw
   変更を有効にするため、install、update、uninstall 後に OpenClaw Gateway を再起動してください。`openclaw.json` に `plugins.allow` がある場合、`cc-safety-net` も記載する必要があります。allowlist にない場合、有効でも plugin は読み込まれません。
 </Note>
 
-OpenClaw は CC Safety Net を hook subprocess ではなく process 内 plugin として読み込むため、runtime hook flag はありません。plugin は `exec` tool だけの `before_tool_call` handler を登録し、OpenClaw の file tool は保護しません。各 `exec` call は agent の workspace directory に対して解析します。workspace を解決できない場合、`workdir` が workspace 外に解決される場合、または `auto` と `gateway` 以外の execution host（例えば `sandbox` または `node`）を指定する場合は fail-closed です。
+OpenClaw は CC Safety Net を hook subprocess ではなく process 内 plugin として読み込むため、runtime hook flag はありません。plugin は tag のない `exec` tool だけの `before_tool_call` handler を登録します。OpenClaw の file tool と tag 付き `exec` variant は保護しません。対応する各 `exec` call は agent の workspace directory に対して解析します。workspace を解決できない場合、`workdir` が workspace 外に解決される場合、または `auto` と `gateway` 以外の execution host（例えば `sandbox` または `node`）を指定する場合は fail-closed です。
 
-OpenClaw の state directory は、`OPENCLAW_STATE_DIR` が設定されていればその directory、そうでなければ `OPENCLAW_CONFIG_PATH` を含む directory、どちらもなければ `~/.openclaw` です。config file は、`OPENCLAW_CONFIG_PATH` が設定されていればその file、そうでなければ state directory 内の `openclaw.json` です。install と doctor は同じ順序で path を解決するため、移動した OpenClaw install を absent と誤報しません。
+OpenClaw の state directory は、`OPENCLAW_STATE_DIR` が設定されていればその directory、そうでなければ `OPENCLAW_CONFIG_PATH` を含む directory、どちらもなければ `~/.openclaw` です。config file は、`OPENCLAW_CONFIG_PATH` が設定されていればその file、そうでなければ state directory 内の `openclaw.json` です。どちらかの environment variable の値が先頭に `~` を持つ path の場合、user の home directory を基準に展開します。install と doctor は同じ順序で path を解決するため、移動した OpenClaw install を absent と誤報しません。
 
 この連携は macOS と Linux だけに対応します。
 
@@ -315,13 +315,13 @@ OpenClaw の state directory は、`OPENCLAW_STATE_DIR` が設定されていれ
 npx -y cc-safety-net@latest install --opencode
 ```
 
-OpenCode は古い cache 済み plugin version を提供し続ける場合があります。そのため、install コマンドは `opencode plugin -g -f cc-safety-net@latest` を実行する前に、必ず `~/.cache/opencode/packages/cc-safety-net@latest` を消去します。
+OpenCode は、`XDG_CACHE_HOME` が空でない場合は `$XDG_CACHE_HOME/opencode`、それ以外の場合は `~/.cache/opencode` を cache directory として使用します。古い cache 済み plugin version を提供し続ける場合があるため、install コマンドは `opencode plugin -g -f cc-safety-net@latest` を実行する前に、その directory 内の `packages/cc-safety-net@latest` を消去します。その後、install は cache 済み package が存在し、宣言された `main` entry を読み込めて、callable な `CCSafetyNetPlugin` を export することを確認します。確認に失敗すると install は停止します。そうしない場合、OpenCode は保護なしで動作を続けるためです。
 
 ```bash
 npx -y cc-safety-net@latest uninstall --opencode
 ```
 
-uninstall は `~/.config/opencode/opencode.json`（または `.jsonc`）の `plugin` array から `cc-safety-net` を削除し、cache package をもう一度消去します。
+OpenCode は、`XDG_CONFIG_HOME` が空でない場合は `$XDG_CONFIG_HOME/opencode`、それ以外の場合は `~/.config/opencode` を config directory として使用します。uninstall は、その directory 内の `opencode.json` または `opencode.jsonc` の `plugin` array から `cc-safety-net` を削除し、cache package をもう一度消去します。
 
 更新済み cache から plugin を読み込むため、install または update 後に OpenCode を再起動してください。
 
@@ -337,7 +337,7 @@ npx -y cc-safety-net@latest install --pi
 npx -y cc-safety-net@latest uninstall --pi
 ```
 
-Pi は CC Safety Net を hook subprocess ではなく process 内 extension として読み込みます。extension は `bash` tool とカスタム `Shell` tool（例えば pi-grok-cli）をインターセプトし、各 call の作業ディレクトリを解決し、rulebook 管理用の `/cc-safety-net` builtin command を登録します。詳細は、[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
+Pi は CC Safety Net を hook subprocess ではなく process 内 extension として読み込みます。extension は、Pi の組み込み `bash` tool だけを shell command として解析します。その他の tool input でも保護対象 path を検査しますが、`Shell` という名前の custom command tool（例えば pi-grok-cli）はサポートしません。rulebook 管理用の `/cc-safety-net` builtin command も登録します。詳細は、[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
 
 ## 以前のプラグイン ID から移行する
 

@@ -29,7 +29,7 @@ For these seven agents, the protection is the runtime `hook <flag>` command, whi
 | Claude Code | `-cc` / `--coding-cli` | `PreToolUse` | `Bash`, `PowerShell` | `hookSpecificOutput.permissionDecision: "deny"` |
 | Cursor | `-cu` / `--cursor` | `preToolUse` | `Shell` | `{ "permission": "deny", "user_message": …, "agent_message": … }` |
 | Gemini CLI | `-gc` / `--gemini-cli` | `BeforeTool` | `run_shell_command` | `{ "decision": "deny", "reason": …, "systemMessage": … }` |
-| GitHub Copilot CLI | `-cp` / `--copilot-cli` | `PreToolUse` | `bash`, `Bash` | `{ "permissionDecision": "deny", "permissionDecisionReason": … }` |
+| GitHub Copilot CLI | `-cp` / `--copilot-cli` | `PreToolUse` | `bash`, `Bash`, `powershell`, `PowerShell` | `{ "permissionDecision": "deny", "permissionDecisionReason": … }` |
 | Hermes Agent | `-ha` / `--hermes-agent` | `pre_tool_call` | `terminal` | `{ "action": "block", "message": … }` |
 | Kimi Code | `-kc` / `--kimi-code` | `PreToolUse` | `Bash` | `hookSpecificOutput.permissionDecision: "deny"` |
 
@@ -61,7 +61,9 @@ Four of the seven have their files written directly by CC Safety Net — three a
 | Gemini CLI | Extension `gemini-safety-net`, loaded from the `gemini-safety-net` repository — not a `cc-marketplace` plugin |
 | GitHub Copilot CLI | Plugin `cc-safety-net@cc-marketplace`, or hook files under `~/.copilot/hooks` / inline hooks in Copilot config. Hook support is version-gated, so which of those sources works depends on your Copilot CLI version — see [Installation](/installation#github-copilot-cli-installation). `disableAllHooks: true` disables all hooks |
 | Hermes Agent | Written directly: a managed Python plugin at `~/.hermes/plugins/cc-safety-net/` (`__init__.py` plus `plugin.yaml`; the Hermes home is `$HERMES_HOME` when set), then enabled with `hermes plugins enable cc-safety-net --no-allow-tool-override`. Enablement is recorded in Hermes' own `config.yaml` under `plugins.enabled` |
-| Kimi Code | Written directly: a `[[hooks]]` block in `~/.kimi-code/config.toml` (or `$KIMI_CODE_HOME/config.toml`) running `npx -y cc-safety-net hook --kimi-code`. Alternatively, a native Kimi Code plugin installed inside Kimi Code with `/plugins install https://github.com/kenryu42/cc-safety-net`; its manifest runs the same hook entry (`node ./dist/bin/cc-safety-net.js hook --kimi-code`, `PreToolUse` event, `Bash` matcher, 30-second timeout) |
+| Kimi Code | Written directly: a `[[hooks]]` block in `~/.kimi-code/config.toml` (or `$KIMI_CODE_HOME/config.toml`) running `npx -y cc-safety-net hook --kimi-code`. Alternatively, a native Kimi Code plugin installed inside Kimi Code with `/plugins install https://github.com/kenryu42/cc-safety-net`; its manifest runs the same hook entry (`node ./dist/bin/cc-safety-net.js hook --kimi-code`, `PreToolUse` event, 30-second timeout) with no matcher, so file tools also reach the hook |
+
+For a Kimi Code `Bash` call, `tool_input.cwd` becomes the execution directory when it is present. It must be a non-empty string that resolves inside the session `cwd`; an invalid or escaping value fails closed. GitHub Copilot CLI routes `powershell` and `PowerShell` calls to the PowerShell analyzer.
 
 ### How Hermes Agent reaches the hook
 
@@ -71,7 +73,7 @@ The plugin forwards four tools: `terminal` for command analysis, `write_file` an
 
 Hermes ignores a plugin callback that raises, so the plugin turns every failure into an explicit block itself: `npx` missing from PATH, a spawn failure, a timeout (30 seconds, killing the analyzer's whole process group), a non-zero exit, or unreadable or unexpected output. A Hermes session directory the plugin cannot read also blocks — analyzing the wrong directory would clear every path-scoped protection.
 
-Two directory details matter here. For `terminal` calls the plugin reads Hermes' own per-session cwd record — the session's `cd` state — so the analyzed directory is the one the command actually runs in, and a `terminal` call with an unusable `workdir` fails closed. And the analyzer subprocess is started from the home directory rather than Hermes' working directory, so `npx` can never resolve a repository-local `cc-safety-net` in place of the real one.
+Two directory details matter here. For `terminal` calls the plugin first reads Hermes' per-session cwd record, which holds the session's `cd` state. On the first command, before that record exists, it uses `TERMINAL_CWD`, then the Hermes process directory. A `terminal` call with an unusable `workdir` fails closed. The analyzer subprocess starts from the home directory rather than Hermes' working directory, so `npx` cannot resolve a repository-local `cc-safety-net` in place of the real one.
 
 Every managed file starts with a header line marking it as CC Safety Net's; the installer refuses to overwrite a file without it. Uninstall runs `hermes plugins disable cc-safety-net` before removing the files, because Hermes only resolves a plugin that is still on disk. In both directions the plugin change is inert until Hermes restarts. See [Installation](/installation#hermes-agent-installation) for the setup and removal commands.
 
@@ -89,9 +91,9 @@ Codex will not run an untrusted hook, so the plugin's hook stays inert until it 
 
 OpenClaw loads CC Safety Net **in process** as a native OpenClaw plugin. The plugin ships as a packaged directory of three files: the runtime entry `index.js` — a self-contained bundle with every dependency inlined, because a local directory install gets no `node_modules` — plus the `openclaw.plugin.json` manifest OpenClaw validates before loading any code, and a `package.json` whose `openclaw.extensions` points at the entry. There is no `hook` flag and no JSON-over-stdio.
 
-The plugin registers a `before_tool_call` handler matched to the `exec` tool. Only `exec` is covered — no other OpenClaw tool is forwarded to the guard. The handler returns either no decision (allow) or `{ block: true, blockReason }`; it never rewrites tool parameters.
+The plugin registers a `before_tool_call` handler matched to the `exec` tool. Only the untagged shell `exec` is analyzed. An `exec` event with a `toolKind` discriminator, such as Code Mode's JavaScript `exec`, gets no decision because its `command` field is not a proven shell-command mapping. No other OpenClaw tool is forwarded to the guard. The handler returns either no decision (allow) or `{ block: true, blockReason }`; it never rewrites tool parameters.
 
-It resolves the agent's workspace directory through OpenClaw's runtime API and uses it as both the policy and execution directory; a `workdir` in the call is resolved contained within that workspace. CC Safety Net fails closed on a malformed event, a missing or empty command, a workspace it cannot resolve, a `workdir` outside the workspace, or a call already cancelled. An `exec` call whose `host` is anything other than `auto` or `gateway` is also blocked, because only those values are proven to execute on the local Gateway filesystem the workspace describes. A call with `host: "auto"` (or no `host` at all) is analyzed as a local Gateway call — the plugin never checks where OpenClaw actually routes it.
+It resolves the agent's workspace directory through OpenClaw's runtime API and uses it as both the policy and execution directory; a `workdir` in the call is resolved contained within that workspace. CC Safety Net fails closed on a malformed event, a missing or empty command, a workspace it cannot resolve, a `workdir` outside the workspace, or a call already cancelled. An `exec` call whose `host` is anything other than `auto` or `gateway` is also blocked. `gateway` is proven local. A call with `host: "auto"` (or no `host` at all) is analyzed with local Gateway semantics, but the plugin does not check where OpenClaw routes it. The sandbox case is listed in [Known limitations](/guides/known-limitations).
 
 OpenClaw owns its plugin state, so installation drives OpenClaw's own CLI: `openclaw plugins install <packaged dir> --force`, then `openclaw plugins enable cc-safety-net`. Before any `--force` command, CC Safety Net verifies the target extension directory holds only its own managed files, so it can never overwrite or delete a plugin that is not provably its own. After installing, it runs `openclaw plugins inspect cc-safety-net --runtime --json` and treats only a `loaded` status as success — an enabled plugin whose bundle is broken installs cleanly and then silently protects nothing.
 
@@ -106,23 +108,24 @@ OpenCode loads CC Safety Net **in process** as a plugin object implementing Open
 1. Implements `tool.execute.before`, which OpenCode calls ahead of every tool execution. CC Safety Net analyzes the call and throws a denial when the command is destructive; there is no JSON-over-stdio.
 2. Implements the `config` hook to inject CC Safety Net's builtin commands into the OpenCode command set, without overwriting commands you have already defined.
 
+For the `bash` tool, the plugin selects the analyzer dialect from OpenCode's `shell` setting. If the setting is not a string, it defaults to PowerShell on Windows and uses `SHELL` elsewhere. Recognized `powershell` and `pwsh` executables select PowerShell; recognized POSIX shells select POSIX; other values use automatic detection. A supplied `workdir` becomes the execution directory only when it resolves to a readable, searchable directory. On Windows, documented `/C:`, `/C`, `/cygdrive/C`, and `/mnt/C` forms are normalized, while other slash-rooted paths pass through for OpenCode to resolve.
+
 OpenCode can serve a stale cached copy of the plugin, so a wiring change may not take effect until the cache is cleared — see [Installation](/installation#opencode-installation).
 
 ## The Pi extension
 
 Pi loads CC Safety Net as an in-process extension, declared through the package's `pi.extensions` field and recorded as the package source `npm:cc-safety-net` in `~/.pi/agent/settings.json`. The extension does two things:
 
-1. **Registers a `tool_call` event handler** (`pi.on('tool_call')`). The handler intercepts shell tool calls before they run, analyzes the command with the same engine used everywhere else, and returns a block result when the command is destructive. Nothing crosses a process boundary.
+1. **Registers a `tool_call` event handler** (`pi.on('tool_call')`). The handler inspects Pi tool calls before they run and returns a block result when a command or path violates the policy. Nothing crosses a process boundary.
 2. **Registers a `/cc-safety-net` builtin command** for managing rulebooks interactively inside Pi.
 
 ### Tools Pi protects
 
-The extension intercepts both the built-in **`bash`** tool and custom **`Shell`** tools (such as the one provided by pi-grok-cli). For `Shell` tools it resolves the call's `working_directory` relative to the session cwd before analyzing the command, so the same cwd-aware rules (worktree relaxation, `rm -rf` target classification) apply. If a tool call is malformed, CC Safety Net fails closed and blocks it.
+The built-in **`bash`** tool is Pi's only command-tool adapter. Its `command` runs against the session cwd. The obsolete custom `Shell` adapter is not supported. Pi's non-command tools still reach path and secret protection. In particular, `find` is classified as a read-only glob tool, so its `pattern` and path values are inspected without treating the search itself as a write. If a command call or its session cwd is malformed, CC Safety Net fails closed.
 
 | Tool | Command field | Working directory |
 | --- | --- | --- |
 | `bash` | `command` | session cwd |
-| `Shell` | `command` | `working_directory` (resolved against session cwd) |
 
 ### Detecting Pi
 

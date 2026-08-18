@@ -128,6 +128,10 @@ bunx cc-safety-net doctor
 | `--skip-update-check` | 跳过 npm 注册表版本检查 |
 | `-h`, `--help` | 显示帮助 |
 
+`doctor` 从 `codex plugin list` 读取 Codex 状态。匹配 CC Safety Net 且包含 `installed, enabled` 的行是 `Detected` 和 `Configured`；包含其他 `installed,` 状态的匹配行是 `Detected` 和 `Not configured`。已注册的市场条目如果显示 `not installed`，则是 `Not detected`，而不是已禁用。
+
+对于 GitHub Copilot CLI，`doctor` 会检查插件签出和钩子定义。内联设置的优先顺序是 `<repo>/.github/copilot/settings.local.json`、`<repo>/.github/copilot/settings.json`、`<repo>/.claude/settings.local.json`、`<repo>/.claude/settings.json`、`$COPILOT_HOME/settings.json`，然后是 `$COPILOT_HOME/config.json`（`COPILOT_HOME` 默认为 `~/.copilot`）。它还会扫描 `<repo>/.github/hooks/*.json` 和 `$COPILOT_HOME/hooks/*.json`。`.claude` 文件中的条目仅在命令包含 `hook --copilot-cli` 或 `hook -cp` 时才算；仅有 Claude Code 钩子不算。内联设置需要 GitHub Copilot CLI `1.0.8+`，用户钩子文件需要 `0.0.422+`。
+
 `doctor` 在检测到失败时以非零代码退出。失败包括未配置代理、钩子检查失败、自检失败或无效的用户或项目配置。
 
 当某些审计日志文件无法读取时，Recent Activity 部分以 `Warning: <n> audit log sources could not be read; this summary is incomplete`（当只有一个时为 `source`）结尾，因此不会将一个安静的星期误认为是完整的。
@@ -424,7 +428,7 @@ npx -y cc-safety-net install --claude-code
 
 CC Safety Net 使用三种安装机制：
 
-- **原生插件或扩展命令** — Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, OpenClaw, OpenCode, 和 Pi。CC Safety Net 调用代理自带的插件管理器并在此过程中清理被取代的插件 ID。OpenClaw 的安装还会事后验证 OpenClaw 是否报告插件已加载，然后要求您重新启动 OpenClaw Gateway。
+- **原生插件或扩展命令** — Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, OpenClaw, OpenCode, 和 Pi。CC Safety Net 调用代理自带的插件管理器并在此过程中清理被取代的插件 ID。OpenClaw 的安装还会事后验证 OpenClaw 是否报告插件已加载，然后要求您重新启动 OpenClaw Gateway。OpenCode 的安装会导入缓存包的入口，并验证它是否导出可调用的 `CCSafetyNetPlugin`；如果 OpenCode 会因未加载任何内容而保持 fail-open 状态，则安装失败。
 - **配置文件写入** — Antigravity CLI, Cursor, 和 Kimi Code。这三个是 CC Safety Net 直接编辑的唯一代理配置。
 - **托管插件产物** — Amp Code 和 Hermes Agent。Amp 的插件通过 amp CLI 发布到您账户托管的 Amp Personal Plugins 仓库（预检命令是 `amp plugins repositories --json`），因此安装需要 amp CLI 和 `amp login`；发布后的插件适用于每个 Amp 会话，包括 Orb 线程。遗留在 `~/.config/amp/plugins/cc-safety-net.ts` 的托管本地副本会遮蔽个人插件，因此安装会将其移除。更改后，重启 Amp 或运行 `plugins: reload`。对于 Hermes Agent，安装将插件写入磁盘并运行 `hermes plugins enable`，更改需要重启 Hermes。
 
@@ -455,9 +459,13 @@ Space: select  Enter: confirm  u: update installed  Up/Down: move  q/Esc: cancel
 npx -y cc-safety-net@latest update
 ```
 
+在 TTY 中直接运行 `update` 时，检测会在安装横幅显示前开始，因此横幅动画会覆盖部分检测时间。如果横幅结束后检测仍在运行，CLI 会显示 `Checking installed integrations…`。按 `Enter` 可跳过动画。从交互式 `install` 选择器中按 `u` 启动 update 时，CLI 会使用已经显示的横幅，不会再显示第二个横幅。非 TTY 不显示横幅或加载指示器。
+
 目标通过读取每个代理的配置和状态文件来查找：当一个集成被检测为已安装时，它就有资格，**即使它当前被禁用**。Amp Code 通过 `amp plugins list` 的输出获得资格 — 该输出与 `codex plugin list` 一样以 30 秒超时获取，因为冷启动会通过网络刷新签出，可能超过默认的 5 秒。GitHub Copilot CLI 是例外 — 它仅在 Copilot 的 `installed-plugins` 目录中存在 CC Safety Net 插件签出时才有资格，因为其禁用状态与未安装任何东西的开关无法区分，并且更新绝不能变成安装。仍然使用改名前的 `safety-net@cc-marketplace` 插件 ID 的安装 — 在 Claude Code、Codex 中，或在 GitHub Copilot CLI 中表现为插件签出 `cc-marketplace/safety-net` — 也会被拾取：更新会将它们迁移到当前 ID，并尽力移除旧版副本，旧版副本移除失败只会发出警告，不会使该目标失败。
 
-每个目标然后按目录安装顺序运行与 `install` 相同的操作，消息改为 `Updated …` 或 `… up to date`。对于那些安装驱动代理自带 CLI 的目标 — Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Hermes Agent, OpenClaw, OpenCode, 和 Pi — 首先会探测供应商二进制文件：缺失的二进制文件会打印 `<Agent> not found; skipped`（例如 `Codex not found; skipped`）并继续运行。配置文件目标 — Antigravity CLI, Cursor, 和 Kimi Code — 不需要二进制文件，并且总是刷新。Amp Code 不需要单独的探测：仅当 `amp plugins list` 显示个人插件时才会被检测到，其刷新会驱动 amp CLI 发布当前产物。在 Claude Code、Codex 和 GitHub Copilot CLI 上，已注册的市场会在插件步骤之前先刷新（例如 `claude plugin marketplace update cc-marketplace`），而不是依赖无操作的 `add`，因此过时的目录签出不会使更新失败。
+所有目标会在一个 `Updating <n> integration…` 或 `Updating <n> integrations…` 加载指示器后面，并发运行与 `install` 相同的操作。命令等待每个目标完成，然后按稳定的目录顺序统一打印报告，消息改为 `Updated …` 或 `… up to date`。对于那些安装驱动代理自带 CLI 的目标 — Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Hermes Agent, OpenClaw, OpenCode, 和 Pi — 首先会探测供应商二进制文件：缺失的二进制文件会打印 `<Agent> not found; skipped`（例如 `Codex not found; skipped`）并继续运行。配置文件目标 — Antigravity CLI, Cursor, 和 Kimi Code — 不需要二进制文件，并且总是刷新。Amp Code 不需要单独的探测：仅当 `amp plugins list` 显示个人插件时才会被检测到，其刷新会驱动 amp CLI 发布当前产物。在 Claude Code、Codex 和 GitHub Copilot CLI 上，已注册的市场会在插件步骤之前先刷新（例如 `claude plugin marketplace update cc-marketplace`），而不是依赖无操作的 `add`，因此过时的目录签出不会使更新失败。
+
+在并发阶段前，如果存在任何依赖缓存的目标，即 Antigravity CLI、Cursor、Hermes Agent 或 Kimi Code，`update` 会清除一次 `npx` 缓存。如果清除失败，只有这些依赖缓存的目标会失败；其他目标仍会运行。
 
 当没有任何目标符合条件时，`update` 打印 ``No installed integrations found. Run `cc-safety-net install` to set one up.`` 并退出 `0`。
 

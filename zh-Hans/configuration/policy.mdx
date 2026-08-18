@@ -1,7 +1,7 @@
 ---
 title: "策略文件：完整的 policy.json 契约"
 sidebarTitle: "策略"
-description: "CC Safety Net policy.json 的完整参考：位置、schema、安全预设和能力覆盖、worktree 模式、破坏性命令和机密保护、拒绝路径规则、审计保留期、默认值及优先级。"
+description: "CC Safety Net policy.json 的完整参考：位置、schema、安全预设和能力覆盖、worktree 模式、破坏性命令和机密保护、拒绝和允许路径规则、审计保留期、默认值及优先级。"
 ---
 
 `policy.json` 是 CC Safety Net 的用户范围设置文件。它选择你的安全预设，打开或关闭各个内置保护，添加额外的受保护路径，并设置审计记录的保存时间。
@@ -75,7 +75,8 @@ npx cc-safety-net status
   "secret_protection": {
     "enabled": true,
     "overrides": {},
-    "deny_paths": []
+    "deny_paths": [],
+    "allow_paths": []
   },
   "audit": {
     "retention_days": 30
@@ -135,6 +136,10 @@ schema版本。必须是 `1`。这是唯一必填字段；值缺失或错误的�
 
 <ParamField body="secret_protection.deny_paths" type="string[]" default="[]">
 除内置敏感路径外，还要作为机密保护的其他路径。验证规则见[拒绝路径](#拒绝路径)。
+</ParamField>
+
+<ParamField body="secret_protection.allow_paths" type="string[]" default="[]">
+从内置机密模式规则中豁免的精确文件或目录树。配置的拒绝路径和 Coding CLI 保护仍然适用。验证规则和优先顺序见[机密允许路径](#机密允许路径)。
 </ParamField>
 
 <ParamField body="audit.retention_days" type="integer" default="30">
@@ -209,7 +214,8 @@ schema版本。必须是 `1`。这是唯一必填字段；值缺失或错误的�
       "secret.ext-pattern.kdbx": "off",
       "secret.cli.claude-code.config": "on"
     },
-    "deny_paths": ["config/secrets", "~/work/vault"]
+    "deny_paths": ["config/secrets", "~/work/vault"],
+    "allow_paths": [".env.test", "fixtures/credentials"]
   }
 }
 ```
@@ -246,6 +252,31 @@ schema版本。必须是 `1`。这是唯一必填字段；值缺失或错误的�
 
 - 拒绝路径仅在 `secret_protection.enabled` 为 `true` 时适用。将其设置为 `false` 会关闭它们以及机密阶段中的其他所有内容。
 - `secret.deny-path` 不是已注册的机密规则 ID，因此 `secret_protection.overrides` 无法禁用它。只有 `secret_protection.enabled: false` 可以。
+
+### 机密允许路径
+
+`secret_protection.allow_paths` 从内置的 basename、主目录、密钥变体和扩展名规则中豁免精确文件或目录及其所有后代。将它用于您有意管理的文件，例如存储库的 `.env.test`，或包含非机密凭据形式文件名的 fixture 目录。
+
+优先顺序是固定的：
+
+1. 配置的拒绝路径始终优先。如果同一目标在两个列表中，结果是 `secret.deny-path`。
+2. Coding CLI 凭据和配置规则 (`secret.cli.*`) 始终优先。允许路径不能公开智能体自己的凭据或配置。
+3. 允许路径匹配会抑制该目标的任何其他内置机密规则。
+
+验证：
+
+|条目|结果 |
+| --- | --- |
+|非字符串，或清理为空的字符串 |无效 — `must be a non-empty path string` |
+|相对路径，例如 `.env.test` 或 `fixtures/credentials` | **有效** — 根据配置工作目录解析每个会话 |
+|包含 `*` 或 `?` 的条目 |无效 — `cannot contain glob characters (* or ?); list the exact file or directory` |
+|单独的 `~`、`$HOME` 或 `${HOME}`，或 home 之上的路径 |无效 — `cannot cover the home directory or a path above it (this would disable secret protection everywhere)` |
+| `~/.cc-safety-net` 或其下的任何路径 |无效 — `cannot cover the guard's own configuration` |
+|任何其他字面绝对路径、`~/…`、`$HOME/…` 或 `${HOME}/…` 路径 |有效 |
+
+条目是字面路径，而不是 glob 模式。目标根据执行工作目录解析，相对允许条目根据配置工作目录解析。在进行相同或后代比较前，两边都会跟随现有符号链接，因此允许根目录也涵盖通过符号链接到达的目标。
+
+运行时会在解析后再次检查安全边界。解析为 home 或 home 祖先的条目会被忽略。有效防护配置根目录下的目标永远不会被豁免，包括 `CC_SAFETY_NET_HOME` 移动该根目录，或 home 或 `~/.cc-safety-net` 是符号链接时。
 
 ## 审计保留
 
@@ -292,6 +323,7 @@ schema版本。必须是 `1`。这是唯一必填字段；值缺失或错误的�
 | `secret_protection.enabled` |回落至 `true` — 保护 **开启** |
 | `secret_protection.overrides` |无效条目被丢弃；非对象变为 `{}` |
 | `secret_protection.deny_paths` |无效条目被丢弃；非数组变为 `[]` |
+| `secret_protection.allow_paths` |无效条目被丢弃；非数组变为 `[]` — 没有机密豁免 |
 | `audit.retention_days` |限制，或 `30` 无法使用时 |
 
 <Warning>
