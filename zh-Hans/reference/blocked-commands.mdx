@@ -174,7 +174,7 @@ PowerShell 支持是以 `Remove-Item` 及其别名和现有跨 shell 规则为�
 | `Remove-Item @params -Recurse -Force` | splat 传入的参数会分类为动态目标 | **Strict**、paranoid |
 | `Remove-Item ./cache -Recurse -Force` | cwd 内的非临时路径 | **Paranoid**（[`CC_SAFETY_NET_PARANOID_RM=1`](/zh-Hans/configuration/modes#paranoid-rm-check)） |
 
-别名和缩写参数会被解析，因此 `ri . -r -fo` 同样阻止。调用运算符形式（`& Remove-Item ...`、`& { ... }`、`. { ... }`）、带字面量字符串的 `iex` / `Invoke-Expression` 和 `$(...)` 子表达式都会被分析。行注释（`#`）和块注释（`<# ... #>`，包括嵌套）会被忽略，但其后的真实命令仍会阻止；格式错误或超过深度限制的块注释和子表达式则按故障时拒绝处理。
+别名和缩写参数会被解析，因此 `ri . -r -fo` 同样阻止。调用运算符形式（`& Remove-Item ...`、`& { ... }`、`. { ... }`）、带字面量字符串的 `iex` / `Invoke-Expression` 和 `$(...)` 子表达式都会被分析。行注释（`#`）和块注释（`<# ... #>`，包括嵌套）会被忽略，但其后的真实命令仍会阻止；格式错误或超过深度限制的块注释和子表达式则按 fail closed 处理。
 
 <Note>`-WhatIf` 会解除阻止，因为 PowerShell 并不会真正删除任何内容：`-WhatIf`、`-WhatIf:$true` 和 `-wi` 缩写都会允许原本被阻止的 `Remove-Item . -Recurse -Force`；显式 `-WhatIf:$false` 则重新阻止。上面仅 strict 的那些行有一个例外：`Remove-Item $HOME -Recurse -Force` 在 `standard` 中也会阻止，因为它分类为根目录/主目录目标，而不是动态目标。</Note>
 
@@ -184,7 +184,7 @@ PowerShell 支持是以 `Remove-Item` 及其别名和现有跨 shell 规则为�
 
 内置敏感集合不只阻止写入，也阻止读取：`cat .env`、`env cat .env`、`sudo command cat .env`、`strings id_rsa`、`xxd .env`、`base64 .env`、`dd if=.env`、`cat ~/.ssh/id_rsa`、`bash -c "cat .env"` 和 `node -e 'require("child_process").execSync("cat .env")'` 都会被阻止。
 
-command 形式的提取是有界且结构化的：触及结构性 shell 语法限制时按故障时拒绝处理，解析无效时抛出错误。配置的拒绝路径在内置规则之前匹配，且不受 `standard` 模式下任何放宽的影响。
+command 形式的提取是有界且结构化的：触及结构性 shell 语法限制时按 fail closed 处理，解析无效时抛出错误。配置的拒绝路径在内置规则之前匹配，且不受 `standard` 模式下任何放宽的影响。
 
 完整目录（每个规则 ID 和系列、受保护路径、两个 Coding CLI 层级、匹配顺序和豁免）见[机密保护参考](/zh-Hans/reference/secret-protection)。可用 `secret_protection.enabled: false` 禁用整个功能，也可通过 `secret_protection.overrides` 逐条开启或关闭规则，详情见[策略](/zh-Hans/configuration/policy#机密保护)。
 
@@ -267,4 +267,4 @@ shell 解析器无法对命令分词时（例如引号未闭合），行为取�
 
 <Warning>资源耗尽限制独立于级别系统，并在包括 `standard` 在内的**每个**模式中拒绝：超出声明命令递归限制或结构命令校验限制一律拒绝，绝不放行。</Warning>
 
-<Note>`explain` 命令可以精确追踪 CC Safety Net 阻止或允许某条具体命令的原因。它的标志见 [CLI 命令](/zh-Hans/reference/cli-commands#explain)，JSON schema 见 [Explain 跟踪](/zh-Hans/reference/explain-trace)。</Note>
+<Note>`explain` 命令可以精确跟踪 CC Safety Net 阻止或允许某条具体命令的原因。它的标志见 [CLI 命令](/zh-Hans/reference/cli-commands#explain)，JSON schema 见 [Explain 跟踪](/zh-Hans/reference/explain-trace)。</Note>

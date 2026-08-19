@@ -12,7 +12,7 @@ description: "深入分析引擎：安全级别边界、包装器和解释器递
 
 ## 安全级别边界
 
-三个安全级别是三项能力的 preset。只有准确理解这些边界，才能正确预测命令是否会被阻止。
+三个安全级别是三项能力的预设。只有准确理解这些边界，才能正确预测命令是否会被阻止。
 
 | 级别 | Fail closed | Paranoid `rm` | Paranoid 解释器 |
 | --- | --- | --- | --- |
@@ -20,7 +20,7 @@ description: "深入分析引擎：安全级别边界、包装器和解释器递
 | `strict` | **开启** | 关闭 | 关闭 |
 | `paranoid` | **开启** | **开启** | **开启** |
 
-任何不完全对应三个 preset 之一的能力组合，其有效级别都会报告为 `custom`。
+任何不完全对应三个预设之一的能力组合，其有效级别都会报告为 `custom`。
 
 ### Standard
 
@@ -28,11 +28,11 @@ Standard 会阻止可识别的破坏性命令。它有意**不提供**对抗级�
 
 - **允许看似安全但无法解析的文本。** `echo 'unterminated` 会被允许。
 - **即使无法解析，可识别的破坏性文本仍然会被阻止。** `git reset --hard 'unterminated` 会被原始文本启发式扫描阻止，该扫描可识别 `rm -rf`、`git reset --hard`/`--merge`、`git clean -f`、`git checkout --force`、`git push --force`/`--delete`、`git branch -D`、`git tag -d`、`git stash drop`/`clear`、`git checkout --`、`git restore`、`find -delete`、`dd of=/dev/`、`mkfs /dev/` 和 `shred <arg>`。
-- **带引号的字面量赋值中的危险文本延后到使用时判定。** `W='rm -rf ~'; echo "$W"` 会被允许：赋值本身不执行操作，而且参数位置中带引号的展开仍是一个 argv word，不能拆成命令和标志。任何风险更高的引用方式（未加引号、位于命令位置、位于替换中或位于未加引号的 heredoc body 中）仍会在赋值时触发阻止。把值交给 shell（`eval "$W"`、`bash -c "$W"`、`echo "$W" | sh`）也会拒绝，因为无法验证 shell 执行来源。Strict 从不延后判定。见[仅 Standard 允许的形式](/zh-Hans/reference/allowed-commands#仅标准允许)。
+- **带引号的字面量赋值中的危险文本延后到使用时判定。** `W='rm -rf ~'; echo "$W"` 会被允许：赋值本身不执行操作，而且参数位置中带引号的展开仍是一个 argv word，不能拆成命令和标志。任何风险更高的引用方式（未加引号、位于命令位置、位于替换中或位于未加引号的 heredoc body 中）仍会在赋值时触发阻止。把值交给 shell（`eval "$W"`、`bash -c "$W"`、`echo "$W" | sh`）也会拒绝，因为无法验证 shell 执行来源。Strict 从不延后判定。见[仅标准允许](/zh-Hans/reference/allowed-commands#仅标准允许)。
 - **不会一律阻止动态 `rm -rf` 目标。** Standard 允许 `rm -rf "$target"`；只有启用 fail-closed 能力后才会阻止。
-- Standard 还会有意允许动态可执行文件、通过替换组装的受防护命令结构、其他无法验证的递归删除目标，以及对内置敏感路径的独立仅元数据检查。
+- Standard 还会有意允许动态可执行文件名、通过替换拼接的受防护命令结构、其他无法验证的递归删除目标，以及对内置敏感路径的独立仅元数据检查。
 - **对可验证的本地生成命令执行 `eval` 和 `source` 是允许的。** `eval "$(ssh-agent -s)"` 和 `source <(kubectl completion bash)` 在 standard 下放行，前提是替换主体为单条完全字面的简单命令，且不是远程抓取命令、shell 或命令包装器。主体仍会照常分析，它打印出来的那段 shell 则不会。Strict 和 paranoid 拒绝所有动态 shell 执行来源。见[仅标准允许](/zh-Hans/reference/allowed-commands#仅标准允许)。
-- Standard 绝不放宽**敏感内容访问**和**配置的 deny path**，也绝不放宽灾难性保护。
+- Standard 绝不放宽**敏感内容访问**和**配置的拒绝路径**，也绝不放宽灾难性保护。
 
 ### Strict
 
@@ -58,12 +58,12 @@ Standard 会阻止可识别的破坏性命令。它有意**不提供**对抗级�
 
 [Paranoid 模式](/zh-Hans/configuration/modes#paranoid-mode)是在 strict 基础上增加两项能力。
 
-- [Paranoid `rm`](/zh-Hans/configuration/modes#paranoid-rm-check) 会阻止非临时的递归强制删除，即使目标在当前工作目录内部也是如此——`rm -rf ./cache` 和 `Remove-Item ./cache -Recurse -Force` 都会被阻止。临时目标和配置的 allow path 仍然允许。
+- [Paranoid `rm`](/zh-Hans/configuration/modes#paranoid-rm-check) 会阻止非临时的递归强制删除，即使目标在当前工作目录内部也是如此——`rm -rf ./cache` 和 `Remove-Item ./cache -Recurse -Force` 都会被阻止。临时目标和配置的允许路径仍然允许。
 - [Paranoid 解释器](/zh-Hans/configuration/modes#paranoid-interpreters)无论内容如何都会阻止所有解释器单行命令，包括 `python -c "print(1)"`。
 
 ### Per-rule override 与级别
 
-对于非灾难性规则，优先级依次是：master switch `destructive_command_protection`、解析后的 preset 能力、per-rule `"on"` / `"off"` override。任何 strict 或 paranoid tier 规则都可以通过 `"on"` override 在 standard 下强制启用。
+对于非灾难性规则，优先级依次是：master switch `destructive_command_protection`、解析后的预设能力、per-rule `"on"` / `"off"` override。任何 strict 或 paranoid tier 规则都可以通过 `"on"` override 在 standard 下强制启用。
 
 **灾难性规则会忽略 master switch 和任何 `"off"` override。** 这些规则是 `rm.recursive-force-root-or-home`、`rm.git-metadata`、`powershell.remove-item-root-or-home`、`powershell.remove-item-recursive-force-root-or-home`、`powershell.remove-item-git-metadata` 和 `find.delete-git-metadata`，另有始终启用的策略文件防护。
 
@@ -169,10 +169,10 @@ Git 支持用 `GIT_SSH_COMMAND`、`GIT_SSH` 和 `GIT_SSH_VARIANT` 在网络操�
 | 1 | **不安全的 `$TMPDIR` 分词** | 未加引号、可能拆成多个词的 `$TMPDIR` | 阻止（视为在 cwd 之外） |
 | 2 | **不受支持的 Windows 命名空间** | 分类器无法锚定的 UNC 和设备命名空间路径 | 阻止（视为在 cwd 之外） |
 | 3 | **根目录/主目录目标** | `/`、`/*`、`~`、`~/`、`$HOME`、`${HOME}` 及其子项，字面量或规范化后的形式 | 始终阻止——灾难性 |
-| 4 | **受保护的 Git 元数据** | 解析出的 `.git` 条目、其目录或其钩子目录 | 始终阻止——灾难性 |
+| 4 | **受保护的 Git 元数据** | 解析出的 `.git` 条目、其目录或其 hooks 目录 | 始终阻止——灾难性 |
 | 5 | **临时目标** | `/tmp`、`/var/tmp`、系统临时目录、`$TMPDIR`（除非被覆盖为非临时路径） | 允许 |
 | 6 | **动态目标** | 任何无法预测展开结果的目标 | standard 中允许；[strict](/zh-Hans/configuration/modes#strict-mode) 启用 fail-closed 能力后阻止 |
-| 7 | **配置的 allow path** | `destructive_command_protection.allow_paths` 下经过验证的字面量目标 | 允许（归类为临时） |
+| 7 | **配置的允许路径** | `destructive_command_protection.allow_paths` 下经过验证的字面量目标 | 允许（归类为临时） |
 | 8 | **home-cwd 目标** | cwd _就是_ 主目录（请先进入项目目录） | 阻止 |
 | 9 | **cwd 自身目标** | `.`、`./`，或解析到与 cwd 相同 inode 的任何目标 | 阻止 |
 | 10 | **cwd 内目标** | 解析后位于当前工作目录内的路径 | 允许；[paranoid rm](/zh-Hans/configuration/modes#paranoid-rm-check) 下阻止 |
@@ -180,10 +180,10 @@ Git 支持用 `GIT_SSH_COMMAND`、`GIT_SSH` 和 `GIT_SSH_VARIANT` 在网络操�
 
 该顺序有两个后果值得明确说明：
 
-- 步骤 4 在步骤 7 之前，因此**包含仓库的 allow path 不会放宽 Git 元数据保护**。
-- 步骤 6 在步骤 7 之前，因此 **allow path 绝不会应用于动态目标或其他无法验证的目标**。
+- 步骤 4 在步骤 7 之前，因此**包含仓库的允许路径不会放宽 Git 元数据保护**。
+- 步骤 6 在步骤 7 之前，因此**允许路径绝不会应用于动态目标或其他无法验证的目标**。
 
-Allow path 必须是绝对目录或带 `~/` 前缀的目录。它们在**每个**安全级别下都适用于 `rm`、`Remove-Item` 和 `find -delete`。它们绝不放宽机密保护、deny path、根目录、主目录或受保护的 Git 元数据。等于或包含 `$HOME` 的条目会在验证时被拒绝，规范化后再次被拒绝；符号链接逃逸不在覆盖范围内。
+允许路径必须是绝对目录或带 `~/` 前缀的目录。它们在**每个**安全级别下都适用于 `rm`、`Remove-Item` 和 `find -delete`。它们绝不放宽机密保护、拒绝路径、根目录、主目录或受保护的 Git 元数据。等于或包含 `$HOME` 的条目会在验证时被拒绝，规范化后再次被拒绝；符号链接逃逸不在覆盖范围内。
 
 必须同时存在递归标志（`-r`/`-R`/`--recursive`）和强制标志（`-f`/`--force`），此分类才会运行。路径比较使用规范化（realpath）解析，因此指向 `/` 的符号链接会被正确判定为危险，而 `/tmp-malicious` 不会匹配 `/tmp` 临时规则。
 

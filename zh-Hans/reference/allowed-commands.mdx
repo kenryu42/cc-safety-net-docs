@@ -54,7 +54,7 @@ CC Safety Net 通过语义命令分析区分允许的形式和破坏性的形式
 
 在此基础上还有两项与级别相关的调整：
 
-- 动态目标（`rm -rf "$target"`、反引号、替换）在 `standard` 中允许，一旦启用故障时拒绝能力就会被阻止。`standard` 对对抗性或动态生成的命令文本只提供尽力保护。
+- 动态目标（`rm -rf "$target"`、反引号、替换）在 `standard` 中允许，一旦启用 fail-closed 能力就会被阻止。`standard` 对对抗性或动态生成的命令文本只提供尽力保护。
 - 启用 `CC_SAFETY_NET_PARANOID_RM=1` 后，*即使在当前工作目录内*，非临时的递归强制删除也会被阻止，因此 `rm -rf ./cache` 不再通过。临时目标和配置的允许路径仍然可以通过。
 
 ### 配置的允许路径
@@ -75,7 +75,7 @@ CC Safety Net 通过语义命令分析区分允许的形式和破坏性的形式
 | `git commit -F - <<'EOF'` | 正文会成为提交信息，即使其中用文字描述了破坏性命令 |
 | `gh pr create --body-file - <<'EOF'`、`gh issue create -F - <<'EOF'` | 正文作为 PR 或 issue 文本发布 |
 
-分隔符必须带引号（`<<'EOF'`）：不带引号的 `<<EOF` 正文可能展开替换，因此在 `standard` 中仍会被扫描，启用故障时拒绝后则直接被拒绝。heredoc 之外的命令仍会分析——`cat <<'EOF' && rm -rf ~` 会因 `rm` 被阻止。对于 `cat`、`tee`、`git commit`、`gh pr create` 和 `gh issue create`，正文在提取敏感路径前还会被遮蔽，因此正文里提到机密文件名不会阻止提交；`git apply` 的正文仍对路径提取可见，因为 patch 会列出它写入的文件。完整关卡以及 `standard` 如何处理未通过关卡的 heredoc，见 [Heredoc 分析](/zh-Hans/guides/analysis-engine#heredoc-分析)。
+分隔符必须带引号（`<<'EOF'`）：不带引号的 `<<EOF` 正文可能展开替换，因此在 `standard` 中仍会被扫描，启用 fail-closed 后则直接被拒绝。heredoc 之外的命令仍会分析——`cat <<'EOF' && rm -rf ~` 会因 `rm` 被阻止。对于 `cat`、`tee`、`git commit`、`gh pr create` 和 `gh issue create`，正文在提取敏感路径前还会被遮蔽，因此正文里提到机密文件名不会阻止提交；`git apply` 的正文仍对路径提取可见，因为 patch 会列出它写入的文件。完整关卡以及 `standard` 如何处理未通过关卡的 heredoc，见 [Heredoc 分析](/zh-Hans/guides/analysis-engine#heredoc-分析)。
 
 ## 仅标准允许
 
@@ -87,8 +87,8 @@ CC Safety Net 通过语义命令分析区分允许的形式和破坏性的形式
 | `rm -rf "$target"` | 执行前无法验证的递归删除目标 |
 | `Remove-Item $target -Recurse -Force` | 同类无法验证目标的 PowerShell 等价形式 |
 | `Get-ChildItem . -Recurse \| Remove-Item -Force` | 无法验证的 PowerShell 管道输入 |
-| `$(printf r)m -rf /`、`c=rm; "$c" -rf dir`、`$CMD --version` | 动态可执行文件——命令头来自替换或变量 |
-| `git reset $(printf --hard)`、`rm $(printf -- '-rf') dir` | 动态结构——参数由替换拼装而成 |
+| `$(printf r)m -rf /`、`c=rm; "$c" -rf dir`、`$CMD --version` | 动态可执行文件名——命令头来自替换或变量 |
+| `git reset $(printf --hard)`、`rm $(printf -- '-rf') dir` | 动态结构——参数由替换拼接而成 |
 | `test -f ~/.ssh/id_rsa`、`find ~/.ssh -type f`、`ls -la ~/.ssh`、`stat .env` | 对内置敏感路径的纯元数据发现，不访问内容 |
 | `W='rm -rf ~'; echo "$W"` | 能够干净解析的带引号字面量赋值中的危险文本——变量始终只作为带引号的参数数据使用时，阻止会推迟到使用时判定 |
 | `f() { rm -rf "$1"; }; f ~` | 被调用的函数正文内，位置参数仍未绑定，因此目标是动态的——与 `rm -rf "$target"` 是同一个权衡 |
@@ -179,7 +179,7 @@ worktree 模式启用后，以下命令在 linked worktree 内是允许的：
 - `git stash drop` / `git stash clear`——stash 在多个 worktree 之间共享
 - `git worktree remove --force`——可能删除另一个 worktree
 
-Worktree 模式只放宽 git 本地丢弃规则。它不涉及文件系统、设备或 PowerShell 规则，也绝不放宽 Git 元数据保护：在 linked worktree 内，`rm .git`、`rm -rf <resolved gitDir>`、`rm -rf <commonDir>` 以及重定向 `> .git` 仍会被直接叫停，因为标记文件解析出的 Git 目录同样受保护。
+Worktree 模式只放宽 git 本地丢弃规则。它不涉及文件系统、设备或 PowerShell 规则，也绝不放宽 Git 元数据保护：在 linked worktree 内，`rm .git`、`rm -rf <resolved gitDir>`、`rm -rf <commonDir>` 以及重定向 `> .git` 仍会硬停止，因为标记文件解析出的 Git 目录同样受保护。
 
 <Tip>
   如果 CC Safety Net 阻止了你认为安全的命令，运行 `npx cc-safety-net explain "<command>"` 可以查看完整分析并了解原因。它的标志见 [CLI 命令](/zh-Hans/reference/cli-commands#explain)，更完整的诊断流程见[故障排除](/zh-Hans/guides/troubleshooting)。

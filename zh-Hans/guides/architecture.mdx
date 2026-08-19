@@ -65,7 +65,7 @@ graph TD
 `loadPolicySnapshot()` 由本地策略配置、rulebook lockfile 和已验证的 rulebook 缓存条目组合出有效运行时策略。它的约定和内容同样重要：
 
 - 它**不写入、不发出网络请求，也不使用内存缓存**。同步远程 rulebook 始终是显式 CLI 操作（`cc-safety-net rule sync`）。
-- 结果**深度不可变**。策略对象、规则数组、每条规则及其 `block_args`、透明包装器列表、安全块及其 override、破坏性命令规则 override、allow path、机密保护块及其 disabled rule 和 deny path 都已冻结，快照包装器本身也是如此。
+- 结果**深度不可变**。策略对象、规则数组、每条规则及其 `block_args`、透明包装器列表、安全块及其 override、破坏性命令规则 override、允许路径、机密保护块及其 disabled rule 和拒绝路径都已冻结，快照包装器本身也是如此。
 - 它只解析为**两种状态**：`ready` 表示每个通过验证的来源都已生效；`degraded` 表示某个候选来源被拒绝，改为执行安全的替代内容。degraded 原因会指出失败的来源、哪些内容未生效，以及如何修复。
 - 每条规则的来源信息（rulebook 名和版本、公开 source spec、override 原因）会注册到快照，供诊断和 GUI 显示。
 
@@ -85,15 +85,15 @@ graph TD
 | 6 | `policy-protection` | **策略文件保护**：写入、移动或递归删除触及规范用户 `policy.json`、其目录或上级目录时，以 `hard_stop` intent 拒绝。 | 否 |
 | 7 | `policy-protection` | **Git 元数据保护**：删除、移动、重定向、写工具、patch 或未知工具路由指向已解析 `.git` 入口、其目录或 hooks 目录时，以 `hard_stop` intent 拒绝。写工具、patch 和未知工具路由中的只读工具除外。 | 否 |
 | 8 | `config-load` | **加载策略快照**，并根据策略和环境解析有效安全级别。 | — |
-| 9 | `secret-protection` | **敏感路径保护**：检查 command、path、search 和 patch 形式中的内置敏感路径及配置的 deny path。匹配时以 `hard_stop` intent 拒绝，并携带匹配的 rule ID。策略禁用机密保护时完全跳过。 | 是 |
+| 9 | `secret-protection` | **敏感路径保护**：检查 command、path、search 和 patch 形式中的内置敏感路径及配置的拒绝路径。匹配时以 `hard_stop` intent 拒绝，并携带匹配的 rule ID。策略禁用机密保护时完全跳过。 | 是 |
 | 10 | `non-command` | 通过阶段 1–9 的非命令 invocation 在此获得允许。 | — |
 | 11 | `command-validation` | 空或纯空白命令文本 fail closed。 | 否 |
 | 12 | `command-analysis` | **破坏性命令分析**使用快照、有效能力、已解析程序、事实存储和已解析 Git 元数据运行，然后阻止或允许。 | 部分 |
 
 从该顺序可直接得出三点关于阶段位置的事实：
 
-- **阶段 6 和 7 在阶段 8 之前运行。** 策略文件保护和 Git 元数据保护会在加载任何配置之前作出拒绝。它们始终启用、不带 config state，任何 preset、override 或 master switch 都无法削弱它们。
-- **敏感路径保护在快照之后、命令分析之前运行。** 三种 hard-stop 保护中只有它受策略控制，控制项包括 master switch、per-pattern override 和 deny path。
+- **阶段 6 和 7 在阶段 8 之前运行。** 策略文件保护和 Git 元数据保护会在加载任何配置之前作出拒绝。它们始终启用、不带 config state，任何预设、override 或 master switch 都无法削弱它们。
+- **敏感路径保护在快照之后、命令分析之前运行。** 三种 hard-stop 保护中只有它受策略控制，控制项包括 master switch、per-pattern override 和拒绝路径。
 - **只有阶段 8 之后做出的判定才报告安全级别。** 输入边界、策略文件保护或 Git 元数据保护产生的拒绝有意不带 `level` 和 config fallback 元数据，因为此时两者都尚未确定。
 
 防护内的每个依赖调用都经过包装，因此抛出的错误会变为归因于该阶段的 fail-closed 拒绝。若原因是工具输入越界，则会从证据中剔除命令替换来源的文本，绝不回显超大输入。

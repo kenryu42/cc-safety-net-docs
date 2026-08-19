@@ -24,18 +24,18 @@ CC Safety Net 将保护解析为三个**安全级别**：`standard`、`strict` �
 
 某些失败在每个级别中都以相同方式处理：
 
-- **无效的 hook 输入 JSON** 在所有模式中都**始终阻止**（故障时拒绝）。
-- 如果分析器本身抛出意外错误，则在所有模式中都以“failed closed”为原因**始终阻止**命令（故障时拒绝）。
+- **无效的 hook 输入 JSON** 在所有模式中都**始终阻止**（fail closed）。
+- 如果分析器本身抛出意外错误，则在所有模式中都以“failed closed”为原因**始终阻止**命令（fail closed）。
 - 超过解析器**递归或结构验证限制**的命令在所有模式中都**始终阻止**。`standard` 级别不会放宽这些资源耗尽边界。
 
 `standard` 的差异在于无法解析和无法验证的输入：
 
 - 如果 shell 解析器无法将命令拆分成 token（例如存在未结束的引号），CC Safety Net 会对已知危险模式运行后备文本扫描。扫描匹配时阻止命令；不匹配时**允许通过**。因此 `echo 'unterminated` 会被允许，而 `git reset --hard 'unterminated` 仍会被启发式扫描阻止。
-- **`standard` 不会一律阻止动态递归删除目标。** `rm -rf "$target"` 在此级别被允许，仅在启用故障时拒绝能力后才会被阻止。
+- **`standard` 不会一律阻止动态递归删除目标。** `rm -rf "$target"` 在此级别被允许，仅在启用 fail-closed 能力后才会被阻止。
 
-`standard` 还会有意允许动态可执行文件、通过替换组装的命令结构、其他无法验证的递归删除目标、对内置敏感路径仅读取元数据的独立检查，以及对单条完全字面的本地生成命令执行 `eval`/`source`（例如 `eval "$(ssh-agent -s)"`）。这些是有意的权衡：对于对抗性或动态输入，`standard` 仅提供**尽力保护**。如果命令可能来自提示注入或其他对抗性环境，请使用 `strict` 或 `paranoid`。
+`standard` 还会有意允许动态可执行文件名、通过替换拼接的命令结构、其他无法验证的递归删除目标、对内置敏感路径仅读取元数据的独立检查，以及对单条完全字面的本地生成命令执行 `eval`/`source`（例如 `eval "$(ssh-agent -s)"`）。这些是有意的权衡：对于对抗性或动态输入，`standard` 仅提供**尽力保护**。如果命令可能来自提示注入或其他对抗性环境，请使用 `strict` 或 `paranoid`。
 
-`standard` 绝不会放宽敏感**内容**访问、用户配置的 deny path 及其后代，也不会放宽灾难性保护（根目录和主目录递归删除、Git 元数据和规范 `policy.json`）。
+`standard` 绝不会放宽敏感**内容**访问、用户配置的拒绝路径及其后代，也不会放宽灾难性保护（根目录和主目录递归删除、Git 元数据和规范 `policy.json`）。
 
 <span id="strict-mode"></span>
 
@@ -44,7 +44,7 @@ CC Safety Net 将保护解析为三个**安全级别**：`standard`、`strict` �
 Strict 模式开启 `fail_closed` 能力。它收紧的是五个不同方面，而不只是无法解析的命令：
 
 - **阻止无法解析的命令。** 解析器无法拆分成 token 的任何命令都会被拒绝，即使后备文本扫描没有发现危险模式，原因也为 `Command could not be safely analyzed (strict mode)`。`echo 'unterminated` 在 `standard` 中允许，在此级别中阻止。
-- **Heredoc 故障时拒绝。** 含有 heredoc 的命令只有在以下条件全部满足时才会被允许：仅有一个 heredoc、用于标准输入、分隔符带引号、没有其他输入重定向，并且消费者是字面量 `cat`、`tee`、`git apply`、`git commit`、`gh pr create` 或 `gh issue create`。因此，`python3 - <<'PY'` 和任何不带引号的 `<<EOF` 都会在此级别被拒绝，而 `git commit -F - <<'EOF'` 仍可通过。准确的判定条件见 [Heredoc 分析](/zh-Hans/guides/analysis-engine#heredoc-分析)。
+- **Heredoc 会 fail closed。** 含有 heredoc 的命令只有在以下条件全部满足时才会被允许：仅有一个 heredoc、用于标准输入、分隔符带引号、没有其他输入重定向，并且消费者是字面量 `cat`、`tee`、`git apply`、`git commit`、`gh pr create` 或 `gh issue create`。因此，`python3 - <<'PY'` 和任何不带引号的 `<<EOF` 都会在此级别被拒绝，而 `git commit -F - <<'EOF'` 仍可通过。准确的判定条件见 [Heredoc 分析](/zh-Hans/guides/analysis-engine#heredoc-分析)。
 - **阻止无法验证的破坏性目标**，由下面列出的五条规则负责。
 - **阻止仅元数据的敏感路径发现。** `test -f ~/.ssh/id_rsa` 和 `find ~/.ssh -type f` 在 `standard` 中允许，在 `strict` 中拒绝。
 - **禁用仅限 `standard` 的内联数据放宽。** 在 `standard` 中，如果有界词法扫描没有发现文件系统或命令执行标记，Node 或 Bun 内联求值中的敏感路径字面量会被视为无害的诊断数据。Strict 会移除这一放宽。
@@ -59,7 +59,7 @@ Strict 模式开启 `fail_closed` 能力。它收紧的是五个不同方面，�
 | `shell.dynamic-executable` | `$(printf r)m -rf /` |
 | `shell.dynamic-structure` | `git reset $(printf --hard)` |
 
-无效的 hook 输入 JSON、分析器异常和解析器资源限制失败在**每个模式中都已经故障时拒绝**，这些不是 strict 新增的行为。
+无效的 hook 输入 JSON、分析器异常和解析器资源限制失败在**每个模式中都已经 fail closed**，这些不是 strict 新增的行为。
 
 ### 启用 strict 安全级别
 
@@ -78,7 +78,7 @@ export CC_SAFETY_NET_STRICT=1
 当命令可能来自对抗性或不可信环境时，请启用 strict 模式。如果你需要最大保护，并且可以接受异常命令语法偶尔产生误报，也可以使用它。
 
 <Note>
-  可以通过 [policy.json](/zh-Hans/configuration/policy) 中的 `destructive_command_protection.overrides` 关闭单项 strict 层规则，也可以在 `standard` 下通过值为 `"on"` 的覆盖强制启用任何 strict 层规则。对于没有破坏性命令规则 id 的故障时拒绝结果（例如解析器故障时拒绝和敏感路径结果），strict 仍会保持 strict 行为。
+  可以通过 [policy.json](/zh-Hans/configuration/policy) 中的 `destructive_command_protection.overrides` 关闭单项 strict 层规则，也可以在 `standard` 下通过值为 `"on"` 的覆盖强制启用任何 strict 层规则。对于没有破坏性命令规则 id 的 fail-closed 结果（例如解析器 fail-closed 和敏感路径结果），strict 仍会保持 strict 行为。
 </Note>
 
 <span id="paranoid-mode"></span>
@@ -114,7 +114,7 @@ export CC_SAFETY_NET_STRICT=1
 export CC_SAFETY_NET_LEVEL=paranoid
 ```
 
-### 启用两项 paranoid 检查但不启用故障时拒绝
+### 启用两项 paranoid 检查但不启用 fail-closed
 
 ```bash
 export CC_SAFETY_NET_PARANOID=1
@@ -164,7 +164,7 @@ export CC_SAFETY_NET_WORKTREE=1
 
 ### Linked worktree 检测
 
-Worktree 检测采用**故障时拒绝**：如果 CC Safety Net 无法明确判断 cwd 是 linked worktree，则继续执行更严格的默认规则。具体行为如下：
+Worktree 检测采用 **fail-closed**：如果 CC Safety Net 无法明确判断 cwd 是 linked worktree，则继续执行更严格的默认规则。具体行为如下：
 
 - Linked worktree 由 `.git` *文件*（不是目录）识别，其解析出的 Git 目录必须包含 `commondir` 文件。主 worktree 和 submodule 不会获得放宽。
 - cwd 遍历使用 `realpath`，因此符号链接路径会被正确解析。

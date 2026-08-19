@@ -228,7 +228,7 @@ npx -y cc-safety-net@latest install --hermes-agent
   安装、更新或卸载后，请重启 Hermes，使更改生效。
 </Note>
 
-在每次 `pre_tool_call` 时，插件通过 JSON stdin 将工具调用发送到 `npx -y cc-safety-net hook --hermes-agent`（短参数 `-ha`），超时为 30 秒。它保护 `terminal`、`read_file`、`write_file` 和 `patch` 工具；其他 Hermes 工具不会转发。该插件采用故障时拒绝：当 `npx` 缺失、分析无法启动、超时、以非零状态退出或返回无法读取的输出时，会用明确消息阻止工具调用，而不是让其通过。
+在每次 `pre_tool_call` 时，插件通过 JSON stdin 将工具调用发送到 `npx -y cc-safety-net hook --hermes-agent`（短参数 `-ha`），超时为 30 秒。它保护 `terminal`、`read_file`、`write_file` 和 `patch` 工具；其他 Hermes 工具不会转发。该插件采用 fail-closed：当 `npx` 缺失、分析无法启动、超时、以非零状态退出或返回无法读取的输出时，会用明确消息阻止工具调用，而不是让其通过。
 
 ```bash
 npx -y cc-safety-net@latest uninstall --hermes-agent
@@ -298,7 +298,7 @@ npx -y cc-safety-net@latest uninstall --openclaw
   安装、更新或卸载后，请重启 OpenClaw Gateway，使更改生效。如果 `openclaw.json` 设置了 `plugins.allow`，其中也必须列出 `cc-safety-net`。如果允许列表遗漏它，即使插件已启用也不会加载。
 </Note>
 
-OpenClaw 将 CC Safety Net 作为进程内插件加载，而不是 hook 子进程，因此没有运行时 hook 参数。插件只为没有 tag 的 `exec` 工具注册 `before_tool_call` 处理程序。OpenClaw 的文件工具和带 tag 的 `exec` 变体不受保护。每次受支持的 `exec` 调用都会以智能体的 workspace 目录为基准分析；如果无法解析该 workspace、`workdir` 解析到该目录之外，或调用指定的执行 host 不是 `auto` 或 `gateway`（例如 `sandbox` 或 `node`），插件会按故障时拒绝处理。
+OpenClaw 将 CC Safety Net 作为进程内插件加载，而不是 hook 子进程，因此没有运行时 hook 参数。插件只为没有 tag 的 `exec` 工具注册 `before_tool_call` 处理程序。OpenClaw 的文件工具和带 tag 的 `exec` 变体不受保护。每次受支持的 `exec` 调用都会以智能体的 workspace 目录为基准分析；如果无法解析该 workspace、`workdir` 解析到该目录之外，或调用指定的执行 host 不是 `auto` 或 `gateway`（例如 `sandbox` 或 `node`），插件会 fail closed。
 
 设置 `OPENCLAW_STATE_DIR` 时，OpenClaw 状态目录使用该值；否则使用 `OPENCLAW_CONFIG_PATH` 所在目录；再否则使用 `~/.openclaw`。设置 `OPENCLAW_CONFIG_PATH` 时，配置文件使用该值；否则使用状态目录中的 `openclaw.json`。如果任一环境变量的路径以 `~` 开头，则会基于用户的主目录展开。安装和 doctor 按相同顺序解析路径，因此移动过位置的 OpenClaw 安装同样能被正确处理，而不会报告为不存在。
 
