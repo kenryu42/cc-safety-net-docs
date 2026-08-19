@@ -20,7 +20,7 @@ keywords:
 
 CC Safety Net には、`cc-safety-net` という 1 つの CLI があります。`npx cc-safety-net` または `bunx cc-safety-net` で実行します。
 
-適用処理は、`cc-safety-net install` が設定するプラグイン、拡張、フックを通して、エージェント内で動作します。CLI 自体をグローバルにインストールする必要はありません。`npx` または `bunx` は、ここで説明するコマンドの実行時に CLI を取得します。
+適用処理は、`cc-safety-net install` が設定するプラグイン、拡張機能、hook を通して、エージェント内で動作します。CLI 自体をグローバルにインストールする必要はありません。`npx` または `bunx` は、ここで説明するコマンドの実行時に CLI を取得します。
 
 このページは、コマンド、サブコマンド、オプション、終了動作を示すコマンドインターフェースのリファレンスです。チュートリアルではありません。ガイド付きの初回実行については、[クイックスタート](/ja/quickstart)を参照してください。エージェントごとの設定については、[インストール](/ja/installation)を参照してください。
 
@@ -32,15 +32,15 @@ CLI は 11 個のコマンドを登録します。次の順序は、`cc-safety-n
 | --- | --- | --- |
 | [`status`](#status) | `status` | ランタイムが現在適用しているものを表示する |
 | [`doctor`](#doctor) | `doctor [options]` | インストールと設定に対する診断検査を実行する |
-| [`logs`](#logs) | `logs [options]` | フックが記録した監査ログエントリを表示する |
+| [`logs`](#logs) | `logs [options]` | hook が記録した監査ログエントリを表示する |
 | [`explain`](#explain) | `explain [options] <command>` | コマンドの解析方法をトレースする |
-| [`rule`](#rule) | `rule <subcommand>` | ルール設定、ルールブックソース、透過ラッパーを管理する |
+| [`rule`](#rule) | `rule <subcommand>` | ルール設定、rulebook ソース、transparent wrapper を管理する |
 | [`install`](#install) | `install [TARGET_FLAG]` | CC Safety Net をコーディングエージェント CLI にインストールする |
-| [`update`](#update) | `update` | インストール済みのすべての統合を更新する |
+| [`update`](#update) | `update` | インストール済みのすべての連携を更新する |
 | [`uninstall`](#uninstall) | `uninstall [TARGET_FLAG]` | CC Safety Net をコーディングエージェント CLI から削除する |
-| [`hook`](#hook) | `hook INTEGRATION_FLAG` | エージェントのランタイムフックとして動作し、stdin から JSON を読み取る |
+| [`hook`](#hook) | `hook INTEGRATION_FLAG` | エージェントのランタイム hook として動作し、標準入力から JSON を読み取る |
 | [`gui`](#gui) | `gui [options]` | ローカルのポリシーエディター GUI を開く |
-| [`statusline`](#statusline) | `statusline --claude-code` | シェル統合用の 1 行ステータスインジケーターを出力する |
+| [`statusline`](#statusline) | `statusline --claude-code` | シェル連携用の 1 行ステータスインジケーターを出力する |
 
 `doctor` には別名 `--doctor` もあります。コマンド検索では大文字と小文字を区別しません。
 
@@ -65,7 +65,7 @@ npx cc-safety-net status
 | `ready` | ローダーエラー、警告、ポリシーのフォールバックなしで、ポリシースナップショットが正常に読み込まれた |
 | `degraded` | スナップショットは読み込まれたが、ローダーエラー、警告、またはフォールバックポリシーがある。理由は `Not active` の下に表示される |
 
-無効な Claude Code プラグインは、独自の判定ではなくなりました。その 1 つの統合に限定した、`Not active` リストの**最初の**項目として報告されます。
+無効な Claude Code プラグインは、独自の判定ではなくなりました。その 1 つの連携に限定した、`Not active` リストの**最初の**項目として報告されます。
 
 ```text
 plugin cc-safety-net@cc-marketplace is disabled in Claude Code; nothing is enforced in Claude Code until it is re-enabled. Other integrations are not affected.
@@ -114,7 +114,7 @@ bunx cc-safety-net doctor
 | Guard Engine Verification | ブロックが動作することを確認する合成セルフテストを実行する（`git reset --hard` と `rm -rf /` はブロック、`rm -rf ./node_modules` は許可） |
 | Configuration | ユーザーとプロジェクトのルール設定を検証し、有効なルールと隠されたルールを表示する |
 | Environment | CC Safety Net の環境変数の状態を表示する |
-| Effective Safety | 選択されたプリセット、有効レベル、機能、ルールオーバーライドを表示する。継承されたルールを弱めるオーバーライドも含む |
+| Effective Safety | 選択された preset、有効レベル、機能、ルールの override を表示する。継承されたルールを弱める override も含む |
 | Findings | 診断された問題。それぞれに重大度と修正ヒントがある |
 | Recent Activity | 過去 7 日間のブロックされたコマンドを要約する |
 | System Info | 関連するすべてのツールのバージョンを表示する |
@@ -130,9 +130,9 @@ bunx cc-safety-net doctor
 
 `doctor` は、`codex plugin list` から Codex の状態を読み取ります。CC Safety Net に一致する行に `installed, enabled` がある場合は `Detected` かつ `Configured` です。それ以外の `installed,` がある一致行は `Detected` かつ `Not configured` です。登録済みのマーケットプレイス行が `not installed` の場合は、無効ではなく `Not detected` です。
 
-GitHub Copilot CLI では、`doctor` はプラグインのチェックアウト状態と hook の定義を確認します。インライン設定の優先順は、`<repo>/.github/copilot/settings.local.json`、`<repo>/.github/copilot/settings.json`、`<repo>/.claude/settings.local.json`、`<repo>/.claude/settings.json`、`$COPILOT_HOME/settings.json`、`$COPILOT_HOME/config.json` です（`COPILOT_HOME` のデフォルトは `~/.copilot`）。さらに、`<repo>/.github/hooks/*.json` と `$COPILOT_HOME/hooks/*.json` も調べます。`.claude` ファイルのエントリは、コマンドに `hook --copilot-cli` または `hook -cp` がある場合だけ対象です。Claude Code 用のフックだけでは対象になりません。インライン設定には GitHub Copilot CLI `1.0.8+`、ユーザーフックファイルには `0.0.422+` が必要です。
+GitHub Copilot CLI では、`doctor` はプラグインの checkout 状態と hook の定義を確認します。インライン設定の優先順は、`<repo>/.github/copilot/settings.local.json`、`<repo>/.github/copilot/settings.json`、`<repo>/.claude/settings.local.json`、`<repo>/.claude/settings.json`、`$COPILOT_HOME/settings.json`、`$COPILOT_HOME/config.json` です（`COPILOT_HOME` の既定値は `~/.copilot`）。さらに、`<repo>/.github/hooks/*.json` と `$COPILOT_HOME/hooks/*.json` も調べます。`.claude` ファイルのエントリは、コマンドに `hook --copilot-cli` または `hook -cp` がある場合だけ対象です。Claude Code 用の hook だけでは対象になりません。インライン設定には GitHub Copilot CLI `1.0.8+`、ユーザー hook ファイルには `0.0.422+` が必要です。
 
-`doctor` は、失敗を検出するとゼロ以外のコードで終了します。設定済みのエージェントがない、フック検査に失敗した、セルフテストに失敗した、ユーザーまたはプロジェクト設定が無効な場合などが失敗です。
+`doctor` は、失敗を検出するとゼロ以外のコードで終了します。設定済みのエージェントがない、hook 検査に失敗した、セルフテストに失敗した、ユーザーまたはプロジェクト設定が無効な場合などが失敗です。
 
 一部の監査ログファイルを読み取れない場合、Recent Activity セクションの末尾に `Warning: <n> audit log sources could not be read; this summary is incomplete` が表示されます（1 件の場合は `source`）。これにより、操作が少ない週を完全なデータと誤認しません。
 
@@ -166,7 +166,7 @@ npx cc-safety-net logs --id 3fa9c2d1a70e8b42
 | `--json` | | エントリを JSON として出力する |
 | `-h`, `--help` | | ヘルプを表示する |
 
-**`--suspect`** は、再確認する価値がある拒否に結果を絞ります。`failureStage` を持つ拒否（解析に失敗し、ガードが fail-closed になったため、コマンドが危険だと証明されたわけではない）、または同じセッション内で同じコマンド署名が 2 回以上拒否された場合です。繰り返し回数は、`--limit` で出力を切り詰める前に、`--since` の期間全体で数えます。
+**`--suspect`** は、再確認する価値がある拒否に結果を絞ります。`failureStage` を持つ拒否（解析に失敗し、ガードが fail closed になったため、コマンドが危険だと証明されたわけではない）、または同じセッション内で同じコマンド署名が 2 回以上拒否された場合です。繰り返し回数は、`--limit` で出力を切り詰める前に、`--since` の期間全体で数えます。
 
 **同時に使えない組み合わせ。** 次の 2 つは、明示的なメッセージと終了コード `1` で拒否されます。
 
@@ -177,7 +177,7 @@ npx cc-safety-net logs --id 3fa9c2d1a70e8b42
 
 認識しないオプションは `Unknown option for logs: <arg>` を出力し、`1` で終了します。
 
-監査ログファイルを読み取れない場合、またはレコードが不正な場合、`logs` は stderr に 1 つの警告 `warning: <n> audit log sources could not be read; these results are incomplete` を出力します（1 件の場合は `source`）。stdout と終了コードは変更しません。
+監査ログファイルを読み取れない場合、またはレコードが不正な場合、`logs` は標準エラー出力に 1 つの警告 `warning: <n> audit log sources could not be read; these results are incomplete` を出力します（1 件の場合は `source`）。標準出力と終了コードは変更しません。
 
 ### 機械可読出力
 
@@ -256,7 +256,7 @@ npx cc-safety-net explain --json 'loop() { loop; }; loop'
 
 ## rule
 
-`rule` は、ルール設定、ルールブックソース、透過コマンドラッパーを管理します。このセクションではコマンドインターフェースを説明します。ルールブックのスキーマ、ライフサイクル、オーバーライドの意味については、[カスタムルール](/ja/configuration/custom-rules)を参照してください。
+`rule` は、ルール設定、rulebook ソース、transparent wrapper を管理します。このセクションではコマンドインターフェースを説明します。rulebook のスキーマ、ライフサイクル、override の意味については、[カスタムルール](/ja/configuration/custom-rules)を参照してください。
 
 サブコマンドなしで `rule` を実行すると、ヘルプを出力して `1` で終了します。`rule --help` は同じヘルプを出力して `0` で終了します。
 
@@ -264,33 +264,33 @@ npx cc-safety-net explain --json 'loop() { loop; }; loop'
 
 | フラグ | 説明 | 有効な対象 |
 | --- | --- | --- |
-| `-g`, `--global` | プロジェクト範囲ではなくユーザー範囲のルール設定を使う | `list` と `migrate` 以外のすべてのサブコマンド |
+| `-g`, `--global` | プロジェクトスコープではなくユーザースコープのルール設定を使う | `list` と `migrate` 以外のすべてのサブコマンド |
 | `--check` | ロックまたはキャッシュの状態を変更せずに確認する | `migrate` 以外のすべてのサブコマンド。`init`、`add`、`remove`、`update`、`sync` で意味がある |
 | `--cleanup` | `rule migrate` が検証した後にレガシーファイルを削除する | `migrate` のみ |
 | `--delete-source` | 削除時に、変更がないローカルソースディレクトリも削除する | `remove` のみ |
-| `--example` | 無効なサンプルルールブックを作成する | `init` のみ |
+| `--example` | 非アクティブなサンプル rulebook を作成する | `init` のみ |
 | `-h`, `--help` | ヘルプを表示する | すべて |
 
 ### rule init
 
-現在の範囲にルール設定を作成します。ファイルが存在する場合は、`rules`、`overrides`、`transparent_wrappers` を維持したまま、正規形式に書き換えます。必要な場合は、ルールブックキャッシュディレクトリも作成します。
+現在のスコープにルール設定を作成します。ファイルが存在する場合は、`rules`、`overrides`、`transparent_wrappers` を維持したまま、正規形式に書き換えます。必要な場合は、rulebook キャッシュディレクトリも作成します。
 
 ```bash
 npx -y cc-safety-net rule init
 npx -y cc-safety-net rule init --global
 ```
 
-`rule init` だけを実行すると、ルールを含まない**非アクティブ**な設定を書き込みます。`example-rules` という開始用ルールブックも書き込むには、`--example` を指定します。
+`rule init` だけを実行すると、ルールを含まない**非アクティブ**な設定を書き込みます。`example-rules` という開始用 rulebook も書き込むには、`--example` を指定します。
 
 ```bash
 npx -y cc-safety-net rule init --example
 ```
 
-サンプルルールブックは、`example-rules/rulebook.json` が存在しない場合にのみ書き込まれます。設定から参照されないため、**非アクティブ**です。有効にするには、`rule add example-rules` で追加します。
+サンプル rulebook は、`example-rules/rulebook.json` が存在しない場合にのみ書き込まれます。設定から参照されないため、**非アクティブ**です。有効にするには、`rule add example-rules` で追加します。
 
 ### rule add
 
-ルールブックソースを追加して同期します。`<source>` は、裸のローカル名（例は `project-rules`）、または `owner/repo#ref/<rulebook-name>` 形式の GitHub ソースです。
+rulebook ソースを追加して同期します。`<source>` は、裸のローカル名（例は `project-rules`）、または `owner/repo#ref/<rulebook-name>` 形式の GitHub ソースです。
 
 ```bash
 npx -y cc-safety-net rule add project-rules
@@ -302,7 +302,7 @@ npx -y cc-safety-net rule add --global my-personal-rules
 
 ### rule remove
 
-ルールブックソースを削除して同期します。ローカルソースディレクトリに変更がない場合に、そのディレクトリも削除するには `--delete-source` を追加します。
+rulebook ソースを削除して同期します。ローカルソースディレクトリに変更がない場合に、そのディレクトリも削除するには `--delete-source` を追加します。
 
 ```bash
 npx -y cc-safety-net rule remove project-rules
@@ -311,7 +311,7 @@ npx -y cc-safety-net rule remove project-rules --delete-source
 
 ### rule update
 
-設定済みのルールブックソースについて、ロックとキャッシュを更新します。ソースを 1 つ指定した場合は、そのソースだけを更新します。
+設定済みの rulebook ソースについて、ロックとキャッシュを更新します。ソースを 1 つ指定した場合は、そのソースだけを更新します。
 
 ```bash
 npx -y cc-safety-net rule update
@@ -323,7 +323,7 @@ npx -y cc-safety-net rule update --check
 
 ### rule sync
 
-すべての設定済みルールブックソースについて、ロックとキャッシュを再構築します。`rule.json` を手動で編集した後に実行します。
+すべての設定済み rulebook ソースについて、ロックとキャッシュを再構築します。`rule.json` を手動で編集した後に実行します。
 
 ```bash
 npx -y cc-safety-net rule sync
@@ -333,17 +333,17 @@ npx -y cc-safety-net rule sync
 
 ### rule list
 
-ユーザー範囲とプロジェクト範囲の両方について、有効なルールブックと解決済みソースを一覧表示します。
+ユーザースコープとプロジェクトスコープの両方について、有効な rulebook と解決済みソースを一覧表示します。
 
 ```bash
 npx -y cc-safety-net rule list
 ```
 
-`rule list` は両方の範囲を一度に読み取るため、`--global` は拒否されます。ポリシーの**エラー**がある場合だけ `1` で終了します。警告は出力されますが、終了コードは `0` です。
+`rule list` は両方のスコープを一度に読み取るため、`--global` は拒否されます。ポリシーの**エラー**がある場合だけ `1` で終了します。警告は出力されますが、終了コードは `0` です。
 
 ### rule wrapper
 
-透過コマンドラッパーを管理します。これは引数を別のコマンドへ渡すコマンドであり、CC Safety Net はラッパー自体ではなく内部のコマンドを解析します。
+transparent wrapper を管理します。これは引数を別のコマンドへ渡すコマンドであり、CC Safety Net はラッパー自体ではなく内部のコマンドを解析します。
 
 ```bash
 npx -y cc-safety-net rule wrapper list
@@ -355,13 +355,13 @@ npx -y cc-safety-net rule wrapper remove rtk
 - `wrapper list` は追加の引数を受け取りません。`Transparent wrappers: (none)` または番号付きリストを出力します。
 - `wrapper add` と `wrapper remove` は、それぞれ正確に 1 つのコマンド名が必要です。
 - ラッパー名は `^[a-zA-Z][a-zA-Z0-9_-]*$` に一致する必要があります。予約済みコマンドはラッパーとして登録できません。
-- `add` は重複を除去し、`remove` はフィルタリングします。範囲は `-g` / `--global` に従います。
+- `add` は重複を除去し、`remove` はフィルタリングします。スコープは `-g` / `--global` に従います。
 
 登録済みのラッパーは、[explain トレース](/ja/reference/explain-trace)に `transparent-wrapper` のステップとして表示されます。
 
 ### rule verify
 
-レガシーパスとスキーマ種類の検出を含め、両方の範囲のルール設定ファイルを検証します。設定を手動で編集した後に使います。
+レガシーパスとスキーマ種類の検出を含め、両方のスコープのルール設定ファイルを検証します。設定を手動で編集した後に使います。
 
 ```bash
 npx -y cc-safety-net rule verify
@@ -369,17 +369,17 @@ npx -y cc-safety-net rule verify
 
 すべて有効なら `0`、それ以外はゼロ以外で終了します。
 
-`rule verify` は純粋な検査ではなく、検証するファイルを変更することがあります。範囲の `rule.json` が正常に検証されても `$schema` キーがない場合、コマンドはそのファイルを書き換え、次の内容を最初のキーとして挿入します。
+`rule verify` は純粋な検査ではなく、検証するファイルを変更することがあります。スコープの `rule.json` が正常に検証されても `$schema` キーがない場合、コマンドはそのファイルを書き換え、次の内容を最初のキーとして挿入します。
 
 ```json
 "$schema": "https://raw.githubusercontent.com/kenryu42/cc-safety-net/main/assets/cc-safety-net.schema.json"
 ```
 
-そして `Added $schema to user config.` または `Added $schema to project config.` を出力します。これは、ユーザーまたはプロジェクト範囲にある有効な rules-schema 設定でのみ動作します。レガシー設定またはエラーがある設定では動作しません。無効にするフラグはありません。書き換えはファイル全体を 2 スペースのインデントで再シリアライズします。そのため、CI では追跡対象ファイルに変更が残る場合があります。`rule verify` を読み取り専用にする必要がある場合は、先に `$schema` キーをコミットしてください。
+そして `Added $schema to user config.` または `Added $schema to project config.` を出力します。これは、ユーザースコープまたはプロジェクトスコープにある有効な rules-schema 設定でのみ動作します。レガシー設定またはエラーがある設定では動作しません。無効にするフラグはありません。書き換えはファイル全体を 2 スペースのインデントで再シリアライズします。そのため、CI では追跡対象ファイルに変更が残る場合があります。`rule verify` を読み取り専用にする必要がある場合は、先に `$schema` キーをコミットしてください。
 
 ### rule migrate
 
-レガシーのインライン設定ファイル、プロジェクトの `.safety-net.json` とユーザーの `~/.cc-safety-net/config.json` を、ルールブック配置に変換します。
+レガシーのインライン設定ファイル、プロジェクトの `.safety-net.json` とユーザーの `~/.cc-safety-net/config.json` を、rulebook 配置に変換します。
 
 ```bash
 npx -y cc-safety-net rule migrate
@@ -406,7 +406,7 @@ UPDATE_AVAILABLE: cc-safety-net v<latest> is available (running v<current>). Ask
 
 ## install
 
-`install` は、CC Safety Net をコーディングエージェント CLI にインストールします。ターゲットセットは CC Safety Net の統合カタログから取得されるため、GUI と `doctor` が使うリストと同じです。
+`install` は、CC Safety Net をコーディングエージェント CLI にインストールします。ターゲットセットは CC Safety Net の連携カタログから取得されるため、GUI と `doctor` が使うリストと同じです。
 
 エージェントごとの手順、インストール後の操作、レガシープラグイン ID の移行については、[インストール](/ja/installation)を参照してください。
 
@@ -422,11 +422,11 @@ npx -y cc-safety-net install --claude-code
 | フラグ | エージェント | インストール方法 |
 | --- | --- | --- |
 | `--amp` | Amp Code | amp CLI を使って、アカウントがホストする Amp Personal Plugins リポジトリに管理対象のプラグインを公開する |
-| `--agy-cli` | Antigravity CLI | `~/.gemini/config/hooks.json` にフックエントリを書き込む |
+| `--agy-cli` | Antigravity CLI | `~/.gemini/config/hooks.json` に hook エントリを書き込む |
 | `--claude-code` | Claude Code | Claude Code 自身のプラグインマーケットプレイスコマンドを実行する |
 | `--codex` | Codex | Codex 自身のプラグインマーケットプレイスコマンドを実行する |
-| `--cursor` | Cursor | `~/.cursor/hooks.json` にフックエントリを書き込む |
-| `--gemini-cli` | Gemini CLI | Gemini CLI の拡張インストールコマンドを実行する |
+| `--cursor` | Cursor | `~/.cursor/hooks.json` に hook エントリを書き込む |
+| `--gemini-cli` | Gemini CLI | Gemini CLI の拡張機能インストールコマンドを実行する |
 | `--copilot-cli` | GitHub Copilot CLI | Copilot CLI 自身のプラグインマーケットプレイスコマンドを実行する |
 | `--hermes-agent` | Hermes Agent | `~/.hermes/plugins/cc-safety-net`（または `$HERMES_HOME` の下）に管理対象 Python プラグインを書き込み、`hermes plugins enable` で有効にする |
 | `--kimi-code` | Kimi Code | ターミナルでは方式プロンプトの後に、`~/.kimi-code/config.toml`（または `$KIMI_CODE_HOME/config.toml`）に `[[hooks]]` ブロックを書き込む |
@@ -438,13 +438,13 @@ npx -y cc-safety-net install --claude-code
 
 CC Safety Net は、3 つのインストール方法を使います。
 
-- **ネイティブのプラグインまたは拡張コマンド** — Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、OpenClaw、OpenCode、Pi。CC Safety Net はエージェント自身のプラグインマネージャーを実行し、置き換えられた古いプラグイン ID を削除します。OpenClaw のインストールは、その後に OpenClaw がプラグインを読み込み済みと報告することも確認し、OpenClaw Gateway の再起動を求めます。OpenCode のインストールは、キャッシュ済みパッケージのエントリを import し、呼び出し可能な `CCSafetyNetPlugin` を export することを確認します。OpenCode が何も読み込まず fail-open になる場合、インストールは失敗します。
+- **ネイティブのプラグインまたは拡張機能のコマンド** — Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、OpenClaw、OpenCode、Pi。CC Safety Net はエージェント自身のプラグインマネージャーを実行し、置き換えられた古いプラグイン ID を削除します。OpenClaw のインストールは、その後に OpenClaw がプラグインを読み込み済みと報告することも確認し、OpenClaw Gateway の再起動を求めます。OpenCode のインストールは、キャッシュ済みパッケージのエントリを import し、呼び出し可能な `CCSafetyNetPlugin` を export することを確認します。OpenCode が何も読み込まず fail open になる場合、インストールは失敗します。
 - **設定ファイルへの書き込み** — Antigravity CLI、Cursor、Kimi Code。CC Safety Net がエージェントの設定を直接編集するのは、この 3 つだけです。
 - **管理対象プラグイン成果物** — Amp Code と Hermes Agent。Amp のプラグインは、amp CLI を通じてアカウントのホスト型 Amp Personal Plugins リポジトリに公開されます（事前確認は `amp plugins repositories --json`）。そのため、インストールには amp CLI と `amp login` が必要です。公開されたプラグインは、Orb スレッドを含むすべての Amp セッションに適用されます。`~/.config/amp/plugins/cc-safety-net.ts` に管理対象のローカルコピーが残っているとパーソナルプラグインを覆い隠すため、インストール時に削除されます。変更後は Amp を再起動するか `plugins: reload` を実行します。Hermes Agent では、インストール時にプラグインをディスクに書き込んで `hermes plugins enable` も実行し、変更後に Hermes の再起動が必要です。
 
-設定ファイルへのインストール（Antigravity CLI、Cursor、Kimi Code）または Hermes Agent へのインストールが何かを書き込む前に、`npx` キャッシュから古い `cc-safety-net` を削除します。npm キャッシュの `_npx` ディレクトリ（`$npm_config_cache` が設定されている場合はその場所。それ以外は macOS と Linux で `~/.npm`、Windows で `%LOCALAPPDATA%\npm-cache`）の下にあり、`node_modules` が `cc-safety-net` を含むすべてのエントリを削除します。この 4 つの統合は `npx` でフックを実行するため、この処理により、新しくインストールしたフックはキャッシュ済みのバージョンではなく最新版を解決します。
+設定ファイルへのインストール（Antigravity CLI、Cursor、Kimi Code）または Hermes Agent へのインストールが何かを書き込む前に、`npx` キャッシュから古い `cc-safety-net` を削除します。npm キャッシュの `_npx` ディレクトリ（`$npm_config_cache` が設定されている場合はその場所。それ以外は macOS と Linux で `~/.npm`、Windows で `%LOCALAPPDATA%\npm-cache`）の下にあり、`node_modules` が `cc-safety-net` を含むすべてのエントリを削除します。この 4 つの連携は `npx` で hook を実行するため、この処理により、新しくインストールした hook はキャッシュ済みのバージョンではなく最新版を解決します。
 
-**Kimi Code には 2 つのインストール方式があります。** ターミナルで `install --kimi-code` を実行するか、ピッカーで Kimi Code を選択すると、単一選択プロンプトが開きます。グローバルフックを今インストールするか、代わりにネイティブ Kimi プラグインの手順を表示するかを選びます（手順は、Kimi Code 内で `/plugins install https://github.com/kenryu42/cc-safety-net` を実行し — 信頼プロンプトのデフォルトはキャンセルです — 次に `/reload` を実行するか新しいセッションを開始します）。プラグイン方式を選んでも何も書き込まれず、手順を表示するだけです。非対話セッションではプロンプトをスキップして、グローバルフックを直接インストールします。このプロンプトがプラグイン手順への唯一の経路であるため、グローバルフックが設定済みでも install 時の Kimi Code の行は選択可能なままで、`(global hook installed)` と表示されます。
+**Kimi Code には 2 つのインストール方式があります。** ターミナルで `install --kimi-code` を実行するか、ピッカーで Kimi Code を選択すると、単一選択プロンプトが開きます。グローバル hook を今インストールするか、代わりにネイティブ Kimi プラグインの手順を表示するかを選びます（手順は、Kimi Code 内で `/plugins install https://github.com/kenryu42/cc-safety-net` を実行し — 信頼プロンプトの既定はキャンセルです — 次に `/reload` を実行するか新しいセッションを開始します）。プラグイン方式を選んでも何も書き込まれず、手順を表示するだけです。非対話セッションではプロンプトをスキップして、グローバル hook を直接インストールします。このプロンプトがプラグイン手順への唯一の経路であるため、グローバル hook が設定済みでも install 時の Kimi Code の行は選択可能なままで、`(global hook installed)` と表示されます。
 
 ### ターゲットの選択
 
@@ -463,7 +463,7 @@ Space: select  Enter: confirm  u: update installed  Up/Down: move  q/Esc: cancel
 
 ## update
 
-`update` は、インストール済みのすべての統合を更新します。新しい統合をインストールすることはありません。設定していないエージェントには触れません。
+`update` は、インストール済みのすべての連携を更新します。新しい連携をインストールすることはありません。設定していないエージェントには触れません。
 
 ```bash
 npx -y cc-safety-net@latest update
@@ -471,7 +471,7 @@ npx -y cc-safety-net@latest update
 
 TTY で `update` を直接実行すると、インストールバナーを表示する前に検出を開始するため、バナーのアニメーション中にも検出が進みます。バナーの後も検出が続く場合は、`Checking installed integrations…` を表示します。`Enter` を押すとアニメーションをスキップできます。対話型の `install` セレクターで `u` を押して update を開始した場合、すでに表示したバナーを使い、2 つ目のバナーは表示しません。TTY でない場合、バナーとスピナーは表示しません。
 
-ターゲットは、各エージェントの設定ファイルと状態ファイルを読み取って検出します。現在無効な場合でも、インストール済みと検出される統合が対象です。Amp Code は `amp plugins list` の出力によって対象になります。この出力は、`codex plugin list` と同じく 30 秒のタイムアウトで取得します。コールドラン時は checkout をネットワーク経由で更新するため、デフォルトの 5 秒を超えることがあるからです。GitHub Copilot CLI は例外です。Copilot の `installed-plugins` ディレクトリに CC Safety Net プラグインの checkout がある場合だけ対象になります。無効状態と、何もインストールされていない kill-switch 状態を区別できず、update が install になることを防ぐためです。改名前の `safety-net@cc-marketplace` プラグイン ID を使うインストール — Claude Code、Codex、および GitHub Copilot CLI のプラグイン checkout `cc-marketplace/safety-net` — も検出されます。更新時に現在の ID へ移行し、レガシーコピーをベストエフォートで削除します。レガシーコピーの削除に失敗しても、ターゲットは失敗せず警告になります。
+ターゲットは、各エージェントの設定ファイルと状態ファイルを読み取って検出します。現在無効な場合でも、インストール済みと検出される連携が対象です。Amp Code は `amp plugins list` の出力によって対象になります。この出力は、`codex plugin list` と同じく 30 秒のタイムアウトで取得します。コールドラン時は checkout をネットワーク経由で更新するため、既定の 5 秒を超えることがあるからです。GitHub Copilot CLI は例外です。Copilot の `installed-plugins` ディレクトリに CC Safety Net プラグインの checkout がある場合だけ対象になります。無効状態と、何もインストールされていない kill-switch 状態を区別できず、update が install になることを防ぐためです。改名前の `safety-net@cc-marketplace` プラグイン ID を使うインストール — Claude Code、Codex、および GitHub Copilot CLI のプラグイン checkout `cc-marketplace/safety-net` — も検出されます。更新時に現在の ID へ移行し、レガシーコピーをベストエフォートで削除します。レガシーコピーの削除に失敗しても、ターゲットは失敗せず警告になります。
 
 すべてのターゲットは、1 つの `Updating <n> integration…` または `Updating <n> integrations…` スピナーの後ろで、`install` と同じ操作を並列に実行します。すべてのターゲットが完了した後、レポートを安定したカタログ順でまとめて出力します。メッセージだけが `Updated …` または `… up to date` に変わります。インストール時にエージェント自身の CLI を使うターゲット、つまり Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、Hermes Agent、OpenClaw、OpenCode、Pi では、先にベンダーバイナリを調べます。バイナリがない場合は `<Agent> not found; skipped`（例は `Codex not found; skipped`）を出力して処理を続けます。設定ファイルを使うターゲット、つまり Antigravity CLI、Cursor、Kimi Code にはバイナリが不要で、常に更新されます。Amp Code には別途の検査は不要です。`amp plugins list` がパーソナルプラグインを表示する場合にのみ検出され、その更新は amp CLI を実行して現在の成果物を公開します。Claude Code、Codex、GitHub Copilot CLI では、登録済みのマーケットプレイスをプラグイン処理の前に更新します（例は `claude plugin marketplace update cc-marketplace`）。何もしない `add` に頼らないため、古いカタログ checkout が更新を失敗させることはありません。
 
@@ -492,15 +492,15 @@ npx -y cc-safety-net uninstall
 npx -y cc-safety-net uninstall --cursor
 ```
 
-設定ファイルを使うターゲットでは、uninstall は CC Safety Net が管理するエントリだけを削除します。エントリは CC Safety Net 固有のフックコマンド文字列で照合され、ファイル内のほかのものは変更しません。
+設定ファイルを使うターゲットでは、uninstall は CC Safety Net が管理するエントリだけを削除します。エントリは CC Safety Net 固有の hook コマンド文字列で照合され、ファイル内のほかのものは変更しません。
 
 ## hook
 
-`hook` は、CC Safety Net をエージェントのランタイムフックとして実行します。エージェントのフック入力を stdin から JSON として読み取り、そのエージェントの拒否形式を出力します。通常は手動で実行しません。エージェントのプラグインまたは設定が接続します。保護の背後にあるコマンドです。
+`hook` は、CC Safety Net をエージェントのランタイム hook として実行します。エージェントの hook 入力を標準入力から JSON として読み取り、そのエージェントの拒否形式を出力します。通常は手動で実行しません。エージェントのプラグインまたは設定が接続します。保護の背後にあるコマンドです。
 
-`hook` には正確に 1 つの統合フラグが必要です。フラグがない場合、または複数ある場合は、`hook requires exactly one integration flag. Try: cc-safety-net hook --kimi-code` とコマンドヘルプを表示し、`1` で終了します。
+`hook` には正確に 1 つの連携フラグが必要です。フラグがない場合、または複数ある場合は、`hook requires exactly one integration flag. Try: cc-safety-net hook --kimi-code` とコマンドヘルプを表示し、`1` で終了します。
 
-| フラグ | エージェント | フックイベント | レガシーフラグ |
+| フラグ | エージェント | hook イベント | レガシーフラグ |
 | --- | --- | --- | --- |
 | `-ac`, `--agy-cli` | Antigravity CLI | `PreToolUse` | — |
 | `-cc`, `--coding-cli` | Coding CLI（Claude Code） | `PreToolUse` | `--claude-code`。最上位形式の `cc-safety-net -cc` と `cc-safety-net --claude-code` も含む |
@@ -510,23 +510,23 @@ npx -y cc-safety-net uninstall --cursor
 | `-ha`, `--hermes-agent` | Hermes Agent | `pre_tool_call` | — |
 | `-kc`, `--kimi-code` | Kimi Code | `PreToolUse` | — |
 
-Amp Code、Codex、OpenClaw、OpenCode、Pi には、独自の `hook` フラグがありません。Amp Code、OpenClaw、OpenCode、Pi は、プラグインまたは拡張として CC Safety Net をインプロセスで読み込みます。Codex のプラグインは、上記の共有 `hook --coding-cli` エントリポイントを呼び出します。各エージェントの接続方法については、[統合アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
+Amp Code、Codex、OpenClaw、OpenCode、Pi には、独自の `hook` フラグがありません。Amp Code、OpenClaw、OpenCode、Pi は、プラグインまたは拡張機能として CC Safety Net をインプロセスで読み込みます。Codex のプラグインは、上記の共有 `hook --coding-cli` エントリーポイントを呼び出します。各エージェントの接続方法については、[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
 
 <Note>
   `hook install` または `hook uninstall` サブコマンドはありません。インストールは最上位の [`install`](#install) と [`uninstall`](#uninstall) コマンドが処理します。
 </Note>
 
-### Antigravity CLI エントリポイント
+### Antigravity CLI エントリーポイント
 
-`install --agy-cli` は、コマンド `npx -y cc-safety-net hook --agy-cli` を `~/.gemini/config/hooks.json` に書き込みます。Antigravity は `.gemini` ディレクトリを共有します。管理対象エントリの名前は `cc-safety-net` で、30 秒のタイムアウトを持つ `PreToolUse` コマンドフックを登録します。install は、ファイルがない場合は作成し、無効な管理対象エントリがある場合は再度有効にし、それ以外は新しいエントリを追加します。uninstall は、コマンドが管理対象文字列と一致するエントリだけを削除します。
+`install --agy-cli` は、コマンド `npx -y cc-safety-net hook --agy-cli` を `~/.gemini/config/hooks.json` に書き込みます。Antigravity は `.gemini` ディレクトリを共有します。管理対象エントリの名前は `cc-safety-net` で、30 秒のタイムアウトを持つ `PreToolUse` のコマンド hook を登録します。install は、ファイルがない場合は作成し、無効な管理対象エントリがある場合は再度有効にし、それ以外は新しいエントリを追加します。uninstall は、コマンドが管理対象文字列と一致するエントリだけを削除します。
 
-実行時に、フックは Antigravity の `run_command` ツール呼び出しを読み、`conversationId` からセッション ID を取得し、`{ "decision": "deny", "reason": … }` で拒否します。
+実行時に、hook は Antigravity の `run_command` ツール呼び出しを読み、`conversationId` からセッション ID を取得し、`{ "decision": "deny", "reason": … }` で拒否します。
 
-### Cursor エントリポイント
+### Cursor エントリーポイント
 
 `install --cursor` は、コマンド `npx -y cc-safety-net hook --cursor` を `~/.cursor/hooks.json` の `hooks.preToolUse` に書き込みます。`"version": 1` のドキュメントで、30 秒のタイムアウトと `failClosed: true` を設定します。インストーラーはドキュメントのバージョンと形式を検証し、認識できないものを書き換えず、説明付きエラーで失敗します。重複する管理対象エントリは 1 つにまとめられます。
 
-実行時、hook は Cursor の `Shell` ツール呼び出しを読み取り、`conversation_id` からセッション ID を取得して、`{ "permission": "deny", … }` または `{ "permission": "allow" }` を返します。Cursor の `working_directory` フィールドは、ワークスペースのルート内に収まっているかを検査されます。宣言されているのに値がない場合、または workspace root の外を指す場合は fail-closed になります。
+実行時、hook は Cursor の `Shell` ツール呼び出しを読み取り、`conversation_id` からセッション ID を取得して、`{ "permission": "deny", … }` または `{ "permission": "allow" }` を返します。Cursor の `working_directory` フィールドは、ワークスペースのルート内に収まっているかを検査されます。宣言されているのに値がない場合、またはワークスペースのルートの外を指す場合は fail closed になります。
 
 ## gui
 
@@ -587,4 +587,4 @@ npx cc-safety-net explain --help
 npx cc-safety-net help doctor
 ```
 
-認識しないコマンドは `Unknown command: <name>` を出力します。`-` で始まる場合は `Unknown option: <name>` を出力します。その後に `Run 'cc-safety-net --help' for usage.` を出力し、`1` で終了します。不明なコマンドに対する `help <name>` は、代わりに `Unknown command: <name>` と `Run 'cc-safety-net --help' for available commands.` を出力します。表示するヘルプテキストを含め、これらの失敗パスのメッセージはすべて stderr に出力されます。
+認識しないコマンドは `Unknown command: <name>` を出力します。`-` で始まる場合は `Unknown option: <name>` を出力します。その後に `Run 'cc-safety-net --help' for usage.` を出力し、`1` で終了します。不明なコマンドに対する `help <name>` は、代わりに `Unknown command: <name>` と `Run 'cc-safety-net --help' for available commands.` を出力します。表示するヘルプテキストを含め、これらの失敗パスのメッセージはすべて標準エラー出力へ書き出されます。

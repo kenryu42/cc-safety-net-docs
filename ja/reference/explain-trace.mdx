@@ -36,13 +36,13 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 | `segment` | `string` | ブロック時のみ | 判定を発生させた特定のセグメント |
 | `ruleId` | `string` | 一致したルールによるブロック時 | ブロックを発生させたルールの ID |
 | `trace` | `ExplainTrace` | 常にある | 最上位およびセグメントごとの手順を持つトレースコンテナー |
-| `customRule` | `object` | カスタムルールまたはルールブックルールが一致した場合 | `id` と、任意の `rulebook`（`name`、`version`）、`source`、`override`（`{ type: "reason", reason }`） |
+| `customRule` | `object` | カスタムルールまたは rulebook のルールが一致した場合 | `id` と、任意の `rulebook`（`name`、`version`）、`source`、`override`（`{ type: "reason", reason }`） |
 | `configSource` | `string \| null` | 常にある | 有効な設定を読み込んだ設定ファイル |
 | `configValid` | `boolean` | 常にある | 読み込んだ設定が問題なく検証されたか |
-| `effectiveLevel` | `"standard" \| "strict" \| "paranoid" \| "custom"` | 常にある | 環境変数フラグとオーバーライドを適用した、実際に有効なレベル |
-| `selectedPreset` | `"standard" \| "strict" \| "paranoid"` | 常にある | ポリシーで指定したプリセット。既定値は `standard` |
+| `effectiveLevel` | `"standard" \| "strict" \| "paranoid" \| "custom"` | 常にある | 環境変数フラグと override を適用した、実際に有効なレベル |
+| `selectedPreset` | `"standard" \| "strict" \| "paranoid"` | 常にある | ポリシーで指定した preset。既定値は `standard` |
 | `effectiveCapabilities` | `object` | 常にある | 機能ごとの状態。下記を参照 |
-| `destructiveCommandRuleOverrides` | `Record<string, "on" \| "off">` | 常にある。`{}` の場合がある | ポリシーに保存されたルールごとのオーバーライド |
+| `destructiveCommandRuleOverrides` | `Record<string, "on" \| "off">` | 常にある。`{}` の場合がある | ポリシーに保存されたルールごとの override |
 | `ruleActivation` | `object` | 条件付き。下記を参照 | 関連するルールが有効・無効のどちらになったか、その経緯 |
 
 4 つの設定フィールド `effectiveLevel`、`selectedPreset`、`effectiveCapabilities`、`destructiveCommandRuleOverrides` は一度だけ作成され、すべての返却パスに含まれます。そのため、空のコマンドを explain する場合でも存在します。
@@ -71,7 +71,7 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 | `changesInherited` | `boolean` | 有効な状態が継承した状態と異なるか |
 | `source` | `string` | 状態を決めたもの。`catastrophic`、`master_disabled`、`rule_override`、`preset`、`capability_override`、`environment`、`built_in_default` のいずれか |
 | `activationCapability` | `string` | 任意。ルールを制御する機能 |
-| `override` | `"on" \| "off"` | 任意。保存済みのルールごとのオーバーライド（存在する場合） |
+| `override` | `"on" \| "off"` | 任意。保存済みのルールごとの override（存在する場合） |
 
 人向けの出力では、`Rule activation: <id> — on|off via <source>` という 1 行で表示されます。
 
@@ -93,12 +93,12 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 | `type` | 主なフィールド | 出現する場合 |
 | --- | --- | --- |
 | `parse` | `input`, `segments` | 最初のシェル分割で、入力をトークンセグメントに分けた場合 |
-| `env-strip` | `input`, `envVars`, `output` | セグメントの先頭から環境変数代入を削除した場合。`envVars` は代入された**名前**だけの配列で、値は含まない。代入トークン自体は `input` に残るが、値は編集済み |
+| `env-strip` | `input`, `envVars`, `output` | セグメントの先頭から環境変数代入を削除した場合。`envVars` は代入された**名前**だけの配列で、値は含まない。代入トークン自体は `input` に残るが、値はマスク済み |
 | `leading-tokens-stripped` | `input`, `removed`, `output` | 解析前に先頭トークン（`env`、`command` など）を削除した場合 |
 | `shell-wrapper` | `wrapper`, `innerCommand` | `bash -c` などのシェルラッパーを展開した場合 |
 | `interpreter` | `interpreter`, `codeArg`, `paranoidBlocked` | インタープリターの 1 行コードを調べた場合。`paranoidBlocked` は paranoid モードによる即時拒否を示す |
 | `busybox` | `subcommand` | busybox 形式のディスパッチをサブコマンドに解決した場合 |
-| `transparent-wrapper` | `wrapper`, `output` | 登録済みの透過ラッパーを通して内部を確認した場合。下記を参照 |
+| `transparent-wrapper` | `wrapper`, `output` | 登録済みの transparent wrapper を通して内部を確認した場合。下記を参照 |
 | `recurse` | `reason`, `innerCommand`, `depth` | 再帰的な再解析を開始した場合 |
 | `rule-check` | `rule`, `matched`, `reason?` | 組み込みルールモジュールを評価した場合。`rule` は `<module>:<function>` 形式の 1 つの文字列で、たとえば `git:analyzeGitMatch`。人向けの出力では `Rule:   <value>()` と表示される |
 | `worktree-relaxation` | `originalReason`, `gitCwd` | 対象が linked worktree だと確認できたため、Git の破棄コマンドを緩和した場合 |
@@ -141,18 +141,18 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 <Warning>
   **explain トレースは、そのまま安全に共有できるものではありません。** `parse` 手順は、入力した生のコマンド文字列と、解析された各トークンを記録します。ほかの多くの手順にも生のテキストがあります。`fallback-scan.tokensScanned`、`dangerous-text.token`、`shell-wrapper.innerCommand`、`interpreter.codeArg`、`recurse.innerCommand`、`strict-unparseable.rawCommand`、`transparent-wrapper.output`、`worktree-relaxation.gitCwd`、`cwd-change.segment` が該当します。`configSource` は絶対パスであり、通常はホームディレクトリ内にあります。
 
-  編集処理が削除するのは、認識された資格情報の**形式**だけです。これは[監査ログ](/ja/reference/audit-log#シークレットのマスク)と同じ、範囲が限定されたパターンリストです。ファイルパス、ホスト名、IP アドレス、ユーザー名、プロジェクト名、クライアント名、リストにない形式のシークレットについては何も保証しません。認識できないものは編集できません。
+  マスク処理が削除するのは、認識された資格情報の**形式**だけです。これは[監査ログ](/ja/reference/audit-log#シークレットのマスク)と同じ、範囲が限定されたパターンリストです。ファイルパス、ホスト名、IP アドレス、ユーザー名、プロジェクト名、クライアント名、リストにない形式のシークレットについては何も保証しません。認識できないものはマスクできません。
 
   トレースを共有する前に、**プレースホルダーの資格情報とパス**を使って問題を再現してください。その後、**出力を最初から最後まで読み**、公開したくないものを削除してください。
 </Warning>
 
 たとえば `--token=…` の代入を含むコマンドを explain すると、そのトークンはマスクされます。しかし同じコマンド内の `/srv/acme-prod/customer-dump.sql` のようなパスは、ホスト名、IP アドレス、アカウント名などとともに、そのままの形で返されます。
 
-脆弱性レポートに `explain` 出力を含めることができます。編集はベストエフォートの制御であり、保証ではありません。編集のバイパスは報告可能な脆弱性です。貼り付ける前に完全な出力を確認してください。
+脆弱性レポートに `explain` 出力を含めることができます。マスク処理はベストエフォートの制御であり、保証ではありません。マスク処理のバイパスは報告可能な脆弱性です。貼り付ける前に完全な出力を確認してください。
 
 ## 関連ページ
 
 - [CLI コマンド](/ja/reference/cli-commands#explain) — `explain` のフラグ、例、終了動作。
-- [監査ログ](/ja/reference/audit-log#シークレットのマスク) — 編集パターンのリストと、ログレコードに適用される同じ境界。
+- [監査ログ](/ja/reference/audit-log#シークレットのマスク) — マスクのパターンリストと、ログレコードに適用される同じ境界。
 - [解析エンジン](/ja/guides/analysis-engine) — 各トレース手順に対応する動作。
 - [トラブルシューティング](/ja/guides/troubleshooting) — 予期しないブロックの診断に `explain` を使う方法。

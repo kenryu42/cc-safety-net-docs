@@ -55,13 +55,13 @@ CC Safety Net は、意味に基づくコマンド解析を使って、許可さ
 その上で、レベルに応じた次の 2 つの調整が適用されます。
 
 - 動的な対象（`rm -rf "$target"`、バッククォート、コマンド置換）は standard では許可され、fail closed の機能が有効になるとブロックされます。standard は、敵対的な入力や動的に生成されたコマンド文字列に対してはベストエフォートです。
-- `CC_SAFETY_NET_PARANOID_RM=1` を設定すると、一時パス以外への再帰的な強制削除は、カレントディレクトリ配下であってもブロックされます。そのため `rm -rf ./cache` は許可されなくなります。一時パスの対象と、設定済みの許可パスは引き続き許可されます。
+- `CC_SAFETY_NET_PARANOID_RM=1` を設定すると、一時パス以外への再帰的な強制削除は、カレントディレクトリ配下であってもブロックされます。そのため `rm -rf ./cache` は許可されなくなります。一時パスの対象と、設定済みの allow path は引き続き許可されます。
 
-### 設定済みの許可パス
+### 設定済みの allow path
 
 `destructive_command_protection.allow_paths` に記載した絶対ディレクトリまたは `~/` で始まるディレクトリは、信頼された一時ルートとして扱われます。これは**すべて**の安全レベルで、`rm`、PowerShell の `Remove-Item`、`find -delete` に適用されます。
 
-許可パスが他の範囲を広げることはありません。機密パス保護や拒否パスを緩和しません。ルート、ホーム、保護対象の Git メタデータを対象にはできません。リポジトリを含む許可パスでも、そのリポジトリの `.git` に対する `rm -rf` はブロックされます。動的ターゲットが最初に分類されるため、検証できないターゲットには許可パスが適用されません。`$HOME` と等しい、またはそれを含むエントリは、検証時と正規化後の両方で拒否されます。許可パスから外へ出るシンボリックリンクは対象外です。
+allow path が他の範囲を広げることはありません。機密パス保護や deny path を緩和しません。ルート、ホーム、保護対象の Git メタデータを対象にはできません。リポジトリを含む allow path でも、そのリポジトリの `.git` に対する `rm -rf` はブロックされます。動的な対象が最初に分類されるため、検証できない対象には allow path が適用されません。`$HOME` と等しい、またはそれを含むエントリは、検証時と正規化後の両方で拒否されます。allow path から外へ出るシンボリックリンクは対象外です。
 
 ## heredoc をデータとして受け取るコマンド
 
@@ -84,14 +84,14 @@ CC Safety Net は、意味に基づくコマンド解析を使って、許可さ
 | コマンドパターン | standard が許可する理由 |
 | --- | --- |
 | `echo 'unterminated` | 解析はできないが安全に見えるテキストで、フォールバックのヒューリスティックなスキャンでも破壊的な要素が見つからない。同じスキャンにより、`git reset --hard 'unterminated` は standard でもブロックされる |
-| `rm -rf "$target"` | 実行前に検証できない再帰削除ターゲット |
-| `Remove-Item $target -Recurse -Force` | 同じ検証不能なターゲットを使う PowerShell の同等形式 |
+| `rm -rf "$target"` | 実行前に検証できない再帰削除の対象 |
+| `Remove-Item $target -Recurse -Force` | 同じ検証できない対象を使う PowerShell の同等形式 |
 | `Get-ChildItem . -Recurse \| Remove-Item -Force` | 検証できない PowerShell パイプライン入力 |
 | `$(printf r)m -rf /`、`c=rm; "$c" -rf dir`、`$CMD --version` | 動的な実行ファイル。先頭のコマンドが置換または変数に由来する |
 | `git reset $(printf --hard)`、`rm $(printf -- '-rf') dir` | 動的な構造。置換によって引数が組み立てられる |
 | `test -f ~/.ssh/id_rsa`、`find ~/.ssh -type f`、`ls -la ~/.ssh`、`stat .env` | 内容にアクセスせず、組み込み機密パスのメタデータのみを検出する |
 | `W='rm -rf ~'; echo "$W"` | 正しく解析された引用符付きリテラル代入内の危険なテキスト。変数が引用符付き引数データとしてのみ使われる場合、使用時までブロックを保留する |
-| `f() { rm -rf "$1"; }; f ~` | 呼び出された関数本体では位置パラメーターが未束縛のままであるため、ターゲットが動的になる。`rm -rf "$target"` と同じトレードオフ |
+| `f() { rm -rf "$1"; }; f ~` | 呼び出された関数本体では位置パラメーターが未束縛のままであるため、対象が動的になる。`rm -rf "$target"` と同じトレードオフ |
 | `eval "$(ssh-agent -s)"`、`source <(kubectl completion bash)` | 完全にリテラルなローカルの生成コマンド 1 つ。*形*は検証できるが、その出力は検証できない |
 
 引用符付きの代入に対する判定の先送りは、適用範囲が狭く限定されています。代入自体は何も実行せず、引用符付きの展開は 1 つの argv の語のままなので、コマンドとフラグに分割されないためです。データとしての利用だとアナライザーが確認できない参照については、代入の時点でのブロックが維持されます。引用符なしの展開（`env $W`）、コマンド位置でのあらゆる展開（引用符付きを含む）、コマンド置換の中での参照、引用符なしの heredoc 本文での参照が該当します。値をシェルに渡す操作は、その後の段階で検出されます。`eval "$W"`、`bash -c "$W"`、`echo "$W" | sh` は、いずれもシェルの実行元を検証できないため拒否されます。
@@ -115,10 +115,10 @@ CC Safety Net は、意味に基づくコマンド解析を使って、許可さ
 | コマンドパターン | 安全な理由 |
 | --- | --- |
 | `dd if=/dev/sda of=./backup.img` | デバイスからファイルへ読み取る。ブロックされるのは、デバイスへ直接書き込む `of=/dev/...` のみ |
-| `dd if=x.iso of=./out.img`、`dd if=/dev/urandom of=random.dat` | 出力ターゲットが通常のファイル |
+| `dd if=x.iso of=./out.img`、`dd if=/dev/urandom of=random.dat` | 出力先が通常のファイル |
 | `mkfs.ext4 disk.img`、`mkfs.ext4 ./loop.img` | `/dev/` デバイスではなく、ファイルベースのイメージをフォーマットする |
-| オペランドがない `shred` | `shred` ルールには少なくとも 1 つのターゲットが必要。`shred --help` と `shred --version` は、すべてのオペランドが対象になるため**ブロックされる** |
-| `ldd ./bin`、`ddrescue if=/dev/sda of=./out.img` | ワード境界で一致する。`dd` または `shred` を部分文字列として含むだけのヘッドは、ルールのヘッドではない |
+| オペランドがない `shred` | `shred` ルールには少なくとも 1 つの対象が必要。`shred --help` と `shred --version` は、すべてのオペランドが対象になるため**ブロックされる** |
+| `ldd ./bin`、`ddrescue if=/dev/sda of=./out.img` | ワード境界で一致する。`dd` または `shred` を部分文字列として含むだけの先頭コマンドは、ルールが対象とする先頭コマンドではない |
 
 ## PowerShell コマンド
 
@@ -127,8 +127,8 @@ CC Safety Net は、意味に基づくコマンド解析を使って、許可さ
 | `Remove-Item . -Recurse -Force -WhatIf` | `-WhatIf` はドライランなので、何も削除しない。`-WhatIf:$true` と省略形 `-wi` も同じ動作をする。`-WhatIf:$false` は再びブロックされる |
 | `Remove-Item file.txt` | 再帰的でも強制でもない単純な削除は、破壊的ルールセットの対象外 |
 | `Remove-Item .\dist -Recurse -Force`、`-Path .\dist`、`-LiteralPath:.\dist`、`.\{dist}`、`'.\dist,old'` | カレントディレクトリ配下（paranoid rm ではブロックされる） |
-| `Remove-Item /tmp/test-dir -Recurse -Force` | `rm` と同じ分類の一時ターゲット。設定済みの許可パスも同様に動作する |
-| `Remove-Item 'file''name.txt'` とバッククォートでエスケープした形式 | 破壊的なターゲットに解決されない、引用またはエスケープされた単純削除 |
+| `Remove-Item /tmp/test-dir -Recurse -Force` | `rm` と同じ分類の一時ディレクトリの対象。設定済みの allow path も同様に動作する |
+| `Remove-Item 'file''name.txt'` とバッククォートでエスケープした形式 | 破壊的な対象に解決されない、引用またはエスケープされた単純削除 |
 | `Remove-Item $target -Recurse -Force` | 動的な対象。**standard のみ**で、strict と paranoid ではブロックされる |
 | `Get-ChildItem . -Recurse \| Remove-Item -Force` | パイプラインからの入力は検証できない。**standard のみ** |
 

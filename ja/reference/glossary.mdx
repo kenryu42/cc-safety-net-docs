@@ -8,14 +8,14 @@ keywords:
   - "用語"
   - "用語体系"
   - "ポリシー"
-  - "プリセット"
+  - "preset"
   - "機能"
   - "degraded"
   - "判定"
-  - "ルールブック"
-  - "透過ラッパー"
-  - "統合モデル"
-  - "fail-closed"
+  - "rulebook"
+  - "transparent wrapper"
+  - "連携方式"
+  - "fail closed"
   - "セグメント"
 ---
 
@@ -27,30 +27,30 @@ keywords:
 
 | 用語 | 定義 |
 | --- | --- |
-| **PreToolUse フック** | ツールの実行前に動作するフック。CC Safety Net は各エージェントの `PreToolUse` または同等のイベントを使い、実行前にシェルコマンドを検査します。[仕組み](/ja/guides/how-it-works)を参照してください。 |
-| **Fail-closed** | ガードが信頼できる判定に到達できない場合、その 1 つのツール呼び出しを許可せず**拒否**する動作。予期しない解析エラー、不正または大きすぎるフック入力、空のコマンド、パーサー上限、strict モードで解析できないコマンドが該当します。無効な設定は fail-closed ではなく、degraded になります。[設計原則](/ja/guides/design-principles)と[セキュリティモデル](/ja/guides/security-model)を参照してください。 |
+| **PreToolUse hook** | ツールの実行前に動作する hook。CC Safety Net は各エージェントの `PreToolUse` または同等のイベントを使い、実行前にシェルコマンドを検査します。[仕組み](/ja/guides/how-it-works)を参照してください。 |
+| **fail closed** | ガードが信頼できる判定に到達できない場合、その 1 つのツール呼び出しを許可せず**拒否**する動作。予期しない解析エラー、不正または大きすぎる hook 入力、空のコマンド、パーサー上限、strict モードで解析できないコマンドが該当します。無効な設定は fail closed ではなく、degraded になります。[設計原則](/ja/guides/design-principles)と[セキュリティモデル](/ja/guides/security-model)を参照してください。 |
 | **判定** | 1 つのツール呼び出しに対するガードの許可または拒否の結果。監査ログがコマンド判定を記録するとき、ルール ID、有効な安全レベル、degraded ランタイムのフォールバック状態を含む 1 つの監査レコードを書き込みます。[監査ログ](/ja/reference/audit-log)を参照してください。 |
 | **セグメント** | 複合コマンドをシェル演算子（`&&`、`\|\|`、`\|`、`;`、改行）で分割した 1 つのコマンド。エンジンはセグメントを順に解析し、有効な作業ディレクトリなどの関連状態をセグメント間で引き継ぎます。1 つのセグメントがブロックされると、コマンド全体が拒否されます。[解析エンジン](/ja/guides/analysis-engine)を参照してください。 |
-| **解析エンジン** | コマンド文字列を解析し、ブロックするかを決めるプラットフォーム非依存のコア。すべてのエージェント統合が同じエンジンに入力を渡します。[解析エンジン](/ja/guides/analysis-engine)を参照してください。 |
-| **統合モデル** | CC Safety Net がコーディングエージェント内で動作する方法。標準入力フックのサブプロセス、エージェントが読み込むプラグイン、インプロセス拡張、イベントプラグインのいずれかです。統合モデルによって、エージェントが CC Safety Net を呼び出す方法が変わります。すべての統合が同じ解析エンジンを使います。[統合アーキテクチャ](/ja/guides/integration-architecture)を参照してください。 |
+| **解析エンジン** | コマンド文字列を解析し、ブロックするかを決めるプラットフォーム非依存のコア。すべてのエージェント連携が同じエンジンに入力を渡します。[解析エンジン](/ja/guides/analysis-engine)を参照してください。 |
+| **連携方式** | CC Safety Net がコーディングエージェント内で動作する方法。標準入力の hook subprocess、エージェントが読み込むプラグイン、プロセス内の拡張機能、イベントプラグインのいずれかです。連携方式によって、エージェントが CC Safety Net を呼び出す方法が変わります。どの連携も同じ解析エンジンを使います。[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。 |
 
 ## 設定
 
 | 用語 | 定義 |
 | --- | --- |
-| **ポリシー** | 設定ドキュメント `policy.json`。既定では `~/.cc-safety-net/policy.json`。安全プリセット、機能オーバーライド、worktree モード、破壊的コマンド保護、シークレット保護、監査保持を格納します。カスタムルールを格納する場所ではありません。[ポリシー](/ja/configuration/policy)を参照してください。 |
-| **ポリシースナップショット** | 各ツール呼び出しで、ポリシーファイル、`rule.json`、ロックファイル、ダイジェスト検証済みのルールブックキャッシュから構成される有効なランタイムポリシー。読み込み時に書き込み、ネットワーク要求、キャッシュを実行しません。状態は `ready` または `degraded` の正確に 2 つです。[設定の回復](/ja/configuration/recovery)を参照してください。 |
-| **プリセット** | 継承する機能の既定値を提供する `safety.level` の値。`standard`、`strict`、`paranoid` のいずれかです。オーバーライドによってどのプリセットにも一致しない組み合わせになると、報告される有効レベルは `custom` です。[モード](/ja/configuration/modes)を参照してください。 |
-| **機能** | プリセットから継承され、個別に設定できる保護動作。`fail_closed`、`paranoid_rm`、`paranoid_interpreters` のいずれかです。ポリシーファイルの `safety.overrides` は機能を上げ下げします。レガシーの環境変数フラグは上げることしかできません。[モード](/ja/configuration/modes)を参照してください。 |
-| **Degraded** | 設定ソースが拒否されたときのポリシースナップショット状態。検証できないソースは削除されるか、保護的な既定値へフォールバックします。通常の作業は継続し、すべての診断表示で状態が報告されます。もう 1 つの状態は `ready` です。[設定の回復](/ja/configuration/recovery)を参照してください。 |
+| **ポリシー** | 設定ドキュメント `policy.json`。既定では `~/.cc-safety-net/policy.json`。安全 preset、機能 override、worktree モード、破壊的コマンド保護、シークレット保護、監査保持を格納します。カスタムルールを格納する場所ではありません。[ポリシー](/ja/configuration/policy)を参照してください。 |
+| **ポリシースナップショット** | 各ツール呼び出しで、ポリシーファイル、`rule.json`、ロックファイル、ダイジェスト検証済みの rulebook キャッシュから構成される有効なランタイムポリシー。読み込み時に書き込み、ネットワーク要求、キャッシュを実行しません。状態は `ready` または `degraded` の正確に 2 つです。[設定の復旧](/ja/configuration/recovery)を参照してください。 |
+| **preset** | 継承する機能の既定値を提供する `safety.level` の値。`standard`、`strict`、`paranoid` のいずれかです。override によってどの preset にも一致しない組み合わせになると、報告される有効レベルは `custom` です。[モード](/ja/configuration/modes)を参照してください。 |
+| **機能** | preset から継承され、個別に設定できる保護動作。`fail_closed`、`paranoid_rm`、`paranoid_interpreters` のいずれかです。ポリシーファイルの `safety.overrides` は機能を上げ下げします。レガシーの環境変数フラグは上げることしかできません。[モード](/ja/configuration/modes)を参照してください。 |
+| **Degraded** | 設定ソースが拒否されたときのポリシースナップショット状態。検証できないソースは削除されるか、保護的な既定値へフォールバックします。通常の作業は継続し、すべての診断表示で状態が報告されます。もう 1 つの状態は `ready` です。[設定の復旧](/ja/configuration/recovery)を参照してください。 |
 
 ## シェルコマンドの形式
 
 | 用語 | 定義 |
 | --- | --- |
-| **シェルラッパー** | `bash -c 'git reset --hard'` など、別のコマンドをラップするシェルコマンド。CC Safety Net は、ラップされたコマンドを最大 10 レベルまで再帰的に解析します。[ブロックされるコマンド](/ja/reference/blocked-commands#shell-wrappers-and-interpreter-one-liners)を参照してください。 |
-| **インタープリターのワンライナー** | `python -c 'import os; os.system("rm -rf /")'` のように、コードをインラインで実行するコマンド。既定で危険なパターンを検出して解析します。[ブロックされるコマンド](/ja/reference/blocked-commands#shell-wrappers-and-interpreter-one-liners)を参照してください。 |
-| **動的置換** | `$(...)`、`<(...)`、`$VAR` など、実行時の展開に依存するコマンド値または構造。CC Safety Net は、コマンドの種類と安全レベルに従って動的置換を処理します。一部の形式は standard で許可され、fail-closed 動作が有効な場合にブロックされます。[解析エンジン](/ja/guides/analysis-engine)を参照してください。 |
+| **シェルラッパー** | `bash -c 'git reset --hard'` など、別のコマンドをラップするシェルコマンド。CC Safety Net は、ラップされたコマンドを最大 10 階層まで再帰的に解析します。[ブロックされるコマンド](/ja/reference/blocked-commands#shell-wrappers-and-interpreter-one-liners)を参照してください。 |
+| **インタープリターの 1 行コード** | `python -c 'import os; os.system("rm -rf /")'` のように、コードをインラインで実行するコマンド。既定で危険なパターンを検出して解析します。[ブロックされるコマンド](/ja/reference/blocked-commands#shell-wrappers-and-interpreter-one-liners)を参照してください。 |
+| **動的置換** | `$(...)`、`<(...)`、`$VAR` など、実行時の展開に依存するコマンド値または構造。CC Safety Net は、コマンドの種類と安全レベルに従って動的置換を処理します。一部の形式は standard で許可され、fail closed 動作が有効な場合にブロックされます。[解析エンジン](/ja/guides/analysis-engine)を参照してください。 |
 
 ## 再帰削除とパス
 
@@ -64,8 +64,8 @@ keywords:
 
 | 用語 | 定義 |
 | --- | --- |
-| **strict モード** | `fail_closed` 機能を有効にする `strict` プリセット。安全に解析できないコマンドを拒否します。ポリシーファイルの `safety.level` を設定するか、`CC_SAFETY_NET_STRICT=1` でレベルを上げます。[モード](/ja/configuration/modes)を参照してください。 |
-| **paranoid モード** | strict に加えて `paranoid_rm` と `paranoid_interpreters` 機能を有効にする `paranoid` プリセット。ポリシーファイルの `safety.level` を設定するか、`CC_SAFETY_NET_PARANOID`、`CC_SAFETY_NET_PARANOID_RM`、`CC_SAFETY_NET_PARANOID_INTERPRETERS` で個別の機能を上げます。[モード](/ja/configuration/modes)を参照してください。 |
+| **strict モード** | `fail_closed` 機能を有効にする `strict` preset。安全に解析できないコマンドを拒否します。ポリシーファイルの `safety.level` を設定するか、`CC_SAFETY_NET_STRICT=1` でレベルを上げます。[モード](/ja/configuration/modes)を参照してください。 |
+| **paranoid モード** | strict に加えて `paranoid_rm` と `paranoid_interpreters` 機能を有効にする `paranoid` preset。ポリシーファイルの `safety.level` を設定するか、`CC_SAFETY_NET_PARANOID`、`CC_SAFETY_NET_PARANOID_RM`、`CC_SAFETY_NET_PARANOID_INTERPRETERS` で個別の機能を上げます。[モード](/ja/configuration/modes)を参照してください。 |
 | **worktree の緩和** | ポリシーファイルの `workflow.worktree_mode` または `CC_SAFETY_NET_WORKTREE=1` によって worktree モードを有効にすると、確認済みのリンクされた Git worktree 内で、選択されたローカル Git 破棄コマンドが許可されます。CC Safety Net が worktree を確認できない場合は、緩和を適用しません。[モード](/ja/configuration/modes#worktree-mode)を参照してください。 |
 
 ## ルール
@@ -73,8 +73,8 @@ keywords:
 | 用語 | 定義 |
 | --- | --- |
 | **rulebook** | カスタムのブロックルール、メタデータ、任意のフィクスチャを収めた JSON ファイル。`rule.json` で参照先として設定し、SHA-256 ダイジェストでロックファイルに固定したうえで、検証済みのキャッシュから適用されます。rulebook の名前は、ユーザースコープとプロジェクトスコープをまたいで一意に確保されます。[カスタムルール](/ja/configuration/custom-rules)を参照してください。 |
-| **透過ラッパー** | `rule.json` の `transparent_wrappers` で宣言するコマンド。解析はラッパーを通して、ラッパーが実行する保護対象コマンドに到達します。ラッパーはルールブックではなく `rule.json` にあります。そのため、ルールブックが削除されてもラッパーは残りますが、`rule.json` を読み取れないと、その範囲のラッパーは失われます。[カスタムルール](/ja/configuration/custom-rules)を参照してください。 |
-| **ロックファイル** | ルールブックソースのダイジェストとキャッシュ済み内容を追跡する JSON ファイル（`rule.lock`）。古いルールブックまたは改ざんされたルールブックの検出に使います。[カスタムルール](/ja/configuration/custom-rules)を参照してください。 |
+| **transparent wrapper** | `rule.json` の `transparent_wrappers` で宣言するコマンド。解析はラッパーを通して、ラッパーが実行する保護対象コマンドに到達します。ラッパーは rulebook ではなく `rule.json` にあります。そのため、rulebook が削除されてもラッパーは残りますが、`rule.json` を読み取れないと、そのスコープのラッパーは失われます。[カスタムルール](/ja/configuration/custom-rules)を参照してください。 |
+| **ロックファイル** | rulebook ソースのダイジェストとキャッシュ済み内容を追跡する JSON ファイル（`rule.lock`）。古い rulebook や改ざんされた rulebook の検出に使います。[カスタムルール](/ja/configuration/custom-rules)を参照してください。 |
 
 <Note>
   rulebook、ルール、フィクスチャ、ロックファイルの正式なスキーマについては、[カスタムルール](/ja/configuration/custom-rules)を参照してください。`policy.json` のスキーマについては、[ポリシー](/ja/configuration/policy)を参照してください。`explain --json` が返す JSON 形式については、[explain トレース](/ja/reference/explain-trace)を参照してください。
