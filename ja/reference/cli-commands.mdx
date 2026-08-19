@@ -230,11 +230,21 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 npx cc-safety-net explain --cwd /tmp "git status"
 ```
 
-オプションの解析に成功した後、`explain` はブロックと許可のどちらの結果でも `0` で終了します。終了コードではなく `result` フィールドを読んでください。失敗するのはオプション検証だけです。
+オプションの解析に成功した後、`explain` はブロックと許可のどちらの結果でも `0` で終了します。終了コードではなく `result` フィールドを読んでください。`1` で終了するのは次の 2 つの場合です。1 つはオプションの検証です。
 
 - 不明なオプションは `Unknown option for explain: <arg>` を出力します。値がない `--cwd` は `--cwd requires a value` を出力します。どちらの解析エラーにも `Usage: cc-safety-net explain [--json] [--cwd <path>] <command>` と `Pass -- before a command that starts with dashes.` が続き、`1` で終了します。
 - 存在しない `--cwd` パスは `Error: --cwd path does not exist: <path>` を出力し、`1` で終了します。
 - 空のコマンドは `Error: No command provided` と使用方法の行を出力し、`1` で終了します。
+
+もう 1 つは解析の上限です。構造的なコマンド解析の上限、パス正規化の上限、ツール入力の走査上限のいずれかを使い切ったコマンドは、スタックトレースではなく 1 行のエラーメッセージを出力して `1` で終了します。`--json` では標準出力全体が 1 つのエラーオブジェクトになり、それ以外の場合はメッセージを標準エラー出力に書き出します。
+
+```bash
+npx cc-safety-net explain --json 'loop() { loop; }; loop'
+```
+
+```json
+{"error":"Structural command analysis limit exceeded."}
+```
 
 最上位パーサーも同じ方法で `--` を処理します。最初の `--` で `--help` と `--version` の検索を停止します。そのため、`explain -- --help` はヘルプを出力せず、リテラルコマンド `--help` を explain します。
 

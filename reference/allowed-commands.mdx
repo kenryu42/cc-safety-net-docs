@@ -35,6 +35,8 @@ This page is the allowed-command reference. For blocked forms, see [Blocked comm
 | `git restore --help` / `--version` | Help/version output only |
 | `git branch -d` | Safe delete with merge check |
 | `git clean -n` / `--dry-run` | Preview only, no files deleted |
+| `git rm <files>` | Not forced, so git's own safety check limits the removal to content recoverable from `HEAD` |
+| `git rm --cached`, `git rm --dry-run` / `-n` | Unstages or previews only — the working-tree files stay. `git rm -r --cached .` is a safe unstage |
 | `git push --force-with-lease` | Checks the expected remote state before it rewrites history |
 
 ## Filesystem commands
@@ -85,13 +87,22 @@ These shapes are permitted in standard and denied once [strict](/configuration/m
 | `rm -rf "$target"` | Recursive-delete target that cannot be verified before execution |
 | `Remove-Item $target -Recurse -Force` | PowerShell equivalent of the same unverifiable target |
 | `Get-ChildItem . -Recurse \| Remove-Item -Force` | Unverifiable PowerShell pipeline input |
-| `$(printf r)m -rf /` | Dynamic executable — the command head is assembled through substitution |
-| `git reset $(printf --hard)` | Dynamic structure — the arguments are assembled through substitution |
-| `test -f ~/.ssh/id_rsa`, `find ~/.ssh -type f` | Metadata-only discovery of a built-in sensitive path, with no content access |
+| `$(printf r)m -rf /`, `c=rm; "$c" -rf dir`, `$CMD --version` | Dynamic executable — the command head comes from a substitution or a variable |
+| `git reset $(printf --hard)`, `rm $(printf -- '-rf') dir` | Dynamic structure — the arguments are assembled through substitution |
+| `test -f ~/.ssh/id_rsa`, `find ~/.ssh -type f`, `ls -la ~/.ssh`, `stat .env` | Metadata-only discovery of a built-in sensitive path, with no content access |
 | `W='rm -rf ~'; echo "$W"` | Dangerous text inside a cleanly parsed quoted-literal assignment — the block defers to use time when the variable is only ever used as quoted argument data |
 | `f() { rm -rf "$1"; }; f ~` | Positional parameters stay unbound inside a called function body, so the target is dynamic — the same trade-off as `rm -rf "$target"` |
+| `eval "$(ssh-agent -s)"`, `source <(kubectl completion bash)` | A single fully literal local generator command — its *shape* is verifiable, though its output is not |
 
 The quoted-assignment deferral is narrow. The assignment itself executes nothing, and a quoted expansion stays one argv word, so it cannot split into a command plus flags. Any reference the analyzer cannot prove is such a data use keeps the assignment-time block: an unquoted expansion (`env $W`), any expansion in command position (even quoted), a reference inside a command substitution, or a reference in an unquoted heredoc body. Handing the value to a shell is caught downstream instead: `eval "$W"`, `bash -c "$W"`, and `echo "$W" | sh` all deny because the shell execution source cannot be verified.
+
+The generator allowance checks the shape of the command, not who wrote it — there is no list of trusted generators. `eval "$(CMD)"` and `source <(CMD)` / `. <(CMD)` are admitted only when `CMD` is:
+
+- one simple command, with no redirection and no nested command;
+- made of literal words only, with no leading environment assignment; and
+- headed by a basename that is not a remote fetcher (`curl`, `wget`, `fetch`, `aria2c`, `http`, `https`, `xh`, `xhs`, `nc`, `ncat`, `netcat`), not a shell, and not a standard command wrapper such as `sudo` or `env`.
+
+`CMD` itself is still analyzed, so `eval "$(rm -rf /)"` blocks. What is *not* checked is the shell `CMD` prints: standard extends trust to the output of every literal local command, including `eval "$(cat somefile)"`. See [eval and source of a generated command](/reference/blocked-commands#eval-and-source-of-a-generated-command) for the shapes that stay blocked.
 
 <Note>
   Resource-exhaustion limits are not part of this trade-off. A command that exceeds the parser's recursion or structural-validation bounds is denied in **every** level, standard included.
@@ -136,6 +147,7 @@ Sensitive-path protection is a bounded pattern set over supported shapes, so som
 | `cat node_modules/x/fixture.pem` | Vendored directories suppress the extension rules and the broad key-basename rule | All |
 | `test -f ~/.ssh/id_rsa` | Metadata-only existence check, no content access | **Standard only** |
 | `find ~/.ssh -type f` | Metadata-only listing, no content access | **Standard only** |
+| `ls -la ~/.ssh`, `stat .env` | Directory listing and file status, no content access | **Standard only** |
 | Node/Bun inline evaluation containing sensitive path literals | Treated as inert diagnostic data when a bounded lexical scan finds no filesystem or command-execution marker | **Standard only** |
 
 Two of those allowances have precise boundaries worth knowing:
@@ -158,6 +170,7 @@ The following commands are allowed inside a linked worktree when worktree mode i
 - `git switch --discard-changes` and `git switch -f` / `--force`
 - `git reset --hard` and `git reset --merge`
 - `git clean -f` (and combined flags like `-fd`)
+- `git rm --force` / `-f`
 
 These commands remain blocked even inside a linked worktree, because they reach beyond the local working tree:
 

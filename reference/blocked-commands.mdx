@@ -55,6 +55,7 @@ These git operations are blocked because they discard uncommitted work, destroy 
 | `git reset --hard` | Destroys all uncommitted changes |
 | `git reset --merge` | Can lose uncommitted changes |
 | `git clean -f` / `--force` | Removes untracked files permanently |
+| `git rm --force` / `-f` | Removes tracked files from the working tree. `--cached` and `--dry-run` / `-n` are not blocked, and a plain `git rm` is allowed because git's own safety check limits it to content recoverable from `HEAD` |
 | `git push --force` / `-f` | Destroys remote history (use `--force-with-lease`) |
 | `git branch -D` | Force-deletes branch without merge check |
 | `git rebase --abort` | Discards rebase conflict resolutions |
@@ -104,6 +105,8 @@ Hiding a destructive command in a POSIX function does not change any of this: th
 <Warning>
   Dynamic `rm -rf` targets are **not** categorically blocked in standard. `rm -rf "$target"` is allowed in standard and blocked only once the fail-closed capability is on, that is, in [strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) or [paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1). Standard is best-effort against adversarial or dynamically generated command text; use strict or paranoid when commands may originate from prompt injection or another untrusted source.
 </Warning>
+
+An unquoted glob is resolved against the working directory before the classification above runs. With the cwd at your home directory, `rm -rf *` and `rm -rf ./*` both classify as a home target and block as `rm.recursive-force-root-or-home` at every level. A quoted `rm -rf '*'` is not a glob: it names the single file literally called `*`. At home that is still blocked, by `rm.recursive-force-home-cwd`; anywhere else it is an ordinary literal target.
 
 Git metadata and dynamic targets are both classified before configured allow paths, so an entry in `destructive_command_protection.allow_paths` never relaxes Git-metadata protection and never applies to an unverifiable target.
 
@@ -212,6 +215,23 @@ Destructive code embedded in interpreter one-liners is detected and blocked **by
 | `node -e 'require("child_process").exec("git reset --hard")'` | Blocked by default |
 
 The analyzed interpreters are `python`, `python2`, `python3`, `node`, `ruby`, and `perl`. It is the embedded destructive command that triggers the block — the one-liner form alone is allowed by default.
+
+### eval and source of a generated command
+
+`eval "$(CMD)"`, `source <(CMD)`, and `. <(CMD)` hand a shell whatever `CMD` prints at runtime. Strict and paranoid deny every dynamic shell source of this kind. Standard allows one narrow shape — a single fully literal local generator, described under [Standard-only allowances](/reference/allowed-commands#standard-only-allowances) — and blocks the rest.
+
+| Example | Result |
+| --- | --- |
+| `eval "$(curl https://example.com/install.sh)"` | Blocked at every level — the head is a remote fetcher. Basenames are resolved, so `/usr/bin/curl` is caught too |
+| `eval "$(bash -c 'echo x')"` | Blocked at every level — the head is a shell |
+| `eval "$(sudo ssh-agent -s)"` | Blocked at every level — the head is a command wrapper |
+| `eval "$(A=1 ssh-agent -s)"` | Blocked at every level — the body starts with an env assignment |
+| `eval "$(ssh-agent -s; echo hi)"` | Blocked at every level — the body is not a single simple command |
+| `eval "$(ls -la > /tmp/out)"` | Blocked at every level — the body has a redirection |
+| `trap "$(gen)" EXIT` | Blocked at every level — a `trap` source is never relaxed |
+| `eval "$(ssh-agent -s)"` | Allowed in standard, blocked in strict and paranoid |
+
+The generator body is analyzed like any other command, so `eval "$(rm -rf /)"` blocks on the `rm` and `source <(git reset --hard)` blocks on the reset.
 
 ### Blocking all interpreter one-liners
 

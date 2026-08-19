@@ -230,11 +230,21 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 npx cc-safety-net explain --cwd /tmp "git status"
 ```
 
-After successful option parsing, `explain` exits `0` for blocked and allowed results. Read the `result` field instead of the exit code. Only option validation fails:
+After successful option parsing, `explain` exits `0` for blocked and allowed results. Read the `result` field instead of the exit code. Two things make it exit `1`. The first is option validation:
 
 - An unknown option prints `Unknown option for explain: <arg>`; `--cwd` without a value prints `--cwd requires a value`. Either parse error is followed by `Usage: cc-safety-net explain [--json] [--cwd <path>] <command>` and `Pass -- before a command that starts with dashes.`, and exits `1`.
 - A `--cwd` path that does not exist prints `Error: --cwd path does not exist: <path>` and exits `1`.
 - An empty command prints `Error: No command provided` plus the usage line and exits `1`.
+
+The second is an analysis limit. A command that exhausts the structural command-analysis limit, the path-canonicalization limit, or the tool-input traversal limit exits `1` with a one-line error message instead of a stack trace. Under `--json` the whole of stdout is one error object; otherwise the message goes to stderr:
+
+```bash
+npx cc-safety-net explain --json 'loop() { loop; }; loop'
+```
+
+```json
+{"error":"Structural command analysis limit exceeded."}
+```
 
 The top-level parser honors `--` the same way: it stops looking for `--help` and `--version` at the first `--`, so `explain -- --help` explains the literal command `--help` instead of printing help.
 

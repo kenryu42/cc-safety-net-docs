@@ -31,6 +31,7 @@ Standard 会阻止可识别的破坏性命令。它有意**不提供**对抗级�
 - **带引号的字面量赋值中的危险文本延后到使用时判定。** `W='rm -rf ~'; echo "$W"` 会被允许：赋值本身不执行操作，而且参数位置中带引号的展开仍是一个 argv word，不能拆成命令和标志。任何风险更高的引用方式（未加引号、位于命令位置、位于替换中或位于未加引号的 heredoc body 中）仍会在赋值时触发阻止。把值交给 shell（`eval "$W"`、`bash -c "$W"`、`echo "$W" | sh`）也会拒绝，因为无法验证 shell 执行来源。Strict 从不延后判定。见[仅 Standard 允许的形式](/zh-Hans/reference/allowed-commands#仅标准允许)。
 - **不会一律阻止动态 `rm -rf` 目标。** Standard 允许 `rm -rf "$target"`；只有启用 fail-closed 能力后才会阻止。
 - Standard 还会有意允许动态可执行文件、通过替换组装的受防护命令结构、其他无法验证的递归删除目标，以及对内置敏感路径的独立仅元数据检查。
+- **对可验证的本地生成命令执行 `eval` 和 `source` 是允许的。** `eval "$(ssh-agent -s)"` 和 `source <(kubectl completion bash)` 在 standard 下放行，前提是替换主体为单条完全字面的简单命令，且不是远程抓取命令、shell 或命令包装器。主体仍会照常分析，它打印出来的那段 shell 则不会。Strict 和 paranoid 拒绝所有动态 shell 执行来源。见[仅标准允许](/zh-Hans/reference/allowed-commands#仅标准允许)。
 - Standard 绝不放宽**敏感内容访问**和**配置的 deny path**，也绝不放宽灾难性保护。
 
 ### Strict

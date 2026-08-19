@@ -51,6 +51,7 @@ CC Safety Net 阻止这些命令，因为它们可能永久破坏数据，包括
 | `git reset --hard` | 删除所有未提交的更改 |
 | `git reset --merge` | 可能丢失未提交的更改 |
 | `git clean -f` / `--force` | 永久删除未跟踪文件 |
+| `git rm --force` / `-f` | 从工作树中删除已跟踪的文件。`--cached` 与 `--dry-run` / `-n` 不会被阻止，不加 force 的 `git rm` 也允许，因为 git 自身的安全检查会把它限制在可从 `HEAD` 恢复的内容上 |
 | `git push --force` / `-f` | 破坏远程历史；请改用 `--force-with-lease` |
 | `git branch -D` | 不检查合并状态就强制删除分支 |
 | `git rebase --abort` | 丢弃 rebase 冲突解决结果 |
@@ -100,6 +101,8 @@ Git 接受 `GIT_SSH_COMMAND`、`GIT_SSH` 和 `GIT_SSH_VARIANT`，以在网络操
 <Warning>
   `standard` 不会一律阻止动态 `rm -rf` 目标。`rm -rf "$target"` 在 `standard` 中允许，只有启用 `fail_closed` 能力后，也就是在 [`strict`](/zh-Hans/configuration/modes#strict-mode) 或 [`paranoid`](/zh-Hans/configuration/modes#paranoid-mode) 中，才会被阻止。`standard` 对对抗性或动态生成的命令文本只提供尽力保护；命令可能来自提示注入或其他不可信来源时，请使用 `strict` 或 `paranoid`。
 </Warning>
+
+未加引号的 glob 会先相对工作目录解析，然后才进入上面这套分类。cwd 位于主目录时，`rm -rf *` 和 `rm -rf ./*` 都归类为主目录目标，在所有级别都以 `rm.recursive-force-root-or-home` 阻止。加引号的 `rm -rf '*'` 不是 glob，它指的是文件名就叫 `*` 的那一个文件；在主目录下它同样会被阻止，规则是 `rm.recursive-force-home-cwd`，在其他位置则是普通的字面目标。
 
 Git 元数据和动态目标都会在配置的允许路径之前分类，因此 `destructive_command_protection.allow_paths` 中的项绝不会放宽 Git 元数据保护，也绝不会应用于无法验证的目标。
 
@@ -202,6 +205,23 @@ command 形式的提取是有界且结构化的：触及结构性 shell 语法�
 | `node -e 'require("child_process").exec("git reset --hard")'` | 默认阻止 |
 
 分析的解释器是 `python`、`python2`、`python3`、`node`、`ruby` 和 `perl`。触发阻止的是嵌入的破坏性命令，默认情况下不会只因单行命令形式而阻止。
+
+### 生成命令的 eval 与 source
+
+`eval "$(CMD)"`、`source <(CMD)` 和 `. <(CMD)` 会把 `CMD` 运行时打印的内容直接交给 shell。`strict` 和 `paranoid` 会拒绝所有这类动态 shell 执行来源。`standard` 只允许一种很窄的形态：[仅标准允许](/zh-Hans/reference/allowed-commands#仅标准允许)中描述的完全字面的本地生成命令；其余一律阻止。
+
+| 示例 | 结果 |
+| --- | --- |
+| `eval "$(curl https://example.com/install.sh)"` | 所有级别都阻止：头部是远程抓取命令。按 basename 判定，因此 `/usr/bin/curl` 同样命中 |
+| `eval "$(bash -c 'echo x')"` | 所有级别都阻止：头部是 shell |
+| `eval "$(sudo ssh-agent -s)"` | 所有级别都阻止：头部是命令包装器 |
+| `eval "$(A=1 ssh-agent -s)"` | 所有级别都阻止：主体以环境赋值开头 |
+| `eval "$(ssh-agent -s; echo hi)"` | 所有级别都阻止：主体不是单条简单命令 |
+| `eval "$(ls -la > /tmp/out)"` | 所有级别都阻止：主体带重定向 |
+| `trap "$(gen)" EXIT` | 所有级别都阻止：`trap` 的执行来源从不放宽 |
+| `eval "$(ssh-agent -s)"` | `standard` 允许，`strict` 和 `paranoid` 阻止 |
+
+生成命令的主体和其他命令一样要经过分析，因此 `eval "$(rm -rf /)"` 会因其中的 `rm` 被阻止，`source <(git reset --hard)` 会因 reset 被阻止。
 
 ### 阻止所有解释器单行命令
 

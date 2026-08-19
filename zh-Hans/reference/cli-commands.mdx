@@ -230,11 +230,21 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 npx cc-safety-net explain --cwd /tmp "git status"
 ```
 
-选项解析成功后，无论结果是阻止还是允许，`explain` 都退出 `0`。请读取 `result` 字段，而不是退出码。只有选项校验会导致失败：
+选项解析成功后，无论结果是阻止还是允许，`explain` 都退出 `0`。请读取 `result` 字段，而不是退出码。有两种情况会让它退出 `1`。第一种是选项校验：
 
 - 未知选项会打印 `Unknown option for explain: <arg>`；`--cwd` 后不带值会打印 `--cwd requires a value`。这两种解析错误之后都会跟上 `Usage: cc-safety-net explain [--json] [--cwd <path>] <command>` 和 `Pass -- before a command that starts with dashes.`，并退出 `1`。
 - `--cwd` 指向不存在的路径时，会打印 `Error: --cwd path does not exist: <path>` 并退出 `1`。
 - 命令为空时，会打印 `Error: No command provided` 和用法行，并退出 `1`。
+
+第二种是分析上限。命令耗尽结构化命令分析上限、路径规范化上限或工具输入遍历上限时，会打印一行错误信息并退出 `1`，而不是抛出堆栈跟踪。加上 `--json` 时，整个 stdout 就是一个错误对象；否则消息写入 stderr：
+
+```bash
+npx cc-safety-net explain --json 'loop() { loop; }; loop'
+```
+
+```json
+{"error":"Structural command analysis limit exceeded."}
+```
 
 顶层解析器同样遵守 `--`：它在第一个 `--` 处就不再查找 `--help` 和 `--version`，因此 `explain -- --help` 解释的是字面命令 `--help`，而不是打印帮助。
 

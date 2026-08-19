@@ -35,6 +35,8 @@ CC Safety Net 通过语义命令分析区分允许的形式和破坏性的形式
 | `git restore --help` / `--version` | 仅输出帮助/版本信息 |
 | `git branch -d` | 安全删除，带合并检查 |
 | `git clean -n` / `--dry-run` | 仅预览，不删除文件 |
+| `git rm <files>` | 未加 force，因此 git 自身的安全检查会把可删除的内容限制在可从 `HEAD` 恢复的范围内 |
+| `git rm --cached`、`git rm --dry-run` / `-n` | 仅取消暂存或预览，工作树中的文件不受影响。`git rm -r --cached .` 是安全的取消暂存操作 |
 | `git push --force-with-lease` | 改写历史之前先检查远程状态是否符合预期 |
 
 ## 文件系统命令
@@ -85,13 +87,22 @@ CC Safety Net 通过语义命令分析区分允许的形式和破坏性的形式
 | `rm -rf "$target"` | 执行前无法验证的递归删除目标 |
 | `Remove-Item $target -Recurse -Force` | 同类无法验证目标的 PowerShell 等价形式 |
 | `Get-ChildItem . -Recurse \| Remove-Item -Force` | 无法验证的 PowerShell 管道输入 |
-| `$(printf r)m -rf /` | 动态可执行文件——命令头由替换拼装而成 |
-| `git reset $(printf --hard)` | 动态结构——参数由替换拼装而成 |
-| `test -f ~/.ssh/id_rsa`、`find ~/.ssh -type f` | 对内置敏感路径的纯元数据发现，不访问内容 |
+| `$(printf r)m -rf /`、`c=rm; "$c" -rf dir`、`$CMD --version` | 动态可执行文件——命令头来自替换或变量 |
+| `git reset $(printf --hard)`、`rm $(printf -- '-rf') dir` | 动态结构——参数由替换拼装而成 |
+| `test -f ~/.ssh/id_rsa`、`find ~/.ssh -type f`、`ls -la ~/.ssh`、`stat .env` | 对内置敏感路径的纯元数据发现，不访问内容 |
 | `W='rm -rf ~'; echo "$W"` | 能够干净解析的带引号字面量赋值中的危险文本——变量始终只作为带引号的参数数据使用时，阻止会推迟到使用时判定 |
 | `f() { rm -rf "$1"; }; f ~` | 被调用的函数正文内，位置参数仍未绑定，因此目标是动态的——与 `rm -rf "$target"` 是同一个权衡 |
+| `eval "$(ssh-agent -s)"`、`source <(kubectl completion bash)` | 单条完全字面的本地生成命令——*形态*可验证，输出则无法验证 |
 
 带引号赋值的延后判定范围很窄。赋值本身不执行任何操作，带引号的展开始终是一个 argv word，无法拆成命令加标志。只要分析器无法证明某处引用属于这类数据用法，赋值时的阻止就会保留：未加引号的展开（`env $W`）、位于命令位置的任何展开（即使带引号）、命令替换内的引用，以及未加引号的 heredoc 正文中的引用。把值交给 shell 则由下游拦截：`eval "$W"`、`bash -c "$W"` 和 `echo "$W" | sh` 都会被拒绝，因为无法验证 shell 的执行来源。
+
+对生成命令的这项放行只看命令的形态，不看命令出自谁手，也没有一份可信生成命令的清单。只有 `CMD` 同时满足以下条件时，`eval "$(CMD)"` 和 `source <(CMD)` / `. <(CMD)` 才会放行：
+
+- 只有一条简单命令，没有重定向，也没有嵌套命令；
+- 所有词都是字面量，开头没有环境赋值；
+- 头部 basename 既不是远程抓取命令（`curl`、`wget`、`fetch`、`aria2c`、`http`、`https`、`xh`、`xhs`、`nc`、`ncat`、`netcat`），也不是 shell 或 `sudo`、`env` 这类标准命令包装器。
+
+分析器仍会分析 `CMD` 本身，因此 `eval "$(rm -rf /)"` 会被阻止。*不*检查的是 `CMD` 打印出来的那段 shell：`standard` 由此把信任扩展到了每一条字面本地命令的输出，包括 `eval "$(cat somefile)"` 这样的形态。仍被阻止的形态见[生成命令的 eval 与 source](/zh-Hans/reference/blocked-commands#生成命令的-eval-与-source)。
 
 <Note>
   资源耗尽限制不属于此项权衡。超出解析器递归或结构校验上限的命令在**每个**级别都会被拒绝，`standard` 也不例外。
@@ -136,6 +147,7 @@ CC Safety Net 通过语义命令分析区分允许的形式和破坏性的形式
 | `cat node_modules/x/fixture.pem` | 供应商目录会抑制扩展名规则和宽泛的无扩展名密钥基名规则 | 全部 |
 | `test -f ~/.ssh/id_rsa` | 只做元数据层面的存在性检查，不访问内容 | **仅 `standard`** |
 | `find ~/.ssh -type f` | 只做元数据层面的列举，不访问内容 | **仅 `standard`** |
+| `ls -la ~/.ssh`、`stat .env` | 只做目录列举和文件状态查看，不访问内容 | **仅 `standard`** |
 | 包含敏感路径字面量的 Node/Bun 内联求值 | 有界的词法扫描未发现文件系统或命令执行标记时，视为无害的诊断数据 | **仅 `standard`** |
 
 其中两项允许的边界很明确，值得了解：
@@ -158,6 +170,7 @@ worktree 模式启用后，以下命令在 linked worktree 内是允许的：
 - `git switch --discard-changes` 和 `git switch -f` / `--force`
 - `git reset --hard` 和 `git reset --merge`
 - `git clean -f`（以及 `-fd` 这类组合标志）
+- `git rm --force` / `-f`
 
 即使在 linked worktree 内，以下命令仍然被阻止，因为它们的影响超出本地工作树：
 
