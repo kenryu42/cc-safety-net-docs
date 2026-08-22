@@ -4,9 +4,9 @@ sidebarTitle: "已知限制"
 description: "CC Safety Net 无法捕获的内容：不透明命令代理、二进制文件内部行为、文件系统隔离和网络、符号链接 TOCTOU、解释器标志、基于 eval 的执行，以及 Hermes Agent 和 OpenClaw 的覆盖边界。"
 ---
 
-CC Safety Net 分析智能体尝试运行的命令字符串。它能有效防止已知破坏性 Git 和文件系统操作造成意外数据丢失，但不是完整的安全方案。本页如实列出当前仍存在的**残余**限制，帮助你设定正确预期，并了解何时应改用<a href="/zh-Hans/guides/vs-sandboxing">沙箱</a>。
+CC Safety Net 分析智能体尝试运行的命令字符串。它能阻止已知的破坏性 Git 和文件系统操作，降低意外丢失数据的风险，但不是完整的安全方案。本页列出仍存在的**残余**限制，并说明何时应改用<a href="/zh-Hans/guides/vs-sandboxing">沙箱</a>。
 
-项目范围有意保持专注：它是一道尽力而为的静态执行前策略门，作用于受支持的编码智能体工具调用。它不是操作系统沙箱、权限边界，也不能保护绕过已安装集成的命令。
+产品范围很明确。它只对受支持的编码智能体工具调用做尽力而为的静态执行前检查。它不是操作系统沙箱或权限边界，也无法保护绕过已安装集成的命令。
 
 <Note>Standard 模式对对抗性或动态输入只提供尽力保护，下文有几项属于放宽，<a href="/zh-Hans/configuration/modes">strict 或 paranoid 模式</a>会将其关闭；属于这种情况的条目都会明确说明。</Note>
 
@@ -14,7 +14,7 @@ CC Safety Net 分析智能体尝试运行的命令字符串。它能有效防止
 
 ### 二进制文件内部行为
 
-如果命令本身看不出破坏性操作，命令字符串分析就无法推断出来。`some-tool --task destructive-cleanup` 在 CC Safety Net 看来是无害的——它无法检查任意二进制文件在运行时到底做了什么。这类威胁请改用<a href="/zh-Hans/guides/vs-sandboxing">沙箱</a>。
+如果命令本身看不出破坏性操作，命令字符串分析就无法推断出来。`some-tool --task destructive-cleanup` 在 CC Safety Net 看来是无害的，因为它无法检查任意二进制文件在运行时做了什么。这类威胁请改用<a href="/zh-Hans/guides/vs-sandboxing">沙箱</a>。
 
 ### 未配置或不透明的命令代理
 
@@ -24,9 +24,9 @@ CC Safety Net 分析智能体尝试运行的命令字符串。它能有效防止
 npx -y cc-safety-net rule wrapper add rtk
 ```
 
-配置之后，分析会穿过包装器看到可见的子命令，因此内置规则和<a href="/zh-Hans/configuration/custom-rules">自定义规则</a>对 `rtk git reset --hard` 的处理与对 `git reset --hard` 完全一致。没有内置的默认包装器——只配置你有意信任的包装器。保留命令（`git`、`busybox`、内置分析命令、shell 包装器和解释器）不能注册为包装器。
+配置之后，分析会穿过包装器看到可见的子命令，因此内置规则和<a href="/zh-Hans/configuration/custom-rules">自定义规则</a>对 `rtk git reset --hard` 的处理与对 `git reset --hard` 完全一致。没有内置的默认包装器。只配置你有意信任的包装器。保留命令（`git`、`busybox`、内置分析命令、shell 包装器和解释器）不能注册为包装器。
 
-残余限制比“所有代理”更窄：
+这项限制只影响以下两类代理：
 
 - 不在 `transparent_wrappers` 中的代理不会展开。
 - 即使已配置，改写或隐藏子命令而不是执行可见子命令的代理也无法展开。
@@ -72,7 +72,7 @@ CC Safety Net 提取传给解释器 `-c` 或 `-e` 标志的代码（适用于 `p
 
 CC Safety Net **确实**保护敏感路径。对<a href="/zh-Hans/reference/secret-protection">内置敏感集合</a>的读取会被阻止，这一集合包括 `.env` 及其变体、`~/.ssh/id_*`、`~/.aws`、`~/.kube/config`、编码 CLI 凭证存储等。用户配置的拒绝路径及其下的所有路径也会被阻止。保护覆盖受支持的 command、path、search 和 patch 形式，包括未知工具的 fallback 检查。
 
-编码 CLI 覆盖分两层。**Credential** 层（auth token 和凭证存储）默认启用。**Config** 层（settings 和 MCP 配置文件，智能体会在日常工作中编辑）默认关闭，需要在 `secret_protection.overrides` 中显式设置 `"on"`。由此带来一个值得注意的结果：Antigravity 唯一的规则（`secret.cli.antigravity`）位于需要主动开启的 config 层，因此 Antigravity 没有默认启用的 credential 规则。完整层级和各规则保护路径见<a href="/zh-Hans/reference/secret-protection#coding-cli-credential-tier-on-by-default">机密保护参考</a>。
+编码 CLI 覆盖分两层。**Credential** 层（auth token 和凭证存储）默认启用。**Config** 层（settings 和 MCP 配置文件，智能体会在日常工作中编辑）默认关闭，需要在 `secret_protection.overrides` 中显式设置 `"on"`。Antigravity 唯一的规则（`secret.cli.antigravity`）位于需要主动开启的 config 层，因此它没有默认启用的 credential 规则。完整层级和各规则保护路径见<a href="/zh-Hans/reference/secret-protection#coding-cli-credential-tier-on-by-default">机密保护参考</a>。
 
 残余限制在于，它是**针对受支持形式的有界模式集**，而不是通用的读取边界：
 
@@ -106,11 +106,11 @@ Hermes Agent 和 OpenClaw 集成只覆盖一组明确定义的工具和执行主
 
 托管 Hermes 插件只注册一个 `pre_tool_call` hook，并且只把四个工具转交分析：`patch`、`read_file`、`terminal` 和 `write_file`。调用其他 Hermes 工具不会转发，也不会得到任何判定。
 
-你自己输入的 `!command` 同样在范围外：bang-shell 输入不会触发 `pre_tool_call`，而是交给 Hermes 自己的命令防护处理。CC Safety Net 只能看到模型生成的工具调用，看不到 Hermes 启动的每一个子进程。而如果 Hermes 根本没有加载插件，就不会有任何阻止——只有 `npx cc-safety-net doctor` 会报告插件已存在但未启用。
+你自己输入的 `!command` 同样在范围外。bang-shell 输入不会触发 `pre_tool_call`，而是交给 Hermes 自己的命令防护处理。CC Safety Net 只能看到模型生成的工具调用，看不到 Hermes 启动的每一个子进程。如果 Hermes 根本没有加载插件，就不会有任何阻止。只有 `npx cc-safety-net doctor` 会报告插件已存在但未启用。
 
 ### OpenClaw 覆盖本地 Gateway 主机上的 exec
 
-OpenClaw 插件只为规范的 `exec` 工具注册 `before_tool_call`。`apply_patch` 以及 OpenClaw 的读取、写入、编辑文件工具都不受保护。带 `toolKind` 区分标记的 `exec` 事件同样得不到判定。这样就排除了与 `exec` 同名的其他工具，例如 Code Mode 的 JavaScript `exec`——它的 `command` 字段并未被证明能映射为 shell 命令。
+OpenClaw 插件只为规范的 `exec` 工具注册 `before_tool_call`。`apply_patch` 以及 OpenClaw 的读取、写入、编辑文件工具都不受保护。带 `toolKind` 区分标记的 `exec` 事件同样得不到判定。这样就排除了与 `exec` 同名的其他工具，例如 Code Mode 的 JavaScript `exec`。它的 `command` 字段并未被证明能映射为 shell 命令。
 
 执行主机分三种情况：
 

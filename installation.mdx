@@ -47,7 +47,7 @@ To refresh every installed integration in place, run:
 npx -y cc-safety-net@latest update
 ```
 
-`update` detects the integrations already installed on your machine — including disabled ones — and re-runs each one's install path in update mode. An integration whose agent CLI cannot be found is reported as skipped, and if nothing is installed the command tells you to run `cc-safety-net install` first. Pressing `u` in the interactive installer runs the same update.
+`update` detects the integrations already installed on your machine, including disabled ones. It runs each install path again in update mode. The command reports an integration as skipped when it cannot find the agent CLI. If no integrations are installed, it tells you to run `cc-safety-net install` first. Pressing `u` in the interactive installer runs the same update.
 
 `update` is also the upgrade path between major versions. Running it on a v1 installation moves every installed integration to the current v2 release. If you defined custom rules under v1's inline configuration, complete the [legacy migration](/configuration/custom-rules#migrate-legacy-configuration). Then confirm that the runtime is `ready` with `npx cc-safety-net doctor`.
 
@@ -80,9 +80,9 @@ npx -y cc-safety-net@latest install --amp
 
 This publishes the managed plugin artifact as `cc-safety-net.ts` in your account's hosted Amp Personal Plugins repository. A personal plugin follows your account everywhere, so it also covers threads that execute on a remote machine, such as Amp Orbs.
 
-Install needs the `amp` CLI and a signed-in account: it first runs `amp plugins repositories --json` to find your writable Personal Plugins repository, and a missing CLI or missing login stops the install with a pointer to `amp login`. It then clones `user-plugins` into a throwaway temporary checkout, writes `cc-safety-net.ts`, commits under the tool identity `cc-safety-net` (with commit signing turned off, so your global git config cannot stall the install), and pushes. Rerunning the command updates the published artifact in place.
+Install requires the `amp` CLI and a signed-in account. It first runs `amp plugins repositories --json` to find your writable Personal Plugins repository. If the CLI or login is missing, install stops and points you to `amp login`. It then clones `user-plugins` into a temporary checkout, writes `cc-safety-net.ts`, commits under the tool identity `cc-safety-net`, and pushes. Commit signing is off, so your global git config cannot stall the install. Run the command again to update the published artifact in place.
 
-Install also embeds a snapshot of your user policy file into the published artifact. At runtime the snapshot applies only on a machine that has no policy file — such as an Orb's empty home directory; a policy file present on the machine, even an invalid one, always wins. If your policy file is absent or cannot be parsed, install publishes the bare artifact without a snapshot. The snapshot does not carry audit retention, user rulebooks, or project-scope policy, and a policy edit ships on the next `install --amp` or `update`.
+Install also embeds a snapshot of your user policy file into the published artifact. At runtime, the snapshot applies only on a machine that has no policy file, such as an Orb's empty home directory. A policy file on the machine always wins, even when it is invalid. If your policy file is absent or cannot be parsed, install publishes the bare artifact without a snapshot. The snapshot does not carry audit retention, user rulebooks, or project-scope policy. A policy edit ships on the next `install --amp` or `update`.
 
 ```bash
 npx -y cc-safety-net@latest uninstall --amp
@@ -141,7 +141,7 @@ npx -y cc-safety-net@latest uninstall --claude-code
 To keep CC Safety Net up to date automatically, run `/plugin` inside Claude Code, navigate to **Marketplaces**, select **cc-marketplace**, and enable **auto-update**.
 
 <Note>
-  The plugin invokes the shared Coding CLI hook, `cc-safety-net hook --coding-cli` (short flag `-cc`). That is the canonical flag name, and it is shared with the Codex plugin. `hook --claude-code` is accepted as a legacy alias only — do not use it in new configuration.
+  The plugin invokes the shared Coding CLI hook, `cc-safety-net hook --coding-cli` (short flag `-cc`). That is the canonical flag name, and it is shared with the Codex plugin. `hook --claude-code` is accepted only as a legacy alias. Do not use it in new configuration.
 </Note>
 
 ## Codex installation
@@ -188,7 +188,7 @@ npx -y cc-safety-net@latest uninstall --cursor
 npx -y cc-safety-net@latest install --gemini-cli
 ```
 
-This installs the Gemini Safety Net extension from `https://github.com/kenryu42/gemini-safety-net`, or re-enables it if a disabled copy is already present. Gemini CLI is not a `cc-marketplace` plugin — its extension lives in its own repository under the extension id `gemini-safety-net`.
+This installs the Gemini Safety Net extension from `https://github.com/kenryu42/gemini-safety-net`, or re-enables it if a disabled copy is already present. Gemini CLI is not a `cc-marketplace` plugin. Its extension lives in its own repository under the extension id `gemini-safety-net`.
 
 ```bash
 npx -y cc-safety-net@latest uninstall --gemini-cli
@@ -212,7 +212,7 @@ npx -y cc-safety-net@latest uninstall --copilot-cli
   Restart Copilot CLI after installing or removing the plugin for the change to take effect.
 </Note>
 
-Hook support in Copilot CLI is version-gated. Doctor checks repository hook files under `.github/hooks`; inline hook definitions in `.github/copilot/settings.local.json`, `.github/copilot/settings.json`, `.claude/settings.local.json`, `.claude/settings.json`, `~/.copilot/settings.json`, and `~/.copilot/config.json`; and user hook files under `~/.copilot/hooks`. Inline hook definitions require Copilot CLI **1.0.8** or later, and user hook files require **0.0.422** or later. The plugin handles this for you; if you configure hooks manually and hit issues, run `npx cc-safety-net doctor` — it reports the detected Copilot version and which hook sources are supported.
+Hook support in Copilot CLI depends on its version. Doctor checks repository hook files under `.github/hooks`; inline hook definitions in `.github/copilot/settings.local.json`, `.github/copilot/settings.json`, `.claude/settings.local.json`, `.claude/settings.json`, `~/.copilot/settings.json`, and `~/.copilot/config.json`; and user hook files under `~/.copilot/hooks`. Inline hook definitions require Copilot CLI **1.0.8** or later, and user hook files require **0.0.422** or later. The plugin handles this for you. If you configure hooks manually and find a problem, run `npx cc-safety-net doctor`. It reports the detected Copilot version and the supported hook sources.
 
 ## Hermes Agent installation
 
@@ -220,7 +220,7 @@ Hook support in Copilot CLI is version-gated. Doctor checks repository hook file
 npx -y cc-safety-net@latest install --hermes-agent
 ```
 
-This writes a managed Python plugin — `__init__.py` and `plugin.yaml` — to `$HERMES_HOME/plugins/cc-safety-net/` (`~/.hermes/plugins/cc-safety-net/` when `HERMES_HOME` is unset), then runs `hermes plugins enable cc-safety-net --no-allow-tool-override`. The files alone are inert: Hermes loads a user plugin only when its own config lists it as enabled, which is why install runs the enable command even when the files are already up to date.
+This writes the managed Python plugin files `__init__.py` and `plugin.yaml` to `$HERMES_HOME/plugins/cc-safety-net/` (`~/.hermes/plugins/cc-safety-net/` when `HERMES_HOME` is unset). It then runs `hermes plugins enable cc-safety-net --no-allow-tool-override`. The files alone are inert. Hermes loads a user plugin only when its own config lists it as enabled, so install runs the enable command even when the files are already current.
 
 Because the plugin shells out through `npx`, install first clears cached `cc-safety-net` copies from the npm `_npx` cache so the plugin resolves the current release; uninstall does not touch the cache. The cache locations are listed in the [Antigravity CLI section](#antigravity-cli-installation).
 
@@ -234,7 +234,7 @@ On each `pre_tool_call`, the plugin sends the tool call to `npx -y cc-safety-net
 npx -y cc-safety-net@latest uninstall --hermes-agent
 ```
 
-Uninstall runs `hermes plugins disable cc-safety-net` *before* removing the plugin files — Hermes only resolves a plugin that is still on disk, and a config entry left enabled would auto-load any future plugin of the same name. If the `hermes` CLI fails or is missing, the files are removed anyway and a warning notes that `cc-safety-net` may still be listed in the Hermes config. Uninstall also removes the Python `__pycache__` bytecode directory and reclaims the plugin directory only when nothing else is left in it.
+Uninstall runs `hermes plugins disable cc-safety-net` *before* it removes the plugin files. Hermes resolves only plugins that are still on disk. An enabled config entry would automatically load any future plugin with the same name. If the `hermes` CLI fails or is missing, uninstall still removes the files and warns that the Hermes config may still list `cc-safety-net`. Uninstall also removes the Python `__pycache__` bytecode directory and reclaims the plugin directory only when nothing else remains.
 
 Install and uninstall both refuse to touch the plugin directory if it is a symlink or not a regular directory, and refuse to overwrite or remove any managed file that is a symlink, not a regular file, or does not carry the CC Safety Net managed header. Move or remove it yourself and rerun the command.
 
@@ -270,7 +270,7 @@ To use the native plugin instead, run this inside Kimi Code:
 /plugins install https://github.com/kenryu42/cc-safety-net
 ```
 
-Confirm the trust prompt — it defaults to cancel — then run `/reload` or start a new session. The plugin declares one `PreToolUse` hook with no tool matcher. It runs `node ./dist/bin/cc-safety-net.js hook --kimi-code` for every tool call with a 30-second timeout, using the same adapter as the global hook.
+Confirm the trust prompt, which defaults to cancel. Then run `/reload` or start a new session. The plugin declares one `PreToolUse` hook with no tool matcher. It runs `node ./dist/bin/cc-safety-net.js hook --kimi-code` for every tool call with a 30-second timeout and uses the same adapter as the global hook.
 
 When the global hook is already configured, the Kimi Code row in the interactive installer stays selectable and is labeled `(global hook installed)`, and the printed plugin steps add a caution: run `cc-safety-net uninstall --kimi-code` only *after* the plugin is active. A brief overlap where both hooks run just duplicates the denial message, while a gap with neither active leaves you unprotected.
 
@@ -288,14 +288,14 @@ npx -y cc-safety-net@latest install --openclaw
 
 This installs the plugin through OpenClaw's own CLI: it runs `openclaw plugins install <packaged plugin dir> --force` followed by `openclaw plugins enable cc-safety-net`, where the packaged plugin directory ships inside the npm package. It then verifies the plugin actually loaded by running `openclaw plugins inspect cc-safety-net --runtime --json`: an enabled plugin whose runtime is broken installs cleanly and then silently protects nothing, so anything other than a `loaded` status fails the install and points you at `openclaw plugins inspect cc-safety-net --runtime` for details.
 
-Because `--force` overwrites (and on uninstall deletes) whatever holds the `cc-safety-net` extension id, both commands first check that the extension directory holds only a CC Safety Net managed plugin — or nothing at all — and refuse to run otherwise. Move or remove the directory and rerun the command.
+Because `--force` overwrites the entry with the `cc-safety-net` extension id and uninstall deletes that entry, both commands first inspect the extension directory. They continue only if the directory contains only a managed CC Safety Net plugin or is empty. Otherwise, they refuse to run. Move or remove the directory and run the command again.
 
 ```bash
 npx -y cc-safety-net@latest uninstall --openclaw
 ```
 
 <Note>
-  Restart the OpenClaw Gateway after installing, updating, or uninstalling so the change takes effect. If `plugins.allow` is set in `openclaw.json`, it must also list `cc-safety-net` — an allowlist that omits it keeps the plugin from loading even when it is enabled.
+  Restart the OpenClaw Gateway after installing, updating, or uninstalling so the change takes effect. If `plugins.allow` is set in `openclaw.json`, it must also list `cc-safety-net`. An allowlist that omits it prevents the plugin from loading even when it is enabled.
 </Note>
 
 OpenClaw loads CC Safety Net as an in-process plugin rather than a hook subprocess, so there is no runtime hook flag. The plugin registers a `before_tool_call` handler for the untagged `exec` tool only. OpenClaw's file tools and tagged `exec` variants are not covered. Each supported `exec` call is analyzed against the agent's workspace directory, and the plugin fails closed when that workspace cannot be resolved, when `workdir` resolves outside it, or when the call names an execution host other than `auto` or `gateway` (for example `sandbox` or `node`).
@@ -343,7 +343,7 @@ The current plugin identifier is `cc-safety-net@cc-marketplace` everywhere it ap
 | `safety-net@cc-marketplace` | Claude Code, Codex | Detected during install and uninstalled automatically once the current plugin is in place |
 | `copilot-safety-net` | GitHub Copilot CLI | Detected during install and uninstalled automatically |
 
-You do not need to remove these by hand — run the normal install command for the agent and the migration happens as part of it. Do not use the legacy identifiers in new configuration.
+You do not need to remove these by hand. Run the normal install command for the agent, and it will migrate the identifier. Do not use the legacy identifiers in new configuration.
 
 ## Verify your installation
 
@@ -353,6 +353,6 @@ After installing, run the doctor command to confirm CC Safety Net is wired up co
 npx cc-safety-net doctor
 ```
 
-`doctor` runs a full health check across every supported agent — hook integration, a self-test that confirms blocking works, custom-rule validation, active mode flags, recent activity, system versions, and an update check. See the [doctor command reference](/reference/cli-commands#doctor) for what each check does and the flags available.
+`doctor` runs a full health check across every supported agent. It checks hook integration, runs a self-test that confirms blocking works, validates custom rules, and checks active mode flags, recent activity, system versions, and updates. See the [doctor command reference](/reference/cli-commands#doctor) for details and available flags.
 
 If any check fails, the output includes a description of the problem and suggested fixes.

@@ -4,14 +4,14 @@ sidebarTitle: "自定义规则"
 description: "使用 JSON 配置文件，在 CC Safety Net 中定义项目级和用户级自定义阻止规则。通过匹配命令、子命令和字面参数模式，并使用自定义原因消息阻止命令。"
 ---
 
-用自定义阻止规则来落实团队约定或项目专用的安全策略。规则采用**基于 rulebook 的布局**，并合并用户范围和项目范围的配置。这样既能保留个人默认值，又能用项目覆盖来调整。
+自定义阻止规则可以强制执行团队约定或项目专用的安全策略。规则采用 **rulebook 布局**，并合并用户范围与项目范围的配置。你可以保留个人默认值，再用项目配置调整项目规则。
 
 <Warning>
-**重大更改**：运行时不再加载旧版内联配置文件（`.safety-net.json` 和 `~/.cc-safety-net/config.json`）。如果它们包含规则，**这些规则在迁移前不会生效**。运行时会静默忽略旧文件。`rule verify` 会就此发出警告。普通命令照常运行。运行 `npx -y cc-safety-net rule migrate` 可将旧规则转换为 rulebook 布局。请参阅[迁移旧配置](#迁移旧配置)。
+**重大更改**：运行时不再加载旧版内联配置文件（`.safety-net.json` 和 `~/.cc-safety-net/config.json`）。旧文件中的规则**在迁移前不会生效**，运行时也不会为此给出提示。`rule verify` 会报告旧文件。普通命令仍会运行。执行 `npx -y cc-safety-net rule migrate` 可把旧规则转换为 rulebook 布局。请参阅[迁移旧配置](#迁移旧配置)。
 </Warning>
 
 <Tip>
-编写自定义规则最快的方式，是在智能体中使用 **`/cc-safety-net` 技能**，用自然语言交互式地创建规则。示例：
+要快速编写自定义规则，可在智能体中使用 **`/cc-safety-net` 技能**，通过自然语言创建规则。例如：
 
   ```text
   /cc-safety-net read my package.json and suggest blocking rules
@@ -38,8 +38,8 @@ CC Safety Net 从两个范围加载 rulebook 并将它们合并：
 ### 范围合并行为
 
 - 两个范围的 rulebook 会合并，用户范围在前。
-- **活动 rulebook 名称重复时，以先声明者为准。** 用户范围先加载，因此它占用的名称会遮蔽同名的项目 rulebook；后一个 rulebook 完全不贡献规则，而不是只部分遮蔽前一个。名称冲突会以警告形式报告，并使运行时进入 `degraded` 状态——重命名其中一个，再运行 `rule sync`。由于冲突只是被消解而非致命错误，即使某个名称已被另一个范围占用，本范围的 `rule sync` 仍会成功。
-- **每个范围的 `overrides` 只作用于该范围自己的规则。** 指向用户范围规则的项目覆盖会被忽略并给出警告，该规则保持其用户配置的状态——项目配置无法禁用或改写用户规则。
+- **活动 rulebook 名称重复时，以先声明者为准。** 用户范围先加载，因此会遮蔽同名的项目 rulebook。后一个 rulebook 的所有规则都不生效。名称冲突会产生警告，并使运行时进入 `degraded`。请重命名其中一个 rulebook，再运行 `rule sync`。名称冲突本身不会使 `rule sync` 失败。
+- **每个范围的 `overrides` 只作用于该范围自己的规则。** 指向用户范围规则的项目覆盖会被忽略并给出警告，该规则保持用户配置的状态。项目配置无法禁用或改写用户规则。
 - 不匹配任何已知规则的覆盖键会被忽略并给出警告；其他覆盖和规则保持各自配置的状态。
 - 两个范围的 `transparent_wrappers` 取并集。
 
@@ -78,7 +78,7 @@ npx -y cc-safety-net rule remove example-rules --delete-source
 
 ### 资源限制
 
-每个范围的 `rules` 数组最多容纳 **64** 个源。条目更多的 `rule.json` 会验证失败，只报出单条错误 `Rule config exceeds CC Safety Net's safe source limit.`——超限的数组不会逐条列出，整个范围的配置会像其他任何无效 `rule.json` 一样被丢弃。
+每个范围的 `rules` 数组最多容纳 **64** 个源。超过限制时，`rule.json` 校验失败，并只报告一条错误：`Rule config exceeds CC Safety Net's safe source limit.` 系统不会逐条列出超限数组，整个范围的配置会像其他无效 `rule.json` 一样被丢弃。
 
 `rule sync` 在固定预算下运行：最多并发处理 **4** 个源，单次运行最多发出 **131** 个 GitHub 请求，所有源合计最多读取 **64 MiB** 响应字节。超出任一预算都会中止本次运行，并报 `Rule synchronization exceeds CC Safety Net's safe resource limits.`
 
@@ -89,13 +89,13 @@ npx -y cc-safety-net rule remove example-rules --delete-source
 校验失败后的表现取决于哪一侧出了问题：
 
 - **缺少 lockfile、缺少 lock 条目、缺少缓存条目、摘要不匹配，或缓存的 rulebook 无法解析**，都会丢弃该源。在你运行 `rule sync` 之前，它不会贡献任何规则。其他所有已校验的源和全部内置保护继续生效，普通命令也照常运行。被丢弃的源只是让运行时进入 `degraded`，并不会阻塞工作。
-- **本地源偏离其固定摘要**——包括在磁盘上丢失、无法解析或不符合 schema——并不算故障状态。运行时只读取经过摘要校验的**缓存** rulebook，绝不会重新读取本地副本。在你运行 `rule sync` 之前，本地未同步的改动不会生效。完整的 `rule sync` 和 `rule verify` 仍会拒绝无效的或符号链接的本地源。
+- **本地源偏离其固定摘要**并不算故障状态，包括在磁盘上丢失、无法解析或不符合 schema 的情况。运行时只读取经过摘要校验的**缓存** rulebook，绝不会重新读取本地副本。在你运行 `rule sync` 之前，本地未同步的改动不会生效。完整的 `rule sync` 和 `rule verify` 仍会拒绝无效的或符号链接的本地源。
 
 完整的状态模型、确切的诊断字符串和修复步骤见[配置恢复](/zh-Hans/configuration/recovery)。
 
 ## 透明包装器
 
-如果团队通过 `rtk` 之类的包装器运行命令，分析默认只看到包装器，看不到底层命令。把包装器列入 `transparent_wrappers`，CC Safety Net 就能看穿它、直达其中可见的受保护子命令，于是内置分析和你的自定义规则会像处理裸命令一样处理 `rtk git reset --hard` 和 `rtk docker system prune`。
+如果团队通过 `rtk` 之类的包装器运行命令，分析器默认只能看到包装器。把包装器列入 `transparent_wrappers` 后，CC Safety Net 会提取其中可见的受保护子命令。内置分析和自定义规则便能像处理裸命令一样，处理 `rtk git reset --hard` 和 `rtk docker system prune`。
 
 用 `rule wrapper` 子命令来配置包装器，不要手动编辑 `rule.json`：
 
@@ -120,7 +120,7 @@ npx -y cc-safety-net rule wrapper add rtk --global
 - 这里**未**列出的包装器，以及重写或隐藏子命令而不是 exec 一个可见子命令的包装器，仍然不会被解包。这类命令只有顶层危险文本 fallback 扫描才可能捕获。
 
 <Warning>
-`transparent_wrappers` 位于 `rule.json` 中，而 `rule.json` 不带 lock 或摘要。如果某个范围的 `rule.json` 变得不可读，该范围的包装器就不再生效——这是配置被丢弃会削弱内置覆盖范围的唯一一处。被丢弃的 **rulebook**（缺少缓存条目、缺少 lock 条目、摘要不匹配）不影响 `rule.json` 的可读性，因此包装器不受影响。
+`transparent_wrappers` 位于 `rule.json` 中，而 `rule.json` 不带 lock 或摘要。如果某个范围的 `rule.json` 变得不可读，该范围的包装器就不再生效。这是配置被丢弃会削弱内置覆盖范围的唯一情况。被丢弃的 **rulebook**（缺少缓存条目、缺少 lock 条目、摘要不匹配）不影响 `rule.json` 的可读性，因此包装器不受影响。
 </Warning>
 
 ## 创建你的第一个自定义规则
@@ -206,14 +206,14 @@ npx -y cc-safety-net rule verify
 
 ## `rule.json` schema
 
-顶层 `rule.json` 决定哪些 rulebook 生效、应用覆盖并声明透明包装器。它与 `policy.json` 相互独立：`policy.json` 配置安全级别、内置保护、允许和拒绝路径以及审计保留期——那个文件见[策略](/zh-Hans/configuration/policy)。
+顶层 `rule.json` 决定哪些 rulebook 生效、应用覆盖并声明透明包装器。它与 `policy.json` 相互独立。`policy.json` 配置安全级别、内置保护、允许路径、拒绝路径和审计保留期，详情见[策略](/zh-Hans/configuration/policy)。
 
 <ParamField body="version" type="integer" required>
 schema 版本。必须为 `1`。
 </ParamField>
 
 <ParamField body="rules" type="array">
-rulebook 源字符串列表。默认为空数组。文件内的源名称必须唯一，且最多允许 64 个源——见[资源限制](#资源限制)。
+rulebook 源字符串列表。默认为空数组。文件内的源名称必须唯一，且最多允许 64 个源。见[资源限制](#资源限制)。
 </ParamField>
 
 <ParamField body="overrides" type="object">
@@ -255,7 +255,7 @@ CC Safety Net 为 `rule.json` 发布了一份 JSON Schema，它由运行时校�
 }
 ```
 
-它涵盖的正是上面列出的 `rule.json` 字段——`version`、`rules`、`overrides` 和 `transparent_wrappers`。运行 `rule verify` 会为缺少 `$schema` 的有效规则配置补上这一引用。`policy.json` 没有公开发布的 schema。
+它涵盖上面列出的 `rule.json` 字段，即 `version`、`rules`、`overrides` 和 `transparent_wrappers`。运行 `rule verify` 会为缺少 `$schema` 的有效规则配置补上这一引用。`policy.json` 没有公开发布的 schema。
 
 ## Rulebook schema
 
@@ -462,7 +462,7 @@ CC Safety Net 使用以下匹配规则：
 
 ## 阻止消息格式
 
-完整的阻止消息布局见[阻止消息的形式](/zh-Hans/guides/how-it-works#阻止消息的形式)。自定义规则额外加的是一个包含 rulebook 名称和规则名称的前缀，让你能看出是哪个 rulebook 触发了这次阻止：
+完整布局见[阻止消息的形式](/zh-Hans/guides/how-it-works#阻止消息的形式)。自定义规则会在原因前加上 rulebook 名称和规则名称，用于识别触发阻止的 rulebook：
 
 ```text
 BLOCKED by CC Safety Net
@@ -496,7 +496,7 @@ npx -y cc-safety-net rule verify
 | 含规则的旧文件 | 在用 `rule migrate` 迁移之前，其中的规则**不会生效**；运行时静默忽略该文件 |
 | 无效的旧文件 | 同上：在修复并迁移或删除之前一直不生效 |
 
-旧规则永远不会在原位置生效，也永远不会阻碍工作。运行时根本不读取旧文件，因此防护阶段不会有任何提示——对残留的旧文件发出警告的是 `npx -y cc-safety-net rule verify`。升级后请运行一次。
+旧规则不会在原位置生效，也不会阻止普通命令。运行时不读取旧文件，因此防护阶段没有任何提示。`npx -y cc-safety-net rule verify` 才会报告残留的旧文件。升级后请运行一次。
 
 ```bash
 # Convert legacy inline rules into the rulebook layout
@@ -527,9 +527,9 @@ npx -y cc-safety-net rule verify
 
 ## 无效的自定义规则配置
 
-无法通过校验的自定义规则配置会被**丢弃、不再生效，也永远不会变成一次拒绝**。普通命令照常运行，其他所有已校验的源继续生效，全部内置保护依然适用。运行时会把自己报告为 `degraded`，让这种情况显现出来。
+无法通过校验的自定义规则配置会被**丢弃并停止生效**，不会因此阻止命令。普通命令照常运行，其他已校验的源和所有内置保护继续生效。运行时会报告 `degraded`。
 
-因为被丢弃的源是**移除**拒绝而不是新增拒绝，所以这类故障本身不会造成操作阻碍。`npx cc-safety-net status` 是低成本的日常检查。完整的故障回退矩阵、诊断字符串、报告界面和修复顺序见[配置恢复](/zh-Hans/configuration/recovery)。
+被丢弃的源会**减少**拒绝，不会增加拒绝，因此这类故障不会直接阻碍操作。请定期运行 `npx cc-safety-net status`。完整的回退矩阵、诊断字符串、报告位置和修复顺序见[配置恢复](/zh-Hans/configuration/recovery)。
 
 <Warning>
 自定义规则配置**不具备防篡改能力**。`rule.json`、rulebook、lockfile 和缓存都只是尽力而为；只有规范位置的用户 `policy.json` 属于受保护路径。如果手动添加或修改自定义规则，请务必用 `npx -y cc-safety-net rule verify` 验证。

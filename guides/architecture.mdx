@@ -72,7 +72,7 @@ Which agent uses which adapter, its hook flag, and where its config lives are al
 - It performs **no writes, no network requests, and no in-memory caching**. Synchronizing a remote rulebook stays an explicit CLI operation (`cc-safety-net rule sync`).
 - The result is **deeply immutable**. The policy object, the rules array, each rule and its `block_args`, the transparent-wrapper list, the safety block and its overrides, the destructive-command rule overrides, the allow paths, and the secret-protection block with its disabled rules and deny paths are all frozen, as is the snapshot wrapper itself.
 - It resolves to exactly **two states**: `ready`, where every validated source is enforced, and `degraded`, where a candidate source was rejected and something safe is enforced in its place. A degraded reason names the failing source, states what is not active, and states the repair.
-- Per-rule provenance — rulebook name and version, public source spec, override reason — is registered onto the snapshot, which is what diagnostics and the GUI render.
+- The snapshot records each rule's provenance: rulebook name and version, public source spec, and override reason. Diagnostics and the GUI render this snapshot.
 
 A rejected policy or rule source does not, by itself, deny an ordinary tool call. The runtime drops the source instead of converting it into a block. See [Configuration recovery](/configuration/recovery) for the state contract and repair path.
 
@@ -83,17 +83,17 @@ Every tool call, on every integration, runs this fixed order. Operations that de
 | # | Reported `failureStage` | What happens | Weakenable by policy? |
 | --- | --- | --- | --- |
 | 1 | `policy-protection` | Extract the command from the tool input under traversal bounds (depth, node count, key count, per-string and aggregate byte size). Exceeding a bound fails closed. | No |
-| 2 | — | Build semantic facts from the invocation — one parse, reused by every later stage. | No |
+| 2 | Not reported | Build semantic facts from the invocation with one parse that every later stage reuses. | No |
 | 3 | `command-analysis` | Declared-command parser budget exceeded, so the command is denied for hitting the recursion limit. | No |
 | 4 | `command-validation` | Structural command-validation budget exceeded (input length, word count, nesting depth), so the command is denied. | No |
-| 5 | — | Resolve protected Git metadata for the execution working directory. | No |
-| 6 | `policy-protection` | **Policy-file protection** — a write, move, or recursive delete touching the canonical user `policy.json`, its directory, or an ancestor is denied with intent `hard_stop`. | No |
-| 7 | `policy-protection` | **Git-metadata protection** — a delete, move, redirection, write-tool, patch, or unknown-tool route targeting the resolved `.git` entry, its directories, or its hooks directories is denied with intent `hard_stop`. Read-only tools are exempt on the write-tool, patch, and unknown-tool routes. | No |
-| 8 | `config-load` | **Load the policy snapshot** and resolve the effective safety level from policy plus environment. | — |
-| 9 | `secret-protection` | **Sensitive-path protection** — command, path, search, and patch shapes are inspected for built-in sensitive paths and configured deny paths; a match denies with intent `hard_stop` and carries the matched rule id. Skipped entirely when secret protection is disabled in policy. | Yes |
-| 10 | `non-command` | Non-command invocations that survived stages 1–9 are allowed here. | — |
+| 5 | Not reported | Resolve protected Git metadata for the execution working directory. | No |
+| 6 | `policy-protection` | **Policy-file protection.** A write, move, or recursive delete that touches the canonical user `policy.json`, its directory, or an ancestor is denied with intent `hard_stop`. | No |
+| 7 | `policy-protection` | **Git-metadata protection.** A delete, move, redirection, write-tool, patch, or unknown-tool route that targets the resolved `.git` entry, its directories, or its hooks directories is denied with intent `hard_stop`. Read-only tools are exempt on the write-tool, patch, and unknown-tool routes. | No |
+| 8 | `config-load` | **Load the policy snapshot** and resolve the effective safety level from policy plus environment. | Not applicable |
+| 9 | `secret-protection` | **Sensitive-path protection.** The guard inspects command, path, search, and patch shapes for built-in sensitive paths and configured deny paths. A match denies with intent `hard_stop` and carries the matched rule id. The guard skips this stage when the policy disables secret protection. | Yes |
+| 10 | `non-command` | Allow non-command invocations that survived stages 1 to 9. | Not applicable |
 | 11 | `command-validation` | An empty or blank command text fails closed. | No |
-| 12 | `command-analysis` | **Destructive-command analysis** runs with the snapshot, the effective capabilities, the parsed program, the fact store, and the resolved Git metadata — then either blocks or allows. | Partly |
+| 12 | `command-analysis` | **Destructive-command analysis** runs with the snapshot, the effective capabilities, the parsed program, the fact store, and the resolved Git metadata. It then either blocks or allows. | Partly |
 
 Three placement facts follow directly from that order:
 
@@ -146,7 +146,7 @@ Parser and analyzer budgets are compile-time constants, not policy settings, so 
 | Maximum nesting depth | 64 |
 | Maximum derived-command work | 16,384 derived tokens |
 
-The first three bound the initial parse. The fourth bounds the work the analyzer *derives* from a command after that parse — child commands reconstructed from `find -exec`, `xargs`, and `parallel`, commands embedded behind wrappers, tracked heredoc files replayed into the analyzer, and PowerShell `Invoke-Expression` sources. Exhausting it denies with the reason "Command analysis exceeds CC Safety Net's derived-command work limit. Reduce nested or embedded command complexity and retry." — a distinct failure from the recursion-depth limit and the structural validation limits in the stage table above.
+The first three limits bound the initial parse. The fourth bounds the work that the analyzer *derives* after that parse. Derived work includes child commands reconstructed from `find -exec`, `xargs`, and `parallel`; commands embedded behind wrappers; tracked heredoc files replayed into the analyzer; and PowerShell `Invoke-Expression` sources. Exhausting this limit denies with the reason "Command analysis exceeds CC Safety Net's derived-command work limit. Reduce nested or embedded command complexity and retry." This failure is distinct from the recursion-depth limit and the structural validation limits in the stage table above.
 
 The analyzer's public contract is deliberately narrow: it returns nothing on allow and a result object on block. It never exposes the parser's internal `complete` / `partial` / `limited` states, so callers cannot branch on parse confidence.
 
@@ -156,7 +156,7 @@ PowerShell support is a **conservative subset**, centered on `Remove-Item` and i
 
 CC Safety Net has **one runtime package dependency, `zod`**, used only for configuration validation. The source loads it lazily through `createRequire`. The split Node bundles, including Pi, keep that behavior and direct the lazy load to the shipped `dist/vendor/zod.cjs`; the standalone Amp and OpenClaw artifacts inline `zod` instead. Exactly one source module imports it.
 
-Published bundles embed **no third-party shell parser**. The flat entry stream the path scanners read is projected from the parsed IR by `projectShellSyntax`, so the internal POSIX and PowerShell parsers described above are the sole source of shell structure — there is no second tokenization of the raw command text that could drift from them.
+Published bundles embed **no third-party shell parser**. `projectShellSyntax` projects the flat entry stream that the path scanners read from the parsed IR. The internal POSIX and PowerShell parsers are therefore the sole source of shell structure. A second tokenization of the raw command text cannot drift from them.
 
 The published runtime target is Node.js 18 or newer.
 
@@ -164,7 +164,7 @@ The published runtime target is Node.js 18 or newer.
 
 - **One fixed order, every integration.** The stage table above is the whole contract. There is no per-agent branch in the guard.
 - **Always-on protections precede configuration.** Policy-file and Git-metadata protection cannot be disabled, because they deny before the policy that could disable them is read.
-- **Fail-closed on the guard's own failure.** A thrown dependency, an exhausted parser budget, or a violated tool-input bound denies rather than allows, attributed to the stage that failed. Invalid *configuration* is a separate case and does not deny — see [Configuration recovery](/configuration/recovery).
+- **Fail-closed on the guard's own failure.** A thrown dependency, an exhausted parser budget, or a violated tool-input bound denies rather than allows. The result identifies the stage that failed. Invalid *configuration* is a separate case and does not deny. See [Configuration recovery](/configuration/recovery).
 - **No network, no writes at evaluation time.** Runtime evaluation performs no network requests, and the snapshot loader performs no writes. Nothing in the guard inspects or filters egress.
 - **Platform-agnostic core.** Adapters translate formats; the guard and the classifier are shared verbatim.
 - **Bounded, not exhaustive.** This is a static pre-execution policy gate, not an OS sandbox, a privilege boundary, or protection for commands that bypass an installed integration. See [Known limitations](/guides/known-limitations).
@@ -173,8 +173,8 @@ The published runtime target is Node.js 18 or newer.
 
 The technical guides run from the user-facing lifecycle down to the reasoning behind the design. This page is step 3.
 
-- Back: [Integration architecture](/guides/integration-architecture) — how each agent's call reaches the adapters above, and [How it works](/guides/how-it-works) for the same sequence at user depth.
-- Next: [Analysis engine](/guides/analysis-engine) — stage 12 in detail: each analyzer, the safety-level boundaries, and the recursive-delete classification order.
-- Then: [Design principles](/guides/design-principles) — why the order, the always-on protections, and the owned parsers are what they are.
+- Back: [Integration architecture](/guides/integration-architecture), which shows how each agent's call reaches the adapters above, and [How it works](/guides/how-it-works), which shows the same sequence at user depth.
+- Next: [Analysis engine](/guides/analysis-engine), which details stage 12: each analyzer, the safety-level boundaries, and the recursive-delete classification order.
+- Then: [Design principles](/guides/design-principles), which explains the order, the always-on protections, and the owned parsers.
 
 Related: [Configuration recovery](/configuration/recovery) for `ready` versus `degraded`, [Security model](/guides/security-model) for trust boundaries, and [Known limitations](/guides/known-limitations) for what this design cannot cover.

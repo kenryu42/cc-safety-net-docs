@@ -4,7 +4,7 @@ sidebarTitle: "状态行"
 description: "使用 bunx、npx 或 claude x，在 Claude Code 状态行中显示 CC Safety Net 的有效安全级别、worktree 放宽和 degraded 配置警告。"
 ---
 
-CC Safety Net 可以在 Claude Code 的状态行中把自身状态显示为单行表情符号指示器，让有效安全级别一目了然。无需运行单独的诊断命令，就能随时了解保护是否在强制执行以及处于哪个级别。
+CC Safety Net 可以在 Claude Code 状态行中显示一行状态指示器。无需运行诊断命令，你就能看到保护是否生效，以及当前的安全级别。
 
 状态行**仅适用于 Claude Code**。它从 `~/.claude/settings.json`（或 `$CLAUDE_SETTINGS_PATH`）读取 `enabledPlugins["cc-safety-net@cc-marketplace"]` 条目，以确定 Claude Code 插件是否启用。如果你为其他智能体安装了 CC Safety Net，或将它安装为手动 Claude Code hook 而不是 marketplace 插件，则此指示器与你无关。
 
@@ -48,7 +48,7 @@ CC Safety Net 可以在 Claude Code 的状态行中把自身状态显示为单�
     ```
 </Tab>
 <Tab title="与现有命令通过管道连接">
-如果你已有状态行命令，把 CC Safety Net 用管道接在末尾，两者的输出就会一起显示：
+如果已有状态行命令，可用管道把 CC Safety Net 接在末尾，同时显示两者的输出：
 
     ```json
     {
@@ -77,11 +77,11 @@ Claude Code 插件处于禁用状态时，整行会折叠为单个指示器：
 
 ### 级别指示器
 
-始终只显示一个级别表情符号。它报告 `policy.json` 与环境变量组合后的**有效**安全级别，而不是你恰好设置了哪个环境变量。
+状态行只显示一个级别表情符号。它报告 `policy.json` 与环境变量组合后的**有效**安全级别，不是某个环境变量的值。
 
 | 显示 | 有效级别 | 含义 |
 | --- | --- | --- |
-| ✅ | `standard` | 未启用任何能力——默认预设 |
+| ✅ | `standard` | 未启用任何能力，是默认预设 |
 | 🔒 | `strict` | 仅启用 `fail_closed` 能力 |
 | 👁️ | `paranoid` | `fail_closed`、`paranoid_rm` 和 `paranoid_interpreters` |
 | 🔧 | `custom` | 任何其他组合 |
@@ -96,7 +96,7 @@ Claude Code 插件处于禁用状态时，整行会折叠为单个指示器：
 
 | 显示 | 含义 |
 | --- | --- |
-| 🌳 | worktree 模式处于活动状态——`policy.json` 中的 `workflow.worktree_mode`，或 `CC_SAFETY_NET_WORKTREE=1` |
+| 🌳 | worktree 模式处于活动状态。`policy.json` 中的 `workflow.worktree_mode` 或 `CC_SAFETY_NET_WORKTREE=1` 已启用它 |
 | ⚠️ | 运行时为 **`degraded`**：至少一个配置源无法验证，因此评估使用回退配置 |
 
 ⚠️ 标记是配置处于 `degraded` 状态的唯一被动信号。它不说明哪个源失败。运行 `npx cc-safety-net status` 查看诊断，或运行 `npx cc-safety-net doctor` 获取完整报告。请参阅[配置恢复](/zh-Hans/configuration/recovery)，了解 `ready` 和 `degraded` 的含义及各自的修复方法。
@@ -107,7 +107,7 @@ Claude Code 插件处于禁用状态时，整行会折叠为单个指示器：
 | --- | --- |
 | ❌ | `~/.claude/settings.json` 中未启用 Claude Code 插件 `cc-safety-net@cc-marketplace` |
 
-这与 `status` 在 `Not active` 下报告的第一项是同一条件。判定仍为 `ready` 或 `degraded`，因为禁用插件只影响 Claude Code 集成。`statusline` 命令先检查此条件，并替换该行的其余部分。因此，`❌` 旁边不会显示级别、worktree 或 `degraded` 指示器。
+这与 `status` 在 `Not active` 下报告的第一项是同一条件。判定仍是 `ready` 或 `degraded`，因为禁用插件只影响 Claude Code 集成。`statusline` 会先检查此条件。插件禁用时，整行只显示 `❌`，不再显示级别、worktree 或 `degraded` 指示器。
 
 <Note>
 `❌` 状态专门表示 Claude Code marketplace 插件已禁用。如果你将 CC Safety Net 作为手动 Claude Code hook（而不是 marketplace 插件）运行，或将它用于其他智能体，即使保护已启用，状态行也可能显示 `❌`。它只反映 `~/.claude/settings.json` 中的 `enabledPlugins` 条目。
@@ -117,10 +117,10 @@ Claude Code 插件处于禁用状态时，整行会折叠为单个指示器：
 
 这两个命令都会加载策略快照和已解析的环境，只是以不同的格式显示配置状态。`status` 打印一份多行终端报告，其中包含一个判定，以及每个问题一条诊断。状态行只打印一行表情符号指示器，不含诊断信息。
 
-想知道*原因*时用 `status`；想要一个常驻、一眼可见的标记时用状态行。`status` 和 `statusline` 的完整语法、输出和退出行为见 [CLI 命令](/zh-Hans/reference/cli-commands)。
+需要查看原因时用 `status`。只需要常驻标记时用状态行。`status` 和 `statusline` 的完整语法、输出和退出行为见 [CLI 命令](/zh-Hans/reference/cli-commands)。
 
 <Note>
-对 `~/.claude/settings.json` 的更改立即生效——无需重新启动 Claude Code。`statusline` 命令接受 `-cc` 作为 `--claude-code` 的短别名。
+对 `~/.claude/settings.json` 的更改立即生效，无需重新启动 Claude Code。`statusline` 命令接受 `-cc` 作为 `--claude-code` 的短别名。
 </Note>
 
 <Note>

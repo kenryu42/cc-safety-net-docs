@@ -6,7 +6,7 @@ description: "The reasoning behind CC Safety Net: semantic analysis over wildcar
 
 This is the last page of the technical sequence: it adds no new behavior, and instead gives the rationale and the tradeoffs behind what [Architecture](/guides/architecture) and [Analysis engine](/guides/analysis-engine) specify. Read those first if you want to know *what* happens; read this to know *why*.
 
-CC Safety Net was built in response to a real incident — an AI coding agent deleting an entire home directory. Every design choice flows from one goal: stop destructive commands _before_ an agent executes them, and never create a false sense of security.
+CC Safety Net was built after an AI coding agent deleted an entire home directory. Every design choice follows one goal: stop destructive commands _before_ an agent executes them without creating a false sense of security.
 
 ## Semantic analysis over wildcard patterns
 
@@ -18,9 +18,9 @@ The tradeoff is complexity: the parser must handle shell syntax correctly, and e
 
 ## One fixed order, with the always-on protections first
 
-Every tool call runs through the same ordered stages, on every integration. Two of those stages — protection of the canonical policy file and protection of Git metadata — deliberately run *before* the policy snapshot is loaded.
+Every tool call runs through the same ordered stages, on every integration. Two of those stages, protection of the canonical policy file and protection of Git metadata, deliberately run *before* the policy snapshot is loaded.
 
-That ordering is the point. A protection evaluated after configuration is only as strong as the configuration, and configuration is exactly what a compromised agent would try to edit first. By denying before the policy file is read, these two guards carry no config state, cannot be relaxed by a preset or an override, and cannot be switched off by the very file they protect. The cost is that their denials cannot report a safety level or a fallback reason, because neither is known yet — a deliberate trade of diagnostic detail for an unconditional guarantee.
+That ordering is the point. A protection evaluated after configuration is only as strong as the configuration, and configuration is what a compromised agent would try to edit first. By denying before the policy file is read, these two guards carry no config state. A preset, an override, or the protected file cannot switch them off. Their denials cannot report a safety level or fallback reason because neither is known yet. This trades diagnostic detail for an unconditional guarantee.
 
 Sensitive-path protection sits on the other side of the line, after the snapshot. It *is* policy-controllable, because which paths count as sensitive is genuinely a local decision, and because deny paths are only useful if you can add your own.
 
@@ -36,7 +36,7 @@ When CC Safety Net cannot complete an analysis, it blocks rather than allows:
 
 The reasoning is simple: a safety net that fails open is worse than no safety net, because it creates a false sense of security. Blocking on an unexpected error is annoying but recoverable; allowing a destructive command through is not.
 
-**Invalid configuration is deliberately not part of this.** A rejected configuration source is dropped, not converted into a denial — turning a typo in a rulebook into a machine that blocks all work would be a denial-of-service on the user, and it would push people to uninstall the tool rather than fix the file. [Configuration recovery](/configuration/recovery) owns that contract and the repair path.
+**Invalid configuration is deliberately not part of this.** The runtime drops a rejected configuration source instead of converting it into a denial. Otherwise, a typo in a rulebook could block all work and push users to uninstall the tool instead of fixing the file. [Configuration recovery](/configuration/recovery) defines that contract and the repair path.
 
 See [Security model](/guides/security-model) for how these properties are enforced at each trust boundary.
 
@@ -46,16 +46,16 @@ A denial is not an error state. It reaches the agent as a normal tool result in 
 
 A bare "permission denied" can make an agent retry similar commands or stop the full task. Repeated variants can find an unprotected form and use agent turns. Stopping the full task turns one safety action into a work stoppage.
 
-Each message is therefore built to hand the agent a productive next move. The reason states in plain language what the command would have done and, where one exists, names the safer alternative. And every rule carries an **intent** that selects the closing instruction: report the block and continue with the rest of the task, switch to the named alternative, retry with a narrower explicit target, hand the operation to the user, or restructure the command instead of brute-forcing variants. Even the fail-closed denial for an internal error carries an intent — restructure, don't retry — so an unexpected failure of the tool itself still routes the agent toward a useful response.
+Each message gives the agent a productive next action. The reason states what the command would have done and names a safer alternative when one exists. Every rule carries an **intent** that selects the closing instruction: report the block and continue with the task, switch to the named alternative, retry with a narrower explicit target, hand the operation to the user, or restructure the command instead of trying variants. Even a fail-closed denial for an internal error carries the intent "restructure, don't retry." An unexpected failure of the tool itself still directs the agent to a useful response.
 
 The instruction is deliberately advisory. Nothing forces the agent to obey it; enforcement comes from the guard, which blocks a disobedient retry just the same. The message exists to make the compliant path the easiest one, so that in the common case the session absorbs a block and keeps moving. The message anatomy and the full intent table are in [How it works](/guides/how-it-works#what-a-block-looks-like).
 
 ## A minimal dependency surface
 
-CC Safety Net keeps its runtime dependency surface to a single lazily loaded package, and everything structural — segment splitting, quoting, redirection, command substitution, dynamic-word provenance — comes from its **own bounded POSIX and PowerShell parsers** rather than a third-party grammar. That is a deliberate build-versus-buy decision:
+CC Safety Net has one lazily loaded runtime package. Its **own bounded POSIX and PowerShell parsers** handle segment splitting, quoting, redirection, command substitution, and dynamic-word provenance instead of a third-party grammar. This choice has four reasons:
 
 - A smaller dependency tree means a smaller supply-chain attack surface, and the parser is the component an attacker most wants to confuse.
-- The analysis needs facts a general tokenizer does not carry — which words came from an expansion, which target is anchored to the working directory, which quoting form was used — so an owned parser is the only way to make those facts first-class.
+- The analysis needs facts a general tokenizer does not carry, such as which words came from an expansion, which target is anchored to the working directory, and which quoting form was used. An owned parser makes those facts first-class.
 - Parser budgets can be fixed constants rather than configuration, which makes resource exhaustion a bounded, testable failure mode instead of an open-ended one.
 - For the agents that run CC Safety Net as a hook subprocess, it starts fresh on every shell tool call, so startup time matters and fewer dependencies mean faster cold starts.
 
@@ -65,20 +65,20 @@ See [Architecture](/guides/architecture#parsers-and-the-runtime-dependency-surfa
 
 Earlier versions stored custom rules as inline JSON in a single project file. CC Safety Net replaced this with a rulebook system for four reasons:
 
-- **Sharing** — rulebooks can be fetched from GitHub repositories and pinned with SHA-256 digests in a lockfile, so teams share blocking policy without copy-pasting JSON.
-- **Integrity** — remote rulebook content is verified against the lockfile digest before use. Inline config had no integrity story.
-- **Scoping** — rulebooks support separate user (global) and project scopes with distinct config directories.
-- **Validation** — rulebook content is schema-validated before it can influence a blocking decision.
+- **Sharing.** Rulebooks can be fetched from GitHub repositories and pinned with SHA-256 digests in a lockfile, so teams can share blocking policy without copying JSON.
+- **Integrity.** The runtime verifies remote rulebook content against the lockfile digest before use. Inline configuration had no integrity check.
+- **Scoping.** Rulebooks support separate user and project scopes with distinct configuration directories.
+- **Validation.** The runtime validates rulebook content against the schema before it can affect a blocking decision.
 
 Custom rules are strictly additive: they can only add restrictions, never relax built-in protections. This keeps the trust boundary simple. See [Custom rules](/configuration/custom-rules) for the authoring workflow.
 
 ## Graduated levels instead of one setting
 
-Protection is shipped as three presets — standard, strict, and paranoid — rather than a single on/off switch, because the honest answer to "should an unverifiable command be blocked?" depends on where the command came from.
+Protection has three presets: standard, strict, and paranoid. A single on/off switch cannot account for whether a command came from a supervised or untrusted context.
 
 Standard optimizes for a human-supervised session: it blocks recognizable destructive commands and sensitive-content access while tolerating unparseable-but-harmless text, so day-to-day work is not interrupted. It is explicitly **best-effort against adversarial or dynamic input** and is not the right setting when commands may originate from prompt injection or another untrusted context.
 
-Strict and paranoid buy certainty with friction. Strict blocks what cannot be verified; paranoid additionally blocks categories that are usually fine but occasionally catastrophic. The design deliberately does *not* try to close standard's gaps by adding more standard-mode parser heuristics — a target that cannot be resolved statically cannot be made safe by guessing harder. The prescribed response to a newly found gap is a strict or paranoid fail-closed fixture, which is why the residual-risk families for standard mode are recorded rather than hidden.
+Strict and paranoid add certainty at the cost of more blocks. Strict blocks what cannot be verified. Paranoid also blocks categories that are usually safe but can be catastrophic. Standard does *not* add more parser heuristics to close these gaps because guessing cannot make a statically unresolved target safe. A new gap requires a strict or paranoid fail-closed fixture. The documentation therefore records standard mode's residual-risk families.
 
 Individual capabilities remain separately settable, and any per-rule override can force a strict-tier rule on under standard. What no override can do is weaken a catastrophic rule or the always-on protections. See [Modes](/configuration/modes) for the levels and [Analysis engine](/guides/analysis-engine#safety-level-boundaries) for exactly where each boundary falls.
 
@@ -97,13 +97,13 @@ Linked git worktrees create a usability problem: a developer working in a worktr
 
 Rather than relax the rule generally, [worktree mode](/configuration/modes#worktree-mode-cc_safety_net_worktree=1) lifts the block only for local discards, only inside a directory positively verified as a linked worktree, and only when nothing has redirected the git context. Verification is the load-bearing part of the design: a directory that merely looks like a worktree does not qualify, and if the check cannot complete the command stays blocked.
 
-The relaxation is deliberately narrow — every remote-affecting operation (force pushes, branch deletes, stash drops) stays blocked, as do local discards that could reach outside the disposable worktree. The exact conditions and the non-relaxable cases are in [Analysis engine](/guides/analysis-engine#worktree-relaxation); how to turn the mode on is in [Modes](/configuration/modes).
+The relaxation is narrow. Every remote-affecting operation, including force pushes, branch deletes, and stash drops, stays blocked. Local discards that could reach outside the disposable worktree also stay blocked. [Analysis engine](/guides/analysis-engine#worktree-relaxation) lists the exact conditions and non-relaxable cases. [Modes](/configuration/modes) explains how to turn the mode on.
 
 ## Where to go next
 
 The technical guides run from the user-facing lifecycle down to the reasoning behind the design. This page is step 5, the last one.
 
-- Back: [Analysis engine](/guides/analysis-engine) — the exact classification behavior these tradeoffs produce, and [Architecture](/guides/architecture) for the guard order they justify.
-- Start over: [How it works](/guides/how-it-works) — the same system at user depth.
+- Back: [Analysis engine](/guides/analysis-engine), which shows the exact classification behavior these tradeoffs produce, and [Architecture](/guides/architecture), which shows the guard order they justify.
+- Start over: [How it works](/guides/how-it-works), which presents the same system at user depth.
 
 Related: [Security model](/guides/security-model) for the trust boundaries these decisions protect, [Known limitations](/guides/known-limitations) for what they cannot do, and [Configuration recovery](/configuration/recovery) for the `ready` and `degraded` contract referenced above.

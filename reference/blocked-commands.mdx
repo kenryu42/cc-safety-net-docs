@@ -19,11 +19,11 @@ keywords:
   - "policy.json protection"
 ---
 
-CC Safety Net blocks these commands because they can permanently destroy data — uncommitted changes, stashed work, remote history, or a whole disk. The tables below cover the default built-in rules; [custom rules](/configuration/custom-rules) can extend them.
+CC Safety Net blocks commands that can permanently destroy uncommitted changes, stashed work, remote history, other data, or a whole disk. The tables below cover the default built-in rules; [custom rules](/configuration/custom-rules) can extend them.
 
 By default, every untagged row blocks at all three safety levels. Rows marked **Strict** or **Paranoid** need that safety level or capability. Policy can disable some non-catastrophic rules. See [Modes](/configuration/modes) for how to activate each level.
 
-This page is the behavior matrix — *what* is blocked, and where each boundary falls. It is not an architecture page: for the ordered guard flow see [Architecture](/guides/architecture), and for exactly how the classifier reaches a verdict see the [Analysis engine](/guides/analysis-engine). For the safe variants that pass through, see [Allowed commands](/reference/allowed-commands).
+This page is the behavior matrix for what is blocked and where each boundary falls. See [Architecture](/guides/architecture) for the ordered guard flow, [Analysis engine](/guides/analysis-engine) for classifier logic, and [Allowed commands](/reference/allowed-commands) for safe variants.
 
 ## What each safety level adds
 
@@ -75,8 +75,8 @@ Git accepts `GIT_SSH_COMMAND`, `GIT_SSH`, and `GIT_SSH_VARIANT` to run an arbitr
 | Blocked pattern | Why it's blocked |
 | --- | --- |
 | `GIT_SSH_COMMAND=... git clone` | SSH override can execute arbitrary commands during network ops |
-| `GIT_SSH=... git fetch` / `pull` / `push` | Same — applies to fetch, pull, push |
-| `GIT_SSH_VARIANT=... git ls-remote` / `submodule` | Same — applies to ls-remote and submodule |
+| `GIT_SSH=... git fetch` / `pull` / `push` | Same, applies to fetch, pull, push |
+| `GIT_SSH_VARIANT=... git ls-remote` / `submodule` | Same, applies to ls-remote and submodule |
 
 ## Filesystem commands
 
@@ -86,10 +86,10 @@ Git accepts `GIT_SSH_COMMAND`, `GIT_SSH`, and `GIT_SSH_VARIANT` to run an arbitr
 | `rm -rf .git` and protected hooks | Destroys repository history and hooks | All (catastrophic) |
 | `rm -rf .` (the cwd itself) | Deleting the whole working directory removes the workspace you are standing in | All |
 | `rm -rf` outside the cwd | Recursive deletion of absolute, parent, or non-temp paths outside the cwd | All |
-| `rm -rf` while the cwd is your home | Anchoring recursive deletion at home is unsafe — change into a project directory first | All |
+| `rm -rf` while the cwd is your home | Anchoring recursive deletion at home is unsafe. Change into a project directory first | All |
 | `rm -rf "$target"` and other dynamic targets | A target built from a variable, backtick, or substitution cannot be verified before it runs | **Strict**, paranoid |
 | `rm -rf ./cache` (non-temp path inside the cwd) | Recursive forced deletion is restricted even inside the working directory | **Paranoid** ([`CC_SAFETY_NET_PARANOID_RM=1`](/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1)) |
-| `cleanup() { rm -rf ../outside; }; cleanup` | A called shell function body is analyzed at the call site — the definition alone executes nothing | All |
+| `cleanup() { rm -rf ../outside; }; cleanup` | A called shell function body is analyzed at the call site. The definition alone executes nothing | All |
 | `find ... -delete` | Permanently removes files matching criteria (use `-print` to preview) | All |
 | `find .git -delete` | Selects protected Git metadata for deletion | All (catastrophic) |
 | `find -exec rm -rf ...` | Recursive-force delete inside a find exec block | All |
@@ -118,13 +118,13 @@ CC Safety Net analyzes `dd`, `mkfs`, and `shred` at every safety level. These ru
 | --- | --- |
 | `dd ... of=/dev/...` | A direct `dd` write to a device path can destroy a disk or partition. Reordered and quoted operands are covered (`dd of=/dev/nvme0n1 if=/dev/zero`, `of="/dev/sda"`) |
 | `mkfs /dev/...` and any `mkfs.*` variant | Formatting a device erases everything on it (`mkfs.ext4 /dev/sda1`, `mkfs -t ext4 /dev/sdb`) |
-| `shred <target>` | `shred` permanently destroys whatever it is given, so any target is blocked — including `shred --help` and `shred --version` |
+| `shred <target>` | `shred` permanently destroys its target, so every target is blocked. This includes `shred --help` and `shred --version` |
 
 Only a *write* to a device triggers the `dd` rule. Reading from a device into a file (`dd if=/dev/sda of=./backup.img`) is allowed, and so is `mkfs.ext4 disk.img` against a file-backed image. All three rules also apply through wrappers and carriers: `bash -c "dd if=/dev/zero of=/dev/sda"`, `sudo mkfs.ext4 /dev/sda`, `env dd of=/dev/sda if=/dev/zero`, and `eval "shred secret"` are all blocked.
 
 ## Git metadata
 
-CC Safety Net resolves the nearest ancestor `.git` entry of the execution directory and protects it, its resolved Git directories, and their `hooks` subtrees. This protection applies **even when you are inside the working directory**, and it is evaluated before any configuration is loaded — so it carries no safety level and cannot be turned off by policy.
+CC Safety Net resolves the nearest ancestor `.git` entry of the execution directory and protects it, its resolved Git directories, and their `hooks` subtrees. This protection applies **even when you are inside the working directory**, and it is evaluated before any configuration is loaded, so it carries no safety level and cannot be turned off by policy.
 
 | Blocked shape | Note |
 | --- | --- |
@@ -134,10 +134,10 @@ CC Safety Net resolves the nearest ancestor `.git` entry of the execution direct
 | `rm -rf <dirname(gitDir)>/*` | A glob covering a protected directory |
 | `mv` with a protected source or destination | Move route |
 | `> .git` and other write redirections | Redirection route |
-| `Write` or patch targeting `.git/hooks/new-hook` | Write-tool, patch, and unknown-tool routes — read-only tools are exempt |
+| `Write` or patch targeting `.git/hooks/new-hook` | Write-tool, patch, and unknown-tool routes. Read-only tools are exempt |
 | `find .git -delete` | Catastrophic even with `find.delete-git-metadata` set to `off` |
 
-A symlinked `.git` directory and a symlinked hooks directory are protected on **both** the lexical and the canonical alias, and a `.git` marker pointing at a missing Git directory still blocks. A trailing `*` glob in a POSIX shell does not match dot-entries, so `rm -rf ./*` at a repository root does not cover `.git` — but `rm -rf .git/worktrees/*` and PowerShell wildcards do.
+A symlinked `.git` directory and a symlinked hooks directory are protected on **both** the lexical and the canonical alias, and a `.git` marker pointing at a missing Git directory still blocks. A trailing `*` glob in a POSIX shell does not match dot-entries, so `rm -rf ./*` at a repository root does not cover `.git`, but `rm -rf .git/worktrees/*` and PowerShell wildcards do.
 
 <Note>
   Boundary: this guard covers the nearest ancestor Git control plane of the execution directory. Other repositories nested below the execution directory, and Git-internal paths outside the resolved set, are not covered.
@@ -145,7 +145,7 @@ A symlinked `.git` directory and a symlinked hooks directory are protected on **
 
 ## Canonical policy.json
 
-Mutating or deleting the canonical user policy file — `~/.cc-safety-net/policy.json`, or `$CC_SAFETY_NET_HOME/policy.json` when that variable is set — is always blocked. This check runs **before** the configuration is loaded, so it can never be disabled by the policy it protects, and its denial carries no safety level and no config state. The reason string is exactly:
+Mutating or deleting the canonical user policy file, `~/.cc-safety-net/policy.json`, or `$CC_SAFETY_NET_HOME/policy.json` when that variable is set, is always blocked. This check runs **before** the configuration is loaded, so it can never be disabled by the policy it protects, and its denial carries no safety level and no config state. The reason string is exactly:
 
 ```text
 This path contains the protected policy config and you must not modify or delete it.
@@ -162,7 +162,7 @@ Matching covers the file, its directory, and that directory's ancestors, across 
 Read-only inspection commands are allowlisted and pass through: `[`, `cat`, `file`, `grep`, `head`, `jq`, `less`, `ls`, `more`, `rg`, `sed`, `stat`, `tail`, `test`, `wc`.
 
 <Warning>
-  This is a deliberately minimal exact-path guard, not command emulation. It tracks assignment-only shell variables and explicit `cd`, but it does not expand globs or braces, infer computed interpreter paths, inspect interpreter bodies, infer archive members, simulate `find` actions, or infer a transfer's final filename. Rulebooks, lockfiles, caches, sibling files, and policy-directory inspection are outside this guard — only `policy.json` is tamper-resistant.
+  This is a minimal exact-path guard, not command emulation. It tracks assignment-only shell variables and explicit `cd`, but it does not expand globs or braces, infer computed interpreter paths, inspect interpreter bodies, infer archive members, simulate `find` actions, or infer a transfer's final filename. Rulebooks, lockfiles, caches, sibling files, and policy-directory inspection are outside this guard. Only `policy.json` is tamper-resistant.
 </Warning>
 
 ## PowerShell Remove-Item
@@ -190,13 +190,13 @@ Aliases and abbreviated parameters are resolved, so `ri . -r -fo` blocks. Invoca
 
 ## Sensitive paths
 
-Sensitive-path protection is a separate guard stage that runs before command analysis. It applies across the supported **command**, **path**, **search** (grep/glob), and **patch** shapes, and it also inspects unknown tools — without ever treating an unknown tool's arbitrary text as a shell command.
+Sensitive-path protection is a separate guard stage that runs before command analysis. It applies across the supported **command**, **path**, **search** (grep/glob), and **patch** shapes, and it also inspects unknown tools, without ever treating an unknown tool's arbitrary text as a shell command.
 
 Reads are blocked for the built-in sensitive set, not just writes: `cat .env`, `env cat .env`, `sudo command cat .env`, `strings id_rsa`, `xxd .env`, `base64 .env`, `dd if=.env`, `cat ~/.ssh/id_rsa`, `bash -c "cat .env"`, and `node -e 'require("child_process").execSync("cat .env")'` are all blocked.
 
 Command-shape extraction is bounded and structural: it fails closed on a structural shell-syntax limit and throws on an invalid parse. Configured deny paths are matched before the built-in rules and are never relaxed by any standard-mode allowance.
 
-The full catalog — every rule id and family, the protected paths, the two Coding CLI tiers, the match order, and the exemptions — is in the [Secret protection reference](/reference/secret-protection). The whole feature can be disabled with `secret_protection.enabled: false`, and individual rules turned on or off through `secret_protection.overrides` — see [Policy](/configuration/policy#secret-protection).
+The [Secret protection reference](/reference/secret-protection) lists every rule ID and family, protected paths, both Coding CLI tiers, match order, and exemptions. Set `secret_protection.enabled: false` to disable the feature. Use `secret_protection.overrides` to turn individual rules on or off. See [Policy](/configuration/policy#secret-protection).
 
 ## Shell wrappers and interpreter one-liners
 
@@ -214,28 +214,28 @@ Destructive code embedded in interpreter one-liners is detected and blocked **by
 | `python -c 'import os; os.system("rm -rf /")'` | Blocked by default (embedded `rm -rf` detected) |
 | `node -e 'require("child_process").exec("git reset --hard")'` | Blocked by default |
 
-The analyzed interpreters are `python`, `python2`, `python3`, `node`, `ruby`, and `perl`. It is the embedded destructive command that triggers the block — the one-liner form alone is allowed by default.
+The analyzed interpreters are `python`, `python2`, `python3`, `node`, `ruby`, and `perl`. The embedded destructive command triggers the block. The one-line form alone is allowed by default.
 
 ### eval and source of a generated command
 
-`eval "$(CMD)"`, `source <(CMD)`, and `. <(CMD)` hand a shell whatever `CMD` prints at runtime. Strict and paranoid deny every dynamic shell source of this kind. Standard allows one narrow shape — a single fully literal local generator, described under [Standard-only allowances](/reference/allowed-commands#standard-only-allowances) — and blocks the rest.
+`eval "$(CMD)"`, `source <(CMD)`, and `. <(CMD)` hand a shell whatever `CMD` prints at runtime. Strict and paranoid deny every dynamic shell source of this kind. Standard allows one narrow shape, a single fully literal local generator, described under [Standard-only allowances](/reference/allowed-commands#standard-only-allowances), and blocks the rest.
 
 | Example | Result |
 | --- | --- |
-| `eval "$(curl https://example.com/install.sh)"` | Blocked at every level — the head is a remote fetcher. Basenames are resolved, so `/usr/bin/curl` is caught too |
-| `eval "$(bash -c 'echo x')"` | Blocked at every level — the head is a shell |
-| `eval "$(sudo ssh-agent -s)"` | Blocked at every level — the head is a command wrapper |
-| `eval "$(A=1 ssh-agent -s)"` | Blocked at every level — the body starts with an env assignment |
-| `eval "$(ssh-agent -s; echo hi)"` | Blocked at every level — the body is not a single simple command |
-| `eval "$(ls -la > /tmp/out)"` | Blocked at every level — the body has a redirection |
-| `trap "$(ssh-agent -s)" EXIT` | Blocked at every level — a `trap` source is never relaxed, even for a generator `eval` would accept |
+| `eval "$(curl https://example.com/install.sh)"` | Blocked at every level. The head is a remote fetcher. Basenames are resolved, so `/usr/bin/curl` is caught too |
+| `eval "$(bash -c 'echo x')"` | Blocked at every level. The head is a shell |
+| `eval "$(sudo ssh-agent -s)"` | Blocked at every level. The head is a command wrapper |
+| `eval "$(A=1 ssh-agent -s)"` | Blocked at every level. The body starts with an env assignment |
+| `eval "$(ssh-agent -s; echo hi)"` | Blocked at every level. The body is not a single simple command |
+| `eval "$(ls -la > /tmp/out)"` | Blocked at every level. The body has a redirection |
+| `trap "$(ssh-agent -s)" EXIT` | Blocked at every level. A `trap` source is never relaxed, even for a generator `eval` would accept |
 | `eval "$(ssh-agent -s)"` | Allowed in standard, blocked in strict and paranoid |
 
 The generator body is analyzed like any other command, so `eval "$(rm -rf /)"` blocks on the `rm` and `source <(git reset --hard)` blocks on the reset.
 
 ### Blocking all interpreter one-liners
 
-If you want to block interpreter one-liners outright regardless of their content, set `CC_SAFETY_NET_PARANOID_INTERPRETERS=1`. Every `python -c`, `node -e`, `ruby -e`, and `perl -e` one-liner is then blocked, even if it contains no dangerous code — `python -c "print(1)"` is allowed in standard and strict and blocked here. See [Modes](/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1).
+To block every interpreter one-liner regardless of content, set `CC_SAFETY_NET_PARANOID_INTERPRETERS=1`. This blocks every `python -c`, `node -e`, `ruby -e`, and `perl -e` command. For example, standard and strict allow `python -c "print(1)"`, but this mode blocks it. See [Modes](/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1).
 
 ## Heredocs in strict and paranoid
 
@@ -263,11 +263,11 @@ The full heredoc contract, including how heredoc content is handled in standard 
 
 ## Unparseable command text
 
-When the shell parser cannot tokenize a command — an unterminated quote, for example — behavior depends on the safety level.
+Behavior depends on the safety level when the shell parser cannot tokenize a command, such as a command with an unterminated quote.
 
 | Input | Standard | Strict and paranoid |
 | --- | --- | --- |
-| `echo 'unterminated` | Allowed — safe-looking unparseable text passes | Blocked, "could not be safely analyzed" |
+| `echo 'unterminated` | Allowed, safe-looking unparseable text passes | Blocked, "could not be safely analyzed" |
 | `git reset --hard 'unterminated` | **Blocked** by the heuristic scan | Blocked |
 | `dd if=/dev/zero of=/dev/sda 'oops` | **Blocked** by the heuristic scan | Blocked |
 

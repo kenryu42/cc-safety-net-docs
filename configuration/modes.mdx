@@ -4,7 +4,7 @@ sidebarTitle: "Modes"
 description: "What CC Safety Net's standard, strict, and paranoid safety levels block, plus worktree mode. Set a level in policy.json or with environment variables to tune behavior for your workflow."
 ---
 
-CC Safety Net resolves protection into three **safety levels** — `standard`, `strict`, and `paranoid`. Each level is a preset that expands into the same three capabilities, so a level is shorthand rather than a separate code path:
+CC Safety Net resolves protection into three **safety levels**: `standard`, `strict`, and `paranoid`. Each level is a preset that expands into the same three capabilities. A level is shorthand, not a separate code path.
 
 | Level | `fail_closed` | `paranoid_rm` | `paranoid_interpreters` |
 | --- | --- | --- | --- |
@@ -12,7 +12,7 @@ CC Safety Net resolves protection into three **safety levels** — `standard`, `
 | `strict` | **on** | off | off |
 | `paranoid` | **on** | **on** | **on** |
 
-Set the level with `safety.level` in `policy.json` or with the `CC_SAFETY_NET_LEVEL` environment variable — the effective base level is the higher of the two. The individual toggles documented on this page set a single capability on top of that base. Any capability combination that is not exactly one of the three presets is reported as the effective level `custom`.
+Set the level with `safety.level` in `policy.json` or the `CC_SAFETY_NET_LEVEL` environment variable. The higher value becomes the effective base level. The individual toggles on this page set one capability on top of that base. CC Safety Net reports any combination that does not match one of the three presets as the effective level `custom`.
 
 <Note>
   Mode and debug flags use `CC_SAFETY_NET_*` environment variables. Older `SAFETY_NET_*` names (without the `CC_` prefix) are also accepted for strict, paranoid, paranoid-rm, paranoid-interpreters, and worktree toggles. See [Environment](/configuration/environment) for the full list and for the exact precedence between policy and environment, and [Policy](/configuration/policy) for `safety.level` and `safety.overrides`.
@@ -20,7 +20,7 @@ Set the level with `safety.level` in `policy.json` or with the `CC_SAFETY_NET_LE
 
 ## Default mode
 
-Default mode is the `standard` safety level. No environment variables are required to get started, and CC Safety Net protects against the built-in destructive git and filesystem patterns. This is the recommended starting point for most users.
+Default mode is the `standard` safety level. You do not need environment variables to start, and CC Safety Net protects against the built-in destructive git and filesystem patterns. Start here unless you need the stricter checks below.
 
 Some failures are handled the same way at every level:
 
@@ -39,9 +39,9 @@ Standard never relaxes sensitive **content** access, user-configured deny paths 
 
 ## Strict mode (`CC_SAFETY_NET_STRICT=1`)
 
-Strict mode turns on the `fail_closed` capability. It tightens five distinct things, not just unparseable commands:
+Strict mode turns on the `fail_closed` capability. It tightens five distinct things. Unparseable commands are the first:
 
-- **Unparseable commands are blocked.** Any command the parser cannot split into tokens is denied — "Command could not be safely analyzed (strict mode)" — even when the fallback text scan finds no dangerous pattern. `echo 'unterminated` is allowed in standard and blocked here.
+- **Unparseable commands are blocked.** CC Safety Net denies any command the parser cannot split into tokens, even when the fallback text scan finds no dangerous pattern. The reason is "Command could not be safely analyzed (strict mode)". `echo 'unterminated` is allowed in standard and blocked here.
 - **Heredocs fail closed.** A command containing a heredoc is denied unless it has exactly one heredoc, on stdin, with a quoted delimiter, no other input redirection, and a consumer that is a literal `cat`, `tee`, `git apply`, `git commit`, `gh pr create`, or `gh issue create`. So `python3 - <<'PY'` and any unquoted `<<EOF` are denied here, while `git commit -F - <<'EOF'` still passes. See [Heredoc analysis](/guides/analysis-engine#heredoc-analysis) for the exact gate.
 - **Unverifiable destructive targets are blocked** by the five rules listed below.
 - **Metadata-only sensitive-path discovery is blocked.** `test -f ~/.ssh/id_rsa` and `find ~/.ssh -type f` are allowed in standard and denied in strict.
@@ -57,7 +57,7 @@ These five rules activate only when `fail_closed` is on:
 | `shell.dynamic-executable` | `$(printf r)m -rf /` |
 | `shell.dynamic-structure` | `git reset $(printf --hard)` |
 
-Invalid hook input JSON, analyzer exceptions, and parser resource-limit failures are **already fail-closed in every mode** — those are not what strict adds.
+Invalid hook input JSON, analyzer exceptions, and parser resource-limit failures **already fail closed in every mode**. Strict does not add those checks.
 
 ### Enable the strict safety level
 
@@ -81,11 +81,11 @@ Enable strict mode when commands can come from an adversarial or untrusted conte
 
 ## Paranoid mode (`CC_SAFETY_NET_PARANOID=1`)
 
-The `paranoid` level is strict plus two further capabilities, `paranoid_rm` and `paranoid_interpreters`. These checks may be disruptive to some normal workflows, so they are opt-in. You can select the whole level, or activate the individual capabilities — a level that carries only one of them reports as the effective level `custom`.
+The `paranoid` level is strict plus two capabilities, `paranoid_rm` and `paranoid_interpreters`. These checks may disrupt some normal workflows, so they are opt-in. You can select the whole level or activate individual capabilities. A level with only one of them has the effective level `custom`.
 
 ### rm check (`CC_SAFETY_NET_PARANOID_RM=1`)
 
-By default, `rm -rf` within the current working directory is allowed — the assumption is that deleting files inside your own project root is intentional. With the paranoid rm check enabled, non-temp recursive forced removal is blocked **even inside the current working directory**: `rm -rf ./cache` matches `rm.recursive-force-paranoid`, and the PowerShell equivalent `Remove-Item ./cache -Recurse -Force` matches `powershell.remove-item-recursive-force-paranoid`.
+By default, CC Safety Net allows `rm -rf` within the current working directory because it assumes that deletion inside your project root is intentional. The paranoid rm check blocks non-temp recursive forced removal **even inside the current working directory**. `rm -rf ./cache` matches `rm.recursive-force-paranoid`. The PowerShell equivalent `Remove-Item ./cache -Recurse -Force` matches `powershell.remove-item-recursive-force-paranoid`.
 
 Temp targets and directories listed in `destructive_command_protection.allow_paths` are still allowed under this check.
 
@@ -135,7 +135,7 @@ Linked Git worktrees can provide isolated workspaces. Worktree mode relaxes sele
 export CC_SAFETY_NET_WORKTREE=1
 ```
 
-You can also set `workflow.worktree_mode: true` in [policy.json](/configuration/policy). The two are combined as a logical OR — either one enables worktree mode.
+You can also set `workflow.worktree_mode: true` in [policy.json](/configuration/policy). CC Safety Net combines the two settings as a logical OR. Either one enables worktree mode.
 
 ### Commands allowed in a linked worktree
 
@@ -151,10 +151,10 @@ When worktree mode is active and the cwd is confirmed to be a linked worktree, t
 
 These commands affect shared refs or other worktrees and are **never relaxed**, regardless of worktree mode:
 
-- `git push --force` — affects the remote
-- `git branch -D` — force-deletes a branch that is shared across worktrees
-- `git stash drop` / `git stash clear` — the stash is shared across worktrees
-- `git worktree remove --force` — could delete another worktree
+- `git push --force` affects the remote
+- `git branch -D` force-deletes a branch that is shared across worktrees
+- `git stash drop` / `git stash clear` changes the stash shared across worktrees
+- `git worktree remove --force` could delete another worktree
 
 ### Linked-worktree detection
 
@@ -170,7 +170,7 @@ Worktree detection is **fail-closed**: if CC Safety Net cannot positively identi
 
 | Level | What it adds |
 | --- | --- |
-| `standard` | No capabilities — best-effort protection against recognizable destructive commands |
+| `standard` | No capabilities. Best-effort protection against recognizable destructive commands |
 | `strict` | `fail_closed`: unparseable commands, unsupported heredocs, unverifiable destructive targets, metadata-only sensitive-path discovery |
 | `paranoid` | Strict plus `paranoid_rm` (non-temp `rm -rf` even within cwd) and `paranoid_interpreters` (every interpreter one-liner regardless of content) |
 | `custom` | Any capability combination that matches no preset |

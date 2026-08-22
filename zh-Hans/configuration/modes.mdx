@@ -4,7 +4,7 @@ sidebarTitle: "模式"
 description: "CC Safety Net 的 standard、strict 和 paranoid 安全级别会阻止什么，以及 worktree 模式的行为。通过 policy.json 或环境变量设置级别，以调整工作流的行为。"
 ---
 
-CC Safety Net 将保护解析为三个**安全级别**：`standard`、`strict` 和 `paranoid`。每个级别都是一个预设，会展开为相同的三项能力，因此级别只是简写，而不是单独的代码路径：
+CC Safety Net 有三个**安全级别**：`standard`、`strict` 和 `paranoid`。每个级别都是三项能力的预设组合。级别只是简写，不是单独的代码路径：
 
 | 级别 | `fail_closed` | `paranoid_rm` | `paranoid_interpreters` |
 | --- | --- | --- | --- |
@@ -20,12 +20,12 @@ CC Safety Net 将保护解析为三个**安全级别**：`standard`、`strict` �
 
 ## 默认模式
 
-默认模式是 `standard` 安全级别。开始使用时无需设置环境变量，CC Safety Net 会针对内置的破坏性 Git 和文件系统模式提供保护。建议大多数用户从此级别开始。
+默认模式是 `standard`。无需设置环境变量，CC Safety Net 就会阻止内置规则识别出的破坏性 Git 和文件系统操作。大多数用户应从此级别开始。
 
 某些失败在每个级别中都以相同方式处理：
 
 - **无效的 hook 输入 JSON** 在所有模式中都**始终阻止**（fail closed）。
-- 如果分析器本身抛出意外错误，则在所有模式中都以“failed closed”为原因**始终阻止**命令（fail closed）。
+- 如果分析器本身抛出意外错误，则在所有模式中都以 "failed closed" 为原因**始终阻止**命令（fail closed）。
 - 超过解析器**递归或结构验证限制**的命令在所有模式中都**始终阻止**。`standard` 级别不会放宽这些资源耗尽边界。
 
 `standard` 的差异在于无法解析和无法验证的输入：
@@ -41,7 +41,7 @@ CC Safety Net 将保护解析为三个**安全级别**：`standard`、`strict` �
 
 ## Strict 模式（`CC_SAFETY_NET_STRICT=1`）
 
-Strict 模式开启 `fail_closed` 能力。它收紧的是五个不同方面，而不只是无法解析的命令：
+Strict 模式开启 `fail_closed` 能力。它会收紧以下五类检查，不只影响无法解析的命令：
 
 - **阻止无法解析的命令。** 解析器无法拆分成 token 的任何命令都会被拒绝，即使后备文本扫描没有发现危险模式，原因也为 `Command could not be safely analyzed (strict mode)`。`echo 'unterminated` 在 `standard` 中允许，在此级别中阻止。
 - **Heredoc 会 fail closed。** 含有 heredoc 的命令只有在以下条件全部满足时才会被允许：仅有一个 heredoc、用于标准输入、分隔符带引号、没有其他输入重定向，并且消费者是字面量 `cat`、`tee`、`git apply`、`git commit`、`gh pr create` 或 `gh issue create`。因此，`python3 - <<'PY'` 和任何不带引号的 `<<EOF` 都会在此级别被拒绝，而 `git commit -F - <<'EOF'` 仍可通过。准确的判定条件见 [Heredoc 分析](/zh-Hans/guides/analysis-engine#heredoc-分析)。
@@ -85,7 +85,7 @@ export CC_SAFETY_NET_STRICT=1
 
 ## Paranoid 模式（`CC_SAFETY_NET_PARANOID=1`）
 
-`paranoid` 级别等于 strict 加上 `paranoid_rm` 和 `paranoid_interpreters` 两项能力。这些检查可能影响某些正常工作流，因此需要明确启用。你可以选择完整级别，也可以激活单项能力；只包含其中一项的级别会报告为有效级别 `custom`。
+`paranoid` 等于 strict 加上 `paranoid_rm` 和 `paranoid_interpreters`。这些检查可能影响正常工作流，因此必须明确启用。你可以选择完整级别，也可以单独启用能力。只启用部分能力时，有效级别会报告为 `custom`。
 
 <span id="paranoid-rm-check"></span>
 
@@ -133,7 +133,7 @@ export CC_SAFETY_NET_PARANOID_INTERPRETERS=1
 
 ## Worktree 模式（`CC_SAFETY_NET_WORKTREE=1`）
 
-Git linked worktree 可以提供隔离的工作区。只有当 CC Safety Net 确认当前工作目录位于 linked worktree 中时，worktree 模式才会放宽选定的本地丢弃规则。
+Git linked worktree 可以提供隔离的工作区。只有确认当前工作目录位于 linked worktree 中，CC Safety Net 才会放宽指定的本地丢弃规则。
 
 ### 启用 worktree 模式
 

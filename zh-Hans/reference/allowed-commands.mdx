@@ -1,7 +1,7 @@
 ---
 title: "允许的命令及其原因"
 sidebarTitle: "允许的命令"
-description: "CC Safety Net 允许通过的 Git、文件系统、设备、PowerShell 和敏感路径命令，以及其中哪些允许会在 strict 和 paranoid 下被移除。"
+description: "CC Safety Net 允许的 Git、文件系统、设备、PowerShell 和敏感路径命令，以及 strict 和 paranoid 会取消哪些放行。"
 keywords:
   - "允许的命令"
   - "安全命令"
@@ -15,7 +15,7 @@ keywords:
   - "worktree 模式"
 ---
 
-CC Safety Net 通过语义命令分析区分允许的形式和破坏性的形式。分析器允许本页列出的命令形式。
+CC Safety Net 通过语义分析区分允许的命令形式和破坏性的命令形式。本页列出分析器允许的命令形式。
 
 部分允许项取决于安全级别。标记为**仅 `standard`** 的行在启用 [`strict`](/zh-Hans/configuration/modes#strict-mode) 或 [`paranoid`](/zh-Hans/configuration/modes#paranoid-mode) 后会被移除。
 
@@ -48,7 +48,7 @@ CC Safety Net 通过语义命令分析区分允许的形式和破坏性的形式
 | `rm -rf $TMPDIR/...` | 用户的临时目录（除非 `$TMPDIR` 被覆盖为非临时路径） | 全部 |
 | `rm -rf ./subdir`（cwd 内） | 限定在当前工作目录内的路径 | 除 [paranoid rm](/zh-Hans/configuration/modes#paranoid-rm-check) 外全部 |
 | `rm -rf "$target"`（动态目标） | `standard` 不会一律阻止无法验证的目标 | **仅 `standard`** |
-| `cleanup() { rm -rf ../outside; }`（仅定义） | 只定义函数不会执行任何操作——函数正文只在调用位置分析 | 全部 |
+| `cleanup() { rm -rf ../outside; }`（仅定义） | 只定义函数不会执行正文；函数正文只在调用位置分析 | 全部 |
 
 `rm -rf` 按目标分类，第一个匹配项生效。根目录或主目录目标（`/`、`~`、`$HOME`）、受保护的 Git 元数据、当前工作目录本身（`rm -rf .`），以及当前工作目录就是主目录的情况，在所有级别都被阻止。当前工作目录外的其他字面路径也会被阻止，除非它们是已识别的临时目标或配置的允许路径。临时路径和当前工作目录内的路径是允许的。请注意区别：`rm -rf ./subdir` 是允许的，但 `rm -rf .`（当前工作目录本身）被阻止。
 
@@ -61,7 +61,7 @@ CC Safety Net 通过语义命令分析区分允许的形式和破坏性的形式
 
 `destructive_command_protection.allow_paths` 下列出的绝对目录或以 `~/` 开头的目录会被当作受信任的临时根目录。它们在**每个**安全级别都生效，适用于 `rm`、PowerShell `Remove-Item` 和 `find -delete`。
 
-允许路径不会放宽其他任何东西：它既不放宽敏感路径保护，也不放宽拒绝路径。它无法覆盖根目录、主目录或受保护的 Git 元数据——即使某个仓库位于允许路径内，`rm -rf` 该仓库的 `.git` 仍会被阻止。由于动态目标先于允许路径分类，允许路径永远不会作用于无法验证的目标。等于或包含 `$HOME` 的条目在校验时和规范化后都会被拒绝，而经符号链接逃逸出允许路径的情况也不在覆盖范围内。
+允许路径不会放宽其他任何东西。它既不放宽敏感路径保护，也不放宽拒绝路径。它无法覆盖根目录、主目录或受保护的 Git 元数据。即使某个仓库位于允许路径内，`rm -rf` 该仓库的 `.git` 仍会被阻止。由于动态目标先于允许路径分类，允许路径永远不会作用于无法验证的目标。等于或包含 `$HOME` 的条目在校验时和规范化后都会被拒绝，而经符号链接逃逸出允许路径的情况也不在覆盖范围内。
 
 ## Heredoc 数据消费者
 
@@ -70,29 +70,29 @@ CC Safety Net 通过语义命令分析区分允许的形式和破坏性的形式
 | 命令模式 | 安全原因 |
 | --- | --- |
 | `cat > note.md <<'EOF'` | 正文写入文件，从不执行 |
-| `tee note.md <<'EOF'` | 同上——正文只被存储，不会运行 |
+| `tee note.md <<'EOF'` | 正文只被存储，不会运行 |
 | `git apply <<'PATCH'` | patch 正文按文本应用，不会执行 |
 | `git commit -F - <<'EOF'` | 正文会成为提交信息，即使其中用文字描述了破坏性命令 |
 | `gh pr create --body-file - <<'EOF'`、`gh issue create -F - <<'EOF'` | 正文作为 PR 或 issue 文本发布 |
 
-分隔符必须带引号（`<<'EOF'`）：不带引号的 `<<EOF` 正文可能展开替换，因此在 `standard` 中仍会被扫描，启用 fail-closed 后则直接被拒绝。heredoc 之外的命令仍会分析——`cat <<'EOF' && rm -rf ~` 会因 `rm` 被阻止。对于 `cat`、`tee`、`git commit`、`gh pr create` 和 `gh issue create`，正文在提取敏感路径前还会被遮蔽，因此正文里提到机密文件名不会阻止提交；`git apply` 的正文仍对路径提取可见，因为 patch 会列出它写入的文件。完整关卡以及 `standard` 如何处理未通过关卡的 heredoc，见 [Heredoc 分析](/zh-Hans/guides/analysis-engine#heredoc-分析)。
+分隔符必须带引号（`<<'EOF'`）。不带引号的 `<<EOF` 正文可能展开替换，因此在 `standard` 中仍会被扫描，启用 fail-closed 后则直接被拒绝。heredoc 之外的命令仍会分析。`cat <<'EOF' && rm -rf ~` 会因 `rm` 被阻止。对于 `cat`、`tee`、`git commit`、`gh pr create` 和 `gh issue create`，正文在提取敏感路径前还会被遮蔽，因此正文里提到机密文件名不会阻止提交；`git apply` 的正文仍对路径提取可见，因为 patch 会列出它写入的文件。完整关卡以及 `standard` 如何处理未通过关卡的 heredoc，见 [Heredoc 分析](/zh-Hans/guides/analysis-engine#heredoc-分析)。
 
 ## 仅标准允许
 
-这些形式在 `standard` 中允许，启用 [`strict`](/zh-Hans/configuration/modes#strict-mode) 或 [`paranoid`](/zh-Hans/configuration/modes#paranoid-mode) 后则被拒绝。这是有意的权衡，不是疏漏：`standard` 对对抗性或动态输入只提供尽力保护。
+这些形式在 `standard` 中允许，启用 [`strict`](/zh-Hans/configuration/modes#strict-mode) 或 [`paranoid`](/zh-Hans/configuration/modes#paranoid-mode) 后则会被拒绝。这不是疏漏。`standard` 对对抗性或动态输入只能尽力保护。
 
 | 命令模式 | `standard` 允许的原因 |
 | --- | --- |
-| `echo 'unterminated` | 无法解析但看似安全的文本——后备的启发式扫描没有发现破坏性内容。`git reset --hard 'unterminated` 在 `standard` 中仍会被同一次扫描阻止 |
+| `echo 'unterminated` | 无法解析但看似安全的文本；后备的启发式扫描没有发现破坏性内容。`git reset --hard 'unterminated` 在 `standard` 中仍会被同一次扫描阻止 |
 | `rm -rf "$target"` | 执行前无法验证的递归删除目标 |
 | `Remove-Item $target -Recurse -Force` | 同类无法验证目标的 PowerShell 等价形式 |
 | `Get-ChildItem . -Recurse \| Remove-Item -Force` | 无法验证的 PowerShell 管道输入 |
-| `$(printf r)m -rf /`、`c=rm; "$c" -rf dir`、`$CMD --version` | 动态可执行文件名——命令头来自替换或变量 |
-| `git reset $(printf --hard)`、`rm $(printf -- '-rf') dir` | 动态结构——参数由替换拼接而成 |
+| `$(printf r)m -rf /`、`c=rm; "$c" -rf dir`、`$CMD --version` | 动态可执行文件名，命令头来自替换或变量 |
+| `git reset $(printf --hard)`、`rm $(printf -- '-rf') dir` | 动态结构，参数由替换拼接而成 |
 | `test -f ~/.ssh/id_rsa`、`find ~/.ssh -type f`、`ls -la ~/.ssh`、`stat .env` | 对内置敏感路径的纯元数据发现，不访问内容 |
-| `W='rm -rf ~'; echo "$W"` | 能够干净解析的带引号字面量赋值中的危险文本——变量始终只作为带引号的参数数据使用时，阻止会推迟到使用时判定 |
-| `f() { rm -rf "$1"; }; f ~` | 被调用的函数正文内，位置参数仍未绑定，因此目标是动态的——与 `rm -rf "$target"` 是同一个权衡 |
-| `eval "$(ssh-agent -s)"`、`source <(kubectl completion bash)` | 单条完全字面的本地生成命令——*形态*可验证，输出则无法验证 |
+| `W='rm -rf ~'; echo "$W"` | 能够干净解析的带引号字面量赋值中的危险文本。变量始终只作为带引号的参数数据使用时，阻止会推迟到使用时判定 |
+| `f() { rm -rf "$1"; }; f ~` | 被调用的函数正文内，位置参数仍未绑定，因此目标是动态的，与 `rm -rf "$target"` 采用相同的权衡 |
+| `eval "$(ssh-agent -s)"`、`source <(kubectl completion bash)` | 单条完全字面的本地生成命令。其*形态*可验证，输出则无法验证 |
 
 带引号赋值的延后判定范围很窄。赋值本身不执行任何操作，带引号的展开始终是一个 argv word，无法拆成命令加标志。只要分析器无法证明某处引用属于这类数据用法，赋值时的阻止就会保留：未加引号的展开（`env $W`）、位于命令位置的任何展开（即使带引号）、命令替换内的引用，以及未加引号的 heredoc 正文中的引用。把值交给 shell 则由下游拦截：`eval "$W"`、`bash -c "$W"` 和 `echo "$W" | sh` 都会被拒绝，因为无法验证 shell 的执行来源。
 
@@ -118,7 +118,7 @@ CC Safety Net 通过语义命令分析区分允许的形式和破坏性的形式
 | `dd if=x.iso of=./out.img`、`dd if=/dev/urandom of=random.dat` | 输出目标是普通文件 |
 | `mkfs.ext4 disk.img`、`mkfs.ext4 ./loop.img` | 格式化的是文件镜像，而不是 `/dev/` 设备 |
 | 不带操作数的 `shred` | `shred` 规则至少需要一个目标。`shred --help` 和 `shred --version` **会被阻止**，因为任何操作数都算数 |
-| `ldd ./bin`、`ddrescue if=/dev/sda of=./out.img` | 按单词边界匹配——只是把 `dd` 或 `shred` 作为子串包含的命令头不算规则命令头 |
+| `ldd ./bin`、`ddrescue if=/dev/sda of=./out.img` | 按单词边界匹配。仅把 `dd` 或 `shred` 作为子串包含的命令头不算规则命令头 |
 
 ## PowerShell 命令
 
@@ -129,10 +129,10 @@ CC Safety Net 通过语义命令分析区分允许的形式和破坏性的形式
 | `Remove-Item .\dist -Recurse -Force`、`-Path .\dist`、`-LiteralPath:.\dist`、`.\{dist}`、`'.\dist,old'` | 位于当前工作目录内（paranoid `rm` 下会被阻止） |
 | `Remove-Item /tmp/test-dir -Recurse -Force` | 临时目标，与 `rm` 的分类体系相同；配置的允许路径行为也一致 |
 | `Remove-Item 'file''name.txt'` 和反引号转义的变体 | 带引号和转义的简单删除，不会解析为破坏性目标 |
-| `Remove-Item $target -Recurse -Force` | 动态目标——**仅 `standard`**，在 `strict` 和 `paranoid` 中被阻止 |
-| `Get-ChildItem . -Recurse \| Remove-Item -Force` | 无法验证的管道输入——**仅 `standard`** |
+| `Remove-Item $target -Recurse -Force` | 动态目标。**仅 `standard`** 允许，在 `strict` 和 `paranoid` 中被阻止 |
+| `Get-ChildItem . -Recurse \| Remove-Item -Force` | 无法验证的管道输入，**仅 `standard`** 允许 |
 
-把 shell 模式设为 `posix` 会有意完全禁用 PowerShell 的删除规则，同时保留 `git.reset-hard`、`rm.recursive-force-root-or-home` 等跨 shell 规则。在 `auto` 模式下，显式的 `Remove-Item` 会被识别出来——包括出现在 `;`、换行、`&&` 或 `||` 之后的情况。
+把 shell 模式设为 `posix` 会完全禁用 PowerShell 删除规则，但仍保留 `git.reset-hard`、`rm.recursive-force-root-or-home` 等跨 shell 规则。在 `auto` 模式下，分析器会识别显式的 `Remove-Item`，包括出现在 `;`、换行、`&&` 或 `||` 之后的命令。
 
 ## 敏感路径允许
 
@@ -143,7 +143,7 @@ CC Safety Net 通过语义命令分析区分允许的形式和破坏性的形式
 | `find . -name .env` | `-name` 给出的是搜索*模式*，而不是要读取的路径 | 全部 |
 | `find src -type f` | 没有敏感路径作为根 | 全部 |
 | `custom-tool README.md`、`make FOO=bar`、`xxd README.md` | 未列入名单的命令上的良性操作数 | 全部 |
-| `cat .env.example`（也包括 `.env.sample`、`.env.template`、`.env.defaults`） | env 模板里放的是占位值，不是机密——在其他所有敏感路径规则之前豁免 | 全部 |
+| `cat .env.example`（也包括 `.env.sample`、`.env.template`、`.env.defaults`） | env 模板里放的是占位值，不是机密，因此在其他所有敏感路径规则之前豁免 | 全部 |
 | `cat node_modules/x/fixture.pem` | 供应商目录会抑制扩展名规则和宽泛的无扩展名密钥基名规则 | 全部 |
 | `test -f ~/.ssh/id_rsa` | 只做元数据层面的存在性检查，不访问内容 | **仅 `standard`** |
 | `find ~/.ssh -type f` | 只做元数据层面的列举，不访问内容 | **仅 `standard`** |
@@ -152,8 +152,8 @@ CC Safety Net 通过语义命令分析区分允许的形式和破坏性的形式
 
 其中两项允许的边界很明确，值得了解：
 
-- **env 模板。** `.env.example`、`.env.sample`、`.env.template` 和 `.env.defaults` 这几个精确基名——以及任何以 `.env.example.` 或 `.env.sample.` 开头的名称，例如 `.env.example.local`——会在其他任何敏感路径规则运行之前豁免，因此即使位于受保护的主目录内也可读可写。这种前缀形式不适用于另外两个模板：`.env.template.local` 和其他所有 `.env.*` 名称一样，会被 `secret.pattern.env-variant` 阻止。
-- **供应商目录。** 当任意路径段是 `node_modules` 或 `__pycache__`，或者出现相邻的 `vendor/bundle` 或 `vendor/cache` 组合（单独一个 `vendor` 段不算）时，恰好有两组规则被抑制：扩展名规则（`.pem`、`.p12`、`.key` 等）和宽泛的无扩展名密钥基名规则 `secret.pattern.ssh-key-basename`（`*_rsa`、`*_dsa`、`*_ed25519`、`*_ecdsa`）。其余规则在那里照常生效——`node_modules/x/.env` 和 `node_modules/x/id_rsa` 仍会被阻止。`.git` **不在**跳过集合内，因此 `.git` 树内的密钥材料（例如 `.git/hooks/deploy_key_rsa`）和在其他任何位置一样匹配规则。
+- **env 模板。** `.env.example`、`.env.sample`、`.env.template` 和 `.env.defaults` 这几个精确基名，以及任何以 `.env.example.` 或 `.env.sample.` 开头的名称，例如 `.env.example.local`，会在其他敏感路径规则运行前豁免。因此，即使位于受保护的主目录内也可读可写。这种前缀形式不适用于另外两个模板：`.env.template.local` 和其他所有 `.env.*` 名称一样，会被 `secret.pattern.env-variant` 阻止。
+- **供应商目录。** 当任意路径段是 `node_modules` 或 `__pycache__`，或者出现相邻的 `vendor/bundle` 或 `vendor/cache` 组合（单独一个 `vendor` 段不算）时，恰好有两组规则被抑制：扩展名规则（`.pem`、`.p12`、`.key` 等）和宽泛的无扩展名密钥基名规则 `secret.pattern.ssh-key-basename`（`*_rsa`、`*_dsa`、`*_ed25519`、`*_ecdsa`）。其余规则在那里照常生效。`node_modules/x/.env` 和 `node_modules/x/id_rsa` 仍会被阻止。`.git` **不在**跳过集合内，因此 `.git` 树内的密钥材料（例如 `.git/hooks/deploy_key_rsa`）和在其他任何位置一样匹配规则。
 
 <Warning>
   `standard` 从不放宽对敏感**内容**的访问，也从不放宽配置的拒绝路径。`cat ~/.ssh/id_rsa`、`find ~/.ssh -type f -exec cat {} +`、`find ~/.ssh -type f -fprint .env`、`test -f ~/.ssh/id_rsa && cat ~/.ssh/id_rsa` 和 `test -f "$(cat ~/.ssh/id_rsa)"` 在 `standard` 中同样保持阻止。拒绝路径及其子路径在内置规则之前匹配，并且不受两项仅 `standard` 放宽的影响。
@@ -174,10 +174,10 @@ worktree 模式启用后，以下命令在 linked worktree 内是允许的：
 
 即使在 linked worktree 内，以下命令仍然被阻止，因为它们的影响超出本地工作树：
 
-- `git push --force`——影响远程
-- `git branch -D`——影响共享引用
-- `git stash drop` / `git stash clear`——stash 在多个 worktree 之间共享
-- `git worktree remove --force`——可能删除另一个 worktree
+- `git push --force` 会影响远程。
+- `git branch -D` 会影响共享引用。
+- `git stash drop` / `git stash clear` 会影响多个 worktree 共享的 stash。
+- `git worktree remove --force` 可能删除另一个 worktree。
 
 Worktree 模式只放宽 git 本地丢弃规则。它不涉及文件系统、设备或 PowerShell 规则，也绝不放宽 Git 元数据保护：在 linked worktree 内，`rm .git`、`rm -rf <resolved gitDir>`、`rm -rf <commonDir>` 以及重定向 `> .git` 仍会硬停止，因为标记文件解析出的 Git 目录同样受保护。
 

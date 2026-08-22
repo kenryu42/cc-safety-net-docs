@@ -18,9 +18,7 @@ keywords:
   - "命令段"
 ---
 
-本术语表定义 CC Safety Net 文档中使用的术语。
-
-每个条目提供简短定义，并链接到完整说明该行为的页面。
+本术语表定义 CC Safety Net 文档中的常用术语。每个条目都附有详细说明页面的链接。
 
 ## 核心概念
 
@@ -30,7 +28,7 @@ keywords:
 | **Fail-closed** | 当防护无法得出可信的决策时，会**拒绝**该次工具调用，而不是允许它：例如意外的分析错误、格式错误或过大的 hook 输入、空命令、解析器限制，或 strict 模式下无法解析的命令。无效配置*不属于* fail-closed，而是进入降级状态。请参阅[设计原则](/zh-Hans/guides/design-principles)和[安全模型](/zh-Hans/guides/security-model)。 |
 | **决策（Decision）** | 防护对单次工具调用给出的允许或拒绝结果。当审计日志记录命令决策时，会写入一条审计记录，其中包含规则 ID、有效安全级别和降级运行时的后备状态。请参阅[审计日志](/zh-Hans/reference/audit-log)。 |
 | **命令段（Segment）** | 复合命令中由 shell 运算符（`&&`、`\|\|`、`\|`、`;`、换行符）分隔出的单个命令。引擎按顺序分析命令段，并在段之间传递相关状态，例如有效工作目录。如果一个命令段被阻止，则整个命令会被拒绝。请参阅[分析引擎](/zh-Hans/guides/analysis-engine)。 |
-| **分析引擎（Analysis engine）** | 与平台无关的核心，它解析命令字符串并决定是否阻止。所有智能体集成都接入同一个引擎。请参阅[分析引擎](/zh-Hans/guides/analysis-engine)。 |
+| **分析引擎（Analysis engine）** | 解析命令字符串并决定是否阻止的跨平台组件。所有智能体集成都接入同一个引擎。请参阅[分析引擎](/zh-Hans/guides/analysis-engine)。 |
 | **集成模型（Integration model）** | CC Safety Net 在编码智能体内的执行方式：标准输入 hook 子进程、智能体加载的插件、进程内扩展或事件插件。集成模型会改变智能体调用 CC Safety Net 的方式。所有集成都使用同一个分析引擎。请参阅[集成架构](/zh-Hans/guides/integration-architecture)。 |
 
 ## 配置
@@ -41,7 +39,7 @@ keywords:
 | **策略快照（Policy snapshot）** | 每次工具调用时，由策略文件、`rule.json`、lockfile 和经过摘要验证的 rulebook 缓存组合成的有效运行时策略。加载过程不写入、不发起网络请求，也不缓存。它仅解析为 `ready` 或 `degraded` 两种状态之一。请参阅[配置恢复](/zh-Hans/configuration/recovery)。 |
 | **预设（Preset）** | `safety.level` 值，即 `standard`、`strict` 或 `paranoid`，它提供继承的能力默认值。当覆盖产生不匹配任何预设的组合时，报告的有效级别为 `custom`。请参阅[模式](/zh-Hans/configuration/modes)。 |
 | **能力（Capability）** | 从预设继承且可单独设置的保护行为：`fail_closed`、`paranoid_rm` 或 `paranoid_interpreters`。策略文件中的 `safety.overrides` 可以提高或降低能力；旧版环境变量只能提高能力。请参阅[模式](/zh-Hans/configuration/modes)。 |
-| **降级（Degraded）** | 配置源被拒绝时进入的策略快照状态：无法验证的源会被丢弃或回退到保护性默认值，普通工作继续进行，并且每个诊断界面都会报告该状态。另一个状态是 `ready`。请参阅[配置恢复](/zh-Hans/configuration/recovery)。 |
+| **降级（Degraded）** | 配置源被拒绝时进入的策略快照状态。无法验证的源会被丢弃或回退到保护性默认值，普通工作继续，所有诊断界面都会报告该状态。另一个状态是 `ready`。请参阅[配置恢复](/zh-Hans/configuration/recovery)。 |
 
 ## Shell 命令形式
 
@@ -65,7 +63,7 @@ keywords:
 | --- | --- |
 | **Strict 模式** | `strict` 预设，它启用 `fail_closed` 能力，因此会拒绝无法安全分析的命令。在策略文件中设置 `safety.level`，或使用 `CC_SAFETY_NET_STRICT=1` 提高该级别。请参阅[模式](/zh-Hans/configuration/modes)。 |
 | **Paranoid 模式** | `paranoid` 预设，它在 strict 基础上增加 `paranoid_rm` 和 `paranoid_interpreters` 能力。在策略文件中设置 `safety.level`，或使用 `CC_SAFETY_NET_PARANOID`、`CC_SAFETY_NET_PARANOID_RM` 和 `CC_SAFETY_NET_PARANOID_INTERPRETERS` 提高单项能力。请参阅[模式](/zh-Hans/configuration/modes)。 |
-| **Worktree 放宽（Worktree relaxation）** | 启用 worktree 模式后——即策略文件中的 `workflow.worktree_mode` 或 `CC_SAFETY_NET_WORKTREE=1`——在已确认的 linked Git worktree 内允许部分本地 Git 丢弃命令。当 CC Safety Net 无法验证 worktree 时，不会应用这项放宽。请参阅[模式](/zh-Hans/configuration/modes#worktree-mode)。 |
+| **Worktree 放宽（Worktree relaxation）** | 启用 worktree 模式后，可在已确认的 linked Git worktree 内允许部分本地 Git 丢弃命令。可通过策略文件中的 `workflow.worktree_mode` 或 `CC_SAFETY_NET_WORKTREE=1` 启用。当 CC Safety Net 无法验证 worktree 时，不会应用这项放宽。请参阅[模式](/zh-Hans/configuration/modes#worktree-mode)。 |
 
 ## 规则
 

@@ -29,7 +29,7 @@ Install from the committed lockfile so everyone resolves the same Mint build:
 make install     # bun install --frozen-lockfile
 ```
 
-This installs Mint into `node_modules/`. Every command in this repository uses that repository-local binary. There is deliberately no fallback to a globally installed `mint`; if the local install is missing, `make check` fails with an actionable error rather than silently using an unpinned CLI.
+This installs Mint into `node_modules/`. Every command in this repository uses that repository-local binary. There is no fallback to a globally installed `mint`. If the local install is missing, `make check` reports the problem and fails instead of using an unpinned CLI.
 
 ## Preview locally
 
@@ -47,7 +47,7 @@ Local preview does not prove hosted behavior. The production site is served unde
 make check
 ```
 
-This is the single required gate. It runs, against the repository-local Mint CLI:
+This is the single required gate. It runs these commands against the repository-local Mint CLI:
 
 ```bash
 mint validate

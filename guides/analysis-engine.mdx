@@ -4,11 +4,11 @@ sidebarTitle: "Analysis engine"
 description: "Inside the analysis engine: safety-level boundaries, wrapper and interpreter recursion, shell function calls, git rules, recursive-delete target classification, device commands, and custom rule matching."
 ---
 
-This is the fourth page of the technical sequence and the narrowest: it assumes the guard pipeline from [Architecture](/guides/architecture) and documents only the exact classification behavior and edge cases of the destructive-command classifier — the level of detail you need when reading `explain` output or writing precise [custom rules](/configuration/custom-rules).
+This page assumes the guard pipeline from [Architecture](/guides/architecture). It documents the destructive-command classifier's exact behavior and edge cases for readers who inspect `explain` output or write precise [custom rules](/configuration/custom-rules).
 
-The classifier is the **last** stage of the guard. Everything before it — bounded tool-input extraction, parser budgets, policy-file and Git-metadata protection, the policy snapshot load, and sensitive-path protection — has already run and is specified in the [ordered guard stages](/guides/architecture#the-ordered-guard-stages). Bounded parsing and the always-on policy-file and Git-metadata guards fail closed at every safety level. An invalid policy snapshot uses protective fallbacks, while sensitive-path protection follows the resolved policy. The destructive-command classifier cannot relax a decision already made by an earlier stage.
+The classifier is the **last** stage of the guard. The [ordered guard stages](/guides/architecture#the-ordered-guard-stages) specify everything that runs first: bounded tool-input extraction, parser budgets, policy-file and Git-metadata protection, the policy snapshot load, and sensitive-path protection. Bounded parsing and the always-on policy-file and Git-metadata guards fail closed at every safety level. An invalid policy snapshot uses protective fallbacks, while sensitive-path protection follows the resolved policy. The destructive-command classifier cannot relax a decision already made by an earlier stage.
 
-Its dispatch flow — split into segments, strip env assignments and wrappers, identify the head command, hand it to the matching analyzer — is diagrammed once in [Architecture](/guides/architecture#inside-command-analysis). This page picks up from there: what each analyzer does with the segment it receives, and where the safety levels move the boundary.
+[Architecture](/guides/architecture#inside-command-analysis) diagrams the dispatch flow: split the command into segments, strip environment assignments and wrappers, identify the head command, and send it to the matching analyzer. This page explains what each analyzer does with its segment and where the safety levels move the boundary.
 
 ## Safety-level boundaries
 
@@ -28,7 +28,7 @@ Standard blocks recognizable destructive commands. It is deliberately **not** ad
 
 - **Safe-looking unparseable text is permitted.** `echo 'unterminated` is allowed.
 - **Recognizable destructive text is still blocked, even when unparseable.** `git reset --hard 'unterminated` blocks via the raw-text heuristic scan, which recognizes `rm -rf`, `git reset --hard`/`--merge`, `git clean -f`, `git checkout --force`, `git push --force`/`--delete`, `git branch -D`, `git tag -d`, `git stash drop`/`clear`, `git checkout --`, `git restore`, `find -delete`, `dd of=/dev/`, `mkfs /dev/`, and `shred <arg>`.
-- **Dangerous text in a quoted-literal assignment defers to use time.** `W='rm -rf ~'; echo "$W"` is allowed: the assignment executes nothing, and a quoted expansion in argument position stays one argv word, so it cannot split into a command plus flags. Any riskier reference — unquoted, in command position, inside a substitution, or in an unquoted heredoc body — keeps the assignment-time block, and handing the value to a shell (`eval "$W"`, `bash -c "$W"`, `echo "$W" | sh`) still denies because the shell execution source cannot be verified. Strict never defers; see [Standard-only allowances](/reference/allowed-commands#standard-only-allowances).
+- **Dangerous text in a quoted-literal assignment defers to use time.** `W='rm -rf ~'; echo "$W"` is allowed because the assignment executes nothing. A quoted expansion in argument position stays one argv word, so it cannot split into a command plus flags. Any riskier reference keeps the assignment-time block, including an unquoted reference, a command-position reference, a substitution, or an unquoted heredoc body. Handing the value to a shell (`eval "$W"`, `bash -c "$W"`, `echo "$W" | sh`) also denies because the shell execution source cannot be verified. Strict never defers. See [Standard-only allowances](/reference/allowed-commands#standard-only-allowances).
 - **Dynamic `rm -rf` targets are not categorically blocked.** `rm -rf "$target"` is allowed in standard; it blocks only once the fail-closed capability is on.
 - Standard also intentionally allows dynamic executables, guarded command structure assembled through substitution, other unverifiable recursive-delete targets, and standalone metadata-only checks of built-in sensitive paths.
 - **`eval` and `source` of a verifiable local generator are allowed.** `eval "$(ssh-agent -s)"` and `source <(kubectl completion bash)` pass in standard when the substitution body is one simple, fully literal command that is not a remote fetcher, a shell, or a command wrapper. The body is still analyzed; the shell it prints is not. Strict and paranoid deny every dynamic shell source. See [Standard-only allowances](/reference/allowed-commands#standard-only-allowances).
@@ -52,13 +52,13 @@ Standard blocks recognizable destructive commands. It is deliberately **not** ad
 | `shell.dynamic-executable` | `$(printf r)m -rf /` | `manual_only` |
 | `shell.dynamic-structure` | `git reset $(printf --hard)` | `stop_and_explain` |
 
-Individual strict-tier rules can be turned off, but **strict is still strict** for fail-closed outcomes that have no registered destructive-command rule id — parser fail-closed and sensitive-path outcomes among them.
+Individual strict-tier rules can be turned off, but **strict is still strict** for fail-closed outcomes that have no registered destructive-command rule id. These include parser fail-closed and sensitive-path outcomes.
 
 ### Paranoid
 
 [Paranoid mode](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) is strict plus two capabilities.
 
-- [Paranoid `rm`](/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1) blocks non-temp recursive forced removal even *inside* the current working directory — `rm -rf ./cache` and `Remove-Item ./cache -Recurse -Force` both block. Temp targets and configured allow paths remain allowed.
+- [Paranoid `rm`](/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1) blocks non-temp recursive forced removal even *inside* the current working directory. Both `rm -rf ./cache` and `Remove-Item ./cache -Recurse -Force` block. Temp targets and configured allow paths remain allowed.
 - [Paranoid interpreters](/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1) blocks every interpreter one-liner regardless of content, including `python -c "print(1)"`.
 
 ### Per-rule overrides versus levels
@@ -73,20 +73,20 @@ Recursion into wrappers and interpreters is capped at **10 levels deep**, and if
 
 After environment assignments and wrappers are stripped from a segment, the command name is checked against two sets:
 
-- **Shell wrappers** — `bash`, `sh`, `zsh`, `ksh`, `dash`, `fish`, `csh`, `tcsh`. The argument following `-c` is extracted and recursively analyzed.
-- **Interpreters** — `python`, `python2`, `python3`, `node`, `ruby`, `perl`. The code argument (after `-c`, or `-e` for node/ruby/perl) is extracted and scanned for embedded destructive operations.
+- **Shell wrappers.** `bash`, `sh`, `zsh`, `ksh`, `dash`, `fish`, `csh`, and `tcsh`. The analyzer extracts the argument after `-c` and analyzes it recursively.
+- **Interpreters.** `python`, `python2`, `python3`, `node`, `ruby`, and `perl`. The analyzer extracts the code argument after `-c`, or after `-e` for node, Ruby, and Perl, then scans it for embedded destructive operations.
 
-By default the interpreter's code is scanned for embedded destructive commands, so `python -c 'import os; os.system("rm -rf /")'` is blocked because of the embedded `rm -rf /` — the one-liner form alone is allowed. [Paranoid interpreters mode](/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1) blocks every one-liner outright regardless of content.
+By default, the analyzer scans interpreter code for embedded destructive commands. It blocks `python -c 'import os; os.system("rm -rf /")'` because the code contains `rm -rf /`, but it does not block the one-line form by itself. [Paranoid interpreters mode](/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1) blocks every one-liner outright regardless of content.
 
 `busybox` dispatch is handled as a special case: the subcommand is shifted into the command position and re-analyzed. `awk`/`gawk`/`mawk` programs are scanned for `system()` calls and backtick command substitutions.
 
 ### Transparent wrappers
 
-Standard wrappers (`sudo`, `env`, `command`, `builtin`) are always stripped. Proxy commands you have declared as **transparent wrappers** are stripped too — declaring and constraining them belongs to [Custom rules](/configuration/custom-rules#transparent-wrappers); what matters for classification is how the engine unwraps them.
+Standard wrappers (`sudo`, `env`, `command`, `builtin`) are always stripped. The engine also strips proxy commands that you declared as **transparent wrappers**. [Custom rules](/configuration/custom-rules#transparent-wrappers) explains how to declare and constrain them.
 
 Unwrapping finds the first *protectable* child command after wrapper flags and environment assignments, or the token right after an explicit `--`. Once unwrapped, both built-in analysis and **custom rules** apply to the child: `rtk git reset --hard` blocks on the built-in rule, and `rtk docker system prune` hits a matching custom rule. Child commands that nothing protects are not unwrapped.
 
-A proxy that is *not* declared, or one that rewrites or hides its child command rather than exec'ing a visible child, is still not unwrapped — only the top-level dangerous-text fallback scan may catch it.
+The engine does not unwrap an undeclared proxy or a proxy that rewrites or hides its child command instead of executing a visible child. Only the top-level dangerous-text fallback scan may catch it.
 
 Cwd is tracked across segments of the same command. A `cd` or `pushd` with a literal target updates the effective cwd for subsequent `rm` and `find` analysis; a `cd` to a dynamic target (containing `$` or a backtick) sets the cwd to unknown, which `rm` analysis treats as having no cwd anchor.
 
@@ -102,17 +102,17 @@ A POSIX function definition, such as `name() { ... }`, is parsed as a definition
 
 Call resolution follows the shell's own rules:
 
-- A call resolves past leading environment assignments (`X=1 cleanup`), the `time` keyword with its `-p` option and `--` terminator, and the `!` negation — including combined, `time -p -- ! cleanup`. Quoting or escaping the name (`'cleanup'`, `"cleanup"`, `\cleanup`) suppresses alias expansion but never a function lookup, so those call the function too.
+- A call resolves past leading environment assignments (`X=1 cleanup`), the `time` keyword with its `-p` option and `--` terminator, and the `!` negation, including combined, `time -p -- ! cleanup`. Quoting or escaping the name (`'cleanup'`, `"cleanup"`, `\cleanup`) suppresses alias expansion but never a function lookup, so those call the function too.
 - Shapes a real shell would not run as the keyword form do not resolve: `X=1 time cleanup`, `time "--" cleanup`, and `!cleanup` (no space) are not treated as calls.
 - The latest definition before the call wins, matching the shell's redefinition semantics.
 - A definition made inside a subshell (`( ... )`) does not escape it, while a brace group (`{ ...; }`) runs in the same shell, so its definitions do.
-- Definitions stay visible to `eval` and `trap`, which run in the same shell — `cleanup() { rm -rf ../outside; }; eval cleanup` blocks — but are not inherited by a child shell, so `sh -c cleanup` resolves no function.
+- Definitions stay visible to `eval` and `trap`, which run in the same shell. Therefore, `cleanup() { rm -rf ../outside; }; eval cleanup` blocks. Child shells do not inherit definitions, so `sh -c cleanup` resolves no function.
 
-Positional parameters stay unbound inside the body: `f() { rm -rf "$1"; }; f ~` is a dynamic target, allowed in standard and blocked once the fail-closed capability is on — exactly like `rm -rf "$X"`. The [quoted-assignment deferral](#standard) applies inside called bodies too: in `W='rm -rf ~'; f() { $W; }; f` the unquoted command-position use keeps the assignment-time block, while `f() { echo "$W"; }; f` stays allowed as quoted argument data.
+Positional parameters stay unbound inside the body. `f() { rm -rf "$1"; }; f ~` has a dynamic target, so standard allows it and the fail-closed capability blocks it, just like `rm -rf "$X"`. The [quoted-assignment deferral](#standard) also applies inside called bodies. In `W='rm -rf ~'; f() { $W; }; f`, the unquoted command-position use keeps the assignment-time block. `f() { echo "$W"; }; f` stays allowed as quoted argument data.
 
 The pre-analysis guard stages see through calls as well: policy-file protection and sensitive-path extraction evaluate executed brace groups and called function bodies at each call site.
 
-Two structural bounds fail closed in every level, standard included: self-recursion (`loop() { loop; }; loop`) denies on the recursion depth limit, and branching call chains deny on the derived-command work budget or on the projection's cap of 256 inlined call sites. A heredoc attached inside a function body is not supported safely — it makes the command unparseable, so it falls to the heuristic scan in standard and is denied outright in strict.
+Two structural bounds fail closed at every level, including standard. Self-recursion (`loop() { loop; }; loop`) denies on the recursion depth limit. Branching call chains deny on the derived-command work budget or the projection's cap of 256 inlined call sites. A heredoc attached inside a function body makes the command unparseable. Standard sends it to the heuristic scan, while strict denies it outright.
 
 ## Heredoc analysis
 
@@ -121,7 +121,7 @@ A heredoc body is text on stdin, and the consumer decides whether that text is d
 - The command has exactly one heredoc (`<<` or `<<-`), attached to stdin (fd 0).
 - The delimiter is quoted (`<<'EOF'`), so the body cannot expand substitutions.
 - No other input redirection competes for stdin (`<`, `<<`, `<<-`, `<<<`, `<&`, `<>`).
-- The consumer is a literal `cat`, `tee`, `git apply`, `git commit`, `gh pr create`, or `gh issue create` — no path prefix, no wrapper such as `env`. `cat` and `tee` are additionally rejected when an output process substitution (`>(...)`) is present, because that hands the body to another command.
+- The consumer is a literal `cat`, `tee`, `git apply`, `git commit`, `gh pr create`, or `gh issue create`, with no path prefix or wrapper such as `env`. `cat` and `tee` are also rejected when an output process substitution (`>(...)`) is present because it hands the body to another command.
 
 A command that passes the gate treats the body as inert data at every level. For example, `cat > note.md <<'EOF'` and `git commit -F - <<'EOF'` are allowed even when the body describes destructive commands.
 
@@ -130,12 +130,12 @@ For `cat`, `tee`, `git commit`, `gh pr create`, and `gh issue create`, the body 
 A command that fails the gate is denied outright in [strict](#strict) and paranoid. In standard, the body is still analyzed, down one of three paths:
 
 1. A quoted heredoc on stdin feeding a shell that only syntax-checks it (for example `bash -n`) is inert and allowed.
-2. A quoted heredoc on stdin feeding an interpreter (`python`/`python2`/`python3`, `node`, `ruby`, `perl`), where every other word on the command line is a literal starting with `-`, is that interpreter's program: `python3 - <<'PY'` qualifies, `python3 tool.py <<'PY'` does not (there stdin is data for the script). The body is analyzed under the interpreter rules — [paranoid interpreters](/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1) blocks it outright as `interpreter.one-liner-paranoid`, a body containing dangerous code blocks as `interpreter.dangerous-command`, and a clean body is allowed.
-3. Everything else — unquoted delimiters, unknown consumers, `bash` heredoc scripts, interpreter invocations with a script operand — falls through to the raw-text heuristic scan of the joined bodies. A match blocks as `raw-text.dangerous-command`; no match is allowed.
+2. A quoted heredoc on stdin feeding an interpreter (`python`/`python2`/`python3`, `node`, `ruby`, `perl`), where every other word on the command line is a literal starting with `-`, is that interpreter's program. `python3 - <<'PY'` qualifies. `python3 tool.py <<'PY'` does not because stdin is data for the script. The body is analyzed under the interpreter rules. [Paranoid interpreters](/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1) blocks it as `interpreter.one-liner-paranoid`. The `interpreter.dangerous-command` rule blocks a body that contains dangerous code. A clean body is allowed.
+3. All other forms fall through to the raw-text heuristic scan of the joined bodies. These forms include unquoted delimiters, unknown consumers, `bash` heredoc scripts, and interpreter invocations with a script operand. A match blocks as `raw-text.dangerous-command`; no match is allowed.
 
 One structural bound sits underneath all three paths: a heredoc body is re-parsed as shell text, and a body can declare further heredocs of its own. Nesting across those re-parses is capped at the parser's 64-level depth limit; deeper nesting reports the `structural-limit` parse status and denies the command in **every** safety level, standard included.
 
-Passing the gate as inert data is not the end of the story when the body lands in a file. When a gate-passing heredoc is written verbatim to a literal path — `cat > setup.sh <<'EOF'`, or `tee setup.sh <<'EOF'` without append — the engine remembers the body under that path, and a later `bash setup.sh`, `sh setup.sh`, `source setup.sh`, or shell startup reference to it (`BASH_ENV`, `ENV`, `--rcfile`, `--init-file`) in the same command is analyzed against the remembered script text, shown in the trace as a `recurse` step with reason `heredoc-file`. So `cat > x.sh <<'EOF' … EOF && bash x.sh` blocks when the body is destructive. Tracking is deliberately narrow: at most 64 files are remembered per analysis (`MAX_TRACKED_HEREDOC_FILES`; exceeding that fails closed on the derived-command work limit), paths under `/dev`, `/proc`, and `/sys` are never tracked, and a later write or redirection to a tracked path invalidates the stored body.
+Passing the gate as inert data is not the end of the analysis when the body lands in a file. The engine remembers a gate-passing heredoc body written verbatim to a literal path, such as `cat > setup.sh <<'EOF'` or `tee setup.sh <<'EOF'` without append. If the same command later runs that path through `bash`, `sh`, `source`, or a shell startup reference (`BASH_ENV`, `ENV`, `--rcfile`, `--init-file`), the engine analyzes the remembered script text. The trace shows a `recurse` step with reason `heredoc-file`. Thus, `cat > x.sh <<'EOF' … EOF && bash x.sh` blocks when the body is destructive. Tracking has three limits. The engine remembers at most 64 files per analysis (`MAX_TRACKED_HEREDOC_FILES`; exceeding that fails closed on the derived-command work limit), never tracks paths under `/dev`, `/proc`, or `/sys`, and invalidates the stored body after a later write or redirection to that path.
 
 ## Git rule engine
 
@@ -143,8 +143,8 @@ The git analyzer extracts the subcommand and its options, matches dangerous opti
 
 | Classification | Meaning | Examples |
 | --- | --- | --- |
-| **localDiscard** | Discards only local working-tree state — a candidate for worktree relaxation | `checkout --`, `restore`, `clean -f`, `reset --hard` (no ref), `switch --force`, `rebase --abort`, `merge --abort` |
-| **sharedState** | Affects shared, remote, or recovery state — never relaxed | `push --force`, `branch -D`, `stash drop`/`clear`, `worktree remove --force`, `tag -d`, `reflog delete`, `reset --hard <ref>` |
+| **localDiscard** | Discards only local working-tree state and may qualify for worktree relaxation | `checkout --`, `restore`, `clean -f`, `reset --hard` (no ref), `switch --force`, `rebase --abort`, `merge --abort` |
+| **sharedState** | Affects shared, remote, or recovery state and is never relaxed | `push --force`, `branch -D`, `stash drop`/`clear`, `worktree remove --force`, `tag -d`, `reflog delete`, `reset --hard <ref>` |
 
 Option matching handles the real-world grammar of git: long options use prefix matching (so `--forc`, `--force`, and `--force-with-lease` resolve correctly), short options are unbundled (so `-Df` is read as `-D` plus `-f`), and global options that take values (`-c`, `-C`, `--git-dir`, `--work-tree`) are skipped when locating the subcommand. See [Blocked commands](/reference/blocked-commands) for the full list of blocked git patterns.
 
@@ -162,14 +162,14 @@ Option matching handles the real-world grammar of git: long options use prefix m
 
 ## Recursive-delete target classification
 
-`rm` analysis detects recursive plus force flags, extracts targets, and classifies each target against the current working directory. Targets are checked in this order — **the first match wins**, and the order itself is load-bearing:
+`rm` analysis detects recursive plus force flags, extracts targets, and classifies each target against the current working directory. It checks targets in the following order. **The first match wins**, so changing the order would change behavior.
 
 | # | Classification | What it matches | Outcome |
 | --- | --- | --- | --- |
 | 1 | **unsafe `$TMPDIR` word-splitting** | An unquoted `$TMPDIR` that could split into multiple words | Blocked (treated as outside the cwd) |
 | 2 | **unsupported Windows namespace** | UNC and device-namespace paths the classifier cannot anchor | Blocked (treated as outside the cwd) |
-| 3 | **root/home target** | `/`, `/*`, `~`, `~/`, `$HOME`, `${HOME}` and their children, literal or canonicalized | Always blocked — catastrophic |
-| 4 | **protected Git metadata** | The resolved `.git` entry, its directories, or its hooks directories | Always blocked — catastrophic |
+| 3 | **root/home target** | `/`, `/*`, `~`, `~/`, `$HOME`, `${HOME}` and their children, literal or canonicalized | Always blocked as catastrophic |
+| 4 | **protected Git metadata** | The resolved `.git` entry, its directories, or its hooks directories | Always blocked as catastrophic |
 | 5 | **temp target** | `/tmp`, `/var/tmp`, the system temp dir, `$TMPDIR` (unless overridden to a non-temp path) | Allowed |
 | 6 | **dynamic target** | Any target whose expansion cannot be predicted | Allowed in standard; blocked once [strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) turns on the fail-closed capability |
 | 7 | **configured allow path** | A literal, verified target under `destructive_command_protection.allow_paths` | Allowed (classified as temp) |
@@ -206,11 +206,11 @@ Both recursive (`-r`/`-R`/`--recursive`) and force (`-f`/`--force`) flags must b
 
 | Command | Trigger | Rule id | Intent |
 | --- | --- | --- | --- |
-| `dd` | An operand matching `of=/dev/…` — a direct write to a device path. Reading from a device is not itself the trigger. | `dd.device-write` | `manual_only` |
+| `dd` | An operand matching `of=/dev/…`, which writes directly to a device path. Reading from a device is not itself the trigger. | `dd.device-write` | `manual_only` |
 | `mkfs` | Head is `mkfs` or any `mkfs.*` variant and some operand starts with `/dev/` | `mkfs.device` | `manual_only` |
 | `shred` | **Any** target, including `shred --help` and `shred --version` | `shred.target` | `use_alternative` |
 
-All three also appear in the unparseable-text heuristic scan, so `dd of=/dev/…`, `mkfs /dev/…`, and `shred <arg>` inside otherwise unparseable text block as `raw-text.dangerous-command` — except when the text starts with `echo ` or `rg `. None of the three is catastrophic, so they follow the master-switch and per-rule-override precedence.
+All three also appear in the unparseable-text heuristic scan. Thus, `dd of=/dev/…`, `mkfs /dev/…`, and `shred <arg>` inside otherwise unparseable text block as `raw-text.dangerous-command`, except when the text starts with `echo ` or `rg `. None of the three is catastrophic, so they follow the master-switch and per-rule-override precedence.
 
 ## Dynamic-target analyzers for `find`, `xargs`, and `parallel`
 
@@ -218,7 +218,7 @@ All three also appear in the unparseable-text heuristic scan, so `dd of=/dev/…
 | --- | --- |
 | `find ... -delete` | Permanent removal via the find primary (use `-print` to preview) |
 | `find -exec rm -rf ...` | The exec command is re-analyzed as a nested segment, so a destructive exec is blocked |
-| `xargs rm -rf` | rm driven by piped, dynamic input — targets are unpredictable |
+| `xargs rm -rf` | `rm` driven by piped, dynamic input with unpredictable targets |
 | `xargs <shell> -c` | Shell execution from dynamic input |
 | `parallel rm -rf` | rm driven by parallel placeholders or stdin |
 | `parallel <shell> -c` | Shell execution from dynamic input |
@@ -230,10 +230,10 @@ For `xargs` and `parallel`, the concern is that the targets come from dynamic in
 When [worktree mode](/configuration/modes#worktree-mode-cc_safety_net_worktree=1) is active, local-discard git commands are allowed inside a confirmed linked worktree. Relaxation requires all of the following:
 
 1. The matched rule is classified `localDiscard` (see the [git rule engine](#git-rule-engine) table). `sharedState` rules never relax.
-2. Worktree mode is on — `workflow.worktree_mode` in `policy.json` or `CC_SAFETY_NET_WORKTREE=1`, combined as a logical OR.
+2. Worktree mode is on through `workflow.worktree_mode` in `policy.json` or `CC_SAFETY_NET_WORKTREE=1`. The engine combines these settings with a logical OR.
 3. No git context environment override is present (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE`), and no `--git-dir`/`--work-tree` on the command line.
 
-A linked worktree is positively verified — not just assumed. The check confirms the `.git` entry is a _file_ (not a directory or symlink) whose `gitdir:` pointer resolves to a directory containing a `commondir` file, that the backlink points back to this worktree, and that `config.worktree` matches. Main worktrees, bare repos, and submodules are not relaxed. If verification fails for any reason, the command stays blocked (fail-closed).
+The engine verifies a linked worktree instead of assuming one. It confirms that the `.git` entry is a _file_, not a directory or symlink, and that its `gitdir:` pointer resolves to a directory with a `commondir` file. It also confirms that the backlink points to this worktree and that `config.worktree` matches. Main worktrees, bare repositories, and submodules are not relaxed. If verification fails, the command stays blocked (fail-closed).
 
 <AccordionGroup>
   <Accordion title="Non-relaxable local discards">
@@ -246,7 +246,7 @@ A linked worktree is positively verified — not just assumed. The check confirm
 
 ## Custom rules
 
-When no built-in analyzer matches, custom rules run as a fallback. They are strictly additive — they can only add blocks, never override a built-in block or relax protection. Rules are namespaced as `<rulebook-name>/<rule-name>` and matched on the command basename, an optional subcommand, and literal `block_args` (with short-option unbundling, so `-Ap` matches `-A`).
+When no built-in analyzer matches, custom rules run as a fallback. They can only add blocks. They cannot override a built-in block or relax protection. Rules are namespaced as `<rulebook-name>/<rule-name>` and matched on the command basename, an optional subcommand, and literal `block_args` (with short-option unbundling, so `-Ap` matches `-A`).
 
 See [Custom rules](/configuration/custom-rules) for the full authoring guide and matching semantics.
 
@@ -259,7 +259,7 @@ npx cc-safety-net explain "rm -rf ./build"
 npx cc-safety-net explain --json "git checkout -- file.txt"
 ```
 
-The human-readable output walks through each segment, showing parse steps and rule evaluations. The JSON output returns the structured trace — see the [Explain trace reference](/reference/explain-trace) for the schema.
+The human-readable output walks through each segment and shows parse steps and rule evaluations. The JSON output returns the structured trace. See the [Explain trace reference](/reference/explain-trace) for the schema.
 
 If a decision looks wrong for your configuration rather than for the command, check whether the runtime is enforcing a fallback policy: `npx cc-safety-net status` prints `ready` or `degraded`, and [Configuration recovery](/configuration/recovery) explains how to repair the named source.
 
@@ -267,7 +267,7 @@ If a decision looks wrong for your configuration rather than for the command, ch
 
 The technical guides run from the user-facing lifecycle down to the reasoning behind the design. This page is step 4.
 
-- Back: [Architecture](/guides/architecture) — the ordered guard stages this classifier is the last part of.
-- Next: [Design principles](/guides/design-principles) — why classification is semantic rather than pattern-based, and why the level boundaries fall where they do.
+- Back: [Architecture](/guides/architecture), which describes the ordered guard stages that end with this classifier.
+- Next: [Design principles](/guides/design-principles), which explains why classification is semantic rather than pattern-based and why the level boundaries fall where they do.
 
 Related: [Modes](/configuration/modes) for selecting a level, [Blocked commands](/reference/blocked-commands) and [Allowed commands](/reference/allowed-commands) for the outcome reference, and [Known limitations](/guides/known-limitations) for what the classifier does not see.

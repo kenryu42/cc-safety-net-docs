@@ -1,10 +1,10 @@
 ---
 title: "架构"
 sidebarTitle: "架构"
-description: "面向维护者的系统图：集成适配器、策略快照、从工具输入到允许或拒绝的有序防护阶段、内部解析器和运行时依赖面。"
+description: "维护者架构参考：集成适配器、策略快照、从工具输入到允许或拒绝的有序防护阶段、内部解析器和运行时依赖。"
 ---
 
-本页是面向维护者的防护管线规范。<a href="/zh-Hans/guides/how-it-works">工作原理</a>提供用户视角。<a href="/zh-Hans/guides/integration-architecture">集成架构</a>说明各智能体如何接入防护。
+本页定义供维护者查阅的防护管线。<a href="/zh-Hans/guides/how-it-works">工作原理</a>从用户角度说明同一流程。<a href="/zh-Hans/guides/integration-architecture">集成架构</a>说明各智能体如何接入防护。
 
 CC Safety Net 是静态执行前策略门。每个受支持的编码智能体都会向它发送工具调用，防护按相同顺序检查每个调用。集成之间的差异仅在于调用的到达方式：标准输入 hook 子进程，或进程内插件与扩展。
 
@@ -78,15 +78,15 @@ graph TD
 | # | 报告的 `failureStage` | 操作 | 策略可削弱？ |
 | --- | --- | --- | --- |
 | 1 | `policy-protection` | 在遍历边界内从工具输入提取命令，包括深度、节点数、key 数、单个字符串字节数和总字节数。超过边界时 fail closed。 | 否 |
-| 2 | — | 从 invocation 构建语义事实。只解析一次，供后续阶段复用。 | 否 |
+| 2 | 无 | 从 invocation 构建语义事实。只解析一次，供后续阶段复用。 | 否 |
 | 3 | `command-analysis` | 已声明命令的解析器预算超限，命令因触及递归限制被拒绝。 | 否 |
 | 4 | `command-validation` | 结构化命令验证预算超限（输入长度、word 数、嵌套深度），命令被拒绝。 | 否 |
-| 5 | — | 为执行工作目录解析受保护的 Git 元数据。 | 否 |
+| 5 | 无 | 为执行工作目录解析受保护的 Git 元数据。 | 否 |
 | 6 | `policy-protection` | **策略文件保护**：写入、移动或递归删除触及规范用户 `policy.json`、其目录或上级目录时，以 `hard_stop` intent 拒绝。 | 否 |
 | 7 | `policy-protection` | **Git 元数据保护**：删除、移动、重定向、写工具、patch 或未知工具路由指向已解析 `.git` 入口、其目录或 hooks 目录时，以 `hard_stop` intent 拒绝。写工具、patch 和未知工具路由中的只读工具除外。 | 否 |
-| 8 | `config-load` | **加载策略快照**，并根据策略和环境解析有效安全级别。 | — |
+| 8 | `config-load` | **加载策略快照**，并根据策略和环境解析有效安全级别。 | 不适用 |
 | 9 | `secret-protection` | **敏感路径保护**：检查 command、path、search 和 patch 形式中的内置敏感路径及配置的拒绝路径。匹配时以 `hard_stop` intent 拒绝，并携带匹配的 rule ID。策略禁用机密保护时完全跳过。 | 是 |
-| 10 | `non-command` | 通过阶段 1–9 的非命令 invocation 在此获得允许。 | — |
+| 10 | `non-command` | 通过阶段 1 到 9 的非命令 invocation 在此获得允许。 | 不适用 |
 | 11 | `command-validation` | 空或纯空白命令文本 fail closed。 | 否 |
 | 12 | `command-analysis` | **破坏性命令分析**使用快照、有效能力、已解析程序、事实存储和已解析 Git 元数据运行，然后阻止或允许。 | 部分 |
 
@@ -143,7 +143,7 @@ graph LR
 
 前三项限制初次解析。第四项限制初次解析后分析器从命令*派生*的工作，包括从 `find -exec`、`xargs` 和 `parallel` 重建的子命令、包装器后的内嵌命令、重新送入分析器的已跟踪 heredoc 文件，以及 PowerShell `Invoke-Expression` 来源。耗尽预算会以 "Command analysis exceeds CC Safety Net's derived-command work limit. Reduce nested or embedded command complexity and retry." 拒绝。它不同于递归深度限制和上表的结构验证限制。
 
-分析器的公开约定有意保持狭窄：允许时不返回内容，阻止时返回结果对象。它不会公开解析器内部的 `complete` / `partial` / `limited` 状态，因此调用方无法根据解析置信度作分支判断。
+分析器的公开接口只约定两种结果：允许时不返回内容，阻止时返回结果对象。它不公开解析器内部的 `complete` / `partial` / `limited` 状态，因此调用方无法按解析置信度分支处理。
 
 PowerShell 支持是以 `Remove-Item` 及其别名和现有跨 shell 规则为中心的**保守子集**。该子集保留原生引号、路径分隔符、连接符、pipeline 和动态 word 来源。它不是通用 PowerShell 解释器。
 
@@ -151,7 +151,7 @@ PowerShell 支持是以 `Remove-Item` 及其别名和现有跨 shell 规则为�
 
 CC Safety Net 只有**一个运行时软件包依赖：`zod`**，仅用于配置验证。源代码通过 `createRequire` 延迟加载它。拆分的 Node bundle（包括 Pi）保留此行为，并把该延迟加载指向随附的 `dist/vendor/zod.cjs`；独立的 Amp 和 OpenClaw artifact 则内联 `zod`。只有一个源模块导入它。
 
-已发布 bundle **不包含第三方 shell 解析器**。路径扫描器读取的 flat entry stream 由 `projectShellSyntax` 从已解析 IR 投影。因此，上述内部 POSIX 和 PowerShell 解析器是 shell 结构的唯一来源，不存在可能与之产生偏差的第二次原始命令文本 tokenization。
+已发布 bundle **不包含第三方 shell 解析器**。`projectShellSyntax` 从解析后的 IR 生成路径扫描器读取的 flat entry stream。因此，shell 结构只来自上述内部 POSIX 和 PowerShell 解析器。系统不会再次对原始命令文本分词，也就不会产生两套解析结果的偏差。
 
 已发布运行时目标为 Node.js 18 或更高版本。
 
@@ -161,12 +161,12 @@ CC Safety Net 只有**一个运行时软件包依赖：`zod`**，仅用于配置
 - **始终启用的保护先于配置。** 策略文件保护和 Git 元数据保护无法禁用，因为它们在读取可能禁用自己的策略之前就已作出拒绝。
 - **防护自身失败时 fail closed。** 依赖抛出错误、解析器预算耗尽或违反工具输入边界都会导致拒绝而非允许，并归因于失败的阶段。无效*配置*是另一回事，不会导致拒绝，见<a href="/zh-Hans/configuration/recovery">配置恢复</a>。
 - **评估时无网络、无写入。** 运行时评估不发出网络请求，快照加载器也不写入。防护不检查或过滤出站流量。
-- **核心与平台无关。** 适配器只转换格式；防护和分类器完全共享。
+- **分析核心不依赖平台。** 适配器只转换格式；所有集成共用同一套防护和分类器。
 - **有界，而非穷尽。** 它是静态执行前策略门，不是操作系统沙箱、权限边界，也不保护绕过已安装集成的命令。见<a href="/zh-Hans/guides/known-limitations">已知限制</a>。
 
 ## 后续阅读
 
-技术指南从面向用户的生命周期逐步深入设计依据。本页是第 3 步。
+技术指南先讲用户看到的流程，再讲设计依据。本页是第 3 步。
 
 - 上一页：<a href="/zh-Hans/guides/integration-architecture">集成架构</a>说明每个智能体调用如何到达上述适配器；<a href="/zh-Hans/guides/how-it-works">工作原理</a>以用户层次说明同一序列。
 - 下一页：<a href="/zh-Hans/guides/analysis-engine">分析引擎</a>详细说明阶段 12，包括各分析器、安全级别边界和递归删除分类顺序。

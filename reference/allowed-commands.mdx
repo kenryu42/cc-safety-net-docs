@@ -19,7 +19,7 @@ CC Safety Net uses semantic command analysis to distinguish permitted forms from
 
 Some allowances are level-dependent. Rows marked **Standard only** are removed once [strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) or [paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) is active.
 
-This page is the allowed-command reference. For blocked forms, see [Blocked commands](/reference/blocked-commands). For the ordered guard flow, see [Architecture](/guides/architecture). For classifier behavior, see [Analysis engine](/guides/analysis-engine).
+This page is the allowed-command reference. See [Blocked commands](/reference/blocked-commands) for blocked forms, [Architecture](/guides/architecture) for the ordered guard flow, and [Analysis engine](/guides/analysis-engine) for classifier behavior.
 
 <Warning>
   Catastrophic protections apply at every safety level. Root and home recursive deletion, protected Git metadata, and the canonical `policy.json` always block. The forms on this page, `allow_paths`, worktree mode, and per-rule `off` overrides do not relax them.
@@ -36,7 +36,7 @@ This page is the allowed-command reference. For blocked forms, see [Blocked comm
 | `git branch -d` | Safe delete with merge check |
 | `git clean -n` / `--dry-run` | Preview only, no files deleted |
 | `git rm <files>` | Not forced, so git's own safety check limits the removal to content recoverable from `HEAD` |
-| `git rm --cached`, `git rm --dry-run` / `-n` | Unstages or previews only — the working-tree files stay. `git rm -r --cached .` is a safe unstage |
+| `git rm --cached`, `git rm --dry-run` / `-n` | Unstages or previews only. The working-tree files stay. `git rm -r --cached .` is a safe unstage |
 | `git push --force-with-lease` | Checks the expected remote state before it rewrites history |
 
 ## Filesystem commands
@@ -48,7 +48,7 @@ This page is the allowed-command reference. For blocked forms, see [Blocked comm
 | `rm -rf $TMPDIR/...` | User's temp directory (unless `$TMPDIR` is overridden to a non-temp path) | All |
 | `rm -rf ./subdir` (within cwd) | Limited to a path inside the current working directory | All except [paranoid rm](/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1) |
 | `rm -rf "$target"` (dynamic target) | Standard does not categorically block targets it cannot verify | **Standard only** |
-| `cleanup() { rm -rf ../outside; }` (definition only) | A function definition alone executes nothing — the body is analyzed only where the function is called | All |
+| `cleanup() { rm -rf ../outside; }` (definition only) | A function definition alone executes nothing. The body is analyzed only where the function is called | All |
 
 `rm -rf` is classified by target, first match wins. Root/home targets (`/`, `~`, `$HOME`), protected Git metadata, the cwd itself (`rm -rf .`), and the case where your cwd *is* your home are blocked in every level. Other literal paths outside the cwd are also blocked unless they are recognized temp targets or configured allow paths. Temp paths and paths inside the cwd are allowed. Note the distinction: `rm -rf ./subdir` is allowed, but `rm -rf .` (the cwd itself) is blocked.
 
@@ -61,7 +61,7 @@ Two level-dependent adjustments apply on top of that:
 
 Absolute or `~/`-prefixed directories listed under `destructive_command_protection.allow_paths` are treated like trusted temp roots. They apply in **every** safety level, to `rm`, PowerShell `Remove-Item`, and `find -delete`.
 
-Allow paths never widen anything else. They do not relax sensitive-path protection or deny paths. They cannot cover root, home, or protected Git metadata — an allow path containing a repository still blocks `rm -rf` of that repository's `.git`. Because dynamic targets are classified first, an allow path never applies to an unverifiable target. Entries equal to or containing `$HOME` are rejected at validation and again after canonicalization, and symlink escapes out of an allow path are not covered.
+Allow paths never widen anything else. They do not relax sensitive-path protection or deny paths. They cannot cover root, home, or protected Git metadata. An allow path containing a repository still blocks `rm -rf` of that repository's `.git`. Because dynamic targets are classified first, an allow path never applies to an unverifiable target. Entries equal to or containing `$HOME` are rejected during validation and after canonicalization. Symlink escapes out of an allow path are not covered.
 
 ## Heredoc data consumers
 
@@ -70,12 +70,12 @@ A quoted heredoc on stdin whose consumer only stores or publishes the body is da
 | Command pattern | Why it's safe |
 | --- | --- |
 | `cat > note.md <<'EOF'` | The body is written to a file, never executed |
-| `tee note.md <<'EOF'` | Same — the body is stored, not run |
+| `tee note.md <<'EOF'` | Same behavior. The body is stored, not run |
 | `git apply <<'PATCH'` | A patch body is applied as text, not executed |
 | `git commit -F - <<'EOF'` | The body becomes the commit message, even when it describes destructive commands in prose |
 | `gh pr create --body-file - <<'EOF'`, `gh issue create -F - <<'EOF'` | The body is published as PR or issue text |
 
-The delimiter must be quoted (`<<'EOF'`): an unquoted `<<EOF` body can expand substitutions, so it stays scannable in standard and is denied once fail-closed is on. Commands outside the heredoc are still analyzed — `cat <<'EOF' && rm -rf ~` blocks on the `rm`. For `cat`, `tee`, `git commit`, `gh pr create`, and `gh issue create` the body is also masked before sensitive-path extraction, so prose mentioning a secret filename does not block the commit; `git apply` bodies stay visible to path extraction, because a patch names the files it writes. See [Heredoc analysis](/guides/analysis-engine#heredoc-analysis) for the full gate and for what standard does with heredocs that fail it.
+The delimiter must be quoted (`<<'EOF'`). An unquoted `<<EOF` body can expand substitutions, so standard scans it and fail-closed modes deny it. Commands outside the heredoc are still analyzed. For example, `cat <<'EOF' && rm -rf ~` blocks on the `rm`. For `cat`, `tee`, `git commit`, `gh pr create`, and `gh issue create`, the body is also masked before sensitive-path extraction. Prose that mentions a secret filename therefore does not block the commit. `git apply` bodies stay visible because a patch names the files it writes. See [Heredoc analysis](/guides/analysis-engine#heredoc-analysis) for the full gate and standard-mode behavior when a heredoc fails it.
 
 ## Standard-only allowances
 
@@ -83,20 +83,20 @@ These shapes are permitted in standard and denied once [strict](/configuration/m
 
 | Command pattern | Why standard allows it |
 | --- | --- |
-| `echo 'unterminated` | Unparseable but safe-looking text — the fallback heuristic scan found nothing destructive. `git reset --hard 'unterminated` is still blocked in standard by that same scan |
+| `echo 'unterminated` | Unparseable but safe-looking text. The fallback heuristic scan found nothing destructive. `git reset --hard 'unterminated` is still blocked in standard by that same scan |
 | `rm -rf "$target"` | Recursive-delete target that cannot be verified before execution |
 | `Remove-Item $target -Recurse -Force` | PowerShell equivalent of the same unverifiable target |
 | `Get-ChildItem . -Recurse \| Remove-Item -Force` | Unverifiable PowerShell pipeline input |
-| `$(printf r)m -rf /`, `c=rm; "$c" -rf dir`, `$CMD --version` | Dynamic executable — the command head comes from a substitution or a variable |
-| `git reset $(printf --hard)`, `rm $(printf -- '-rf') dir` | Dynamic structure — the arguments are assembled through substitution |
+| `$(printf r)m -rf /`, `c=rm; "$c" -rf dir`, `$CMD --version` | Dynamic executable. The command head comes from a substitution or a variable |
+| `git reset $(printf --hard)`, `rm $(printf -- '-rf') dir` | Dynamic structure. The arguments are assembled through substitution |
 | `test -f ~/.ssh/id_rsa`, `find ~/.ssh -type f`, `ls -la ~/.ssh`, `stat .env` | Metadata-only discovery of a built-in sensitive path, with no content access |
-| `W='rm -rf ~'; echo "$W"` | Dangerous text inside a cleanly parsed quoted-literal assignment — the block defers to use time when the variable is only ever used as quoted argument data |
-| `f() { rm -rf "$1"; }; f ~` | Positional parameters stay unbound inside a called function body, so the target is dynamic — the same trade-off as `rm -rf "$target"` |
-| `eval "$(ssh-agent -s)"`, `source <(kubectl completion bash)` | A single fully literal local generator command — its *shape* is verifiable, though its output is not |
+| `W='rm -rf ~'; echo "$W"` | Dangerous text inside a cleanly parsed quoted-literal assignment. The block defers to use time when the variable is only ever used as quoted argument data |
+| `f() { rm -rf "$1"; }; f ~` | Positional parameters stay unbound inside a called function body, so the target is dynamic. This is the same trade-off as `rm -rf "$target"` |
+| `eval "$(ssh-agent -s)"`, `source <(kubectl completion bash)` | A single fully literal local generator command. Its *shape* is verifiable, though its output is not |
 
 The quoted-assignment deferral is narrow. The assignment itself executes nothing, and a quoted expansion stays one argv word, so it cannot split into a command plus flags. Any reference the analyzer cannot prove is such a data use keeps the assignment-time block: an unquoted expansion (`env $W`), any expansion in command position (even quoted), a reference inside a command substitution, or a reference in an unquoted heredoc body. Handing the value to a shell is caught downstream instead: `eval "$W"`, `bash -c "$W"`, and `echo "$W" | sh` all deny because the shell execution source cannot be verified.
 
-The generator allowance checks the shape of the command, not who wrote it — there is no list of trusted generators. `eval "$(CMD)"` and `source <(CMD)` / `. <(CMD)` are admitted only when `CMD` is:
+The generator allowance checks the command's shape, not its author. There is no list of trusted generators. `eval "$(CMD)"` and `source <(CMD)` / `. <(CMD)` are admitted only when `CMD` is:
 
 - one simple command, with no redirection and no nested command;
 - made of literal words only, with no leading environment assignment; and
@@ -118,7 +118,7 @@ The generator allowance checks the shape of the command, not who wrote it — th
 | `dd if=x.iso of=./out.img`, `dd if=/dev/urandom of=random.dat` | The output target is an ordinary file |
 | `mkfs.ext4 disk.img`, `mkfs.ext4 ./loop.img` | Formatting a file-backed image, not a `/dev/` device |
 | `shred` with no operand | The `shred` rule requires at least one target. `shred --help` and `shred --version` **are** blocked, because any operand counts |
-| `ldd ./bin`, `ddrescue if=/dev/sda of=./out.img` | Word-boundary match — a head that merely contains `dd` or `shred` as a substring is not the rule head |
+| `ldd ./bin`, `ddrescue if=/dev/sda of=./out.img` | Word-boundary match, a head that merely contains `dd` or `shred` as a substring is not the rule head |
 
 ## PowerShell commands
 
@@ -129,10 +129,10 @@ The generator allowance checks the shape of the command, not who wrote it — th
 | `Remove-Item .\dist -Recurse -Force`, `-Path .\dist`, `-LiteralPath:.\dist`, `.\{dist}`, `'.\dist,old'` | Inside the current working directory (blocked under paranoid rm) |
 | `Remove-Item /tmp/test-dir -Recurse -Force` | Temp target, same taxonomy as `rm`, and configured allow paths behave the same way |
 | `Remove-Item 'file''name.txt'` and backtick-escaped variants | Quoted and escaped simple deletions that do not resolve to a destructive target |
-| `Remove-Item $target -Recurse -Force` | Dynamic target — **Standard only**, blocked in strict and paranoid |
-| `Get-ChildItem . -Recurse \| Remove-Item -Force` | Unverifiable pipeline input — **Standard only** |
+| `Remove-Item $target -Recurse -Force` | Dynamic target, **Standard only**, blocked in strict and paranoid |
+| `Get-ChildItem . -Recurse \| Remove-Item -Force` | Unverifiable pipeline input, **Standard only** |
 
-Selecting `posix` as the shell mode deliberately disables the PowerShell removal rules entirely, while keeping the cross-shell rules such as `git.reset-hard` and `rm.recursive-force-root-or-home`. In `auto` mode, an explicit `Remove-Item` is detected — including after `;`, a newline, `&&`, or `||`.
+Selecting `posix` as the shell mode deliberately disables the PowerShell removal rules entirely, while keeping the cross-shell rules such as `git.reset-hard` and `rm.recursive-force-root-or-home`. In `auto` mode, an explicit `Remove-Item` is detected, including after `;`, a newline, `&&`, or `||`.
 
 ## Sensitive-path allowances
 
@@ -143,7 +143,7 @@ Sensitive-path protection is a bounded pattern set over supported shapes, so som
 | `find . -name .env` | `-name` supplies a search *pattern*, not a path to read | All |
 | `find src -type f` | No sensitive path root | All |
 | `custom-tool README.md`, `make FOO=bar`, `xxd README.md` | Benign operands on an unlisted command | All |
-| `cat .env.example` (also `.env.sample`, `.env.template`, `.env.defaults`) | Env templates hold placeholder values, not secrets — exempted before every other sensitive-path rule | All |
+| `cat .env.example` (also `.env.sample`, `.env.template`, `.env.defaults`) | Env templates hold placeholder values, not secrets, exempted before every other sensitive-path rule | All |
 | `cat node_modules/x/fixture.pem` | Vendored directories suppress the extension rules and the broad key-basename rule | All |
 | `test -f ~/.ssh/id_rsa` | Metadata-only existence check, no content access | **Standard only** |
 | `find ~/.ssh -type f` | Metadata-only listing, no content access | **Standard only** |
@@ -152,8 +152,8 @@ Sensitive-path protection is a bounded pattern set over supported shapes, so som
 
 Two of those allowances have precise boundaries worth knowing:
 
-- **Env templates.** The exact basenames `.env.example`, `.env.sample`, `.env.template`, and `.env.defaults` — plus any name that starts with `.env.example.` or `.env.sample.`, such as `.env.example.local` — are exempted before any other sensitive-path rule runs, so they stay readable and writable even inside a protected home directory. The prefix form does not extend to the other two templates: `.env.template.local`, like every other `.env.*` name, blocks under `secret.pattern.env-variant`.
-- **Vendored directories.** When any path segment is `node_modules` or `__pycache__`, or the adjacent pair `vendor/bundle` or `vendor/cache` appears (a lone `vendor` segment does not count), exactly two rule groups are suppressed: the extension rules (`.pem`, `.p12`, `.key`, …) and the broad extensionless key-basename rule `secret.pattern.ssh-key-basename` (`*_rsa`, `*_dsa`, `*_ed25519`, `*_ecdsa`). Every other rule still applies there — `node_modules/x/.env` and `node_modules/x/id_rsa` block as usual. `.git` is **not** in the skip set, so key material inside a `.git` tree (for example `.git/hooks/deploy_key_rsa`) matches the rules like anywhere else.
+- **Env templates.** The exact basenames `.env.example`, `.env.sample`, `.env.template`, and `.env.defaults`, plus any name that starts with `.env.example.` or `.env.sample.`, such as `.env.example.local`, are exempted before any other sensitive-path rule runs, so they stay readable and writable even inside a protected home directory. The prefix form does not extend to the other two templates: `.env.template.local`, like every other `.env.*` name, blocks under `secret.pattern.env-variant`.
+- **Vendored directories.** When any path segment is `node_modules` or `__pycache__`, or the adjacent pair `vendor/bundle` or `vendor/cache` appears (a lone `vendor` segment does not count), exactly two rule groups are suppressed: the extension rules (`.pem`, `.p12`, `.key`, …) and the broad extensionless key-basename rule `secret.pattern.ssh-key-basename` (`*_rsa`, `*_dsa`, `*_ed25519`, `*_ecdsa`). Every other rule still applies there. `node_modules/x/.env` and `node_modules/x/id_rsa` block as usual. `.git` is **not** in the skip set, so key material inside a `.git` tree (for example `.git/hooks/deploy_key_rsa`) matches the rules like anywhere else.
 
 <Warning>
   Standard never relaxes sensitive **content** access or configured deny paths. `cat ~/.ssh/id_rsa`, `find ~/.ssh -type f -exec cat {} +`, `find ~/.ssh -type f -fprint .env`, `test -f ~/.ssh/id_rsa && cat ~/.ssh/id_rsa`, and `test -f "$(cat ~/.ssh/id_rsa)"` all stay blocked in standard. Deny paths and their descendants are matched ahead of the built-in rules and are exempt from both Standard-only relaxations.
@@ -174,10 +174,10 @@ The following commands are allowed inside a linked worktree when worktree mode i
 
 These commands remain blocked even inside a linked worktree, because they reach beyond the local working tree:
 
-- `git push --force` — affects the remote
-- `git branch -D` — affects shared refs
-- `git stash drop` / `git stash clear` — the stash is shared across worktrees
-- `git worktree remove --force` — could delete another worktree
+- `git push --force` affects the remote.
+- `git branch -D` affects shared refs.
+- `git stash drop` / `git stash clear` affect the stash shared across worktrees.
+- `git worktree remove --force` could delete another worktree.
 
 Worktree mode is a relaxation of git local-discard rules only. It does not touch filesystem, device, or PowerShell rules, and it never relaxes Git-metadata protection: inside a linked worktree, `rm .git`, `rm -rf <resolved gitDir>`, `rm -rf <commonDir>`, and the redirection `> .git` all still hard-stop, because the marker file's resolved Git directories are protected too.
 

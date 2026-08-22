@@ -6,7 +6,7 @@ description: "Full reference for CC Safety Net's policy.json: location, schema, 
 
 `policy.json` is CC Safety Net's user-scoped settings file. It selects your safety preset, turns individual built-in protections on or off, adds extra protected paths, and sets how long audit records are kept.
 
-It is separate from `rule.json` and rulebooks, which define your own custom blocking rules — see [Custom rules](/configuration/custom-rules) for that schema.
+It is separate from `rule.json` and rulebooks, which define your own custom blocking rules. See [Custom rules](/configuration/custom-rules) for that schema.
 
 ## Policy file location
 
@@ -17,7 +17,7 @@ It is separate from `rule.json` and rulebooks, which define your own custom bloc
 
 With `CC_SAFETY_NET_HOME` set, the file sits **directly** under that directory, as a sibling of `rules/`. See [Environment](/configuration/environment) for the override itself.
 
-There is exactly one policy file. **There is no project-scoped `policy.json`** — the runtime reads that single path and nothing else, so a project cannot lower or raise your policy.
+There is exactly one policy file. **There is no project-scoped `policy.json`**. The runtime reads that single path and nothing else, so a project cannot lower or raise your policy.
 
 When the dashboard writes the file it creates the directory with `0700` and the file with `0600`.
 
@@ -32,7 +32,7 @@ The canonical user `policy.json` is a protected path in **every** runtime state,
 - `find … -delete` and `find … -exec rm` reaching it
 - `mv` with the file, its directory, or an ancestor as the source
 
-Reading stays allowed. A read-only command whitelist covers `[`, `cat`, `file`, `grep`, `head`, `jq`, `less`, `ls`, `more`, `rg`, `sed`, `stat`, `tail`, `test`, and `wc` — `sed` only when it is not editing in place with `-i` or `--in-place`. Read-only tools such as Grep and Glob are exempt entirely.
+Reading stays allowed. A read-only command whitelist covers `[`, `cat`, `file`, `grep`, `head`, `jq`, `less`, `ls`, `more`, `rg`, `sed`, `stat`, `tail`, `test`, and `wc`. It covers `sed` only when the command does not edit in place with `-i` or `--in-place`. Read-only tools such as Grep and Glob are exempt entirely.
 
 <Warning>
   Because your agent cannot write this file, ask it to *show* you the change instead. Apply policy edits yourself in an editor, or through the dashboard.
@@ -115,7 +115,7 @@ The root object is **strict**: an unrecognized top-level key is an error, as is 
 </ParamField>
 
 <ParamField body="destructive_command_protection.enabled" type="boolean" default="true">
-  Master switch for the registered destructive-command rules. Setting it to `false` short-circuits every registered rule — except the catastrophic ones, which are always enforced.
+  Master switch for the registered destructive-command rules. Setting it to `false` short-circuits every registered rule except the catastrophic rules, which are always enforced.
 </ParamField>
 
 <ParamField body="destructive_command_protection.overrides" type="object" default="{}">
@@ -148,7 +148,7 @@ The root object is **strict**: an unrecognized top-level key is an error, as is 
 
 ## Safety level and capability overrides
 
-`safety.level` picks a preset; `safety.overrides` then sets individual capabilities explicitly. This is the only place a capability can be turned **down** — environment flags can only raise.
+`safety.level` picks a preset. `safety.overrides` then sets individual capabilities explicitly. This is the only place that can turn a capability **down**. Environment flags can only raise it.
 
 ```json
 {
@@ -194,15 +194,15 @@ An id that is not registered is rejected with `unknown destructive command rule 
 
 | Entry | Result |
 | --- | --- |
-| Non-string, or a string that trims to empty | Invalid — `must be a non-empty path string` |
-| Relative path | Invalid — `must be an absolute path or start with ~/` |
-| Exactly the home directory | Invalid — `cannot be the home directory` |
-| A path containing the home directory, such as `/` | Invalid — `cannot contain the home directory` |
+| Non-string, or a string that trims to empty | Invalid. `must be a non-empty path string` |
+| Relative path | Invalid. `must be an absolute path or start with ~/` |
+| Exactly the home directory | Invalid. `cannot be the home directory` |
+| A path containing the home directory, such as `/` | Invalid. `cannot contain the home directory` |
 | Any other absolute or `~/`-rooted path | Valid |
 
 ## Secret protection
 
-Secret protection blocks reads and writes of credential-bearing files. This section is the configuration contract; the full catalog of built-in rules — every id, the paths each protects, and the exemptions — is the [Secret protection reference](/reference/secret-protection).
+Secret protection blocks reads and writes of credential-bearing files. This section defines the configuration contract. The [Secret protection reference](/reference/secret-protection) lists every built-in rule id, the paths each rule protects, and the exemptions.
 
 `secret_protection.overrides` addresses individual built-in rules by id, with the value `"on"` or `"off"`. `"off"` disables a rule that is on by default; `"on"` opts into a rule from the default-off tier:
 
@@ -236,15 +236,15 @@ Validation:
 
 | Entry | Result |
 | --- | --- |
-| Non-string, or a string that trims to empty | Invalid — `must be a non-empty path string` |
-| Relative path, such as `config/secrets` or `./secrets` | **Valid** — resolved per session against the config working directory |
-| `~`, `$HOME`, or `${HOME}` alone | Invalid — the home directory itself is rejected |
+| Non-string, or a string that trims to empty | Invalid. `must be a non-empty path string` |
+| Relative path, such as `config/secrets` or `./secrets` | **Valid**. Resolved per session against the config working directory |
+| `~`, `$HOME`, or `${HOME}` alone | Invalid. The home directory itself is rejected |
 | `~/…`, `$HOME/…` | Valid once expanded, unless it resolves to home or above |
-| A path that resolves to exactly the home directory | Invalid — `cannot be the home directory or a path above it (this would block every command the agent runs)` |
-| A path that resolves to an ancestor of home, such as `/`, `/Users`, or `/home` | Invalid — same message |
+| A path that resolves to exactly the home directory | Invalid. `cannot be the home directory or a path above it (this would block every command the agent runs)` |
+| A path that resolves to an ancestor of home, such as `/`, `/Users`, or `/home` | Invalid. Same message |
 | Any other absolute path | Valid |
 
-Relative entries are accepted precisely because they resolve against each session's working directory, which is unknowable when the file is saved. The rejected class — home, anything above home, and `/` — has no legitimate reading and would block essentially every command in every workspace under home.
+Relative entries are accepted because they resolve against each session's working directory, which is unknown when the file is saved. Home, anything above home, and `/` are rejected because they would block almost every command in every workspace under home.
 
 **What a valid deny path protects:** the path itself **and every descendant**. A target is normalized against the execution working directory and each configured path against the config working directory before comparison.
 
@@ -267,11 +267,11 @@ Validation:
 
 | Entry | Result |
 | --- | --- |
-| Non-string, or a string that trims to empty | Invalid — `must be a non-empty path string` |
-| Relative path, such as `.env.test` or `fixtures/credentials` | **Valid** — resolved per session against the config working directory |
-| An entry containing `*` or `?` | Invalid — `cannot contain glob characters (* or ?); list the exact file or directory` |
-| `~`, `$HOME`, or `${HOME}` alone, or a path above home | Invalid — `cannot cover the home directory or a path above it (this would disable secret protection everywhere)` |
-| `~/.cc-safety-net` or anything below it | Invalid — `cannot cover the guard's own configuration` |
+| Non-string, or a string that trims to empty | Invalid. `must be a non-empty path string` |
+| Relative path, such as `.env.test` or `fixtures/credentials` | **Valid**. Resolved per session against the config working directory |
+| An entry containing `*` or `?` | Invalid. `cannot contain glob characters (* or ?); list the exact file or directory` |
+| `~`, `$HOME`, or `${HOME}` alone, or a path above home | Invalid. `cannot cover the home directory or a path above it (this would disable secret protection everywhere)` |
+| `~/.cc-safety-net` or anything below it | Invalid. `cannot cover the guard's own configuration` |
 | Any other literal absolute, `~/…`, `$HOME/…`, or `${HOME}/…` path | Valid |
 
 Entries are literal paths, not glob patterns. The target is resolved from the execution working directory, and a relative allow entry is resolved from the config working directory. Both sides follow existing symlinks before the same-or-descendant comparison, so an allow root also covers a target reached through a symlink.
@@ -317,17 +317,17 @@ Salvage is deliberately protective, which is why a broken file usually produces 
 | `safety.level` | Falls back to `standard` |
 | `safety.overrides.*` | The invalid key is dropped, so the capability inherits from the preset |
 | `workflow.worktree_mode` | Falls back to `false` |
-| `destructive_command_protection.enabled` | Falls back to `true` — protection **on** |
+| `destructive_command_protection.enabled` | Falls back to `true`. Protection is **on** |
 | `destructive_command_protection.overrides` | Invalid entries are discarded; a non-object becomes `{}` |
-| `destructive_command_protection.allow_paths` | Invalid entries are discarded; a non-array becomes `[]` — no allowances |
-| `secret_protection.enabled` | Falls back to `true` — protection **on** |
+| `destructive_command_protection.allow_paths` | Invalid entries are discarded. A non-array becomes `[]`, with no allowances |
+| `secret_protection.enabled` | Falls back to `true`. Protection is **on** |
 | `secret_protection.overrides` | Invalid entries are discarded; a non-object becomes `{}` |
 | `secret_protection.deny_paths` | Invalid entries are discarded; a non-array becomes `[]` |
-| `secret_protection.allow_paths` | Invalid entries are discarded; a non-array becomes `[]` — no secret exemptions |
+| `secret_protection.allow_paths` | Invalid entries are discarded. A non-array becomes `[]`, with no secret exemptions |
 | `audit.retention_days` | Clamped, or `30` when unusable |
 
 <Warning>
-  Invalid entries are **discarded, not repaired**. A mistyped deny path silently stops protecting that location, and an invalid `safety.level` silently lowers you to `standard`. These are the two quiet failure modes — run `npx cc-safety-net status` after every hand edit.
+  Invalid entries are **discarded, not repaired**. A mistyped deny path silently stops protecting that location, and an invalid `safety.level` silently lowers you to `standard`. These are the two quiet failure modes. Run `npx cc-safety-net status` after every hand edit.
 </Warning>
 
 [Configuration recovery](/configuration/recovery) is the complete contract for degraded state, including how it is reported and how to get back to `ready`.

@@ -16,7 +16,7 @@ The project's scope is deliberately focused: it is a best-effort, static pre-exe
 
 ### Behavior inside binaries
 
-If a command does not visibly contain a destructive operation, command-string analysis cannot infer it. `some-tool --task destructive-cleanup` looks benign to CC Safety Net — it cannot inspect what an arbitrary binary does at runtime. Use [sandboxing](/guides/vs-sandboxing) for that threat class.
+If a command does not visibly contain a destructive operation, command-string analysis cannot infer it. `some-tool --task destructive-cleanup` looks benign to CC Safety Net because it cannot inspect what an arbitrary binary does at runtime. Use [sandboxing](/guides/vs-sandboxing) for that threat class.
 
 ### Unconfigured or opaque command proxies
 
@@ -26,14 +26,14 @@ A tool that runs a shell command on your behalf (for example `rtk git reset --ha
 npx -y cc-safety-net rule wrapper add rtk
 ```
 
-Once configured, analysis looks through the wrapper to the visible child command, so both built-in rules and [custom rules](/configuration/custom-rules) apply to `rtk git reset --hard` exactly as they would to `git reset --hard`. There are no built-in defaults — configure only wrappers you intentionally trust. Reserved commands (`git`, `busybox`, the built-in analyzed commands, shell wrappers, and interpreters) cannot be registered as wrappers.
+Once configured, analysis looks through the wrapper to the visible child command, so both built-in rules and [custom rules](/configuration/custom-rules) apply to `rtk git reset --hard` as they would to `git reset --hard`. There are no built-in defaults. Configure only wrappers you trust. Reserved commands (`git`, `busybox`, the built-in analyzed commands, shell wrappers, and interpreters) cannot be registered as wrappers.
 
 The residual limit is narrower than "every proxy":
 
 - A proxy that is **not** listed in `transparent_wrappers` is not unwrapped.
 - A proxy that **rewrites or hides** its child command, rather than executing a visible one, cannot be unwrapped even when it is configured.
 
-In both cases only the top-level fallback dangerous-text scan may catch the command, and that scan is incomplete. `transparent_wrappers` lives in `rule.json`, so a scope whose `rule.json` is unreadable loses that scope's wrappers until it is fixed — see [Configuration recovery](/configuration/recovery).
+In both cases only the top-level fallback dangerous-text scan may catch the command, and that scan is incomplete. `transparent_wrappers` lives in `rule.json`, so a scope whose `rule.json` is unreadable loses that scope's wrappers until it is fixed. See [Configuration recovery](/configuration/recovery).
 
 ### eval and dynamic execution
 
@@ -68,11 +68,11 @@ This is inherent to any pre-execution command analysis tool; fully closing it wo
 
 ## Out-of-scope protections
 
-These are boundaries CC Safety Net does not attempt to cover. Most of them need **containment** rather than semantic analysis, which is a different layer — see [where CC Safety Net cannot help](/guides/vs-sandboxing#where-cc-safety-net-cannot-help) for the sandboxing counterpart of each one.
+These are boundaries CC Safety Net does not attempt to cover. Most of them need **containment** rather than semantic analysis, which is a different layer. See [where CC Safety Net cannot help](/guides/vs-sandboxing#where-cc-safety-net-cannot-help) for the sandboxing counterpart of each one.
 
 ### Sensitive-path coverage is bounded, not a general read boundary
 
-CC Safety Net **does** protect sensitive paths. Reads of the [built-in sensitive set](/reference/secret-protection) — `.env` and its variants, `~/.ssh/id_*`, `~/.aws`, `~/.kube/config`, coding-CLI credential stores, and more — are blocked, as are user-configured deny paths and all of their descendants. Protection applies across supported command, path, search, and patch shapes, including unknown-tool fallback inspection.
+CC Safety Net **does** protect sensitive paths. The [built-in sensitive set](/reference/secret-protection) includes `.env` variants, `~/.ssh/id_*`, `~/.aws`, `~/.kube/config`, coding-CLI credential stores, and more. Reads of these paths are blocked, as are user-configured deny paths and all of their descendants. Protection applies across supported command, path, search, and patch shapes, including unknown-tool fallback inspection.
 
 Coding-CLI coverage comes in two tiers. The **credential** tier (auth tokens and credential stores) is on by default. The **config** tier (settings and MCP config files, which agents edit as routine work) ships off and needs an explicit `"on"` override in `secret_protection.overrides`. One consequence worth knowing: Antigravity's only rule (`secret.cli.antigravity`) lives in the opt-in config tier, so Antigravity has no on-by-default credential rule. The full tier list, with the paths each rule protects, is in the [Secret protection reference](/reference/secret-protection#coding-cli-credential-tier-on-by-default).
 
@@ -108,7 +108,7 @@ The Hermes Agent and OpenClaw integrations cover a defined set of tools and exec
 
 The managed Hermes plugin registers a single `pre_tool_call` hook and forwards exactly four tools to analysis: `patch`, `read_file`, `terminal`, and `write_file`. A call to any other Hermes tool is not forwarded and gets no decision.
 
-A `!command` you type yourself also stays outside: bang-shell input does not raise `pre_tool_call`, so it goes to Hermes' own command guard instead. CC Safety Net sees model-generated tool calls only, not every subprocess Hermes starts. And if Hermes never loads the plugin, nothing blocks — only `npx cc-safety-net doctor` reports a plugin that is present but not enabled.
+A `!command` you type yourself also stays outside: bang-shell input does not raise `pre_tool_call`, so it goes to Hermes' own command guard instead. CC Safety Net sees model-generated tool calls only, not every subprocess Hermes starts. If Hermes never loads the plugin, nothing blocks. Only `npx cc-safety-net doctor` reports a plugin that is present but not enabled.
 
 ### OpenClaw covers exec on the local Gateway host
 
@@ -126,11 +126,11 @@ The Codex-native relay is untested and therefore unclaimed: the live end-to-end 
 
 ### Windows is not supported for either integration
 
-Both integrations assume the POSIX state layout. Relocated state is handled the way the hosts resolve it — `HERMES_HOME` for Hermes, then `OPENCLAW_STATE_DIR` and the directory of `OPENCLAW_CONFIG_PATH` for OpenClaw, falling back to `~/.hermes` and `~/.openclaw`. The Windows defaults are not: install and detection target the POSIX path there, so the Hermes install writes the plugin to a directory Hermes does not read, and OpenClaw's own CLI installs correctly while `doctor` misreports the state.
+Both integrations assume the POSIX state layout. The hosts resolve relocated state through `HERMES_HOME` for Hermes, and through `OPENCLAW_STATE_DIR` followed by the directory of `OPENCLAW_CONFIG_PATH` for OpenClaw. They fall back to `~/.hermes` and `~/.openclaw`. The Windows defaults are not supported. Install and detection target the POSIX path on Windows, so the Hermes install writes the plugin to a directory Hermes does not read. OpenClaw's own CLI installs correctly, but `doctor` misreports the state.
 
 ## Codex coverage boundary
 
-Codex's unified exec path — the default shell path on macOS and Linux — sends a `PreToolUse` payload when a command opens a session, but none for `write_stdin`. Only the command that opened the session is evaluated. Text the model then types into the already-running interactive session reaches the shell without inspection and without an audit entry.
+Codex's unified exec path, the default shell path on macOS and Linux, sends a `PreToolUse` payload when a command opens a session, but none for `write_stdin`. Only the command that opened the session is evaluated. Text the model then types into the already-running interactive session reaches the shell without inspection and without an audit entry.
 
 This gap cannot be closed from the hook side: the host emits no event for that call, so there is nothing to analyze. If injection into a running session is a concern in your environment, use [sandboxing](/guides/vs-sandboxing) as the containment layer.
 
@@ -138,11 +138,11 @@ This gap cannot be closed from the hook side: the host emits no event for that c
 
 ### OpenCode stale cache
 
-OpenCode's plugin installer can keep serving a stale cached version of `cc-safety-net` after a new release is published. If updates do not take effect, clear the cache and reinstall — see the [OpenCode installation steps](/installation#opencode-installation). Run `npx cc-safety-net doctor` to confirm the detected plugin version.
+OpenCode's plugin installer can keep serving a stale cached version of `cc-safety-net` after a new release is published. If updates do not take effect, clear the cache and reinstall. See the [OpenCode installation steps](/installation#opencode-installation). Run `npx cc-safety-net doctor` to confirm the detected plugin version.
 
 ### Stale npx cache (Antigravity CLI, Cursor, Hermes Agent, Kimi Code)
 
-The Antigravity CLI, Cursor, and Kimi Code hooks and the Hermes Agent plugin run through `npx -y cc-safety-net`, so npx's own cache can also keep serving an old release. Installing any of those four targets first removes every npx cache entry that contains `cc-safety-net` (the `_npx/*/node_modules/cc-safety-net` entries), so a plain reinstall picks up the new release — no manual cache clearing needed. Installs for other targets do not touch this cache.
+The Antigravity CLI, Cursor, and Kimi Code hooks and the Hermes Agent plugin run through `npx -y cc-safety-net`, so npx's own cache can also keep serving an old release. Installing any of those four targets first removes every npx cache entry that contains `cc-safety-net` (the `_npx/*/node_modules/cc-safety-net` entries). A plain reinstall then picks up the new release without manual cache clearing. Installs for other targets do not touch this cache.
 
 ## What to do if a destructive command slipped through
 
@@ -160,7 +160,7 @@ The `explain` command shows the full step-by-step analysis of how CC Safety Net 
 
 Then route the report:
 
-- A command shape the rules do not block yet is a **coverage gap**. It is a public bug — open a [GitHub issue](https://github.com/kenryu42/cc-safety-net/issues) describing the command *shape*, not a ready-to-paste payload.
+- A command shape the rules do not block yet is a **coverage gap**. It is a public bug. Open a [GitHub issue](https://github.com/kenryu42/cc-safety-net/issues) describing the command *shape*, not a ready-to-paste payload.
 - Secret leakage, a write outside the intended directory, and supply-chain or package-integrity problems take the **private** disclosure path instead.
 
 The [security policy](/security) has both procedures and the full classification.

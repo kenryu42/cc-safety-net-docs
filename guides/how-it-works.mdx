@@ -6,13 +6,13 @@ description: "The lifecycle of a single tool call: agent request, integration in
 
 CC Safety Net sits between your coding agent and the protected tools. It inspects each supported tool operation before that operation runs. It then allows the operation or returns a block that the agent can act on. This page follows one tool call from end to end.
 
-For the integration that connects each agent to CC Safety Net, see [Integration architecture](/guides/integration-architecture).
+See [Integration architecture](/guides/integration-architecture) for how each agent connects to CC Safety Net.
 
 ## The lifecycle of one tool call
 
 <Steps>
   <Step title="Your agent prepares a tool call">
-    The agent decides to run something — a shell command such as `git reset --hard`, or a file write, edit, search, or patch — and hands it to its tool layer.
+    The agent prepares a shell command such as `git reset --hard`, or a file write, edit, search, or patch. It then hands the operation to its tool layer.
   </Step>
   <Step title="The integration intercepts it">
     CC Safety Net's integration for that agent receives the call before the tool executes and before the operating system ever sees it. Some agents call CC Safety Net as a short-lived subprocess hook; others load it in-process as a plugin or extension. Either way the same guard runs. See [Integration architecture](/guides/integration-architecture) for which agent uses which model.
@@ -33,16 +33,16 @@ For the integration that connects each agent to CC Safety Net, see [Integration 
 Every tool call runs through the same stages, in this order:
 
 1. **Bounded input extraction.** The command is read out of the tool input under traversal limits on depth, node count, key count, and size. Exceeding a limit blocks the call rather than risking an unbounded walk.
-2. **A single parse.** The command is parsed once into structural facts that every later stage reuses. Exhausting a parser budget blocks the call — in every safety level.
+2. **A single parse.** The command is parsed once into structural facts that every later stage reuses. Exhausting a parser budget blocks the call at every safety level.
 3. **Policy-file protection.** Anything that would modify or delete CC Safety Net's own `policy.json`, its directory, or an ancestor is stopped outright.
-4. **Git-metadata protection.** Anything that would delete, move, overwrite, or patch your repository's `.git` metadata or hooks directory is stopped outright — including from inside the working directory.
+4. **Git-metadata protection.** Anything that would delete, move, overwrite, or patch your repository's `.git` metadata or hooks directory is stopped outright, including from inside the working directory.
 5. **Configuration load.** Your policy, rulebooks, and safety level are resolved.
 6. **Sensitive-path protection.** Commands, paths, searches, and patches are checked against built-in sensitive locations (`.env`, `~/.ssh`, cloud and coding-CLI credential files) and any deny paths you configured.
-7. **Destructive-command analysis.** The command is split into segments, wrappers and interpreters are unwrapped, and each segment is classified by the analyzer that understands it — `git`, `rm`, `Remove-Item`, `find`, `xargs`, `parallel`, the device commands, and your custom rules.
+7. **Destructive-command analysis.** The command is split into segments, and wrappers and interpreters are unwrapped. The matching analyzer then classifies each segment. Analyzers cover `git`, `rm`, `Remove-Item`, `find`, `xargs`, `parallel`, device commands, and custom rules.
 
 Steps 3 and 4 deliberately run **before** step 5. Those two protections are always on and cannot be weakened by your configuration, because they take effect before that configuration is even read. Step 6 is policy-controlled, so you can disable it or extend it with your own deny paths.
 
-For the maintainer-level view of the same sequence, including stage names and evidence, see [Architecture](/guides/architecture#the-ordered-guard-stages). For the classifier internals, see [Analysis engine](/guides/analysis-engine).
+See [Architecture](/guides/architecture#the-ordered-guard-stages) for the same sequence with stage names and evidence. See [Analysis engine](/guides/analysis-engine) for the classifier internals.
 
 ## Why intent, not string matching
 
@@ -83,7 +83,7 @@ A block does not end the agent session. The message arrives as a normal tool res
 | `manual_only` | Ask the user for explicit permission and have them run it manually |
 | `stop_and_explain` | Do not brute-force variants; simplify or restructure the command, or report the block |
 
-Why the messages are written this way — and why the instruction is advisory while enforcement stays with the guard — is covered in [Design principles](/guides/design-principles#denials-that-keep-the-agent-on-task).
+[Design principles](/guides/design-principles#denials-that-keep-the-agent-on-task) explains why the messages use this structure and why the instruction is advisory while the guard enforces the decision.
 
 ## The audit record
 
@@ -102,15 +102,15 @@ Where the log lives, what each record contains, how long records are kept, and e
     `npx cc-safety-net explain "<command>"` replays the analysis for a command and shows which rule matched and why. Add `--json` for the structured trace.
   </Step>
   <Step title="Check that protection is actually in force">
-    `npx cc-safety-net status` prints `ready` or `degraded` in one screen, and lists anything that is not enforced — including a disabled Claude Code plugin — under `Not active`. `degraded` means a configuration source was rejected and a fallback is being enforced — see [Configuration recovery](/configuration/recovery) for what is and is not active, and how to repair it. `npx cc-safety-net doctor` gives the full report.
+    `npx cc-safety-net status` prints `ready` or `degraded` in one screen, and lists anything that is not enforced, including a disabled Claude Code plugin, under `Not active`. `degraded` means a configuration source was rejected and a fallback is being enforced. See [Configuration recovery](/configuration/recovery) for what is and is not active, and how to repair it. `npx cc-safety-net doctor` gives the full report.
   </Step>
   <Step title="Adjust or report">
-    If the block is correct but too strict for your workflow, change your [safety mode](/configuration/modes) or add a per-rule override. If a safe command is blocked, or a destructive one was not, see [Troubleshooting](/guides/troubleshooting) and the [security policy](/security) for where to report it.
+    If the block is correct but too strict for your workflow, change your [safety mode](/configuration/modes) or add a per-rule override. If a safe command is blocked or a destructive one was not, see [Troubleshooting](/guides/troubleshooting) and the [security policy](/security) for where to report it.
   </Step>
 </Steps>
 
 ## What this does not cover
 
-CC Safety Net analyzes the tool call your agent attempts to make, so it cannot see behavior hidden inside arbitrary binaries, unconfigured or opaque command proxies, or network activity. It is a static pre-execution policy gate — not an OS sandbox, not a privilege boundary, and no protection at all for commands that bypass an installed integration. See [Known limitations](/guides/known-limitations) for the full list and the recommended mitigations.
+CC Safety Net analyzes the tool call your agent attempts to make, so it cannot see behavior hidden inside arbitrary binaries, unconfigured or opaque command proxies, or network activity. It is a static pre-execution policy gate. It is not an OS sandbox or a privilege boundary, and it does not protect commands that bypass an installed integration. See [Known limitations](/guides/known-limitations) for the full list and the recommended mitigations.
 
 Next, see [Integration architecture](/guides/integration-architecture) for how each agent connects to CC Safety Net.

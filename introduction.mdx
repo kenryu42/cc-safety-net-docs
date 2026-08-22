@@ -6,7 +6,7 @@ description: "CC Safety Net is a pre-execution guard that inspects what your cod
 
 A single command such as `rm -rf ~/` or `git checkout -- .` can erase hours of uncommitted work. A [documented Reddit incident](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/) showed Claude CLI deleting an entire home directory.
 
-Instructions in `CLAUDE.md` or `AGENTS.md` can help, but an agent can misinterpret or overlook them. CC Safety Net adds an enforced pre-execution check.
+Instructions in `CLAUDE.md` or `AGENTS.md` can help, but an agent can misinterpret or overlook them. CC Safety Net enforces a check before execution.
 
 ## What it intercepts
 
@@ -14,15 +14,15 @@ CC Safety Net installs into your coding agent. It runs before the agent's tool c
 
 It inspects shell commands and file write, edit, search, and patch operations. It then allows the operation or blocks it with a direct reason. A block arrives as a normal tool result, so the agent can [continue the task without the blocked operation](/guides/design-principles#denials-that-keep-the-agent-on-task).
 
-The decision is based on intent, not on spelling. `git checkout -b feature` creates a branch and is allowed; `git checkout -- file` discards uncommitted changes and is blocked. Both start with the same two words.
+CC Safety Net bases its decision on intent, not spelling. It allows `git checkout -b feature` because the command creates a branch. It blocks `git checkout -- file` because the command discards uncommitted changes. Both commands start with the same two words.
 
 For tool operations that an integration forwards, the same inspection protects supported credential-bearing files, including SSH keys, `.env` files, cloud credential stores, and coding CLI tokens. CC Safety Net blocks matching forwarded reads and writes before the agent accesses the file. Tool coverage differs by integration; see the [integration coverage boundaries](/guides/known-limitations#hermes-agent-and-openclaw-coverage-boundaries) and the [Secret protection reference](/reference/secret-protection).
 
-Each agent uses a different integration. Some run CC Safety Net as a short-lived subprocess. Others load it in the agent process. The installer configures the correct integration for your agent. For the full lifecycle of one tool call, see [How it works](/guides/how-it-works).
+Each agent uses a different integration. Some run CC Safety Net as a short-lived subprocess. Others load it in the agent process. The installer configures the correct integration for your agent. See [How it works](/guides/how-it-works) for the full lifecycle of one tool call.
 
 ## What it does not replace
 
-CC Safety Net complements your agent's permission rules and native sandboxing. It does not replace them.
+Use CC Safety Net with your agent's permission rules and native sandboxing. It does not replace them.
 
 Deny rules give you quick, user-configurable blocks. Sandboxing gives operating-system-level filesystem and network containment. CC Safety Net covers known-destructive Git and filesystem operations that a sandbox can permit inside your project. Use these layers together. See [CC Safety Net vs. sandboxing](/guides/vs-sandboxing).
 

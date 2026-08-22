@@ -15,11 +15,11 @@ keywords:
   - "worktree モード"
 ---
 
-CC Safety Net は、意味に基づくコマンド解析を使って、許可される形式と破壊的な形式を区別します。アナライザーは、このページにあるコマンド形式を許可します。
+CC Safety Net はコマンドの意味を解析し、許可できる形式と破壊的な形式を区別します。このページにあるコマンド形式は、アナライザーが許可します。
 
 一部の許可は安全レベルによって異なります。**standard のみ**と記載した行は、[strict](/ja/configuration/modes#strict-mode) または [paranoid](/ja/configuration/modes#paranoid-mode) が有効になると許可されません。
 
-このページは、許可されるコマンドのリファレンスです。ブロックされる形式については、[ブロックされるコマンド](/ja/reference/blocked-commands)を参照してください。順序付きのガードフローについては、[アーキテクチャ](/ja/guides/architecture)を参照してください。分類の動作については、[解析エンジン](/ja/guides/analysis-engine)を参照してください。
+このページは、許可されるコマンドのリファレンスです。ブロックされる形式は[ブロックされるコマンド](/ja/reference/blocked-commands)、ガードの処理順は[アーキテクチャ](/ja/guides/architecture)、分類方法は[解析エンジン](/ja/guides/analysis-engine)を参照してください。
 
 <Warning>
   致命的な操作に対する保護は、すべての安全レベルで適用されます。root とホームディレクトリの再帰削除、保護対象の Git メタデータ、正規の `policy.json` は常にブロックされます。このページに挙げた形式、`allow_paths`、worktree モード、ルール単位の `off` の override では、この保護を緩和できません。
@@ -150,7 +150,7 @@ allow path が他の範囲を広げることはありません。機密パス保
 | `ls -la ~/.ssh`、`stat .env` | 内容にアクセスしないディレクトリの一覧取得とファイル情報の確認 | **standard のみ** |
 | 機密パスのリテラルを含む Node／Bun のインライン評価 | 範囲を限定した字句スキャンで、ファイルシステム操作やコマンド実行の痕跡が見つからない場合は、実行されない診断用データとして扱う | **standard のみ** |
 
-この許可のうち 2 つには、知っておく必要がある正確な境界があります。
+この許可には、注意すべき境界が 2 つあります。
 
 - **env テンプレート。** 正確なベース名 `.env.example`、`.env.sample`、`.env.template`、`.env.defaults` と、`.env.example.` または `.env.sample.` で始まるすべての名前（`.env.example.local` など）は、ほかのすべての機密パスルールより先に除外されます。そのため、保護対象のホームディレクトリ内でも読み書きできます。この接頭辞形式は、残りの 2 つのテンプレートには拡張されません。`.env.template.local` は、ほかのすべての `.env.*` 名と同様に `secret.pattern.env-variant` でブロックされます。
 - **ベンダー管理ディレクトリ。** パスセグメントが `node_modules` または `__pycache__` の場合、または隣接する組み合わせ `vendor/bundle` または `vendor/cache` がある場合（単独の `vendor` セグメントは対象外）、正確に 2 つのルールグループが抑制されます。拡張子ルール（`.pem`、`.p12`、`.key` など）と、拡張子なしの広範なキーベース名ルール `secret.pattern.ssh-key-basename`（`*_rsa`、`*_dsa`、`*_ed25519`、`*_ecdsa`）です。それ以外のルールはすべて引き続き適用されます。`node_modules/x/.env` と `node_modules/x/id_rsa` は通常どおりブロックされます。`.git` は除外セットに**含まれません**。そのため、`.git` ツリー内のキーマテリアル（`.git/hooks/deploy_key_rsa` など）は、ほかの場所と同様にルールに一致します。

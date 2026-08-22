@@ -96,7 +96,7 @@ Git 接受 `GIT_SSH_COMMAND`、`GIT_SSH` 和 `GIT_SSH_VARIANT`，以在网络操
 
 `rm -rf` 目标使用以下首个匹配分类顺序：不受支持的 Windows UNC 或设备目标、根目录或主目录、受保护的 Git 元数据、临时路径、动态目标、配置的允许路径、主目录作为工作目录、工作目录本身、工作目录内部、工作目录外部。临时路径在所有级别都允许。当前工作目录内的其他路径在 paranoid `rm` 未启用时允许。安全变体见[被允许的命令](/zh-Hans/reference/allowed-commands)。
 
-将破坏性命令隐藏在 POSIX 函数中不会改变这些规则：函数正文会在调用位置使用调用者的 cwd 进行分析；调用可经由引号（`'cleanup'`）、`time`/`!` 前缀和 `eval` 解析。从未被调用的定义不会产生任何作用。调用解析和作用域见 [POSIX shell 函数](/zh-Hans/guides/analysis-engine#posix-shell-函数)。
+把破坏性命令藏在 POSIX 函数中不会绕过这些规则。函数正文会在调用处按调用者的 cwd 分析；调用也可通过引号（`'cleanup'`）、`time`/`!` 前缀和 `eval` 解析。只定义但从未调用的函数，其正文不会运行。调用解析和作用域见 [POSIX shell 函数](/zh-Hans/guides/analysis-engine#posix-shell-函数)。
 
 <Warning>
   `standard` 不会一律阻止动态 `rm -rf` 目标。`rm -rf "$target"` 在 `standard` 中允许，只有启用 `fail_closed` 能力后，也就是在 [`strict`](/zh-Hans/configuration/modes#strict-mode) 或 [`paranoid`](/zh-Hans/configuration/modes#paranoid-mode) 中，才会被阻止。`standard` 对对抗性或动态生成的命令文本只提供尽力保护；命令可能来自提示注入或其他不可信来源时，请使用 `strict` 或 `paranoid`。
@@ -114,7 +114,7 @@ CC Safety Net 在每个安全级别分析 `dd`、`mkfs` 和 `shred`。这些规�
 | --- | --- |
 | `dd ... of=/dev/...` | 用 `dd` 直接写入设备路径可能破坏磁盘或分区。重新排序和带引号的操作数也涵盖在内（`dd of=/dev/nvme0n1 if=/dev/zero`、`of="/dev/sda"`） |
 | `mkfs /dev/...` 和任何 `mkfs.*` 变体 | 格式化设备会清除其中的全部内容（`mkfs.ext4 /dev/sda1`、`mkfs -t ext4 /dev/sdb`） |
-| `shred <target>` | `shred` 会永久破坏交给它的任何东西，因此所有目标都被阻止——包括 `shred --help` 和 `shred --version` |
+| `shred <target>` | `shred` 会永久破坏交给它的任何目标，因此 `shred --help` 和 `shred --version` 也会被阻止 |
 
 只有对设备的*写入*会触发 `dd` 规则。从设备读取到文件（`dd if=/dev/sda of=./backup.img`）是允许的，对文件镜像运行 `mkfs.ext4 disk.img` 同样允许。三条规则也适用于包装器和载体：`bash -c "dd if=/dev/zero of=/dev/sda"`、`sudo mkfs.ext4 /dev/sda`、`env dd of=/dev/sda if=/dev/zero` 和 `eval "shred secret"` 都会被阻止。
 
@@ -139,7 +139,7 @@ CC Safety Net 会解析出执行目录最近的祖先 `.git` 条目，并保护�
 
 ## 规范 `policy.json`
 
-修改或删除规范用户策略文件——`~/.cc-safety-net/policy.json`，或在设置了 `CC_SAFETY_NET_HOME` 时的 `$CC_SAFETY_NET_HOME/policy.json`——始终被阻止。此检查在加载配置**之前**运行，因此它所保护的那份策略永远无法禁用它，其拒绝也不带安全级别和配置状态。原因字符串固定为：
+修改或删除规范用户策略文件始终被阻止。默认路径是 `~/.cc-safety-net/policy.json`；设置 `CC_SAFETY_NET_HOME` 后，路径为 `$CC_SAFETY_NET_HOME/policy.json`。此检查在加载配置**之前**运行，因此它所保护的策略无法禁用这项检查，其拒绝也不带安全级别和配置状态。原因字符串固定为：
 
 ```text
 This path contains the protected policy config and you must not modify or delete it.
@@ -155,7 +155,7 @@ This path contains the protected policy config and you must not modify or delete
 
 只读的检查命令在允许列表中，可以通过：`[`、`cat`、`file`、`grep`、`head`、`jq`、`less`、`ls`、`more`、`rg`、`sed`、`stat`、`tail`、`test`、`wc`。
 
-<Warning>这是有意保持最小范围的精确路径保护，不是命令模拟。它会跟踪只做赋值的 shell 变量和显式的 `cd`，但不会展开 glob 或 brace，不会推断计算得出的解释器路径、检查解释器正文、推断归档成员、模拟 `find` 操作或推断传输后的最终文件名。rulebook、lockfile、缓存、同级文件和对策略目录的检查都不在此防护范围内，只有 `policy.json` 具备防篡改能力。</Warning>
+<Warning>这是范围很小的精确路径保护，不是命令模拟器。它会跟踪只做赋值的 shell 变量和显式的 `cd`，但不会展开 glob 或 brace，也不会推断计算得出的解释器路径、检查解释器正文、推断归档成员、模拟 `find` 操作或推断传输后的最终文件名。rulebook、lockfile、缓存、同级文件和对策略目录的检查都不在此防护范围内，只有 `policy.json` 具备防篡改能力。</Warning>
 
 ## PowerShell `Remove-Item`
 
@@ -225,7 +225,7 @@ command 形式的提取是有界且结构化的：触及结构性 shell 语法�
 
 ### 阻止所有解释器单行命令
 
-如果想不论内容一律阻止解释器单行命令，可设置 `CC_SAFETY_NET_PARANOID_INTERPRETERS=1`。此后每个 `python -c`、`node -e`、`ruby -e` 和 `perl -e` 单行命令都会被阻止，即使其中不含危险代码——`python -c "print(1)"` 在 `standard` 和 `strict` 中允许，在这里则被阻止。详情见[模式](/zh-Hans/configuration/modes#paranoid-interpreters)。
+如果想不论内容一律阻止解释器单行命令，可设置 `CC_SAFETY_NET_PARANOID_INTERPRETERS=1`。此后每个 `python -c`、`node -e`、`ruby -e` 和 `perl -e` 单行命令都会被阻止，即使其中不含危险代码。`python -c "print(1)"` 在 `standard` 和 `strict` 中允许，在这里则被阻止。详情见[模式](/zh-Hans/configuration/modes#paranoid-interpreters)。
 
 ## `strict` 和 `paranoid` 中的 heredoc
 
@@ -259,7 +259,7 @@ shell 解析器无法对命令分词时（例如引号未闭合），行为取�
 
 | 输入 | `standard` | `strict` 和 `paranoid` |
 | --- | --- | --- |
-| `echo 'unterminated` | 允许——看似安全的无法解析文本可以通过 | 阻止，理由是“无法安全分析” |
+| `echo 'unterminated` | 允许，看似安全的无法解析文本可以通过 | 阻止，理由是 `无法安全分析` |
 | `git reset --hard 'unterminated` | 被启发式扫描**阻止** | 阻止 |
 | `dd if=/dev/zero of=/dev/sda 'oops` | 被启发式扫描**阻止** | 阻止 |
 

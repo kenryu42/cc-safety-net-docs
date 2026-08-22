@@ -7,7 +7,7 @@ description: "Define project and user-level custom blocking rules in CC Safety N
 Use custom blocking rules to enforce team conventions or project-specific safety policies. Rules use a **rulebook-based layout** and merge from user and project scopes. This lets you keep personal defaults with project overrides.
 
 <Warning>
-  **Breaking change** — Legacy inline configuration files (`.safety-net.json` and `~/.cc-safety-net/config.json`) are no longer loaded at runtime. If they contain rules, **those rules are inert until you migrate**. The runtime ignores legacy files silently. `rule verify` warns about them. Ordinary commands keep working. Run `npx -y cc-safety-net rule migrate` to convert legacy rules into the rulebook layout. See [Migrate legacy configuration](#migrate-legacy-configuration).
+  **Breaking change.** CC Safety Net no longer loads legacy inline configuration files (`.safety-net.json` and `~/.cc-safety-net/config.json`) at runtime. If they contain rules, **those rules are inert until you migrate**. The runtime ignores legacy files silently. `rule verify` warns about them. Ordinary commands keep working. Run `npx -y cc-safety-net rule migrate` to convert legacy rules into the rulebook layout. See [Migrate legacy configuration](#migrate-legacy-configuration).
 </Warning>
 
 <Tip>
@@ -30,16 +30,16 @@ Use custom blocking rules to enforce team conventions or project-specific safety
 
 CC Safety Net loads rulebooks from two scopes and merges them:
 
-1. **User scope** — `~/.cc-safety-net/rules/rule.json` (created with `rule init --global`). Use this for personal defaults that apply to every project.
-2. **Project scope** — `.cc-safety-net/rules/rule.json` in the project root. Use this for team or project-specific rules you can commit to source control.
+1. **User scope.** `~/.cc-safety-net/rules/rule.json` (created with `rule init --global`). Use this for personal defaults that apply to every project.
+2. **Project scope.** `.cc-safety-net/rules/rule.json` in the project root. Use this for team or project-specific rules you can commit to source control.
 
 Local rulebook sources are referenced by bare names like `project-rules`. GitHub rulebook sources use `owner/repo#ref/<rulebook-name>` and point to `.cc-safety-net/rules/<rulebook-name>/rulebook.json` in that repository.
 
 ### Scope merge behavior
 
 - Rulebooks from both scopes are combined, user scope first.
-- **Duplicate active rulebook names resolve by first claim.** The user scope is loaded first, so a name it claims shadows the project rulebook of the same name; the later rulebook contributes no rules at all rather than partially shadowing the first. The collision is reported as a warning, which puts the runtime in the `degraded` state — rename one of them and run `rule sync`. Because the collision is resolved rather than fatal, `rule sync` for one scope still succeeds on a name the other scope already uses.
-- **Each scope's `overrides` apply to that scope's own rules.** A project override that names a user-scoped rule is ignored with a warning and the rule keeps its user-configured state — project config cannot disable or rewrite a user rule.
+- **Duplicate active rulebook names resolve by first claim.** CC Safety Net loads user scope first, so a name it claims shadows the project rulebook with the same name. The later rulebook contributes no rules instead of partially shadowing the first. CC Safety Net reports the collision as a warning and puts the runtime in the `degraded` state. Rename one of the rulebooks and run `rule sync`. Because the collision is resolved instead of fatal, `rule sync` for one scope still succeeds when the other scope already uses that name.
+- **Each scope's `overrides` apply to that scope's own rules.** CC Safety Net ignores a project override that names a user-scoped rule and reports a warning. The rule keeps its user-configured state. Project config cannot disable or rewrite a user rule.
 - An override key that matches no known rule is ignored with a warning; other overrides and rules keep their configured state.
 - `transparent_wrappers` from both scopes are unioned.
 
@@ -49,8 +49,8 @@ If no config is found in either location, only built-in rules apply.
 
 A rulebook source is referenced by an entry in `rule.json`'s `rules` array. There are two kinds:
 
-- **Local source** — a bare name like `project-rules`. The rulebook lives at `.cc-safety-net/rules/project-rules/rulebook.json` (project) or `~/.cc-safety-net/rules/project-rules/rulebook.json` (user). Local sources must stay within their config directory.
-- **GitHub source** — `owner/repo#ref/<rulebook-name>`, pointing at `.cc-safety-net/rules/<rulebook-name>/rulebook.json` in that repository and ref.
+- **Local source.** A bare name such as `project-rules`. The rulebook lives at `.cc-safety-net/rules/project-rules/rulebook.json` (project) or `~/.cc-safety-net/rules/project-rules/rulebook.json` (user). Local sources must stay within their config directory.
+- **GitHub source.** `owner/repo#ref/<rulebook-name>` points to `.cc-safety-net/rules/<rulebook-name>/rulebook.json` in that repository and ref.
 
 Use the `rule` command to add, update, and remove sources rather than editing `rule.json` and the lockfile by hand:
 
@@ -78,7 +78,7 @@ Add `--global` (`-g`) to operate on the user scope instead of the project scope.
 
 ### Resource limits
 
-The `rules` array holds at most **64** sources per scope. A `rule.json` with more entries fails validation with the single error `Rule config exceeds CC Safety Net's safe source limit.` — the oversized array is not itemized entry by entry, and the whole scope's config is dropped like any other invalid `rule.json`.
+The `rules` array holds at most **64** sources per scope. A `rule.json` with more entries fails validation with the single error `Rule config exceeds CC Safety Net's safe source limit.` The error does not list each item in the oversized array, and CC Safety Net drops the whole scope's config like any other invalid `rule.json`.
 
 `rule sync` runs under fixed budgets: it processes at most **4** sources concurrently, and one run makes at most **131** GitHub requests and reads at most **64 MiB** of response bytes across all sources. Exceeding a budget stops the run with `Rule synchronization exceeds CC Safety Net's safe resource limits.`
 
@@ -89,7 +89,7 @@ Every configured source is pinned in a `rule.lock` file by a SHA-256 digest, and
 What happens when verification fails depends on which side is broken:
 
 - A **missing lockfile, missing lock entry, missing cache entry, digest mismatch, or unparseable cached rulebook** drops that source. It contributes no rules until you run `rule sync`. Every other verified source and every built-in protection keeps applying, and ordinary commands keep running. A dropped source puts the runtime in `degraded` rather than blocking work.
-- A **local source that drifts from its pinned digest** — including one that is missing, unparseable, or schema-invalid on disk — is not a failure state. The runtime reads only the digest-verified **cached** rulebook and never re-reads the local copy. Your pending local edit is not active until you run `rule sync`. A full `rule sync` and `rule verify` still reject an invalid or symlinked local source.
+- A **local source that drifts from its pinned digest** is not a failure state, even if the source is missing, unparseable, or invalid against the schema on disk. The runtime reads only the digest-verified **cached** rulebook and never reads the local copy again. Your pending local edit is not active until you run `rule sync`. A full `rule sync` and `rule verify` still reject an invalid or symlinked local source.
 
 See [Configuration recovery](/configuration/recovery) for the full state model, the exact diagnostic strings, and the repair sequence.
 
@@ -120,7 +120,7 @@ Rules for the field:
 - A wrapper that is **not** listed here, or one that rewrites or hides its child command rather than exec'ing a visible child, is still not unwrapped. Only the top-level dangerous-text fallback scan may catch such a command.
 
 <Warning>
-  `transparent_wrappers` lives in `rule.json`, which carries no lock or digest. If a scope's `rule.json` becomes unreadable, that scope's wrappers stop applying — the one place where dropped configuration reduces built-in coverage. A dropped **rulebook** (missing cache entry, missing lock entry, digest mismatch) leaves `rule.json` readable, so wrappers survive it.
+  `transparent_wrappers` lives in `rule.json`, which carries no lock or digest. If a scope's `rule.json` becomes unreadable, that scope's wrappers stop applying. This is the one place where dropped configuration reduces built-in coverage. A dropped **rulebook** from a missing cache entry, missing lock entry, or digest mismatch leaves `rule.json` readable, so wrappers survive it.
 </Warning>
 
 ## Create your first custom rule
@@ -131,7 +131,7 @@ Create a starter project rule config:
 npx -y cc-safety-net rule init
 ```
 
-This creates an **inert** `.cc-safety-net/rules/rule.json` — no rulebook sources are configured yet:
+This creates an **inert** `.cc-safety-net/rules/rule.json`. No rulebook sources are configured yet:
 
 ```json
 {
@@ -206,14 +206,14 @@ Now `git add -A`, `git add --all`, and `git add .` will be blocked with your cus
 
 ## `rule.json` schema
 
-The top-level `rule.json` selects which rulebooks are active, applies overrides, and declares transparent wrappers. It is separate from `policy.json`, which configures safety levels, built-in protections, allow and deny paths, and audit retention — see [Policy](/configuration/policy) for that file.
+The top-level `rule.json` selects active rulebooks, applies overrides, and declares transparent wrappers. It is separate from `policy.json`, which configures safety levels, built-in protections, allow and deny paths, and audit retention. See [Policy](/configuration/policy) for that file.
 
 <ParamField body="version" type="integer" required>
   Schema version. Must be `1`.
 </ParamField>
 
 <ParamField body="rules" type="array">
-  List of rulebook source strings. Defaults to an empty array. Source names must be unique within the file, and at most 64 sources are allowed — see [Resource limits](#resource-limits).
+  List of rulebook source strings. Defaults to an empty array. Source names must be unique within the file, and at most 64 sources are allowed. See [Resource limits](#resource-limits).
 </ParamField>
 
 <ParamField body="overrides" type="object">
@@ -255,7 +255,7 @@ CC Safety Net publishes a JSON Schema for `rule.json`, generated from the same s
 }
 ```
 
-It covers exactly the `rule.json` fields above — `version`, `rules`, `overrides`, and `transparent_wrappers`. Running `rule verify` adds this `$schema` reference to a valid rules config that lacks one. There is no published schema for `policy.json`.
+It covers exactly the `rule.json` fields above: `version`, `rules`, `overrides`, and `transparent_wrappers`. Running `rule verify` adds this `$schema` reference to a valid rules config that lacks one. There is no published schema for `policy.json`.
 
 ## Rulebook schema
 
@@ -492,11 +492,11 @@ Legacy inline config files (`.safety-net.json` and `~/.cc-safety-net/config.json
 
 | Legacy file state | New behavior |
 | --- | --- |
-| Empty legacy file | Silently ignored — built-in rules only |
+| Empty legacy file | Silently ignored. Only built-in rules apply |
 | Legacy file with rules | Its rules are **inert** until migrated with `rule migrate`; the runtime ignores the file silently |
-| Invalid legacy file | Same — inert until fixed and migrated, or removed |
+| Invalid legacy file | Same result. Inert until fixed and migrated, or removed |
 
-Legacy rules are never enforced from their old location, and they never block work either. The runtime does not inspect legacy files at all, so nothing surfaces at guard time — `npx -y cc-safety-net rule verify` is what warns about a leftover legacy file. Run it after an upgrade.
+CC Safety Net never enforces legacy rules from their old location, and they do not block work. The runtime does not inspect legacy files, so no warning appears at guard time. Run `npx -y cc-safety-net rule verify` after an upgrade to find a leftover legacy file.
 
 ```bash
 # Convert legacy inline rules into the rulebook layout
@@ -509,14 +509,14 @@ npx -y cc-safety-net rule migrate --cleanup
 npx -y cc-safety-net rule verify
 ```
 
-**Before** — single inline config with rules embedded:
+**Before.** A single inline config with embedded rules:
 
 ```text
 .safety-net.json                # project rules (inline)
 ~/.cc-safety-net/config.json    # user rules (inline)
 ```
 
-**After** — `rule migrate` creates a rulebook-based layout automatically:
+**After.** `rule migrate` creates a rulebook-based layout automatically:
 
 ```text
 .cc-safety-net/rules/rule.json                    # project rulebook sources + overrides
@@ -529,7 +529,7 @@ npx -y cc-safety-net rule verify
 
 Custom-rule configuration that cannot be verified is **dropped, not enforced, and never turned into a denial**. Ordinary commands keep running, every other verified source keeps enforcing, and every built-in protection still applies. The runtime reports itself as `degraded` so the situation is visible.
 
-Because a dropped source **removes** denials rather than adding them, this class of failure produces no friction on its own. `npx cc-safety-net status` is the cheap habitual check. See [Configuration recovery](/configuration/recovery) for the full failure-to-fallback matrix, the diagnostic strings, the reporting surfaces, and the repair sequence.
+Because a dropped source **removes** denials rather than adding them, this failure produces no friction on its own. Run `npx cc-safety-net status` after configuration changes and upgrades. See [Configuration recovery](/configuration/recovery) for the full failure-to-fallback matrix, the diagnostic strings, the reporting surfaces, and the repair sequence.
 
 <Warning>
   Custom rule configuration is **not tamper-resistant**. `rule.json`, rulebooks, lockfiles, and caches are best-effort; only the canonical user `policy.json` is a protected path. If you add or modify custom rules manually, always validate them with `npx -y cc-safety-net rule verify`.

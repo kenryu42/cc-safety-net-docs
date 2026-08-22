@@ -4,7 +4,7 @@ sidebarTitle: "モード"
 description: "CC Safety Net の standard、strict、paranoid の各安全レベルと worktree モードが何をブロックするかを説明します。policy.json または環境変数でレベルを設定し、ワークフローに合わせて動作を調整できます。"
 ---
 
-CC Safety Net の保護は、`standard`、`strict`、`paranoid` という 3 つの**安全レベル**に集約されます。各レベルは、同じ 3 つの機能に展開される preset です。つまりレベルとは、独立した処理経路ではなく、機能の組み合わせを短く指定するための名前です。
+CC Safety Net には、`standard`、`strict`、`paranoid` という 3 つの**安全レベル**があります。各レベルは、同じ 3 つの機能に展開される preset です。独立した処理経路ではなく、機能の組み合わせに付けた名前です。
 
 | レベル | `fail_closed` | `paranoid_rm` | `paranoid_interpreters` |
 | --- | --- | --- | --- |
@@ -20,7 +20,7 @@ CC Safety Net の保護は、`standard`、`strict`、`paranoid` という 3 つ�
 
 ## 既定モード
 
-既定モードは `standard` 安全レベルです。使い始めるにあたって環境変数の設定は不要で、CC Safety Net は組み込みの破壊的な Git 操作とファイルシステム操作のパターンから保護します。ほとんどのユーザーには、まずこのレベルから始めることを推奨します。
+既定モードは `standard` 安全レベルです。環境変数を設定しなくても、組み込みの破壊的な Git 操作とファイルシステム操作をブロックします。まずはこのレベルを使ってください。
 
 次の失敗は、どのレベルでも同じように扱います。
 
@@ -44,7 +44,7 @@ standard はこのほかにも、動的な実行ファイル、コマンド置�
 strict モードは `fail_closed` 機能を有効にします。厳しくなるのは解析できないコマンドだけではなく、次の 5 点です。
 
 - **解析できないコマンドをブロックします。** フォールバックのテキストスキャンで危険なパターンが見つからなかった場合でも、パーサーがトークンに分割できないコマンドは「Command could not be safely analyzed (strict mode)」として拒否します。`echo 'unterminated` は standard では許可されますが、ここではブロックされます。
-- **heredoc が fail closed になります。** heredoc を含むコマンドは、heredoc がちょうど 1 つで、標準入力に対するもので、デリミタが引用符で囲まれ、他に入力リダイレクトがなく、読み取り側が `cat`、`tee`、`git apply`、`git commit`、`gh pr create`、`gh issue create` のいずれかとしてリテラルに書かれている場合を除き、拒否されます。そのため `python3 - <<'PY'` や引用符で囲まれていない `<<EOF` はここで拒否され、`git commit -F - <<'EOF'` は引き続き通ります。正確な条件は [heredoc の解析](/ja/guides/analysis-engine#heredoc-analysis)を参照してください。
+- **heredoc を fail closed で扱います。** 次の条件をすべて満たす場合を除き、heredoc を含むコマンドを拒否します。heredoc が 1 つだけで標準入力を対象とし、デリミタが引用符で囲まれ、他に入力リダイレクトがなく、読み取り側が `cat`、`tee`、`git apply`、`git commit`、`gh pr create`、`gh issue create` のいずれかとしてリテラルに書かれていることが必要です。そのため `python3 - <<'PY'` や引用符で囲まれていない `<<EOF` は拒否され、`git commit -F - <<'EOF'` は許可されます。正確な条件は [heredoc の解析](/ja/guides/analysis-engine#heredoc-analysis)を参照してください。
 - 下に挙げる 5 つのルールによって、**検証できない破壊的対象をブロックします**。
 - **メタデータのみで機密パスを探る操作をブロックします。** `test -f ~/.ssh/id_rsa` と `find ~/.ssh -type f` は standard では許可され、strict では拒否されます。
 - **standard 限定のインラインデータ緩和が無効になります。** standard では、Node や Bun のインライン評価に機密パスのリテラルが含まれていても、上限付きの字句スキャンでファイルシステム操作やコマンド実行の痕跡が見つからなければ、実害のない診断用データとして扱います。strict ではこの緩和がなくなります。
@@ -164,7 +164,7 @@ worktree モードが有効で、カレントディレクトリが linked worktr
 
 ### linked worktree の検出
 
-worktree の検出は **fail closed** です。CC Safety Net がカレントディレクトリを linked worktree だと確実に特定できない場合は、より厳しい既定のルールがそのまま適用されます。具体的な条件は次のとおりです。
+worktree の検出は **fail closed** です。カレントディレクトリを linked worktree と確実に特定できない場合は、より厳しい既定のルールを適用します。条件は次のとおりです。
 
 - linked worktree は、解決後の Git ディレクトリに `commondir` ファイルを持つ `.git` *ファイル*（ディレクトリではない）によって識別します。メインの worktree と submodule は緩和の対象外です。
 - カレントディレクトリからの探索には `realpath` を使うため、シンボリックリンクを含むパスも正しく解決されます。

@@ -22,7 +22,7 @@ CC Safety Net 只提供一个 CLI，即 `cc-safety-net`。用 `npx cc-safety-net
 
 强制执行发生在智能体内部，由 `cc-safety-net install` 接好的插件、扩展或 hook 完成。CLI 本身不需要全局安装：`npx`/`bunx` 会按需获取它，用来运行本页记录的命令。
 
-本页是命令接口参考，涵盖命令、子命令、选项和退出行为，而不是教程：想按引导完成首次运行，请参阅[快速入门](/zh-Hans/quickstart)；各智能体的具体设置见[安装](/zh-Hans/installation)。
+本页是命令接口参考，列出命令、子命令、选项和退出行为。首次运行请参阅[快速入门](/zh-Hans/quickstart)，各智能体的设置方法见[安装](/zh-Hans/installation)。
 
 ## 命令概览
 
@@ -50,7 +50,7 @@ CLI 注册了十一个命令。这是它们在 `cc-safety-net --help` 中出现�
 
 ## status
 
-`status` 只回答一个问题：运行时此刻在强制执行什么？在真正依赖它之前，这是确认保护已经生效的最快方式。
+`status` 只回答一个问题：运行时当前执行哪些保护？依赖这些保护前，请先用它确认配置已生效。
 
 ```bash
 npx cc-safety-net status
@@ -379,7 +379,7 @@ npx -y cc-safety-net rule verify
 
 ### rule migrate
 
-把旧版内联配置文件—项目的 `.safety-net.json` 和用户的 `~/.cc-safety-net/config.json`—转换为 rulebook 布局：
+把项目的 `.safety-net.json` 和用户的 `~/.cc-safety-net/config.json` 这两个旧版内联配置文件转换为 rulebook 布局：
 
 ```bash
 npx -y cc-safety-net rule migrate
@@ -457,7 +457,7 @@ CC Safety Net 使用三种安装机制：
 Space: select  Enter: confirm  u: update installed  Up/Down: move  q/Esc: cancel
 ```
 
-`Space` 切换高亮的目标，`Enter` 确认（未选中任何目标时只会发出终端铃声），`Up`/`Down`（或 `k`/`j`）在可选行之间移动。安装过程中按 `u`（或 `U`）会离开选择器，转而运行 [`update`](#update) 流程；卸载页脚没有这个绑定。用 `q` 或 `Esc` 退出会打印 `Cancelled: nothing was installed.`（或 `Cancelled: nothing was uninstalled.`）并退出 `0`——退出是一种决定，而不是失败。按 `Ctrl-C` 则会引发 `SIGINT`，因此进程会像被中断的程序那样结束。
+`Space` 切换高亮的目标，`Enter` 确认（未选中任何目标时只会发出终端铃声），`Up`/`Down`（或 `k`/`j`）在可选行之间移动。安装过程中按 `u`（或 `U`）会离开选择器，转而运行 [`update`](#update) 流程；卸载页脚没有这个绑定。用 `q` 或 `Esc` 退出会打印 `Cancelled: nothing was installed.`（或 `Cancelled: nothing was uninstalled.`）并退出 `0`。这是正常退出，不是失败。按 `Ctrl-C` 则会引发 `SIGINT`，因此进程会像被中断的程序那样结束。
 
 选中的目标始终按集成目录中的安装顺序运行，而不是你勾选的顺序。在终端中，每个目标都在一个加载指示器（`Installing <name> integration…` 或 `Uninstalling <name> integration…`）后面运行，指示器停止后再打印该目标的报告；没有 TTY 时则没有加载指示器。宿主 CLI 的命令若 120 秒后仍未完成，就会被终止并报告为失败。失败时退出 `1`，并给出针对该错误的提示：权限问题、路径缺失，或路径中某一段不是目录。
 
@@ -471,7 +471,7 @@ npx -y cc-safety-net@latest update
 
 在 TTY 中直接运行 `update` 时，检测会在安装横幅显示前开始，因此横幅动画会覆盖部分检测时间。如果横幅结束后检测仍在运行，CLI 会显示 `Checking installed integrations…`。按 `Enter` 可跳过动画。从交互式 `install` 选择器中按 `u` 启动 update 时，CLI 会使用已经显示的横幅，不会再显示第二个横幅。非 TTY 不显示横幅或加载指示器。
 
-目标是通过读取每个智能体的配置和状态文件找到的：只要一个集成被检测为已安装，它就符合条件，**即使当前处于禁用状态**。Amp Code 通过 `amp plugins list` 的输出获得资格。该输出与 `codex plugin list` 一样以 30 秒超时获取，因为冷启动会通过网络刷新签出，可能超过默认的 5 秒。GitHub Copilot CLI 是例外：它仅在 Copilot 的 `installed-plugins` 目录中存在 CC Safety Net 插件签出时才有资格，因为它的禁用状态与“什么都没安装的关闭开关”无法区分，而更新绝不能变成安装。仍然使用改名前的 `safety-net@cc-marketplace` 插件 ID 的安装（在 Claude Code、Codex 中，或在 GitHub Copilot CLI 中表现为插件签出 `cc-marketplace/safety-net`）也会被拾取：更新会将它们迁移到当前 ID，并尽力移除旧版副本，旧版副本移除失败只会发出警告，不会使该目标失败。
+系统通过读取每个智能体的配置和状态文件来查找目标。只要检测到已安装的集成，它就符合条件，**即使当前处于禁用状态**。Amp Code 通过 `amp plugins list` 的输出获得资格。该输出与 `codex plugin list` 一样以 30 秒超时获取，因为冷启动会通过网络刷新签出，可能超过默认的 5 秒。GitHub Copilot CLI 是例外。它仅在 Copilot 的 `installed-plugins` 目录中存在 CC Safety Net 插件签出时才有资格，因为它的禁用状态与没有安装插件的关闭开关无法区分，而更新绝不能变成安装。系统也会识别仍使用旧 `safety-net@cc-marketplace` 插件 ID 的安装。在 Claude Code 和 Codex 中，这表现为旧插件 ID；在 GitHub Copilot CLI 中，则表现为插件签出 `cc-marketplace/safety-net`。更新会将它们迁移到当前 ID，并尽力移除旧版副本。移除失败只会发出警告，不会使该目标失败。
 
 所有目标会在同一个 `Updating <n> integration…` 或 `Updating <n> integrations…` 加载指示器后面，并发运行与 `install` 相同的操作。命令会等所有目标结束，然后按固定的集成目录顺序统一打印报告，消息改为 `Updated …` 或 `… up to date`。对于安装过程会驱动智能体自带 CLI 的目标（Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、Hermes Agent、OpenClaw、OpenCode 和 Pi），会先探测厂商的二进制文件：二进制文件缺失时打印 `<Agent> not found; skipped`（例如 `Codex not found; skipped`），运行继续。配置文件类目标（Antigravity CLI、Cursor 和 Kimi Code）不需要二进制文件，总是会刷新。Amp Code 不需要单独的探测：仅当 `amp plugins list` 显示个人插件时才会被检测到，其刷新会驱动 amp CLI 发布当前产物。在 Claude Code、Codex 和 GitHub Copilot CLI 上，已注册的市场会在插件步骤之前先刷新（例如 `claude plugin marketplace update cc-marketplace`），而不是依赖无操作的 `add`，因此过时的目录签出不会使更新失败。
 
@@ -502,13 +502,13 @@ npx -y cc-safety-net uninstall --cursor
 
 | 标志 | 智能体 | hook 事件 | 旧版标志 |
 | --- | --- | --- | --- |
-| `-ac`, `--agy-cli` | Antigravity CLI | `PreToolUse` | — |
+| `-ac`, `--agy-cli` | Antigravity CLI | `PreToolUse` | 无 |
 | `-cc`, `--coding-cli` | Coding CLI (Claude Code) | `PreToolUse` | `--claude-code`；顶层形式 `cc-safety-net -cc` 和 `cc-safety-net --claude-code` 也可用 |
-| `-cu`, `--cursor` | Cursor | `preToolUse` | — |
+| `-cu`, `--cursor` | Cursor | `preToolUse` | 无 |
 | `-gc`, `--gemini-cli` | Gemini CLI | `BeforeTool` | 顶层形式 `cc-safety-net -gc` 和 `cc-safety-net --gemini-cli` |
 | `-cp`, `--copilot-cli` | GitHub Copilot CLI | `PreToolUse` | 顶层形式 `cc-safety-net -cp` 和 `cc-safety-net --copilot-cli` |
-| `-ha`, `--hermes-agent` | Hermes Agent | `pre_tool_call` | — |
-| `-kc`, `--kimi-code` | Kimi Code | `PreToolUse` | — |
+| `-ha`, `--hermes-agent` | Hermes Agent | `pre_tool_call` | 无 |
+| `-kc`, `--kimi-code` | Kimi Code | `PreToolUse` | 无 |
 
 Amp Code、Codex、OpenClaw、OpenCode 和 Pi 没有各自的 `hook` 标志。Amp Code、OpenClaw、OpenCode 和 Pi 把 CC Safety Net 作为插件或扩展加载到进程内；Codex 的插件则调用上面共用的 `hook --coding-cli` 入口点。有关每个智能体的连接方式，请参阅[集成架构](/zh-Hans/guides/integration-architecture)。
 

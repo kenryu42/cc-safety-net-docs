@@ -15,7 +15,7 @@ keywords:
 
 CC Safety Net writes a structured audit trail of command decisions. Use it to review what your agent tried to do and what happened. Logs use JSON Lines (JSONL), with one JSON object per line. CC Safety Net stores these logs on your machine.
 
-This page defines the file layout, record schema, scope, retention, and redaction limits. To read the log in a UI, see [Dashboard](/guides/dashboard). To read it in the terminal, see [`logs`](/reference/cli-commands#logs).
+This page defines the file layout, record schema, scope, retention, and redaction limits. Use [Dashboard](/guides/dashboard) to read the log in a UI or [`logs`](/reference/cli-commands#logs) to read it in the terminal.
 
 ## Log layout
 
@@ -32,7 +32,7 @@ Records are written to a per-project, per-month path:
 | `<YYYY-MM>` | The month of the record's timestamp |
 | `<YYYY-MM-DD>-<session-id>` | The record's date plus the agent session id |
 
-The session id is sanitized before it reaches the filename: runs of characters outside `A-Za-z0-9_.-` collapse to `_`, leading and trailing `.`, `-`, and `_` are stripped, and the result is truncated to 128 characters. If sanitizing leaves an empty string, `.`, or `..`, **the write is abandoned entirely** — this is the path-traversal defense, not a formatting nicety.
+The session id is sanitized before it reaches the filename. Runs of characters outside `A-Za-z0-9_.-` collapse to `_`; leading and trailing `.`, `-`, and `_` are stripped; and the result is truncated to 128 characters. If sanitizing leaves an empty string, `.`, or `..`, **the write is abandoned entirely**. This is a path-traversal defense, not a formatting rule.
 
 Directories are created with mode `0700` and the log file is appended with mode `0600`.
 
@@ -49,7 +49,7 @@ Each line records exactly one allowed-or-blocked command decision: the command, 
 - No command output, model prompt, tool result, or conversation content is read or stored anywhere in the write path.
 - Denials are always recorded.
 - Allowed decisions are recorded only when the tool call actually routed to a command. An allowed non-command tool call produces no record at all.
-- Blocks that came from the fail-closed path — the analyzer errored and the guard refused rather than guessed — **are** recorded, and are marked with `failureStage` and `errorCode` precisely so you can find them. `logs --suspect` is built on that field.
+- Blocks from the fail-closed path **are** recorded. These occur when the analyzer errors and the guard refuses rather than guesses. The `failureStage` and `errorCode` fields identify them, and `logs --suspect` uses those fields.
 
 ## Record schema
 
@@ -71,7 +71,7 @@ Each line records exactly one allowed-or-blocked command decision: the command, 
 | `reason` | string | always | The human-readable decision reason |
 | `ruleId` | string | optional | The id of the rule that matched |
 | `intent` | string | optional | The block intent classification |
-| `failureStage` | string | optional | Set when the denial came from a guard failure — that is, it failed closed |
+| `failureStage` | string | optional | Set when the denial came from a guard failure and failed closed |
 | `errorCode` | string | optional | One of `path-canonicalization-limit`, `tool-input-limit`, `structural-shell-syntax-limit`, `unexpected-error` |
 | `cwd` | string \| `null` | optional | The working directory, redacted then capped |
 
@@ -92,7 +92,7 @@ Example record:
 
 Caps are applied **after** redaction, so redaction is never cut off part-way through a token.
 
-If any one of `command`, `segment`, `toolName`, or `cwd` exceeded its cap, the record gains `truncated: true`. The flag is never written as `false` — its absence means nothing was cut. `logs --id` renders it as `truncated: yes` or `-`.
+If `command`, `segment`, `toolName`, or `cwd` exceeds its cap, the record gains `truncated: true`. The flag is never written as `false`; its absence means nothing was cut. `logs --id` renders it as `truncated: yes` or `-`.
 
 ## What is recorded: audit scope
 
@@ -105,7 +105,7 @@ If any one of `command`, `segment`, `toolName`, or `cwd` exceeded its cap, the r
 | `blocked` | Record denials only. This is the privacy-minimizing setting |
 | anything else | Treated as invalid: falls back to recording denials only, **and** is reported by `doctor` |
 
-An invalid value is not silent. `doctor` raises the finding `environment.audit-scope-invalid` at warning severity — "Audit scope value is invalid" — with the fix hint to set the variable to `all` or `blocked` and restart the integration. The offending value itself is deliberately not echoed back.
+An invalid value is not silent. `doctor` raises `environment.audit-scope-invalid` at warning severity with the exact message "Audit scope value is invalid" and a hint to set the variable to `all` or `blocked`, then restart the integration. It does not echo the offending value.
 
 Denials are never suppressed by scope. Scope only ever gates the allow branch.
 
@@ -122,7 +122,7 @@ Denials are never suppressed by scope. Scope only ever gates the allow branch.
 The same value bounds the `logs --since` ceiling and the windows the GUI Activity view offers.
 
 <Warning>
-  Shortening retention is **irreversible**. The sweep recomputes its cutoff on every run, so lowering the value makes already-existing records immediately eligible for deletion and they are unlinked — there is no archive, no trash, and no undo. The GUI asks you to confirm before lowering the value for exactly this reason.
+  Shortening retention is **irreversible**. The sweep recomputes its cutoff on every run, so lowering the value makes existing records immediately eligible for deletion. The sweep unlinks them with no archive, trash, or undo. The GUI asks you to confirm before lowering the value.
 </Warning>
 
 ### Pruning is opportunistic
@@ -141,10 +141,10 @@ The sweep traverses at most once per UTC day per audit root, throttled by a zero
 ### Deleting legacy logs
 
 <Warning>
-  `cc-safety-net logs --prune-legacy` deletes every legacy flat `*.jsonl` file in the audit root **immediately and irreversibly**. There is no confirmation prompt and no `--yes` flag; the only preview is `--dry-run`, which reports exactly the set that would be deleted and deletes nothing. Membership is decided by file position alone — age, schema validity, and malformed lines are all irrelevant.
+  `cc-safety-net logs --prune-legacy` deletes every legacy flat `*.jsonl` file in the audit root **immediately and irreversibly**. There is no confirmation prompt and no `--yes` flag. The only preview is `--dry-run`, which reports the files that would be deleted and deletes nothing. File position alone decides membership. Age, schema validity, and malformed lines do not matter.
 </Warning>
 
-This is not the retention sweep. The retention sweep deletes legacy files only when they are wholly expired; `--prune-legacy` deletes them regardless of age. Nested per-project logs are never entered and are never touched, and the command says so in its output. For the flag's exit behavior and the combinations it rejects, see [`logs --prune-legacy`](/reference/cli-commands#logs-prune-legacy).
+This is not the retention sweep. The retention sweep deletes legacy files only when they are wholly expired; `--prune-legacy` deletes them regardless of age. It never enters or changes nested per-project logs, and its output states this. See [`logs --prune-legacy`](/reference/cli-commands#logs-prune-legacy) for exit behavior and rejected option combinations.
 
 ## Counts and returned entries
 
@@ -156,7 +156,7 @@ Counts cover the full window. Entry lists are capped, so the two numbers can dif
 | `doctor` activity | 7 days, rolling | Total blocked and session count over the whole window. `doctor` skips allowed decisions entirely, whatever the audit scope | The 3 most recent |
 | `logs` | `--since`, default 30 days | Filtering and suspect-repeat detection run over the whole window | `--limit`, default 20 |
 
-When `logs` scans the log, every source it has to drop — an unreadable directory, an unreadable file, or a malformed record — is counted, and one warning goes to stderr: `warning: N audit log sources could not be read; these results are incomplete` (`source` when N is 1). No paths are named, and stdout and the exit code are unchanged, so `--json` output stays parseable. A missing logs directory is an empty history, not a dropped one, and produces no warning.
+When `logs` scans the log, it counts each dropped source: an unreadable directory, an unreadable file, or a malformed record. It writes one warning to stderr: `warning: N audit log sources could not be read; these results are incomplete` (`source` when N is 1). The warning names no paths. Stdout and the exit code remain unchanged, so `--json` stays parseable. A missing logs directory means empty history, not a dropped source, and produces no warning.
 
 Normal list and GUI windows do not look further back than retention. The GUI derives its window choices from your retention value rather than offering a fixed list. A direct `logs --id` lookup can still return an expired record while it remains on disk and before pruning removes it. See [Dashboard](/guides/dashboard#windows-are-derived-from-retention) for the choices available at each retention setting.
 
@@ -169,7 +169,7 @@ Command, segment, tool name, and working directory are passed through secret red
 - PEM private key blocks (`-----BEGIN ... PRIVATE KEY-----`)
 - Secret-bearing HTTP headers (`Authorization`, `Cookie`, `X-API-KEY`, `API-KEY`)
 - URL credentials (`scheme://user:pass@host` and `scheme://token@host`) and `-u user:pass`
-- Presigned-URL signature query parameters — the values of `x-amz-signature`, `x-goog-signature`, `sig`, and `signature`, matched case-insensitively when the parameter name follows the start of the text, whitespace, `?`, `&`, `;`, or `|`
+- Presigned-URL signature query parameters, the values of `x-amz-signature`, `x-goog-signature`, `sig`, and `signature`, matched case-insensitively when the parameter name follows the start of the text, whitespace, `?`, `&`, `;`, or `|`
 - A fixed list of provider token formats (`ghp_...`, `gho_...`, `xoxb-...`, `npm_...`, `sk_live_...`, `rk_live_...`, `pypi-...`, and similar)
 - JWTs (`eyJ...`) and AWS access key ids (`AKIA...` / `ASIA...`)
 
@@ -183,8 +183,8 @@ Permissions (`0700` on directories and `0600` on files) and local storage limit 
 
 ## Related pages
 
-- [CLI commands](/reference/cli-commands#logs) — the `logs` command, its filters, and its JSON output.
-- [Dashboard](/guides/dashboard#activity) — reading the same records in the GUI Activity feed.
-- [Policy](/configuration/policy#audit-retention) — the `audit.retention_days` field and its validation.
-- [Explain trace](/reference/explain-trace) — the same redaction bound applies to `explain` output.
-- [Security model](/guides/security-model) — where the audit log sits in the overall threat model.
+- [CLI commands](/reference/cli-commands#logs) documents the `logs` command, filters, and JSON output.
+- [Dashboard](/guides/dashboard#activity) shows the same records in the GUI Activity feed.
+- [Policy](/configuration/policy#audit-retention) defines and validates `audit.retention_days`.
+- [Explain trace](/reference/explain-trace) uses the same redaction bound for `explain` output.
+- [Security model](/guides/security-model) places the audit log in the threat model.

@@ -4,11 +4,11 @@ sidebarTitle: "Integration architecture"
 description: "The four integration models behind CC Safety Net's twelve agents: stdin hook subprocesses, agent-loaded plugins, the in-process Pi extension, and the Amp Code event plugin."
 ---
 
-Use this page when you configure or debug an integration. It describes how each agent calls CC Safety Net and receives a decision. For the user-facing lifecycle, see [How it works](/guides/how-it-works).
+Use this page when you configure or debug an integration. It describes how each agent calls CC Safety Net and receives a decision. See [How it works](/guides/how-it-works) for the user-facing lifecycle.
 
 CC Safety Net supports twelve coding agents, and it does not plug into all of them the same way. There are four integration models. Knowing which one your agent uses helps you debug a hook that is not firing and know where its configuration lives.
 
-For the commands that install or remove each integration, see [Installation](/installation). Every model on this page feeds the same guard, specified once in [Architecture](/guides/architecture).
+See [Installation](/installation) for the commands that install or remove each integration. Every model on this page feeds the same guard, specified once in [Architecture](/guides/architecture).
 
 ## Integration models by agent
 
@@ -16,7 +16,7 @@ For the commands that install or remove each integration, see [Installation](/in
 | --- | --- | --- |
 | **Stdin hook subprocess** | Antigravity CLI, Claude Code, Cursor, Gemini CLI, GitHub Copilot CLI, Hermes Agent, Kimi Code | The agent runs `cc-safety-net hook <flag>` as a short-lived process for each tool call, writing the call as JSON to its stdin. CC Safety Net analyzes it and prints an agent-specific deny object on stdout, exiting 0. |
 | **Agent-loaded plugin** | Codex, OpenClaw, OpenCode | The agent loads CC Safety Net as a plugin of its own package format. There is no `hook` flag for these agents. |
-| **In-process extension** | Pi | Pi loads CC Safety Net's extension directly into the Pi process and calls it in memory — no subprocess, no stdin or stdout. |
+| **In-process extension** | Pi | Pi loads CC Safety Net's extension directly into the Pi process and calls it in memory. It uses no subprocess, stdin, or stdout. |
 | **Event plugin** | Amp Code | Amp loads a managed personal plugin from the account's Personal Plugins repository and delivers each `tool.call` event to it, in process. |
 
 ## Stdin hook subprocess agents
@@ -34,7 +34,7 @@ For these seven agents, the protection is the runtime `hook <flag>` command, whi
 | Kimi Code | `-kc` / `--kimi-code` | `PreToolUse` | `Bash` | `hookSpecificOutput.permissionDecision: "deny"` |
 
 <Note>
-  Because these agents use different events and deny formats, CC Safety Net emits the correct shape per agent. Gemini CLI, for example, expects a `decision`/`systemMessage` object with exit 0 rather than Claude Code's `hookSpecificOutput`. You do not need to configure the output format — the flag you pass selects it.
+  Because these agents use different events and deny formats, CC Safety Net emits the correct shape per agent. Gemini CLI, for example, expects a `decision`/`systemMessage` object with exit 0 rather than Claude Code's `hookSpecificOutput`. You do not need to configure the output format because the flag selects it.
 </Note>
 
 ### Use the shared Coding CLI hook
@@ -43,7 +43,7 @@ For these seven agents, the protection is the runtime `hook <flag>` command, whi
 
 `hook --claude-code` is accepted as a legacy alias and is not advertised in `hook --help`. Do not use it in new configuration.
 
-Separately, three agents keep legacy **top-level** forms that skip the `hook` word: `cc-safety-net -cc` / `--claude-code`, `-gc` / `--gemini-cli`, and `-cp` / `--copilot-cli`. The canonical `--coding-cli` is deliberately not a top-level flag — a bare `cc-safety-net --coding-cli` errors with `Unknown option: --coding-cli`.
+Separately, three agents keep legacy **top-level** forms that skip the `hook` word: `cc-safety-net -cc` / `--claude-code`, `-gc` / `--gemini-cli`, and `-cp` / `--copilot-cli`. The canonical `--coding-cli` is not a top-level flag. A bare `cc-safety-net --coding-cli` errors with `Unknown option: --coding-cli`.
 
 <Note>
   The `statusline` command is unrelated to the hook and still requires `--claude-code` or `-cc`. See [Status line](/configuration/status-line).
@@ -51,15 +51,15 @@ Separately, three agents keep legacy **top-level** forms that skip the `hook` wo
 
 ### Hook configuration locations
 
-Four of the seven have their files written directly by CC Safety Net — three as hook config entries, and Hermes Agent as a managed plugin. The other three are wired through their own plugin or extension distribution channel, which then invokes the stdin hook:
+CC Safety Net writes files directly for four of the seven agents. Three use hook configuration entries, and Hermes Agent uses a managed plugin. The other three use their own plugin or extension distribution channel, which then invokes the stdin hook:
 
 | Agent | Config location and load mechanism |
 | --- | --- |
 | Antigravity CLI | Written directly: a managed `PreToolUse` entry in `~/.gemini/config/hooks.json` running `npx -y cc-safety-net hook --agy-cli` |
 | Claude Code | Plugin `cc-safety-net@cc-marketplace`; plugin state in `~/.claude/settings.json` under `enabledPlugins` |
 | Cursor | Written directly: a managed `preToolUse` entry in `~/.cursor/hooks.json` running `npx -y cc-safety-net hook --cursor` with `timeout: 30` and `failClosed: true`. The config is global, so it covers Cursor IDE and Cursor CLI across all projects |
-| Gemini CLI | Extension `gemini-safety-net`, loaded from the `gemini-safety-net` repository — not a `cc-marketplace` plugin |
-| GitHub Copilot CLI | Plugin `cc-safety-net@cc-marketplace`, or hook files under `~/.copilot/hooks` / inline hooks in Copilot config. Hook support is version-gated, so which of those sources works depends on your Copilot CLI version — see [Installation](/installation#github-copilot-cli-installation). `disableAllHooks: true` disables all hooks |
+| Gemini CLI | Extension `gemini-safety-net`, loaded from the `gemini-safety-net` repository, not a `cc-marketplace` plugin |
+| GitHub Copilot CLI | Plugin `cc-safety-net@cc-marketplace`, or hook files under `~/.copilot/hooks` / inline hooks in Copilot config. Hook support is version-gated, so which of those sources works depends on your Copilot CLI version. See [Installation](/installation#github-copilot-cli-installation). `disableAllHooks: true` disables all hooks |
 | Hermes Agent | Written directly: a managed Python plugin at `~/.hermes/plugins/cc-safety-net/` (`__init__.py` plus `plugin.yaml`; the Hermes home is `$HERMES_HOME` when set), then enabled with `hermes plugins enable cc-safety-net --no-allow-tool-override`. Enablement is recorded in Hermes' own `config.yaml` under `plugins.enabled` |
 | Kimi Code | Written directly: a `[[hooks]]` block in `~/.kimi-code/config.toml` (or `$KIMI_CODE_HOME/config.toml`) running `npx -y cc-safety-net hook --kimi-code`. Alternatively, a native Kimi Code plugin installed inside Kimi Code with `/plugins install https://github.com/kenryu42/cc-safety-net`; its manifest runs the same hook entry (`node ./dist/bin/cc-safety-net.js hook --kimi-code`, `PreToolUse` event, 30-second timeout) with no matcher, so file tools also reach the hook |
 
@@ -71,7 +71,7 @@ Hermes does not run the hook command from a hook config. CC Safety Net installs 
 
 The plugin forwards four tools: `terminal` for command analysis, `write_file` and `patch` for protected writes, and `read_file` for protected reads. Calls to any other Hermes tool are not forwarded and get no decision.
 
-Hermes ignores a plugin callback that raises, so the plugin turns every failure into an explicit block itself: `npx` missing from PATH, a spawn failure, a timeout (30 seconds, killing the analyzer's whole process group), a non-zero exit, or unreadable or unexpected output. A Hermes session directory the plugin cannot read also blocks — analyzing the wrong directory would clear every path-scoped protection.
+Hermes ignores a plugin callback that raises, so the plugin turns every failure into an explicit block itself: `npx` missing from PATH, a spawn failure, a timeout (30 seconds, killing the analyzer's whole process group), a non-zero exit, or unreadable or unexpected output. A Hermes session directory that the plugin cannot read also blocks. Analyzing the wrong directory would clear every path-scoped protection.
 
 Two directory details matter here. For `terminal` calls the plugin first reads Hermes' per-session cwd record, which holds the session's `cd` state. On the first command, before that record exists, it uses `TERMINAL_CWD`, then the Hermes process directory. A `terminal` call with an unusable `workdir` fails closed. The analyzer subprocess starts from the home directory rather than Hermes' working directory, so `npx` cannot resolve a repository-local `cc-safety-net` in place of the real one.
 
@@ -89,13 +89,13 @@ Codex will not run an untrusted hook, so the plugin's hook stays inert until it 
 
 ### OpenClaw
 
-OpenClaw loads CC Safety Net **in process** as a native OpenClaw plugin. The plugin ships as a packaged directory of three files: the runtime entry `index.js` — a self-contained bundle with every dependency inlined, because a local directory install gets no `node_modules` — plus the `openclaw.plugin.json` manifest OpenClaw validates before loading any code, and a `package.json` whose `openclaw.extensions` points at the entry. There is no `hook` flag and no JSON-over-stdio.
+OpenClaw loads CC Safety Net **in process** as a native OpenClaw plugin. The plugin ships as a packaged directory with three files. The runtime entry `index.js` is a self-contained bundle with every dependency inlined because a local directory install gets no `node_modules`. The `openclaw.plugin.json` manifest is validated before OpenClaw loads any code. A `package.json` points `openclaw.extensions` at the entry. There is no `hook` flag and no JSON-over-stdio.
 
 The plugin registers a `before_tool_call` handler matched to the `exec` tool. Only the untagged shell `exec` is analyzed. An `exec` event with a `toolKind` discriminator, such as Code Mode's JavaScript `exec`, gets no decision because its `command` field is not a proven shell-command mapping. No other OpenClaw tool is forwarded to the guard. The handler returns either no decision (allow) or `{ block: true, blockReason }`; it never rewrites tool parameters.
 
 It resolves the agent's workspace directory through OpenClaw's runtime API and uses it as both the policy and execution directory; a `workdir` in the call is resolved contained within that workspace. CC Safety Net fails closed on a malformed event, a missing or empty command, a workspace it cannot resolve, a `workdir` outside the workspace, or a call already cancelled. An `exec` call whose `host` is anything other than `auto` or `gateway` is also blocked. `gateway` is proven local. A call with `host: "auto"` (or no `host` at all) is analyzed with local Gateway semantics, but the plugin does not check where OpenClaw routes it. The sandbox case is listed in [Known limitations](/guides/known-limitations).
 
-OpenClaw owns its plugin state, so installation drives OpenClaw's own CLI: `openclaw plugins install <packaged dir> --force`, then `openclaw plugins enable cc-safety-net`. Before any `--force` command, CC Safety Net verifies the target extension directory holds only its own managed files, so it can never overwrite or delete a plugin that is not provably its own. After installing, it runs `openclaw plugins inspect cc-safety-net --runtime --json` and treats only a `loaded` status as success — an enabled plugin whose bundle is broken installs cleanly and then silently protects nothing.
+OpenClaw owns its plugin state, so installation drives OpenClaw's own CLI: `openclaw plugins install <packaged dir> --force`, then `openclaw plugins enable cc-safety-net`. Before any `--force` command, CC Safety Net verifies that the target extension directory holds only its own managed files. It cannot overwrite or delete a plugin that is not provably its own. After installation, it runs `openclaw plugins inspect cc-safety-net --runtime --json` and treats only a `loaded` status as success. Otherwise, a broken enabled plugin could install cleanly and then protect nothing.
 
 The installed copy lives at `<state dir>/extensions/cc-safety-net/`, where the state dir is `OPENCLAW_STATE_DIR` when set, else the directory holding `OPENCLAW_CONFIG_PATH`, else `~/.openclaw`. Enablement lives in OpenClaw's own config (`openclaw.json` in the state dir, or `OPENCLAW_CONFIG_PATH`): the global `plugins.enabled` switch, the `plugins.allow` and `plugins.deny` lists, and the per-plugin `plugins.entries.cc-safety-net.enabled` entry all take part. If `plugins.allow` is set, it must also list `cc-safety-net`.
 
@@ -110,7 +110,7 @@ OpenCode loads CC Safety Net **in process** as a plugin object implementing Open
 
 For the `bash` tool, the plugin selects the analyzer dialect from OpenCode's `shell` setting. If the setting is not a string, it defaults to PowerShell on Windows and uses `SHELL` elsewhere. Recognized `powershell` and `pwsh` executables select PowerShell; recognized POSIX shells select POSIX; other values use automatic detection. A supplied `workdir` becomes the execution directory only when it resolves to a readable, searchable directory. On Windows, documented `/C:`, `/C`, `/cygdrive/C`, and `/mnt/C` forms are normalized, while other slash-rooted paths pass through for OpenCode to resolve.
 
-OpenCode can serve a stale cached copy of the plugin, so a wiring change may not take effect until the cache is cleared — see [Installation](/installation#opencode-installation).
+OpenCode can serve a stale cached copy of the plugin, so a wiring change may not take effect until the cache is cleared. See [Installation](/installation#opencode-installation).
 
 ## The Pi extension
 
@@ -135,17 +135,17 @@ Because there is no hook config file to inspect, the `doctor` command detects Pi
 
 Amp Code loads CC Safety Net as a **personal plugin**: a single self-contained file `cc-safety-net.ts` in your Amp account's hosted Personal Plugins repository. The plugin subscribes to Amp's `tool.call` event through the `@ampcode/plugin` API and returns either `allow` or `reject-and-continue` with a message. Like Pi, OpenClaw, and OpenCode, it runs in process. Because a personal plugin follows the account rather than one machine, it also covers threads that run on a remote executor such as an Amp Orb.
 
-`install --amp` publishes the artifact to that repository: it checks that the account has a writable Personal Plugins repository (`amp plugins repositories --json`), clones it into a throwaway checkout (`amp clone user-plugins`), writes the file, and commits and pushes. The file carries a managed header identifying it as CC Safety Net's, which is what marks it as safe for CC Safety Net to replace — enforced inside the personal repository, where an unmanaged `cc-safety-net.ts` fails the install. A leftover managed copy of the old local system plugin at `~/.config/amp/plugins/cc-safety-net.ts` is removed, because a local plugin masks the personal one; an unmanaged local file there also fails the install. See [Installation](/installation#amp-code-installation) for the setup and removal commands.
+`install --amp` publishes the artifact to that repository. It checks that the account has a writable Personal Plugins repository (`amp plugins repositories --json`), clones it into a throwaway checkout (`amp clone user-plugins`), writes the file, then commits and pushes. A managed header identifies the file as CC Safety Net's and marks it as safe to replace. An unmanaged `cc-safety-net.ts` in the personal repository fails the install. Install removes a managed copy of the old local system plugin at `~/.config/amp/plugins/cc-safety-net.ts` because a local plugin masks the personal one. An unmanaged local file at that path also fails the install. See [Installation](/installation#amp-code-installation) for the setup and removal commands.
 
 ### The embedded policy snapshot
 
-The published artifact carries a snapshot of your user policy: one `globalThis.__CC_SAFETY_NET_EMBEDDED_POLICY__ = …` assignment appended to the file, with the policy normalized before it is written. At runtime the snapshot applies only on a machine with no policy file of its own — an Orb's empty home directory; a machine that has a policy file, even an invalid one, keeps its own behavior. Audit retention, user rulebooks, and project-scope policy are not embedded, and a policy edit only ships on the next `install` or `update`.
+The published artifact carries a snapshot of your user policy: one `globalThis.__CC_SAFETY_NET_EMBEDDED_POLICY__ = …` assignment appended to the file, with the policy normalized before it is written. At runtime, the snapshot applies only on a machine with no policy file of its own, such as an Orb with an empty home directory. A machine that has a policy file, even an invalid one, keeps its own behavior. Audit retention, user rulebooks, and project-scope policy are not embedded. A policy edit ships only on the next `install` or `update`.
 
 Amp reads plugins at startup, so a newly published or removed plugin has no effect on the running session until Amp reloads.
 
 ### Detecting Amp Code
 
-`doctor` detects the plugin by parsing `amp plugins list` output, where a personal-scope plugin renders as `✓ cc-safety-net (User Plugins) <status>`. That output carries no version, so `doctor` never reports version drift for Amp — `cc-safety-net update` republishes the current artifact regardless.
+`doctor` detects the plugin by parsing `amp plugins list` output, where a personal-scope plugin renders as `✓ cc-safety-net (User Plugins) <status>`. That output carries no version, so `doctor` never reports version drift for Amp. `cc-safety-net update` republishes the current artifact regardless.
 
 ### Amp Code coverage limits
 
@@ -161,9 +161,9 @@ For a hook that is not firing for a specific agent, see the per-agent steps in [
 
 The technical guides run from the user-facing lifecycle down to the reasoning behind the design. This page is step 2.
 
-- Back: [How it works](/guides/how-it-works) — the same interception told as one tool call from end to end.
-- Next: [Architecture](/guides/architecture) — the guard every integration on this page feeds, including the ordered stage table.
-- Then: [Analysis engine](/guides/analysis-engine) — exactly how a command is classified once it reaches the classifier.
-- Finally: [Design principles](/guides/design-principles) — why the integration models and the guard order are what they are.
+- Back: [How it works](/guides/how-it-works), which presents the same interception as one tool call from end to end.
+- Next: [Architecture](/guides/architecture), which specifies the guard every integration on this page feeds, including the ordered stage table.
+- Then: [Analysis engine](/guides/analysis-engine), which explains how a command is classified once it reaches the classifier.
+- Finally: [Design principles](/guides/design-principles), which explains the integration models and guard order.
 
 Related: [Installation](/installation) for setup and removal commands, and [Troubleshooting](/guides/troubleshooting) for per-agent diagnosis.

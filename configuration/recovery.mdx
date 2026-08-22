@@ -23,7 +23,7 @@ A single warning is enough to move the runtime to `degraded`. The distinction be
 Both produce `degraded`.
 
 <Note>
-  `ready` and `degraded` are the only verdicts `cc-safety-net status` prints — the verdict is read straight from the snapshot state. A disabled Claude Code plugin does not change the verdict; `status` reports it as the first item under `Not active`: "plugin cc-safety-net@cc-marketplace is disabled in Claude Code; nothing is enforced in Claude Code until it is re-enabled. Other integrations are not affected."
+  `ready` and `degraded` are the only verdicts `cc-safety-net status` prints. It reads the verdict directly from the snapshot state. A disabled Claude Code plugin does not change the verdict. `status` reports it as the first item under `Not active`: "plugin cc-safety-net@cc-marketplace is disabled in Claude Code; nothing is enforced in Claude Code until it is re-enabled. Other integrations are not affected."
 </Note>
 
 ## Invalid configuration behavior
@@ -32,7 +32,7 @@ Invalid configuration never denies ordinary work merely because it is invalid. A
 
 - A rule source that cannot be verified is **dropped**. Its rules stop being enforced.
 - Every other verified scope keeps enforcing its rules.
-- Every built-in protection keeps applying in every case — destructive-command rules, secret protection, policy-file protection, and Git-metadata protection read no rule configuration at all.
+- Every built-in protection keeps applying in every case. Destructive-command rules, secret protection, policy-file protection, and Git-metadata protection do not read rule configuration.
 - An unreadable `policy.json` falls back to **protective** defaults, so both destructive-command protection and secret protection stay on.
 
 There is no special recovery mode and no allowlist while degraded, because nothing is denied for being unconfigurable. Reading `rule.json`, editing it in place, and running `cc-safety-net rule sync` are ordinary tool calls that pass or fail on their own merits, so your agent can repair the configuration itself.
@@ -45,7 +45,9 @@ The one thing that stays protected in every state is the canonical user `policy.
 
 ## Configuration fallback matrix
 
-### Errors — the source is dropped
+<span id="errors-the-source-is-dropped"></span>
+
+### Errors that drop the source
 
 | Failure | What stops being enforced | What still applies |
 | --- | --- | --- |
@@ -54,13 +56,15 @@ The one thing that stays protected in every state is the canonical user `policy.
 | Missing cache entry for a source | That one rulebook | Every other rulebook and all built-ins |
 | Cache digest mismatch | That one rulebook | Every other rulebook and all built-ins |
 | Cached rulebook is unparseable or fails the schema | That one rulebook | Every other rulebook and all built-ins |
-| A lockfile entry does not match its configured source identity — wrong `kind`, or a `path`/`name` that differs from the source spec | Every rulebook in that scope — the whole lockfile is rejected as malformed | The other scope's verified rules and all built-ins |
+| A lockfile entry does not match its configured source identity because it has the wrong `kind`, or a `path`/`name` differs from the source spec | Every rulebook in that scope. The whole lockfile is rejected as malformed | The other scope's verified rules and all built-ins |
 | `rule.json` is malformed, empty, or has an unsupported `version` | That whole scope, **including its `transparent_wrappers`** | The other scope's verified rules and all built-ins |
 | The policy filesystem cannot be read safely | That scope | The other scope's verified rules and all built-ins |
 
 Every one of these messages names the file or source it rejected and, where a repair exists, tells you to run `cc-safety-net rule sync`.
 
-### Warnings — the source stays active
+<span id="warnings-the-source-stays-active"></span>
+
+### Warnings that keep the source active
 
 | Failure | What is ignored | What stays enforced |
 | --- | --- | --- |
@@ -69,16 +73,18 @@ Every one of these messages names the file or source it rejected and, where a re
 | A project override targets a user-scoped rule | Only that one override | The rule keeps its user-configured state |
 
 <Warning>
-  The local rulebook source is deliberately absent from both tables. Runtime load reads only the digest-verified cache, so editing a local rulebook, breaking it, or deleting its source directory produces **no warning at all** — the cached rulebook, as it was at the last successful sync, is what enforces, not the file you just edited. Your edit becomes active only when `cc-safety-net rule sync` succeeds.
+  The local rulebook source is deliberately absent from both tables. Runtime load reads only the digest-verified cache, so editing a local rulebook, breaking it, or deleting its source directory produces **no warning at all**. The cached rulebook from the last successful sync remains active, not the file you just edited. Your edit becomes active only when `cc-safety-net rule sync` succeeds.
 </Warning>
 
 Duplicate rulebook names resolve deterministically: the first claim wins, and the user scope is loaded first, so a name claimed by your user scope shadows the project one. The later rulebook contributes nothing rather than partially shadowing rules. Because this is resolved rather than fatal, `rule sync` for one scope still succeeds when the other scope already uses that name.
 
-### `policy.json` — salvaged or replaced with protective defaults
+<span id="policy-json-salvaged-or-replaced-with-protective-defaults"></span>
+
+### Salvaged `policy.json` or protective defaults
 
 | Situation | Result | State |
 | --- | --- | --- |
-| The file does not exist | Built-in defaults | `ready` — no diagnostic |
+| The file does not exist | Built-in defaults | `ready`. No diagnostic |
 | The file is empty or whitespace only | Built-in protective defaults | `degraded` |
 | The file is not valid JSON | Built-in protective defaults | `degraded` |
 | The file parses to something that is not an object | Built-in protective defaults | `degraded` |
@@ -102,7 +108,7 @@ This is the one place where rejected configuration reduces built-in coverage rat
 
 ## Fail-closed cases
 
-"Fail closed" is accurate for runtime and analysis failures, and it denies **that one tool call** — it is never a description of what invalid configuration does.
+"Fail closed" describes runtime and analysis failures. It denies **that one tool call**. It does not describe what invalid configuration does.
 
 | Case | Behavior |
 | --- | --- |
@@ -111,7 +117,7 @@ This is the one place where rejected configuration reduces built-in coverage rat
 | An empty or whitespace-only command on the command route | Denied, in every mode |
 | A command exceeds the recursion depth limit | Denied, in every mode |
 | A command structure exceeds safe validation limits | Denied, in every mode |
-| A command cannot be tokenized while the `fail_closed` capability is on | Denied — see [strict mode](/configuration/modes#strict-mode-cc_safety_net_strict=1) |
+| A command cannot be tokenized while the `fail_closed` capability is on | Denied. See [strict mode](/configuration/modes#strict-mode-cc_safety_net_strict=1) |
 | Worktree relaxation cannot positively confirm a linked worktree | The relaxation is not applied and the stricter default stays |
 
 Invalid configuration is the opposite: rule sources are dropped, `policy.json` is salvaged or replaced with protective defaults, and work continues.
@@ -153,7 +159,7 @@ Every command below is an ordinary tool call, so your agent can run the whole se
     npx cc-safety-net status
     ```
 
-    Prints `ready` or `degraded`, plus one line per diagnostic under `Not active`. A disabled Claude Code plugin appears as the first `Not active` item, not as a separate verdict. It is purely informational, so use it as the cheap habitual check rather than a gate.
+    Prints `ready` or `degraded`, plus one line per diagnostic under `Not active`. A disabled Claude Code plugin appears as the first `Not active` item, not as a separate verdict. This command is informational. Use it for routine checks, not as a gate.
   </Step>
   <Step title="Get the full report">
     ```bash
@@ -174,14 +180,14 @@ Every command below is an ordinary tool call, so your agent can run the whole se
     npx cc-safety-net rule verify
     ```
 
-    Validates the user and project `rule.json` against the schema and replays the runtime load, so it catches the same problems the guard would hit. It also flags legacy files that still need migration. One write to expect: when a valid `rule.json` has no `$schema` key, `rule verify` adds one and prints `Added $schema to <scope> config.` — otherwise it changes nothing.
+    Validates the user and project `rule.json` against the schema and replays the runtime load, so it catches the same problems the guard would hit. It also flags legacy files that still need migration. The command can make one change. When a valid `rule.json` has no `$schema` key, `rule verify` adds one and prints `Added $schema to <scope> config.` Otherwise, it changes nothing.
   </Step>
   <Step title="Repair and re-sync">
     ```bash
     npx cc-safety-net rule sync
     ```
 
-    Rewrites the lockfile and cache for the scope you are syncing, then reloads that scope exactly the way the guard loads it. If any diagnostic remains, it reports that diagnostic and exits non-zero instead of claiming success — so `Rule config synced.` is a real all-clear for that scope.
+    Rewrites the lockfile and cache for the scope you are syncing, then reloads that scope exactly as the guard loads it. If any diagnostic remains, it reports that diagnostic and exits non-zero instead of claiming success. `Rule config synced.` means that the scope has no remaining diagnostic.
 
     Verification covers only the scope being synchronized.
   </Step>
@@ -194,7 +200,7 @@ Repeat `status` after each repair. The runtime reloads on the next tool call, so
 
 ## Migrate legacy inline rules
 
-Legacy inline config files — `~/.cc-safety-net/config.json` and `.safety-net.json` — are no longer loaded at runtime, and the runtime emits no diagnostic about them: **their rules are not enforced at all** while everything else keeps working, and the snapshot stays `ready`. It is the classic silent degradation after an upgrade: nothing breaks, nothing is protected by those rules, and nothing reports it during a session. `cc-safety-net rule verify` is the surface that flags a legacy file still awaiting migration.
+CC Safety Net no longer loads the legacy inline config files `~/.cc-safety-net/config.json` and `.safety-net.json` at runtime, and it emits no diagnostic about them. **Their rules are not enforced at all** while everything else keeps working, and the snapshot stays `ready`. This creates silent degradation after an upgrade. The session does not break, but those rules provide no protection and the runtime does not report the problem. Run `cc-safety-net rule verify` to find a legacy file that still needs migration.
 
 Run the migration from the project whose legacy configuration you want to convert:
 

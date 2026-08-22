@@ -1,7 +1,7 @@
 ---
 title: "The local dashboard"
 sidebarTitle: "Dashboard"
-description: "Launch the local CC Safety Net dashboard with cc-safety-net gui and use its six views — Overview, Activity, Policy, Rules, Integrations, and Settings — to inspect decisions, edit policy, and manage agent hooks."
+description: "Launch the local CC Safety Net dashboard with cc-safety-net gui. Use Overview, Activity, Policy, Rules, Integrations, and Settings to inspect decisions, edit policy, and manage agent hooks."
 ---
 
 `cc-safety-net gui` opens a local dashboard. Use it to review decisions on this machine and edit your policy without editing JSON by hand. The dashboard helps you find what was blocked, why it was blocked, and what you can change.
@@ -20,7 +20,7 @@ The command prints the dashboard URL and then opens it in your default browser:
 CC Safety Net policy GUI: http://127.0.0.1:52341/?token=...
 ```
 
-Pass `--no-open` when you want the URL without a browser launch — for example over SSH, in a container, or when you would rather paste the URL into a specific browser profile:
+Pass `--no-open` when you want the URL without a browser launch, for example over SSH, in a container, or when you would rather paste the URL into a specific browser profile:
 
 ```bash
 cc-safety-net gui --no-open
@@ -28,7 +28,7 @@ cc-safety-net gui --no-open
 
 `--no-open` is the only flag besides `-h, --help`. Any other argument is rejected with `Usage: cc-safety-net gui [--no-open]` and a non-zero exit code.
 
-If the browser cannot be launched, that is not fatal — the command prints the underlying error followed by `Open this URL manually: <url>` and keeps serving. The server runs in the foreground until you stop it with `Ctrl-C`.
+If the browser cannot be launched, the command prints the underlying error followed by `Open this URL manually: <url>` and keeps serving. The server runs in the foreground until you stop it with `Ctrl-C`.
 
 ### Local loopback scope
 
@@ -38,7 +38,7 @@ The dashboard is not a hosted service. Its server listens only on the local loop
 - Each launch mints a fresh random token that is embedded in the URL. Every request must carry that token, and every state-changing request must also send it as a request header. Requests without it are rejected with `403`.
 - Responses are served with `cache-control: no-store`.
 
-The page itself makes no outbound requests for its data — everything it renders comes from your local policy file and audit logs. The only exceptions are opt-in: the update check and the GitHub star action shown on Overview.
+The page makes no outbound requests for its data. Everything it renders comes from your local policy file and audit logs. The update check and GitHub star action on Overview are the only opt-in exceptions.
 
 <Note>
   Because the token is per-launch, a URL you bookmarked from a previous session will not work. Run `cc-safety-net gui` again to get a fresh one.
@@ -63,19 +63,19 @@ An unrecognized hash falls back to Overview. Integrations and Rules load their d
 
 Overview summarizes a **retained window**, not a lifetime total. The window is the last 7 days, or your entire retention window when retention is shorter than 7 days. The heading states the window it used, as `Last N day(s)`.
 
-**Tiles.** Two counters — **Blocked** and **Analyzed** — each with a per-day sparkline running oldest to newest. Each sparkline scales to its own maximum, so the two tiles are not visually comparable to each other; read the numbers, not the bar heights.
+**Tiles.** The **Blocked** and **Analyzed** counters each have a per-day sparkline that runs from oldest to newest. Each sparkline scales to its own maximum, so compare the numbers rather than the bar heights.
 
-**Protection status.** A card names your safety level, adds `· Customized` when your overrides deviate from the preset, and reports how many rules are active and whether secret protection is on. This card reflects **saved** state only — unsaved toggles staged on the Policy view do not change it until you save. A banner appears when destructive-command protection or secret protection is off, or when a fallback configuration is being enforced because something in your configuration could not be loaded.
+**Protection status.** A card names your safety level, adds `· Customized` when your overrides deviate from the preset, and reports how many rules are active and whether secret protection is on. This card reflects **saved** state only. Unsaved toggles on the Policy view do not change it until you save. A banner appears when destructive-command protection or secret protection is off, or when a configuration error causes the runtime to enforce a fallback.
 
 **Health strip.** Reports whether the hook is active in your detected agents, or that agents were detected without an active hook, or that no agent hooks were detected at all. It also surfaces an available update. When something needs attention it links to Integrations.
 
 **Top blocked commands and Top blocked rules.** Two top-five ranked panels, counted across the same window as the tiles. Selecting a top command jumps to Activity with an exact, blocked-only command-signature filter applied as a removable pill. Selecting a top rule routes by rule namespace: `custom.*` rule IDs go to the Rules view, and built-in rule IDs go to Activity with the rule ID prefilled in the search box.
 
-**Guard errors.** When any denial in the window came from a failed evaluation rather than from policy, a button appears reading `N guard error(s) in the last N days — commands blocked because evaluation failed, not by policy. Click to view.` Selecting it opens Activity filtered to error decisions. These are fail-closed denials: CC Safety Net could not finish the analysis, so it refused the command. See [Troubleshooting](/guides/troubleshooting) if they recur.
+**Guard errors.** When any denial in the window came from a failed evaluation rather than from policy, a button appears with this text: <code>{'N guard error(s) in the last N days \u2014 commands blocked because evaluation failed, not by policy. Click to view.'}</code> Selecting it opens Activity filtered to error decisions. These are fail-closed denials: CC Safety Net could not finish the analysis, so it refused the command. See [Troubleshooting](/guides/troubleshooting) if they recur.
 
 ## Activity
 
-Activity lists audited commands from the local log, newest first. Commands are secret-redacted at write time, before anything reaches the log — and redaction is bounded to recognized credential shapes, so entries can still carry paths, hostnames, and names. See [Audit log](/reference/audit-log#secret-redaction) for the record schema and the exact redaction scope before you share anything from this view.
+Activity lists audited commands from the local log, newest first. Secret redaction runs before each write, but it recognizes only known credential shapes. Entries can still contain paths, hostnames, and names. See [Audit log](/reference/audit-log#secret-redaction) for the record schema and redaction scope before sharing anything from this view.
 
 ### Windows are derived from retention
 
@@ -89,15 +89,15 @@ The window selector is **not a fixed set of choices**. It is computed from your 
 | 90 days | 7, 30, 90 |
 | 365 days | 7, 30, 90, 180, 365 |
 
-Windows are whole local calendar days — today plus the preceding days — so the per-day sparkline buckets on Overview sum exactly to the totals. A request for a window wider than retention is rejected, and if you shorten retention the current selection is re-clamped for you. See [Audit log](/reference/audit-log#retention) for how retention itself is configured and enforced.
+Windows use whole local calendar days, including today and the preceding days. The per-day sparkline buckets on Overview therefore sum to the totals. A request for a window wider than retention is rejected. If you shorten retention, the dashboard clamps the current selection to the new limit. See [Audit log](/reference/audit-log#retention) for how retention is configured and enforced.
 
 ### Filters
 
-- **Window** — the retention-derived selector described above.
-- **Decision chips** — `All`, `Blocked`, and `Allowed` always; `Errors` only when the window contains guard errors; `Likely false positive` only when the heuristic finds candidates. The heuristic flags a denial that carries a failure stage, or a command signature denied two or more times in the same session.
-- **Agent chips** — rendered only when two or more distinct known agents appear in the window, with an `All agents` chip to clear them.
-- **Command pill** — an exact, blocked-only command-signature filter, added by clicking through from Overview and removable from here.
-- **Search** — the top-bar box (`Filter by rule or command`) matches rule IDs and command text as a case-insensitive substring.
+- **Window.** The retention-derived selector described above.
+- **Decision chips.** `All`, `Blocked`, and `Allowed` always appear. `Errors` appears only when the window contains guard errors, and `Likely false positive` appears only when the heuristic finds candidates. The heuristic flags a denial that carries a failure stage or a command signature denied two or more times in the same session.
+- **Agent chips.** These appear only when the window contains two or more known agents. Use `All agents` to clear the filter.
+- **Command pill.** This exact, blocked-only command-signature filter appears after you select a command on Overview. You can remove it here.
+- **Search.** The top-bar box (`Filter by rule or command`) matches rule IDs and command text as a case-insensitive substring.
 
 Filters that no longer make sense self-heal on reload. If the agent you filtered on is gone, or the window has no errors or no false-positive suspects, the filter resets rather than showing an empty feed.
 
@@ -107,7 +107,7 @@ The refresh button reloads **both** Overview and Activity, so the tiles and the 
 
 ### Rendered entries versus counts
 
-The feed renders at most **500 entries**. The cap is split across decision classes — each class is guaranteed half the cap and lends its unused share to the other — so a burst of denials cannot crowd allowed entries out of the view entirely.
+The feed renders at most **500 entries**. Each decision class receives half the cap and lends its unused share to the other. A burst of denials therefore cannot remove all allowed entries from the view.
 
 The counts are not capped by the 500-entry limit. Chips, tiles, and the top panels are computed from full-window aggregates on the server, independent of what the feed renders. The footer states both, as `Showing X of Y entries from the last N day(s)`, adding `(capped at 500, newest of each decision)` when truncation occurred.
 
@@ -119,11 +119,11 @@ There is one case where the counts themselves fall short: when some audit log so
 
 ### Per-entry actions
 
-Each entry carries a decision badge (`Blocked`, `Allowed`, or `Error`), an agent badge, a rule-ID chip, a relative timestamp, and a button to copy the raw log entry as JSON. Long commands are clamped with a Show more toggle. The copied entry is the raw audit record — see [Audit log](/reference/audit-log#record-schema) for its fields.
+Each entry carries a decision badge (`Blocked`, `Allowed`, or `Error`), an agent badge, a rule-ID chip, a relative timestamp, and a button to copy the raw log entry as JSON. Long commands are clamped with a Show more toggle. The copied entry is the raw audit record. See [Audit log](/reference/audit-log#record-schema) for its fields.
 
-Denied entries offer **Report false positive**, which opens a dialog that prepares a prefilled **public** GitHub issue. Both the command and the log entry are editable before you continue, your project path is replaced with `<project>` and your home directory with `~`, and nothing is submitted until you submit it on GitHub yourself.
+Denied entries offer **Report false positive**, which opens a dialog that prepares a prefilled **public** GitHub issue. You can edit the command and log entry before you continue. The dialog replaces your project path with `<project>` and your home directory with `~`. Nothing is submitted until you submit it on GitHub.
 
-Allowed entries offer **Block this in future**, which prefills the prompt composer on the Rules view with that command. It does not create a rule on its own — see [Rules](#rules) below.
+Allowed entries offer **Block this in future**, which prefills the prompt composer on the Rules view with that command. It does not create a rule on its own. See [Rules](#rules) below.
 
 ## Policy
 
@@ -140,19 +140,19 @@ Edits accumulate in a draft and apply only when you save.
 - The draft survives a reload within the browser session. Saving, discarding, repairing, or resetting clears it.
 - Leaving the page with unsaved changes prompts you first.
 
-Saving writes the policy file and reports the path it wrote. While the on-disk policy has any error, the form does not show your file: every control renders the built-in default, not the valid values the runtime is still salvaging from disk — only the raw JSON mirror still shows the file's actual contents. Saving is refused in that state, with `Repair policy before saving changes.`, so the defaults on screen cannot be written over your file from here — repair first, then save. After a repair, the form reloads with the settings the repair preserved.
+Saving writes the policy file and reports its path. While the on-disk policy has an error, every form control shows the built-in default instead of the values that the runtime salvaged from disk. Only the raw JSON mirror shows the file's contents. The dashboard refuses to save in this state with `Repair policy before saving changes.` This prevents the displayed defaults from overwriting your file. Repair the policy before saving. The form then reloads the settings that the repair preserved.
 
 ### Test a command
 
 Paste a shell command into **Test a command** to see whether it would be blocked. The test evaluates against your **current unsaved edits**, so you can check a change before committing to it.
 
-The test also enforces your custom rulebook rules, loaded from disk, even though rulebooks are not editable from the dashboard. Treat it as a preview of the real decision, not just of the built-in layer. For the same analysis from the terminal, see [`explain`](/reference/cli-commands#explain).
+The test also enforces custom rulebook rules loaded from disk, although the dashboard cannot edit rulebooks. Treat it as a preview of the full decision, not only the built-in layer. Use [`explain`](/reference/cli-commands#explain) for the same analysis in the terminal.
 
 ### Safety preset
 
-The view offers the three safety presets — labeled **Standard**, **Strict**, and **Paranoid** in the interface — as the inherited defaults you then customize for the workspace. Each is progressively stricter; [Modes](/configuration/modes) is the authority on exactly what each preset and capability changes.
+The view offers three safety presets: **Standard**, **Strict**, and **Paranoid**. Each preset supplies inherited defaults that you can customize for the workspace. [Modes](/configuration/modes) defines what each preset and capability changes.
 
-Environment variables that raise protection are surfaced here as a notice, so a level that looks lower than the behavior you are seeing is explained rather than confusing. An **Advanced overrides** section, collapsed by default, exposes the individual capabilities the preset resolves to — fail closed, paranoid `rm -rf` checks, and paranoid interpreters — so you can raise or lower one without changing preset. Workflow exceptions are configured separately from the safety level.
+The view reports environment variables that raise protection. This notice explains why behavior can be stricter than the displayed level. The **Advanced overrides** section is collapsed by default. It exposes fail closed, paranoid `rm -rf` checks, and paranoid interpreters, so you can change one capability without changing the preset. Configure workflow exceptions separately from the safety level.
 
 ### Destructive command protection
 
@@ -165,29 +165,29 @@ A master switch, then the rules grouped into four collapsible tiers:
 | **Strict tier** | Inherits from Fail closed |
 | **Paranoid tier** | Inherits from Paranoid rm or Paranoid interpreters |
 
-Every tier starts collapsed; searching on the Policy view opens each tier that has a match automatically. The **Always enforced** tier has no switch and no per-rule checkboxes — its header counts its rules as `N protections`, and each rule inside is marked `Always enforced` with a `?` example popover.
+Every tier starts collapsed. A Policy search opens each tier with a match. The **Always enforced** tier has no switch or per-rule checkboxes. Its header counts the rules as `N protections`, and each rule is marked `Always enforced` with a `?` example popover.
 
-The three configurable tiers show `N on · N off` counts in the header, next to a tier switch labelled `All <tier> protections`. That switch is checked while at least one rule in the tier is on, and it is disabled while the master switch is off. Flipping it writes the same per-rule overrides the individual checkboxes use, in bulk — a rule that ends up matching its inherited value keeps no override — so there is no separate stored group setting.
+The three configurable tiers show `N on · N off` counts next to a tier switch labelled `All <tier> protections`. The switch is checked while at least one rule in the tier is on and disabled while the master switch is off. Flipping it writes the same per-rule overrides as the individual checkboxes. A rule that matches its inherited value keeps no override, so there is no separate stored group setting.
 
-While the master switch is on, the panel summary reads `N active, N disabled`. Turning it off replaces that with `Configurable protection disabled. Catastrophic protections remain active; saved rule settings and allow paths are preserved.` — the Always enforced tier keeps blocking even then.
+While the master switch is on, the panel summary reads `N active, N disabled`. Turning it off replaces that text with `Configurable protection disabled. Catastrophic protections remain active; saved rule settings and allow paths are preserved.` The Always enforced tier keeps blocking.
 
-Each configurable rule card carries a `?` popover with a concrete example of a command it blocks, and a status line naming where its current value came from — so a rule reading `Off — destructive-command protection disabled` tells you the master switch is winning, not your override.
+Each configurable rule card has a `?` popover with a command it blocks. A status line identifies the source of its current value. For example, <code>{'Off \u2014 destructive-command protection disabled'}</code> means the master switch takes precedence over your override.
 
 Toggling a rule stores an explicit `on` or `off` override. Setting a rule back to its inherited value **deletes** the override rather than storing a redundant one, and each rule offers `Use inherited setting` to do that directly. A `Restore defaults` action in the panel head clears every override at once.
 
-**Allow paths** live in this panel. Recursive deletes targeting a listed path are not blocked, which is what makes `/tmp` workable. Entries must be absolute or `~/`-prefixed directories, and your home directory is rejected — see [Allow paths](/configuration/policy#allow-paths) for the full validation table and [Allowed commands](/reference/allowed-commands#configured-allow-paths) for what an allow path does and does not relax.
+**Allow paths** live in this panel. Recursive deletes targeting a listed path are not blocked, which is what makes `/tmp` workable. Entries must be absolute or `~/`-prefixed directories, and your home directory is rejected. See [Allow paths](/configuration/policy#allow-paths) for the full validation table and [Allowed commands](/reference/allowed-commands#configured-allow-paths) for what an allow path does and does not relax.
 
 ### Secret protection
 
-A master switch plus per-pattern checkboxes, grouped by category — from the default sensitive paths (home paths, credential basenames, extensions, and variants) to the **Coding CLI credential** and **Coding CLI config** locations. Each group header is a collapse button showing `N on · N off`, next to a group switch labelled `All <category> protections` that behaves exactly like the destructive tier switches: checked while any rule in the group is on, disabled while the master switch is off, and writing the per-rule overrides in bulk. Groups start collapsed and open automatically during a Policy search.
+This panel has a master switch and per-pattern checkboxes grouped by category. Categories include default sensitive paths, **Coding CLI credential** locations, and **Coding CLI config** locations. Each group header is a collapse button that shows `N on · N off` next to a switch labelled `All <category> protections`. The switch is checked while any rule in the group is on, disabled while the master switch is off, and writes per-rule overrides in bulk. Groups start collapsed and open during a Policy search.
 
 Rules that protect literal file paths carry a `?` button opening a **Protected paths** popover that lists exactly which paths the rule covers.
 
-Not every rule defaults to on. **Coding CLI config** rules ship **off** — settings and MCP config files carry credentials inline, but agents edit them as routine work, so you opt in per rule. A checkbox stores an override only when it deviates from the rule's default: checking a default-off rule writes an `on` override and unchecking it removes the override, while for a default-on rule unchecking writes `off` and rechecking removes the override.
+Not every rule defaults to on. **Coding CLI config** rules ship **off** because settings and MCP configuration files can contain credentials, but agents edit them as routine work. You must enable these rules individually. A checkbox stores an override only when it differs from the default. Checking a default-off rule writes an `on` override, and unchecking it removes the override. For a default-on rule, unchecking writes `off` and rechecking removes the override.
 
 While the master switch is on, the panel summary reads `N active, N disabled`. When it is off, it reads `Protection disabled. Saved rule settings and deny paths are preserved.` Saved secret allow paths are also preserved in the draft.
 
-**Deny paths** live in this panel. Configured paths and everything inside them are blocked while secret protection is on. Deny paths depend on the master switch — turning secret protection off stops enforcing them. See [Deny paths](/configuration/policy#deny-paths) for the accepted entry forms.
+**Deny paths** live in this panel. Configured paths and everything inside them are blocked while secret protection is on. Turning secret protection off also stops enforcing deny paths. See [Deny paths](/configuration/policy#deny-paths) for the accepted entry forms.
 
 **Allow paths** also live in this panel. An exact file or directory tree can be exempted from the built-in pattern rules, but deny paths and Coding CLI protections still apply. The dashboard validates each addition before it enters the draft. Glob patterns, paths that cover home, and the guard's own configuration are rejected. See [Secret allow paths](/configuration/policy#secret-allow-paths) for the complete precedence and validation rules.
 
@@ -209,7 +209,7 @@ Individual rule toggles, preset changes, and adding or removing paths are staged
 Cancel is focused by default in every one of these dialogs.
 
 <Warning>
-  Turning off destructive command protection or secret protection disables every configurable rule in that layer at once until you turn it back on — only the Always enforced destructive tier keeps blocking. Prefer a single rule override, or a lower preset, over the master switch.
+  Turning off destructive command protection or secret protection disables every configurable rule in that layer until you turn it back on. Only the Always enforced destructive tier keeps blocking. Prefer a single rule override or a lower preset over the master switch.
 </Warning>
 
 ### Repair
@@ -226,7 +226,7 @@ Reset is deliberately **not** on this view. It lives in Settings, under Danger z
 
 ## Rules
 
-Rules covers your custom rulebooks — the rules you author yourself, as distinct from the built-in protections on the Policy view. See [Custom rules](/configuration/custom-rules) for the rulebook format, scopes, overrides, and validation; this view does not restate them.
+Rules covers custom rulebooks that you author. These are separate from the built-in protections on the Policy view. See [Custom rules](/configuration/custom-rules) for the rulebook format, scopes, overrides, and validation.
 
 <Warning>
   The Rules view is **not** a rulebook editor. CC Safety Net never writes a rulebook from the dashboard. This view shows rules read-only as they are actually enforced, and composes prompt text for you to copy into a coding agent that does the authoring.
@@ -236,7 +236,7 @@ Rules covers your custom rulebooks — the rules you author yourself, as distinc
 
 Each rulebook card shows its name, a version badge, its source spec when that differs from the name, its scope (`All projects` or `This project`), and its rule count.
 
-Rules are listed **as enforced, after overrides**. A rule disabled by an override still belongs to its rulebook and stays in the rulebook's listing, but it is dropped from the rendered rules — so what you read here is the effective rulebook, not the file contents. A refresh button re-reads from disk.
+Rules are listed **as enforced, after overrides**. A rule disabled by an override still belongs to its rulebook and stays in the rulebook's listing, but the rendered rule list omits it. This view therefore shows the effective rulebook, not the file contents. A refresh button reads the files again.
 
 When no rulebooks are configured, the panel points you at `cc-safety-net rule init`. When rulebooks exist but every one was dropped, it says so and sends you to Diagnostics.
 
@@ -246,16 +246,16 @@ The Diagnostics panel is hidden when there is nothing to report. When it appears
 
 ### Prompt composer (copy only)
 
-The composer builds a prompt for your coding agent. Its only action is **Copy prompt** — there is no create, save, or write control anywhere in the view, and no server route that writes a rulebook.
+The composer builds a prompt for your coding agent. Its only action is **Copy prompt**. The view has no create, save, or write control, and no server route writes a rulebook.
 
 Inputs:
 
-- **Scope** — `Project` or `All projects`.
-- **Project path** — shown in project scope only, prefilled with the directory the dashboard was launched from. Where a native directory picker is available, the field is read-only with a `Choose…` button; if the picker is unavailable at runtime, the field becomes editable instead.
-- **Request** — describe the rules you want. Rules match a command, an optional subcommand, and exact arguments — not file paths or patterns.
-- **Examples** — one-click starters for suggesting rules, blocking a command, and verifying existing rules.
+- **Scope.** `Project` or `All projects`.
+- **Project path.** Shown only in project scope and prefilled with the directory where the dashboard was launched. When a native directory picker is available, the field is read-only with a `Choose…` button. If the picker is unavailable, the field becomes editable.
+- **Request.** Describe the rules you want. Rules match a command, an optional subcommand, and exact arguments. They do not match file paths or patterns.
+- **Examples.** One-click starters for suggesting rules, blocking a command, and verifying existing rules.
 
-The generated prompt tells your agent to use the CC Safety Net skill, or to run `cc-safety-net rule doc` and treat that output as the source of truth. It carries the scope, the project path, and the names of your existing rulebooks so the agent picks a name that is not already claimed. It deliberately carries **only** rulebook names — no rule names, blocked arguments, reasons, or versions leave your machine in that text.
+The generated prompt tells your agent to use the CC Safety Net skill or run `cc-safety-net rule doc` and treat that output as the source of truth. It includes the scope, project path, and existing rulebook names so the agent can select an unused name. The text includes **only** rulebook names. It does not include rule names, blocked arguments, reasons, or versions.
 
 Copying is refused, with a specific message, when rules have not loaded yet, when the request is empty, or when project scope is selected with no project path.
 
@@ -285,20 +285,20 @@ Settings covers appearance, file locations, and maintenance.
 
 **Files.** Two read-only rows showing where CC Safety Net reads and writes on this machine: the policy file and the audit log directory.
 
-**Audit log retention.** How many days of audit records to keep — see [Audit log](/reference/audit-log#retention) for the accepted range, what gets recorded, and how the sweep enforces it. Unlike the Policy view, retention **saves immediately on change** — there is no save bar behind it. It cannot be saved while the Policy view has unsaved changes; save or discard those first. Unlike the Policy save button, this control is **not** blocked while the on-disk policy has errors — and because the form holds defaults in that state, changing retention writes that all-defaults document, with only your new retention, over the file. Repair the policy before touching retention.
+**Audit log retention.** Sets how many days of audit records to keep. See [Audit log](/reference/audit-log#retention) for the accepted range, recorded data, and sweep behavior. Unlike the Policy view, retention **saves immediately on change** with no save bar. You cannot save it while the Policy view has unsaved changes. Unlike the Policy save button, this control remains active while the on-disk policy has errors. In that state, the form holds defaults, so changing retention writes an all-defaults document with only your new retention over the file. Repair the policy before changing retention.
 
 <Warning>
-  Shortening retention is irreversible. Audit entries older than the new window are deleted on the next sweep and cannot be recovered, and the Activity view can then only look back as far as the new value. The dashboard asks you to confirm before shortening, and the confirmation names the logs directory it will prune. Export anything you need first — every entry has a copy-as-JSON button in the Activity feed.
+  Shortening retention is irreversible. The next sweep deletes audit entries older than the new window, and the Activity view can then look back only as far as the new value. The dashboard asks you to confirm and names the log directory it will prune. Export needed entries first. Each Activity entry has a copy-as-JSON button.
 </Warning>
 
-**Policy JSON.** A read-only mirror of the policy controls, with a copy button. It reflects the controls on the Policy view — it is a mirror for inspecting and sharing, not a second editor.
+**Policy JSON.** A read-only mirror of the Policy controls with a copy button. Use it to inspect and share the policy, not as a second editor.
 
 **Version.** A single read-only row showing the CC Safety Net version you are running.
 
 **Danger zone.** A single action, **Reset policy**, which restores the default policy JSON at the configured path.
 
 <Warning>
-  Reset discards your saved configuration. Every preset choice, rule override, allow path, and deny path returns to defaults, and there is no undo. Reset affects the policy file only — your custom rulebooks are separate files and are not touched.
+  Reset discards your saved configuration. Every preset choice, rule override, allow path, and deny path returns to defaults, with no undo. Reset affects only the policy file. It does not touch custom rulebooks.
 </Warning>
 
 <Note>

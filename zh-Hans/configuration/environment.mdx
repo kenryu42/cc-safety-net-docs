@@ -6,7 +6,7 @@ description: "所有 CC Safety Net 环境变量的完整参考：安全级别、
 
 CC Safety Net 从 `policy.json` 和环境变量读取配置。模式开关使用 `CC_SAFETY_NET_*` 前缀；在注明之处，不带 `CC_` 前缀的旧 `SAFETY_NET_*` 名称仍作为旧别名保留。请在启动智能体之前，在 shell 或智能体的启动环境中设置这些变量。
 
-本页说明各变量本身，以及它们如何与 `policy.json` 组合。各级别阻止的内容见[模式](/zh-Hans/configuration/modes)；完整的策略文件契约见[策略](/zh-Hans/configuration/policy)。
+本页列出各变量，并说明它们如何与 `policy.json` 组合。各级别阻止的内容见[模式](/zh-Hans/configuration/modes)，策略文件的完整约定见[策略](/zh-Hans/configuration/policy)。
 
 ## 安全级别
 
@@ -26,7 +26,7 @@ CC Safety Net: ignored invalid CC_SAFETY_NET_LEVEL="<value>". Use standard, stri
 
 ## 能力开关
 
-这些是旧版的单项能力标志。每个标志都**只能开启**对应能力，把它设为假值并不会关闭该能力。需要把某项能力关到预设级别以下时，请在 [policy.json](/zh-Hans/configuration/policy) 中使用 `safety.overrides`。
+这些是旧版的单项能力标志。每个标志都**只能开启**对应能力，假值不会将其关闭。如需关闭预设已启用的能力，请在 [policy.json](/zh-Hans/configuration/policy) 中使用 `safety.overrides`。
 
 |变量|旧别名 |效果|
 | --- | --- | --- |
@@ -46,11 +46,11 @@ CC Safety Net: ignored invalid CC_SAFETY_NET_LEVEL="<value>". Use standard, stri
 
 1. **预设。** `policy.json` 中的 `safety.level` 提供继承而来的能力默认值。该字段不存在时，预设为 `standard`。
 2. **`CC_SAFETY_NET_LEVEL`。** 有效基础级别取策略级别与环境级别中较高的一个。环境可以提高级别，但绝不会降低。
-3. **`safety.overrides.*`。** 接着，`policy.json` 中显式的能力覆盖会向两个方向设置 `fail_closed`、`paranoid_rm` 或 `paranoid_interpreters`——向上**或**向下。
+3. **`safety.overrides.*`。** 接着，`policy.json` 中显式的能力覆盖会开启或关闭 `fail_closed`、`paranoid_rm` 或 `paranoid_interpreters`。
 4. **能力开关。** `CC_SAFETY_NET_STRICT`、`CC_SAFETY_NET_PARANOID`、`CC_SAFETY_NET_PARANOID_RM` 和 `CC_SAFETY_NET_PARANOID_INTERPRETERS` 这几个标志最后应用，而且是**单调的**：每个标志只会把对应能力强制为 `true`，没有一个能关闭能力。
 5. **worktree 模式**是 `workflow.worktree_mode` 与 `CC_SAFETY_NET_WORKTREE` 的逻辑 OR。
 
-报告出来的**有效级别**由最终得到的三项能力组合推导而来。不匹配任何预设的组合（例如 `paranoid_rm` 开启而 `fail_closed` 关闭）会报告为 `custom`。
+最终的三项能力组合决定报告中的**有效级别**。不匹配任何预设的组合，例如开启 `paranoid_rm` 而关闭 `fail_closed`，会报告为 `custom`。
 
 `destructive_command_protection.overrides` 中的单条规则条目会叠加在能力推导出的状态之上。灾难性规则始终强制执行，上述任何设置都无法将其禁用。
 
@@ -61,7 +61,7 @@ CC Safety Net: ignored invalid CC_SAFETY_NET_LEVEL="<value>". Use standard, stri
 | `CC_SAFETY_NET_AUDIT_SCOPE=all\|blocked` |无 |哪些命令决策会进入审计日志。默认为 `all`。 |
 
 - `all`（默认值，也是未设置该变量时的行为）会同时记录允许和阻止的命令决策。
-- `blocked` 是最小化记录、更利于隐私的设置：只记录拒绝。
+- `blocked` 只记录拒绝，可减少日志中保留的数据。
 - 此设置**永远**不会抑制拒绝记录。
 - 其他任何值都会回退为只记录拒绝，`doctor` 会将其报告为警告项 `environment.audit-scope-invalid`。
 
@@ -71,9 +71,9 @@ CC Safety Net: ignored invalid CC_SAFETY_NET_LEVEL="<value>". Use standard, stri
 
 |变量|旧别名 |效果|
 | --- | --- | --- |
-| `CC_SAFETY_NET_DEBUG=1` | 无 | 把诊断消息打印到 stderr，例如某次分析异常的原因，或读取状态行所需的 Claude 设置文件失败。它不控制无效 `CC_SAFETY_NET_LEVEL` 的警告——该警告始终会打印。 |
+| `CC_SAFETY_NET_DEBUG=1` | 无 | 把诊断消息打印到 stderr，例如某次分析异常的原因，或读取状态行所需的 Claude 设置文件失败。它不控制无效 `CC_SAFETY_NET_LEVEL` 的警告，该警告始终会打印。 |
 
-`CC_SAFETY_NET_DEBUG` 不会改变记录哪些决策——那由 `CC_SAFETY_NET_AUDIT_SCOPE` 决定。在排查某条命令为何被允许，或提交缺陷报告时使用它。`doctor` 命令会报告它是否已设置。
+`CC_SAFETY_NET_DEBUG` 不会改变记录哪些决策。记录范围由 `CC_SAFETY_NET_AUDIT_SCOPE` 决定。在排查某条命令为何被允许或提交缺陷报告时，可以使用它。`doctor` 命令会报告它是否已设置。
 
 ## 配置目录覆盖
 
@@ -81,17 +81,17 @@ CC Safety Net: ignored invalid CC_SAFETY_NET_LEVEL="<value>". Use standard, stri
 | --- | --- | --- |
 | `CC_SAFETY_NET_HOME=<path>` |无 |使用 `<path>` 作为 CC Safety Net 主目录，而不是 `~/.cc-safety-net`。 |
 
-设置之后，`policy.json` 从 `<path>/policy.json` 读取，用户范围的 rulebook 配置从 `<path>/rules/` 读取，rulebook lock 和缓存也来自同一目录树。这在沙箱环境或非标准 `HOME` 的场景下很有用，例如智能体运行时使用的主目录与你的 shell 不同。
+设置后，`policy.json` 从 `<path>/policy.json` 读取，用户范围的 rulebook 配置从 `<path>/rules/` 读取，rulebook lock 和缓存也来自同一目录树。它适用于沙箱或非标准 `HOME`，例如智能体运行时使用的主目录与你的 shell 不同。
 
 <Note>
-`CC_SAFETY_NET_HOME` 不会改变审计日志的位置。审计根目录是独立解析的——其推导方式见[审计日志的布局](/zh-Hans/reference/audit-log#日志布局)。
+`CC_SAFETY_NET_HOME` 不会改变审计日志的位置。审计根目录单独解析，推导方式见[审计日志的布局](/zh-Hans/reference/audit-log#日志布局)。
 </Note>
 
 ## 更新检查选择退出
 
 |变量|旧别名 |效果|
 | --- | --- | --- |
-| `CC_SAFETY_NET_NO_UPDATE_CHECK=1` | 无 | 禁用 `rule doc` 期间运行的更新检查。任何非空值都算数——这个变量不按布尔值解析，因此连 `0` 也会禁用检查。 |
+| `CC_SAFETY_NET_NO_UPDATE_CHECK=1` | 无 | 禁用 `rule doc` 期间运行的更新检查。任何非空值都有效。这个变量不按布尔值解析，因此连 `0` 也会禁用检查。 |
 
 `rule doc` 通常最多每 24 小时检查一次是否有新版本：它轮询 `https://registry.npmjs.org/cc-safety-net/latest`，把结果缓存到 `$HOME/.cc-safety-net/update-check.json`，并在存在更新版本时向 stderr 打印一行 `UPDATE_AVAILABLE:`。这次轮询是 CLI 在 `rule doc` 期间发出的唯一一个出站网络请求。
 
@@ -106,4 +106,4 @@ npx cc-safety-net status
 npx cc-safety-net doctor
 ```
 
-`doctor` 报告的 Environment 部分会列出每个变量、它的取值、它的默认行为，以及正在使用的旧 `SAFETY_NET_*` 名称。两个命令的完整语法和输出见 [CLI 命令](/zh-Hans/reference/cli-commands)；Claude Code 中的概览指示器见[状态行](/zh-Hans/configuration/status-line)。
+`doctor` 报告的 Environment 部分会列出每个变量、当前值、默认行为，以及正在使用的旧 `SAFETY_NET_*` 名称。两个命令的完整语法和输出见 [CLI 命令](/zh-Hans/reference/cli-commands)。Claude Code 的概览指示器见[状态行](/zh-Hans/configuration/status-line)。

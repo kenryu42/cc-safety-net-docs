@@ -12,7 +12,7 @@ CC Safety Net 是一道尽力而为的静态执行前策略门，作用于受支
 
 ### 主边界：命令来源到执行环境
 
-核心信任边界位于 AI 编码智能体和主机 shell 之间。CC Safety Net 是此边界的门卫。
+核心信任边界位于 AI 编码智能体和主机 shell 之间。CC Safety Net 在这条边界上检查命令。
 
 - **不可信侧**：AI 智能体生成的命令字符串。这些字符串一律按可能有敌意处理，因为提示注入、上下文混淆或对抗性指令都可能操纵智能体生成破坏性命令。
 - **执行侧**：命令将要执行的主机 shell。
@@ -27,7 +27,7 @@ CC Safety Net 是一道尽力而为的静态执行前策略门，作用于受支
 
 | 边界 | 来源 | 验证方式 |
 | --- | --- | --- |
-| 用户配置 | 磁盘上的 `policy.json` 和规则配置 | 解析并进行 schema 验证；被拒绝的候选配置绝不会生效，运行时会回退，而不是拒绝普通工作（见[配置恢复边界](#配置恢复边界)） |
+| 用户配置 | 磁盘上的 `policy.json` 和规则配置 | 解析并验证 schema；被拒绝的候选配置绝不会生效。运行时会回退，不会拒绝普通工作（见[配置恢复边界](#配置恢复边界)） |
 | Rulebook 来源 | 从 GitHub 或本地目录获取的 rulebook | 通过 lockfile 中的 SHA-256 digest 检查远程 rulebook 完整性；无法验证的来源不提供任何规则 |
 | Hook 输入 JSON | 各智能体在 stdin 上发送的 JSON payload | 防御性解析；格式错误或超大输入会触发拒绝 |
 | 环境变量 | 级别和能力标志以及路径 override（`CC_SAFETY_NET_*`、`TMPDIR` 等） | 显式读取；安全关键值按不可信数据处理 |
@@ -67,7 +67,7 @@ Standard、strict 和 paranoid 是三个预设，为 `fail_closed`、`paranoid_r
 
 <Steps>
   <Step title="Hook 入口点">
-    Hook 适配器用 try/catch 包装分析调用。如果分析抛出错误，hook 会发出以“failed closed”为原因的拒绝判定，而不会让命令继续。所有基于 stdin hook 的智能体都适用：Antigravity CLI、Claude Code、Cursor、Gemini CLI、GitHub Copilot CLI 和 Kimi Code。
+    Hook 适配器用 try/catch 包装分析调用。如果分析抛出错误，hook 会发出以 `failed closed` 为原因的拒绝判定，而不会让命令继续。所有基于 stdin hook 的智能体都适用：Antigravity CLI、Claude Code、Cursor、Gemini CLI、GitHub Copilot CLI 和 Kimi Code。
   </Step>
   <Step title="插件和扩展入口点">
     Amp Code、OpenCode、OpenClaw 和 Pi 进程内集成使用相同模式：捕获分析错误并再次作为阻止消息返回，使平台把命令视为已拒绝。Codex 以插件安装，但运行共享 stdin hook 入口点，因此属于上一步。Hermes Agent 叠加两层：其托管 Python 插件调用相同 stdin hook（`cc-safety-net hook --hermes-agent`），并在分析无法完成时由插件自身阻止该调用，包括缺少 `npx`、无法解析工作目录或 Hermes 会话记录、spawn 失败、30 秒超时、非零分析器退出码，或无法读取输出。各智能体采用哪种集成方式见<a href="/zh-Hans/guides/integration-architecture">集成架构</a>。
@@ -112,7 +112,7 @@ Standard、strict 和 paranoid 是三个预设，为 `fail_closed`、`paranoid_r
 | **Hook 输入解析** | 用格式错误的 JSON 让 hook 崩溃 | `JSON.parse` 失败触发拒绝，而不是崩溃；平台适配器执行额外验证 |
 | **审计日志路径遍历** | 构造会话 ID，使写入落到日志目录之外 | 会话 ID 会被清理为文件系统安全的形式，长度受限，并拒绝 `.` 和 `..` |
 
-网络级攻击和对智能体平台自身的攻击不在范围内。CC Safety Net 在命令分析期间不发出网络请求，也没有网络层。资源耗尽通过设定上限来约束，而不是通过隔离来缓解：超过解析器或工具输入限制的输入会被拒绝，而不是进行不完整的分析。
+网络攻击和针对智能体平台本身的攻击不在范围内。CC Safety Net 在分析命令时不发出网络请求，也没有网络层。资源耗尽只通过固定上限约束，不依靠隔离来缓解。输入超过解析器或工具输入限制时会被拒绝，不会只做部分分析。
 
 ## 披露分类
 

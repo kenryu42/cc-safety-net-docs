@@ -4,7 +4,7 @@ sidebarTitle: "仪表板"
 description: "使用 cc-safety-net gui 启动本地 CC Safety Net 仪表板，并通过概览、活动、策略、规则、集成和设置六个视图检查判定、编辑策略和管理智能体 hook。"
 ---
 
-`cc-safety-net gui` 会打开一个本地仪表板。用它审查本机上的判定，并在无需手工编辑 JSON 的情况下修改策略。仪表板帮你弄清什么被阻止了、为什么被阻止，以及可以改什么。
+`cc-safety-net gui` 会打开本地仪表板。你可以查看本机判定，了解阻止原因，并直接修改策略，无需手动编辑 JSON。
 
 本页说明你可以在仪表板中做什么，以及哪些操作具有破坏性。它不重述底层格式：`policy.json` schema 见[策略](/zh-Hans/configuration/policy)，rulebook 编写见[自定义规则](/zh-Hans/configuration/custom-rules)，审计记录 schema 见[审计日志](/zh-Hans/reference/audit-log)。
 
@@ -20,7 +20,7 @@ cc-safety-net gui
 CC Safety Net policy GUI: http://127.0.0.1:52341/?token=...
 ```
 
-只想拿到 URL 而不启动浏览器时，传入 `--no-open`——例如通过 SSH、在容器中，或者你更愿意把 URL 粘贴到某个特定的浏览器配置文件里：
+只需要 URL 而不想启动浏览器时，请传入 `--no-open`。这适用于 SSH、容器，或需要在指定浏览器配置文件中打开 URL 的情况：
 
 ```bash
 cc-safety-net gui --no-open
@@ -28,7 +28,7 @@ cc-safety-net gui --no-open
 
 `--no-open` 是除 `-h, --help` 之外的唯一标志。其他任何参数都会被拒绝，输出 `Usage: cc-safety-net gui [--no-open]` 并返回非零退出码。
 
-浏览器启动失败并不致命——命令会打印底层错误，随后输出 `Open this URL manually: <url>`，并继续提供服务。服务器在前台运行，直到你用 `Ctrl-C` 停止。
+浏览器启动失败时，命令会打印底层错误和 `Open this URL manually: <url>`，然后继续提供服务。服务器在前台运行，直到你用 `Ctrl-C` 停止。
 
 ### 本地环回范围
 
@@ -38,7 +38,7 @@ cc-safety-net gui --no-open
 - 每次启动都会生成一个新的随机令牌并嵌入 URL。每个请求都必须携带该令牌，改变状态的请求还必须把它作为请求标头发送。缺少令牌的请求会被拒绝，返回 `403`。
 - 响应一律带 `cache-control: no-store` 返回。
 
-页面本身不会为取数发出任何出站请求——它渲染的一切都来自本地策略文件和审计日志。唯一的例外需要你主动启用：概览中的更新检查和 GitHub 加星操作。
+页面读取的数据全部来自本地策略文件和审计日志，不会为此发出出站请求。只有概览中的更新检查和 GitHub 加星操作例外，而且必须由你主动启用。
 
 <Note>
 由于令牌按每次启动生成，从上一次会话收藏的 URL 不再有效。重新运行 `cc-safety-net gui` 获取新的 URL。
@@ -63,7 +63,7 @@ cc-safety-net gui --no-open
 
 概览汇总的是一个**保留窗口**内的数据，而不是历史总量。该窗口为最近 7 天；保留期短于 7 天时，则为整个保留窗口。标题会以 `Last N day(s)` 说明它实际使用的窗口。
 
-**指标卡。** 两个计数器——**已阻止**和**已分析**——各自带一条按天绘制、从旧到新的迷你图。每条迷你图按自身最大值缩放，因此两张卡在视觉上不可互相比较；看数字，不要看柱子高度。
+**指标卡。** **已阻止**和**已分析**两个计数器各有一张按天绘制的迷你图，时间从旧到新。每张图按自身最大值缩放，因此两张图的柱高不能直接比较。请比较数字。
 
 **保护状态。** 卡片显示你的安全级别；override 偏离预设时会追加 `· Customized`；同时报告有多少条规则生效、机密保护是否开启。此卡只反映**已保存**的状态：策略视图中暂存的未保存开关在保存前不会影响它。破坏性命令保护或机密保护关闭时，或因配置中某项无法加载而正在执行 fallback 配置时，会显示横幅。
 
@@ -71,7 +71,7 @@ cc-safety-net gui --no-open
 
 **阻止次数最多的命令和规则。** 两个面板各显示前五项，统计窗口与指标卡相同。选择某条命令会跳到活动视图，并应用一个可移除的精确命令签名过滤条件，只显示阻止记录。选择某条规则则按规则命名空间跳转：`custom.*` rule ID 进入规则视图，内置 rule ID 进入活动视图，并把该 rule ID 预填进搜索框。
 
-**防护错误。** 窗口内如果有拒绝来自评估失败而非策略，就会出现一个按钮，文案为 `N guard error(s) in the last N days — commands blocked because evaluation failed, not by policy. Click to view.`。点击后会打开活动视图，并过滤为错误判定。这些拒绝属于 fail-closed：CC Safety Net 无法完成分析，因此拒绝了命令。如果反复出现，请参阅[故障排除](/zh-Hans/guides/troubleshooting)。
+**防护错误。** 窗口内如果有拒绝来自评估失败而非策略，就会出现一个按钮，文案为 <code>{'N guard error(s) in the last N days \u2014 commands blocked because evaluation failed, not by policy. Click to view.'}</code>。点击后会打开活动视图，并过滤为错误判定。这些拒绝属于 fail-closed：CC Safety Net 无法完成分析，因此拒绝了命令。如果反复出现，请参阅[故障排除](/zh-Hans/guides/troubleshooting)。
 
 ## 活动
 
@@ -103,7 +103,7 @@ cc-safety-net gui --no-open
 
 ### 刷新
 
-刷新按钮会同时重新加载**概览和活动**，因此指标卡与活动列表不会不一致。按钮会保持很短的最小旋转时间，使快速的本地刷新仍能明确显示为一次操作。
+刷新按钮会同时重新加载**概览和活动**，避免指标卡与活动列表不一致。即使本地刷新很快，按钮也会短暂旋转，以确认操作已经执行。
 
 ### 渲染条目与计数
 
@@ -123,7 +123,7 @@ cc-safety-net gui --no-open
 
 被拒绝的条目提供**报告误报**，点击会打开一个对话框，准备一份预填好的**公开** GitHub issue。继续之前，命令和日志条目都可以编辑；项目路径会被替换为 `<project>`，主目录被替换为 `~`；在你自己到 GitHub 上提交之前，不会提交任何内容。
 
-被允许的条目提供**今后阻止此命令**，它会把该命令预填到规则视图的 prompt composer 中。它本身不会创建规则——参见下文[规则](#规则)。
+被允许的条目提供**今后阻止此命令**操作。它会把命令预填到规则视图的 prompt composer 中，但不会创建规则。参见下文[规则](#规则)。
 
 ## 策略
 
@@ -140,7 +140,7 @@ cc-safety-net gui --no-open
 - 在同一浏览器会话内重新加载页面，草稿依然保留；保存、丢弃、修复或重置都会清除它。
 - 带着未保存的更改离开页面时，会先弹出提示。
 
-保存会写入策略文件，并报告写入的路径。只要磁盘上的策略存在错误，表单就不会显示文件的内容：每个控件呈现的都是内置默认值，而不是运行时仍能从磁盘抢救出来的有效值——只有原始 JSON 镜像仍显示文件的实际内容。此状态下保存会被拒绝，并提示 `Repair policy before saving changes.`，因此屏幕上的默认值不会从这里覆盖掉你的文件——先修复，再保存。修复之后，表单会以修复所保留的设置重新加载。
+保存操作会写入策略文件，并报告路径。磁盘上的策略存在错误时，表单控件显示内置默认值，不显示运行时从文件中保留的有效值。只有原始 JSON 镜像仍显示文件内容。此时保存会被拒绝，并提示 `Repair policy before saving changes.`，以免默认值覆盖文件。请先修复，再保存。修复后，表单会重新加载保留下来的设置。
 
 ### 测试命令
 
@@ -152,7 +152,7 @@ cc-safety-net gui --no-open
 
 此视图提供三个安全预设，界面标签为 **Standard**、**Strict** 和 **Paranoid**。它们是工作区后续自定义所继承的默认值，严格程度逐级提高。各预设和能力的准确变化以[模式](/zh-Hans/configuration/modes)为准。
 
-会提升保护强度的环境变量会在此处以提示形式列出，这样当级别看起来低于你实际观察到的行为时，就有了解释，而不至于令人困惑。默认折叠的 **Advanced overrides** 区域会展开预设解析出的各项能力——fail closed、paranoid `rm -rf` 检查和 paranoid 解释器——让你在不改动预设的前提下单独调高或调低某一项。工作流例外与安全级别是分开配置的。
+此处会列出提高保护强度的环境变量，用于解释界面级别与实际行为的差异。默认折叠的 **Advanced overrides** 区域显示预设解析出的各项能力，包括 fail closed、paranoid `rm -rf` 检查和 paranoid 解释器。你可以单独调整某项能力，不必更改预设。工作流例外与安全级别分开配置。
 
 ### 破坏性命令保护
 
@@ -165,17 +165,17 @@ cc-safety-net gui --no-open
 | **Strict tier** | 继承自 Fail closed |
 | **Paranoid tier** | 继承自 Paranoid rm 或 Paranoid 解释器 |
 
-所有 tier 默认折叠；在策略视图中搜索时，含匹配项的 tier 会自动展开。**始终执行** tier 既没有开关，也没有单条规则的复选框——它的标题把规则数显示为 `N protections`，其中每条规则都标记为 `Always enforced`，并带一个 `?` 示例弹窗。
+所有 tier 默认折叠。在策略视图中搜索时，含匹配项的 tier 会自动展开。**始终执行** tier 没有开关，也没有单条规则的复选框。它的标题把规则数显示为 `N protections`，每条规则都标记为 `Always enforced`，并带一个 `?` 示例弹窗。
 
-三个可配置 tier 会在标题中显示 `N on · N off` 计数，旁边是标记为 `All <tier> protections` 的 tier 开关。只要该 tier 中还有至少一条规则处于开启状态，开关就是选中的；master switch 关闭时它会被禁用。拨动它会批量写入与单条复选框相同的 per-rule override——最终与继承值一致的规则不会保留 override——因此并不存在单独保存的分组设置。
+三个可配置 tier 会在标题中显示 `N on · N off` 计数，旁边是标记为 `All <tier> protections` 的 tier 开关。只要该 tier 中至少有一条规则处于开启状态，开关就是选中的。master switch 关闭时，tier 开关会被禁用。拨动它会批量写入与单条复选框相同的 per-rule override。最终与继承值一致的规则不会保留 override，因此没有单独保存的分组设置。
 
-master switch 开启时，面板摘要显示 `N active, N disabled`。关闭后会替换为 `Configurable protection disabled. Catastrophic protections remain active; saved rule settings and allow paths are preserved.`——即便如此，始终执行 tier 仍会继续阻止。
+master switch 开启时，面板摘要显示 `N active, N disabled`。关闭后，摘要改为 `Configurable protection disabled. Catastrophic protections remain active; saved rule settings and allow paths are preserved.`。始终执行 tier 仍会继续阻止。
 
-每张可配置规则卡片都有 `?` 弹窗，其中给出该规则阻止的具体命令示例。状态行说明当前值的来源。例如，`Off — destructive-command protection disabled` 表示 master switch 优先于你的 override。
+每张可配置规则卡片都有 `?` 弹窗，其中给出该规则阻止的具体命令示例。状态行说明当前值的来源。例如，<code>{'Off \u2014 destructive-command protection disabled'}</code> 表示 master switch 优先于你的 override。
 
 切换规则会存储显式 `on` 或 `off` override。把规则恢复为继承值时会**删除** override，而不是存储冗余值。每条规则还提供 `Use inherited setting` 直接完成此操作。面板标题中的 `Restore defaults` 会一次清除所有 override。
 
-**允许路径**也在此面板中。指向列表内路径的递归删除不会被阻止，这正是 `/tmp` 可用的原因。条目必须是绝对路径或以 `~/` 开头的目录，主目录会被拒绝——完整的校验表见[允许路径](/zh-Hans/configuration/policy#允许路径)，允许路径放宽了什么、又没有放宽什么见[允许的命令](/zh-Hans/reference/allowed-commands#配置的允许路径)。
+**允许路径**也在此面板中。指向列表内路径的递归删除不会被阻止，这正是 `/tmp` 可用的原因。条目必须是绝对路径或以 `~/` 开头的目录，主目录会被拒绝。完整的校验表见[允许路径](/zh-Hans/configuration/policy#允许路径)。允许路径放宽和保留的规则见[允许的命令](/zh-Hans/reference/allowed-commands#配置的允许路径)。
 
 ### 机密保护
 
@@ -183,11 +183,11 @@ master switch 开启时，面板摘要显示 `N active, N disabled`。关闭后�
 
 保护具体文件路径的规则带有 `?` 按钮，点击可打开**受保护的路径**弹窗，其中准确列出该规则覆盖了哪些路径。
 
-并非所有规则都默认开启。**Coding CLI config** 规则出厂即为**关闭**——settings 和 MCP 配置文件内嵌了凭证，但智能体把编辑它们当作日常工作，因此需要逐条规则主动开启。只有当复选框的状态偏离规则默认值时才会存储 override：勾选一条默认关闭的规则会写入 `on` override，取消勾选则删除该 override；对默认开启的规则，取消勾选会写入 `off`，重新勾选则删除 override。
+并非所有规则都默认开启。**Coding CLI config** 规则出厂时为**关闭**。settings 和 MCP 配置文件内嵌了凭证，但智能体也会在日常工作中编辑它们，因此需要逐条主动开启。只有当复选框状态偏离规则默认值时，系统才会存储 override。勾选一条默认关闭的规则会写入 `on` override，取消勾选则删除该 override。对默认开启的规则，取消勾选会写入 `off`，重新勾选则删除 override。
 
 master switch 开启时，面板摘要显示 `N active, N disabled`。关闭时显示 `Protection disabled. Saved rule settings and deny paths are preserved.` 已保存的机密允许路径同样保留在草稿中。
 
-**拒绝路径**也在此面板中。机密保护开启时，配置的路径及其下的所有内容都会被阻止。拒绝路径依赖 master switch——关闭机密保护就不再执行它们。可接受的条目形式见[拒绝路径](/zh-Hans/configuration/policy#拒绝路径)。
+**拒绝路径**也在此面板中。机密保护开启时，配置的路径及其下的所有内容都会被阻止。拒绝路径依赖 master switch。关闭机密保护后，系统不再执行这些拒绝路径。可接受的条目形式见[拒绝路径](/zh-Hans/configuration/policy#拒绝路径)。
 
 **允许路径**同样在此面板中。可以让某个具体文件或目录树免于内置的模式规则，但拒绝路径和 Coding CLI 保护仍然适用。每个新增条目在进入草稿前都会经过仪表板校验：glob 模式、覆盖主目录的路径以及防护自身的配置都会被拒绝。完整的优先级和校验规则见[机密允许路径](/zh-Hans/configuration/policy#机密允许路径)。
 
@@ -226,7 +226,7 @@ master switch 开启时，面板摘要显示 `N active, N disabled`。关闭时�
 
 ## 规则
 
-规则视图涵盖你的自定义 rulebook——由你自己编写的规则，区别于策略视图上的内置保护。rulebook 的格式、范围、override 和校验方式见[自定义规则](/zh-Hans/configuration/custom-rules)，本页不再重述。
+规则视图显示你编写的自定义 rulebook，与策略视图中的内置保护不同。rulebook 的格式、范围、override 和校验方式见[自定义规则](/zh-Hans/configuration/custom-rules)，本页不再重述。
 
 <Warning>
 规则视图**不是** rulebook 编辑器。CC Safety Net 绝不会从仪表板写入 rulebook。此视图以只读方式显示实际执行的规则，并生成 prompt 文本，供你复制给负责编写规则的编码智能体。
@@ -236,7 +236,7 @@ master switch 开启时，面板摘要显示 `N active, N disabled`。关闭时�
 
 每张 rulebook 卡片显示名称、版本 badge、与名称不同时显示的 source spec、范围（`All projects` 或 `This project`）以及规则数量。
 
-规则按 **override 生效后的实际执行情况**列出。被 override 禁用的规则仍属于它所在的 rulebook，也仍保留在该 rulebook 的清单里，但不会出现在渲染的规则中——所以这里读到的是生效后的 rulebook，而不是文件内容。刷新按钮会从磁盘重新读取。
+列表显示 **override 生效后实际执行的规则**。被 override 禁用的规则仍属于原 rulebook，也仍在文件清单中，但不会显示在列表里。因此，这里展示的是生效后的 rulebook，不是原始文件内容。刷新按钮会重新读取磁盘。
 
 没有配置任何 rulebook 时，面板会指引你运行 `cc-safety-net rule init`。若已有 rulebook 但全部被丢弃，面板会说明这一点，并把你引向诊断面板。
 
@@ -255,7 +255,7 @@ Composer 为编码智能体构建 prompt。唯一操作是**复制 prompt**。�
 - **请求**：描述你想要的规则。规则匹配的是命令、可选的子命令和精确参数，而不是文件路径或模式。
 - **示例**：一键填入的起始文案，分别用于建议规则、阻止命令和校验现有规则。
 
-生成的 prompt 会让智能体使用 CC Safety Net skill，或者运行 `cc-safety-net rule doc` 并把该输出当作权威依据。它带有范围、项目路径以及现有 rulebook 的名称，好让智能体挑一个尚未占用的名字。它刻意**只**携带 rulebook 名称——规则名称、被阻止的参数、原因和版本都不会随这段文本离开你的机器。
+生成的 prompt 会要求智能体使用 CC Safety Net skill，或运行 `cc-safety-net rule doc` 并以其输出为准。prompt 包含范围、项目路径和现有 rulebook 名称，帮助智能体选择未占用的名称。它**只**包含 rulebook 名称。规则名称、被阻止的参数、原因和版本不会随 prompt 离开你的机器。
 
 规则尚未加载、请求为空，或选择了项目范围却没有项目路径时，复制会被拒绝，并给出具体的提示信息。
 
@@ -273,7 +273,7 @@ Composer 为编码智能体构建 prompt。唯一操作是**复制 prompt**。�
 
 `Not inspected` 附带一条 tooltip 说明这一点：`This runtime's state file could not be read, so its status is unknown.` CLI 本身已找到，因此仍会提供安装操作。
 
-检测结果决定可用的操作：未检测到 CLI 时不会提供任何按钮，因为没有可安装 hook 的对象。安装和卸载串行执行，两个操作不会交错；请求进行中时按钮处于禁用状态。失败时会报告 `Install failed` 或 `Uninstall failed`，而不是悄悄回退。
+检测结果决定可用操作。未检测到 CLI 时不会显示按钮，因为没有可安装 hook 的目标。安装和卸载按顺序执行，不会交错。请求执行期间，按钮会被禁用。失败时会报告 `Install failed` 或 `Uninstall failed`，不会静默回退。
 
 刷新按钮会重新检测每个智能体，适合在安装 CLI 或手动编辑智能体配置后使用。下方的**系统**面板报告 CC Safety Net 版本、Node.js 版本和本机检测到的平台。
 
@@ -285,20 +285,20 @@ Composer 为编码智能体构建 prompt。唯一操作是**复制 prompt**。�
 
 **文件。** 两行只读信息，显示 CC Safety Net 在本机上的读写位置：策略文件和审计日志目录。
 
-**审计日志保留期。** 审计记录保留多少天——可接受的取值范围、记录的内容以及清理如何执行，见[审计日志](/zh-Hans/reference/audit-log#保留)。与策略视图不同，保留期**一改动就立即保存**，背后没有保存栏。策略视图存在未保存的更改时无法保存保留期，需要先保存或丢弃这些更改。另外，与策略的保存按钮不同，磁盘上的策略有错误**不会**阻止此控件保存——而由于表单在该状态下持有的全是默认值，改动保留期会把一份除新保留期之外全为默认值的文档写到文件上。改动保留期之前请先修复策略。
+**审计日志保留期。** 可接受的天数、记录内容和清理方式见[审计日志](/zh-Hans/reference/audit-log#保留)。与策略视图不同，保留期**一改动就立即保存**，没有保存栏。策略视图存在未保存的更改时，无法保存保留期。你需要先保存或丢弃这些更改。磁盘上的策略有错误时，策略保存按钮不可用，但保留期控件仍能保存。此时表单中只有默认值，修改保留期会写入一份除新保留期外全部使用默认值的文档。因此，修改保留期前请先修复策略。
 
 <Warning>
-缩短保留期不可逆。早于新窗口的审计条目会在下次清理时删除且无法恢复，活动视图此后也只能回溯到新的保留期。仪表板会在缩短前要求确认，确认信息中会写明将被清理的日志目录。请先导出需要的内容——活动列表中的每个条目都有复制为 JSON 的按钮。
+缩短保留期不可逆。早于新窗口的审计条目会在下次清理时删除，且无法恢复。活动视图之后只能回溯到新的保留期。仪表板会在缩短保留期前要求确认，并列出要清理的日志目录。请先导出需要的内容。活动列表中的每个条目都可以复制为 JSON。
 </Warning>
 
-**策略 JSON。** 策略控件的只读镜像，带复制按钮。它反映策略视图上的控件——用于查看和分享，而不是第二个编辑器。
+**策略 JSON。** 策略控件的只读镜像，带复制按钮。它反映策略视图中的控件，用于查看和分享，不是第二个编辑器。
 
 **版本。** 一行只读信息，显示当前运行的 CC Safety Net 版本。
 
-**危险区域。** 只有一个操作——**重置策略**，它会在配置的路径上恢复默认策略 JSON。
+**危险区域。** 只有**重置策略**这一项操作。它会在配置的路径上恢复默认策略 JSON。
 
 <Warning>
-重置会丢弃已保存的配置。所有预设选择、规则 override、允许路径和拒绝路径都会恢复默认，且无法撤销。重置只影响策略文件——自定义 rulebook 是独立的文件，不会被改动。
+重置会丢弃已保存的配置。所有预设选择、规则 override、允许路径和拒绝路径都会恢复默认，且无法撤销。重置只影响策略文件。自定义 rulebook 是独立文件，不会被改动。
 </Warning>
 
 <Note>

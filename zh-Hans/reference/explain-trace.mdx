@@ -13,7 +13,7 @@ keywords:
   - "why blocked"
 ---
 
-`explain --json` 命令返回命令分析的结构化跟踪。本页定义供脚本和其他工具使用的 JSON 结构，并说明一条跟踪在你分享之前可能暴露哪些内容。
+`explain --json` 返回命令分析的结构化跟踪。本页定义脚本和其他工具可用的 JSON 结构，并说明分享跟踪时可能泄露哪些内容。
 
 有关标志和退出行为，请参阅 [CLI 命令](/zh-Hans/reference/cli-commands#explain)。命令被意外阻止时的排查方法，请参阅 [故障排除](/zh-Hans/guides/troubleshooting)。
 
@@ -45,7 +45,7 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 | `destructiveCommandRuleOverrides` | `Record<string, "on" \| "off">` | 始终，可能为空 `{}` | 策略中存储的按规则覆盖 |
 | `ruleActivation` | `object` | 视情况，见下文 | 相关规则的开启/关闭状态是怎么来的 |
 
-这四个配置字段——`effectiveLevel`、`selectedPreset`、`effectiveCapabilities` 和 `destructiveCommandRuleOverrides`——只构建一次，并出现在每条返回路径中，因此即使解释的是空命令，它们也存在。
+`effectiveLevel`、`selectedPreset`、`effectiveCapabilities` 和 `destructiveCommandRuleOverrides` 这四个配置字段只构建一次，并出现在每条返回路径中。因此，即使解释的是空命令，它们也存在。
 
 ### `effectiveCapabilities`
 
@@ -73,7 +73,7 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 | `activationCapability` | `string` | 可选。门控该规则的能力 |
 | `override` | `"on" \| "off"` | 可选。若存在，即为存储的该规则覆盖值 |
 
-在人类可读输出中，它渲染成一行：`Rule activation: <id> — on|off via <source>`。
+在人类可读输出中，这一行显示为 <code>{'Rule activation: <id> \u2014 on|off via <source>'}</code>。
 
 ## `ExplainTrace`
 
@@ -82,9 +82,9 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 | `steps` | `TraceStep[]` | 顶级步骤。大多数跟踪以全局的 `parse` 步骤开始，保护短路时可能没有这一步。 |
 | `segments` | `object[]` | 各片段的条目，每个条目都有一个 `index` 和自己的 `steps` 数组 |
 
-跟踪是被动的：记录跟踪不会改变任何决策，普通的防护评估也从不构建跟踪。它只为 `explain` 而存在。
+跟踪只记录信息，不会改变判定。普通防护评估不会构建跟踪，只有 `explain` 会。
 
-**上限。** 记录器会限制自己保留的内容：最多 512 个事件、每个文本值最多 2,048 个字符、每个列表最多 128 项、每个对象最多 128 个属性、最多 16 层嵌套。超出上限的事件只计数而不存储，并且每个记录下来的值都会被深度冻结。被丢弃的事件数量不会在 `ExplainTrace` 中暴露——它只有 `steps` 和 `segments`。
+**上限。** 记录器会限制自己保留的内容：最多 512 个事件、每个文本值最多 2,048 个字符、每个列表最多 128 项、每个对象最多 128 个属性、最多 16 层嵌套。超出上限的事件只计数而不存储，并且每个记录下来的值都会被深度冻结。`ExplainTrace` 只有 `steps` 和 `segments`，不会显示被丢弃的事件数量。
 
 ## `TraceStep` 变体
 
@@ -115,11 +115,11 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 
 `recurse.reason` 取以下八个值之一：`shell-wrapper`、`interpreter`、`busybox`、`shell-eval`、`shell-trap`、`shell-stdin`、`shell-heredoc` 或 `heredoc-file`。
 
-当命令运行的是分析已经知道其内容的脚本文件时——即同一命令中此前经由 `cat >` 或 `tee` 写入该路径的带引号 heredoc body——就会记录 `heredoc-file`，并把存储的 body 当作该脚本重新分析；请参阅 [Heredoc 分析](/zh-Hans/guides/analysis-engine#heredoc-分析)。
+当命令运行分析器已知内容的脚本文件时，就会记录 `heredoc-file`，并把存储的 body 当作该脚本重新分析。这适用于同一命令中此前经由 `cat >` 或 `tee` 写入该路径的带引号 heredoc body。请参阅 [Heredoc 分析](/zh-Hans/guides/analysis-engine#heredoc-分析)。
 
 ### `transparent-wrapper` 步骤
 
-`transparent-wrapper` 是片段范围的步骤，当你用 `rule wrapper add` 注册的命令被看穿时记录。每个候选子命令——主子命令加上每个备选项——都会发出一个步骤，每个步骤携带：
+`transparent-wrapper` 是片段范围的步骤，当分析器展开通过 `rule wrapper add` 注册的命令时记录。主子命令和每个备选项都会各产生一个步骤，每个步骤携带：
 
 | 字段 | 类型 | 描述 |
 | --- | --- | --- |
@@ -132,7 +132,7 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 
 ## 跟踪顺序
 
-典型的跟踪流程为 `parse` → 每个片段的 `env-strip` / `leading-tokens-stripped` → 检测（`shell-wrapper` / `interpreter` / `busybox` / `transparent-wrapper`）→ `rule-check` 或 `custom-rules-check` → 决策。递归表现为 `depth` 递增的 `recurse` 步骤——`busybox` 分派除外，它会记录 `recurse` 步骤但不消耗递归深度，因此一连串 busybox 包装器会重复同一个 `depth` 值。只需要判定结果时，直接读顶级的 `result`（以及 `reason`、`segment` 和 `ruleId`），不必遍历整条跟踪。
+典型的跟踪流程为 `parse` → 每个片段的 `env-strip` / `leading-tokens-stripped` → 检测（`shell-wrapper` / `interpreter` / `busybox` / `transparent-wrapper`）→ `rule-check` 或 `custom-rules-check` → 决策。递归表现为 `depth` 递增的 `recurse` 步骤。`busybox` 分派是例外，它会记录 `recurse` 步骤但不消耗递归深度，因此一连串 busybox 包装器会重复同一个 `depth` 值。只需要判定结果时，直接读顶级的 `result`（以及 `reason`、`segment` 和 `ruleId`），不必遍历整条跟踪。
 
 有三种保护会在评估器运行之前短路：策略文件保护、Git 元数据保护和机密保护。其中之一阻止命令时，跟踪只含**一个合成的 `rule-check` 步骤，且没有 `parse` 步骤**，`ruleId` 设为 `policy-protection`、`git-metadata-protection` 或匹配到的机密规则的 ID。假定每条跟踪都以 `parse` 步骤开头的工具需要处理这种情况。
 
@@ -141,11 +141,11 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 ## 分享跟踪之前
 
 <Warning>
-  **explain 跟踪本身并不天然可以安全分享。** `parse` 步骤会记录你提供的原始命令字符串，以及从中解析出的每一个 token。许多其他步骤同样携带原始文本——`fallback-scan.tokensScanned`、`dangerous-text.token`、`shell-wrapper.innerCommand`、`interpreter.codeArg`、`recurse.innerCommand`、`strict-unparseable.rawCommand`、`transparent-wrapper.output`、`worktree-relaxation.gitCwd` 和 `cwd-change.segment`。`configSource` 是绝对路径，通常位于你的主目录内。
+  **explain 跟踪本身并不天然可以安全分享。** `parse` 步骤会记录你提供的原始命令字符串，以及从中解析出的每一个 token。许多其他步骤也携带原始文本，包括 `fallback-scan.tokensScanned`、`dangerous-text.token`、`shell-wrapper.innerCommand`、`interpreter.codeArg`、`recurse.innerCommand`、`strict-unparseable.rawCommand`、`transparent-wrapper.output`、`worktree-relaxation.gitCwd` 和 `cwd-change.segment`。`configSource` 是绝对路径，通常位于你的主目录内。
 
-  脱敏只移除已识别的凭证**形式**——用的正是 [审计日志](/zh-Hans/reference/audit-log#机密脱敏) 那份有界的模式列表。它对文件路径、主机名、IP 地址、用户名、项目或客户名称，以及任何格式不在列表中的机密都不作任何保证，也无法脱敏它认不出来的内容。
+  脱敏只移除已识别的凭证**形式**，使用的是[审计日志](/zh-Hans/reference/audit-log#机密脱敏)中的有界模式列表。它对文件路径、主机名、IP 地址、用户名、项目或客户名称，以及任何格式不在列表中的机密都不作保证，也无法脱敏无法识别的内容。
 
-  分享跟踪之前：用**占位凭证和占位路径**复现该场景，然后**从头到尾读一遍输出**，删掉任何你不愿公开的内容。
+  分享前，请用**占位凭证和占位路径**复现场景，再**通读完整输出**，删除不应公开的内容。
 </Warning>
 
 例如，解释包含 `--token=…` 赋值的命令时，token 会被脱敏，但同一命令中 `/srv/acme-prod/customer-dump.sql` 这样的路径会完整返回，命令文本里的任何主机名、IP 地址或账户名也一样。
