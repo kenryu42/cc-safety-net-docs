@@ -85,14 +85,16 @@ CC Safety Net 会为命令决策写入结构化审计记录。你可以查看智
 
 | 字段 | 上限 |
 | --- | --- |
-| `command` | 10,000 个字符 |
+| `command` | 10,000 个字符，带 `failureStage` 的条目除外 |
 | `segment` | 2,000 个字符 |
 | `toolName` | 256 个字符 |
 | `cwd` | 32,768 个字符 |
 
 上限在脱敏**之后**才应用，因此脱敏不会在某个令牌中途被切断。
 
-只要 `command`、`segment`、`toolName` 或 `cwd` 中有一个超出上限，记录就会带上 `truncated: true`。该标志不会写成 `false`。它不出现就表示没有内容被截断。`logs --id` 会把它显示为 `truncated: yes` 或 `-`。
+带 `failureStage` 的条目是诊断 fail-closed 事件的主要记录，因此它保存**完整**命令，而不是截断后的命令。工具输入的字节上限在上游已经限定了这个长度。`segment`、`toolName` 和 `cwd` 的上限不变，同样适用于这类条目。
+
+只要 `command`、`segment`、`toolName` 或 `cwd` 中有一个超出上限，记录就会带上 `truncated: true`。在带 `failureStage` 的条目中，命令没有可超出的上限，因此命令再长也不会单独触发该标志；`segment`、`toolName` 和 `cwd` 仍然会。该标志不会写成 `false`。它不出现就表示没有内容被截断。`logs --id` 会把它显示为 `truncated: yes` 或 `-`。
 
 ## 记录内容：审计范围
 

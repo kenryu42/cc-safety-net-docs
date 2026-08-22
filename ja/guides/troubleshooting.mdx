@@ -82,7 +82,9 @@ bunx cc-safety-net doctor
 
     1. `npx cc-safety-net explain "<the command>"` を実行し、ブロックの正確な理由と、一致したルールを確認します。
     2. 拒否の理由が "Command analysis exceeds CC Safety Net's derived-command work limit. Reduce nested or embedded command complexity and retry." の場合、ルールに一致したわけではありません。アナライザーがそのコマンドから派生させる処理量の上限を使い切っています。`find -exec`、`xargs`、`parallel` の中のシェル 1 行コード、ラッパーの背後に埋め込まれたコマンド、同様の入れ子構造が該当します。この上限はコンパイル時の定数で、設定では引き上げられません。コマンドを単純な複数のコマンドに分けて実行し直してください。
-    3. 状況に応じて、次の選択肢を検討してください。
+    3. 拒否の理由が "CC Safety Net could not analyze the command because it exceeds safe analysis limits. Simplify or split the command and retry." の場合も、ルールに一致したわけではありません。パス正規化またはシェル構造の固定された上限を超えています。該当するのは、パス正規化の上限を使い切るほど多くのパスらしきトークンを含むコマンド、シェル関数のインライン展開が呼び出し位置 256 個という上限を超えるコマンド、heredoc の本文をパーサーが許す深さより深くネストさせたコマンドです。この上限もコンパイル時の定数で、設定では引き上げられません。コマンドを単純にするか分割して実行し直してください。
+    4. 拒否の理由が "CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user." の場合は、上限の超過ではなく内部的な不具合です。コマンドを書き直しても解決しません。理由の文面どおり、そのまま報告してください。
+    5. 状況に応じて、次の選択肢を検討してください。
        - **linked worktree で作業していませんか？** `policy.json` の `workflow.worktree_mode` か `CC_SAFETY_NET_WORKTREE=1` で worktree モードを有効にします。使い捨ての独立した作業環境である linked worktree 内での実行だと確認できた場合にかぎり、ローカル破棄のルールが緩和されます。
        - **より安全な書き方はありませんか？** たとえば `git push --force-with-lease` は許可されており、追加の安全確認付きで `--force` と同じ結果を得られます。`git clean -n`（ドライラン）も許可されており、何が削除されるかを事前に確認できます。
        - **本当にそのコマンドが必要ですか？** エージェントの外で自分で実行するという選択肢は、常に残されています。ブロック時にも、CC Safety Net はユーザーに実行を依頼するようエージェントに指示します。

@@ -69,7 +69,7 @@ fail closed は、解析そのものを完了できない場合に**その 1 回
 
 <Steps>
   <Step title="hook のエントリーポイント">
-    hook のアダプターは、解析の呼び出しを try/catch で囲みます。解析が例外を投げた場合、コマンドを続行させず、「failed closed」の理由を添えた拒否を出力します。これは標準入力方式の hook を使うすべてのエージェント（Antigravity CLI、Claude Code、Cursor、Gemini CLI、GitHub Copilot CLI、Kimi Code）に当てはまります。
+    hook のアダプターは、解析の呼び出しを try/catch で囲みます。解析が例外を投げた場合、コマンドを続行させず拒否を出力します。解析の上限に達した場合の拒否には専用の理由が付き、コマンドを単純にするか分割するようエージェントに指示します。「failed closed」の理由は、アナライザーの想定外の失敗にかぎって使われます。これは標準入力方式の hook を使うすべてのエージェント（Antigravity CLI、Claude Code、Cursor、Gemini CLI、GitHub Copilot CLI、Kimi Code）に当てはまります。
   </Step>
   <Step title="プラグインと拡張機能のエントリーポイント">
     Amp Code、OpenCode、OpenClaw、Pi のプロセス内連携も、同じパターンを使います。解析エラーを捕捉し、それをブロックメッセージとして返すため、各プラットフォームは拒否されたコマンドとして扱います。Codex はプラグインとしてインストールされますが、実行するのは共通の標準入力 hook のエントリーポイントなので、前のステップに含まれます。Hermes Agent は両方を重ねた構成です。管理対象の Python プラグインが同じ標準入力 hook（`cc-safety-net hook --hermes-agent`）を呼び出し、解析を完了できない場合はプラグイン自身がその呼び出しをブロックします。`npx` が見つからない、作業ディレクトリや Hermes のセッション記録を解決できない、プロセスの起動に失敗する、30 秒でタイムアウトする、アナライザーが 0 以外で終了する、出力を読み取れない、といった場合が対象です。各エージェントの方式は[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。

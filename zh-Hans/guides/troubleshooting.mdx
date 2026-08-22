@@ -79,7 +79,9 @@ bunx cc-safety-net doctor
 
     1. 运行 `npx cc-safety-net explain "<the command>"`，弄清它为什么被阻止、匹配了哪条规则。
     2. 如果拒绝原因是 `Command analysis exceeds CC Safety Net's derived-command work limit. Reduce nested or embedded command complexity and retry.`，说明没有规则匹配：命令耗尽了分析器为派生命令设定的固定工作预算，这类命令包括 `find -exec`、`xargs` 或 `parallel` 内的 shell 单行命令、隐藏在包装器后的嵌入命令，以及类似的嵌套形式。该预算是编译时常量，任何配置都无法提高。请把命令拆成几条更简单的独立命令，然后重试。
-    3. 根据情况考虑以下替代方案：
+    3. 如果拒绝原因是 `CC Safety Net could not analyze the command because it exceeds safe analysis limits. Simplify or split the command and retry.`，同样说明没有规则匹配：命令越过了固定的路径规范化预算或 shell 结构预算。触发它的命令，要么带有足以耗尽路径规范化预算的类路径 token，要么内联 shell 函数的次数超出投影的 256 个调用点上限，要么 heredoc body 的嵌套超过解析器允许的层数。该预算同样是编译时常量，任何配置都无法提高。请简化或拆分命令，然后重试。
+    4. 如果拒绝原因是 `CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user.`，说明分析遇到的是内部故障，而不是超出预算。改写命令解决不了问题，按原因所说直接报告即可。
+    5. 根据情况考虑以下替代方案：
        - **在 linked worktree 中工作？** 在 `policy.json` 中启用 `workflow.worktree_mode`，或设置 `CC_SAFETY_NET_WORKTREE=1`。当命令已确认在 linked worktree 内运行时，此模式会放宽本地丢弃规则。linked worktree 本就设计为可丢弃的隔离工作区。
        - **需要更安全的变体？** 例如 `git push --force-with-lease` 是允许的，效果与 `--force` 相同，还多了一层安全检查；`git clean -n`（dry-run）也是允许的，可以先预览会删除哪些内容。
        - **确实需要这条命令？** 在智能体外手动运行。这始终是一个选项；阻止触发时，CC Safety Net 也会让智能体请你这样做。

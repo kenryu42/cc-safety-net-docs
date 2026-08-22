@@ -133,9 +133,13 @@ Pi でコマンド用ツールとして扱われるのは、組み込みの **`b
 
 ## Amp Code のイベントプラグイン
 
-Amp Code は CC Safety Net を **personal plugin** として読み込みます。実体は、Amp アカウントがホストする Personal Plugins リポジトリ内の、自己完結した 1 つのファイル `cc-safety-net.ts` です。このプラグインは `@ampcode/plugin` の API を使って Amp の `tool.call` イベントを購読し、`allow` か、メッセージを添えた `reject-and-continue` を返します。Pi、OpenClaw、OpenCode と同様、プロセス内で動作します。personal plugin は 1 台のマシンではなくアカウントに紐づくため、Amp Orb のようなリモート環境で実行されるスレッドも保護できます。
+Amp Code は CC Safety Net を **personal plugin** として読み込みます。実体は、Amp アカウントがホストする Personal Plugins リポジトリ内の `cc-safety-net` ディレクトリで、自己完結したエントリファイル `index.ts` を収めています。このプラグインは `@ampcode/plugin` の API を使って Amp の `tool.call` イベントを購読し、`allow` か、メッセージを添えた `reject-and-continue` を返します。Pi、OpenClaw、OpenCode と同様、プロセス内で動作します。personal plugin は 1 台のマシンではなくアカウントに紐づくため、Amp Orb のようなリモート環境で実行されるスレッドも保護できます。
 
-`install --amp` は、このファイルをリポジトリに公開します。まずアカウントに書き込み可能な Personal Plugins リポジトリがあることを確認し（`amp plugins repositories --json`）、使い捨てのディレクトリにクローンして（`amp clone user-plugins`）、ファイルを書き込み、コミットしてプッシュします。ファイルには、CC Safety Net の管理対象であり安全に置き換えてよいことを示す管理用ヘッダーが付きます。このヘッダーは personal リポジトリ内で必須で、管理対象でない `cc-safety-net.ts` があるとインストールは失敗します。旧来のローカルのシステムプラグイン `~/.config/amp/plugins/cc-safety-net.ts` の管理対象コピーが残っている場合は削除されます。ローカルのプラグインが personal plugin を覆い隠してしまうためです。そこに管理対象外のローカルファイルがある場合も、インストールは失敗します。設定と削除のコマンドは[インストール](/ja/installation#amp-code)を参照してください。
+`install --amp` は、このプラグインをリポジトリに公開します。まずアカウントに書き込み可能な Personal Plugins リポジトリがあることを確認し（`amp plugins repositories --json`）、使い捨てのディレクトリにクローンして（`amp clone user-plugins`）、`cc-safety-net/index.ts` を書き込み、コミットしてプッシュします。ステージングにはディレクトリではなく明示的なパス指定（`git add -- cc-safety-net/index.ts`）を使います。そのため、プラグインのパスが gitignore されている場合は、何もステージしないまま進むのではなく、インストールが停止します。インストールもアンインストールも、書き込みや `git rm` の対象はこのエントリ 1 つだけなので、同じディレクトリに置いた他のファイルに触れることはありません。
+
+エントリには、CC Safety Net の管理対象であり安全に置き換えてよいことを示す管理用ヘッダーが付きます。インストールもアンインストールも、`cc-safety-net` がシンボリックリンクである場合やディレクトリでない場合、また `index.ts` がシンボリックリンク、通常ファイル以外、管理対象外のいずれかである場合は、そのプラグインを拒否します。ディレクトリ構成になる前のリリースは、リポジトリのルートに `cc-safety-net.ts` を公開していました。これが管理対象であれば同じコミットで削除し、管理対象外であればインストールは失敗します。
+
+ローカルのプラグインは personal plugin を覆い隠すため、インストールは `~/.config/amp/plugins/` 以下も片付けます。削除するのは、管理対象の旧ファイル `cc-safety-net.ts` と、管理対象の `index.ts` だけを含む手作業でコピーされた `cc-safety-net/` ディレクトリです。この 2 つのパスにそれ以外のローカルエントリがある場合、インストールは失敗します。設定と削除のコマンドは[インストール](/ja/installation#amp-code)を参照してください。
 
 ### 埋め込まれるポリシーのスナップショット
 

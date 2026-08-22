@@ -78,9 +78,11 @@ npx -y cc-safety-net@latest update
 npx -y cc-safety-net@latest install --amp
 ```
 
-此命令把托管插件构件 `cc-safety-net.ts` 发布到你账户的 Amp Personal Plugins 仓库。个人插件跟随账户生效，因此也能保护在远程计算机上执行的线程，例如 Amp Orb。
+此命令把托管插件构件发布到你账户的 Amp Personal Plugins 仓库。构件是一个名为 `cc-safety-net` 的目录，里面放着 Amp 加载的入口文件 `index.ts`。个人插件跟随账户生效，因此也能保护在远程计算机上执行的线程，例如 Amp Orb。
 
-安装需要 `amp` CLI 和已登录的账户。安装程序先运行 `amp plugins repositories --json`，查找你可写的 Personal Plugins 仓库。缺少 CLI 或未登录时，安装会停止并提示运行 `amp login`。然后，安装程序将 `user-plugins` 克隆到一次性临时目录，写入 `cc-safety-net.ts`，以工具身份 `cc-safety-net` 提交，再推送。提交时会关闭签名，避免全局 git 配置阻塞安装。重新运行命令会更新已发布的构件。
+安装需要 `amp` CLI 和已登录的账户。安装程序先运行 `amp plugins repositories --json`，查找你可写的 Personal Plugins 仓库。缺少 CLI 或未登录时，安装会停止并提示运行 `amp login`。然后，安装程序将 `user-plugins` 克隆到一次性临时目录，写入 `cc-safety-net/index.ts`，以工具身份 `cc-safety-net` 提交，再推送。暂存时只指定这一个文件（`git add -- cc-safety-net/index.ts`），而不是整个目录。如果仓库把该路径加进了 gitignore，`git add` 会失败并中止安装，而不是什么都没暂存却报告插件已安装。提交时会关闭签名，避免全局 git 配置阻塞安装。重新运行命令会更新已发布的构件。
+
+早期版本把插件作为单个文件 `cc-safety-net.ts` 发布在仓库根目录。安装会迁移到新布局。托管的旧文件在同一次提交中删除，非托管的旧文件则会使安装失败。
 
 安装还会将你的用户策略文件快照嵌入已发布的构件。运行时只有在没有策略文件的计算机上（例如 Orb 的空主目录）才应用该快照；计算机上存在的策略文件（即使无效）始终优先。如果你的策略文件不存在或无法解析，安装会发布不含快照的构件。快照不包含审计保留期、用户 rulebook 和项目范围策略；策略修改会随下一次 `install --amp` 或 `update` 发布。
 
@@ -88,15 +90,15 @@ npx -y cc-safety-net@latest install --amp
 npx -y cc-safety-net@latest uninstall --amp
 ```
 
-卸载以相同的提交并推送流程从个人仓库中删除 `cc-safety-net.ts`。
+卸载以相同的提交并推送流程从个人仓库中删除 `cc-safety-net/index.ts`，根目录下如有托管的 `cc-safety-net.ts` 也一并删除。卸载只删除这一个入口文件，你放在 `cc-safety-net` 目录里的其他文件不受影响；旧根路径上的其他内容，包括非托管文件、符号链接和目录，也都原样保留。卸载报告删除的路径是 `cc-safety-net` 目录；只找到旧根文件时，报告的就是那个文件。
 
 <Note>
   安装、更新或卸载后，请重启 Amp 或运行 `plugins: reload`，使更改生效。
 </Note>
 
-如果个人仓库中的 `cc-safety-net.ts` 是符号链接、不是普通文件，或不含 CC Safety Net 托管标头，安装和卸载都会拒绝改动它。请在仓库中删除它，然后重新运行命令。
+对于个人仓库中不该由自己替换的插件，安装和卸载都会拒绝改动。两者都会拒绝符号链接或非目录的 `cc-safety-net` 条目，也会拒绝其中是符号链接、不是普通文件或不含 CC Safety Net 托管标头的 `index.ts`。请在仓库中删除该条目，然后重新运行命令。
 
-早期版本会将插件复制到本地文件 `~/.config/amp/plugins/cc-safety-net.ts`。残留的本地条目会遮蔽个人插件，因此安装会在发布后删除托管的本地副本；当本地条目不是托管副本时，安装会失败：
+早期版本会将插件复制到本地文件 `~/.config/amp/plugins/cc-safety-net.ts`。也可以手动把插件目录复制到 `~/.config/amp/plugins/cc-safety-net/`。两者都会遮蔽个人插件，因此安装会在发布后将其删除：托管副本形式的旧文件，以及只有一个托管 `index.ts` 的本地目录。这两个路径上的其他任何本地条目都会使安装失败：
 
 ```text
 Local Amp plugin <path> is not a managed copy and masks the personal plugin. Remove it and rerun install --amp.

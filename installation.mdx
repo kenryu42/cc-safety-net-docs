@@ -78,9 +78,11 @@ Every install command is idempotent: running it again on an already-configured a
 npx -y cc-safety-net@latest install --amp
 ```
 
-This publishes the managed plugin artifact as `cc-safety-net.ts` in your account's hosted Amp Personal Plugins repository. A personal plugin follows your account everywhere, so it also covers threads that execute on a remote machine, such as Amp Orbs.
+This publishes the managed plugin artifact to your account's hosted Amp Personal Plugins repository. The artifact is a directory named `cc-safety-net` holding `index.ts`, the entry file Amp loads. A personal plugin follows your account everywhere, so it also covers threads that execute on a remote machine, such as Amp Orbs.
 
-Install requires the `amp` CLI and a signed-in account. It first runs `amp plugins repositories --json` to find your writable Personal Plugins repository. If the CLI or login is missing, install stops and points you to `amp login`. It then clones `user-plugins` into a temporary checkout, writes `cc-safety-net.ts`, commits under the tool identity `cc-safety-net`, and pushes. Commit signing is off, so your global git config cannot stall the install. Run the command again to update the published artifact in place.
+Install requires the `amp` CLI and a signed-in account. It first runs `amp plugins repositories --json` to find your writable Personal Plugins repository. If the CLI or login is missing, install stops and points you to `amp login`. It then clones `user-plugins` into a temporary checkout, writes `cc-safety-net/index.ts`, commits under the tool identity `cc-safety-net`, and pushes. Staging names that one file (`git add -- cc-safety-net/index.ts`) instead of the directory. If your repository gitignores that path, `git add` fails and the install stops, instead of staging nothing and reporting the plugin as already installed. Commit signing is off, so your global git config cannot stall the install. Run the command again to update the published artifact in place.
+
+Earlier releases published a single file `cc-safety-net.ts` at the root of that repository. Install migrates away from it. A managed legacy file goes in the same commit; an unmanaged one fails the install.
 
 Install also embeds a snapshot of your user policy file into the published artifact. At runtime, the snapshot applies only on a machine that has no policy file, such as an Orb's empty home directory. A policy file on the machine always wins, even when it is invalid. If your policy file is absent or cannot be parsed, install publishes the bare artifact without a snapshot. The snapshot does not carry audit retention, user rulebooks, or project-scope policy. A policy edit ships on the next `install --amp` or `update`.
 
@@ -88,21 +90,21 @@ Install also embeds a snapshot of your user policy file into the published artif
 npx -y cc-safety-net@latest uninstall --amp
 ```
 
-Uninstall removes `cc-safety-net.ts` from the personal repository with the same commit-and-push flow.
+Uninstall removes `cc-safety-net/index.ts` from the personal repository with the same commit-and-push flow, together with a managed legacy `cc-safety-net.ts` at the root. Uninstall removes only that entry file, so anything else you keep in the `cc-safety-net` directory stays. It leaves anything else at the legacy root path untouched: an unmanaged file, a symlink, or a directory. It reports the `cc-safety-net` directory as the removed path, or the legacy root file when that was all it found.
 
 <Note>
   Restart Amp or run `plugins: reload` after installing, updating, or uninstalling so the change takes effect.
 </Note>
 
-Install and uninstall both refuse to touch `cc-safety-net.ts` in the personal repository if it is a symlink, not a regular file, or a file that does not carry the CC Safety Net managed header. Remove it there and rerun the command.
+Install and uninstall both refuse to touch a plugin in the personal repository that is not theirs to replace. They refuse a `cc-safety-net` entry that is a symlink or is not a directory. They refuse an `index.ts` inside it that is a symlink, is not a regular file, or does not carry the CC Safety Net managed header. Remove the entry there and rerun the command.
 
-Earlier releases copied the plugin to a local file at `~/.config/amp/plugins/cc-safety-net.ts`. A leftover local entry masks the personal plugin, so install removes a managed local copy after publishing, and fails when the local entry is not a managed copy:
+Earlier releases copied the plugin to a local file at `~/.config/amp/plugins/cc-safety-net.ts`. The plugin directory can also be copied to `~/.config/amp/plugins/cc-safety-net/` by hand. Either one masks the personal plugin, so install removes it after publishing: the legacy file when it is a managed copy, and the local directory when it holds nothing but a managed `index.ts`. Any other local entry at those two paths fails the install:
 
 ```text
 Local Amp plugin <path> is not a managed copy and masks the personal plugin. Remove it and rerun install --amp.
 ```
 
-Uninstall also removes a managed local copy but leaves an unmanaged local entry in place.
+Uninstall also removes managed local copies but leaves an unmanaged local entry in place.
 
 ## Antigravity CLI installation
 

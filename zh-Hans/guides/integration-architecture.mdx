@@ -129,9 +129,13 @@ Pi 的命令工具适配器只有内置的 **`bash`** 工具。它的 `command` 
 
 ## Amp Code 事件插件
 
-Amp Code 把 CC Safety Net 作为**个人插件**加载：Amp 账户托管的 Personal Plugins 仓库中一个名为 `cc-safety-net.ts` 的自包含文件。插件通过 `@ampcode/plugin` API 订阅 Amp 的 `tool.call` 事件，返回 `allow` 或带消息的 `reject-and-continue`。它和 Pi、OpenClaw、OpenCode 一样在进程内运行。个人插件跟随账户而不是单台机器，因此也覆盖在 Amp Orb 等远程执行器上运行的线程。
+Amp Code 把 CC Safety Net 作为**个人插件**加载：Amp 账户托管的 Personal Plugins 仓库中一个名为 `cc-safety-net` 的目录，里面是自包含的入口文件 `index.ts`。插件通过 `@ampcode/plugin` API 订阅 Amp 的 `tool.call` 事件，返回 `allow` 或带消息的 `reject-and-continue`。它和 Pi、OpenClaw、OpenCode 一样在进程内运行。个人插件跟随账户而不是单台机器，因此也覆盖在 Amp Orb 等远程执行器上运行的线程。
 
-`install --amp` 把 artifact 发布到该仓库：确认账户有可写的 Personal Plugins 仓库（`amp plugins repositories --json`），把仓库克隆到一次性 checkout（`amp clone user-plugins`），写入文件，然后提交并推送。文件含 CC Safety Net 托管 header，用于证明 CC Safety Net 可以安全替换它；该 header 在个人仓库内强制执行，仓库里出现非托管的 `cc-safety-net.ts` 会使安装失败。旧的本地系统插件 `~/.config/amp/plugins/cc-safety-net.ts` 若残留托管副本会被删除，因为本地插件会遮蔽个人插件；那里存在非托管本地文件同样会使安装失败。设置和删除命令见<a href="/zh-Hans/installation#amp-code-安装">安装</a>。
+`install --amp` 把 artifact 发布到该仓库：确认账户有可写的 Personal Plugins 仓库（`amp plugins repositories --json`），把仓库克隆到一次性 checkout（`amp clone user-plugins`），写入 `cc-safety-net/index.ts`，然后提交并推送。暂存使用明确的 pathspec（`git add -- cc-safety-net/index.ts`）而不是整个目录，这样插件路径被 gitignore 时会中止安装，而不是什么都不暂存。安装和卸载写入或 `git rm` 的始终只有这一个入口文件，因此你放在同一目录里的其他文件不会被改动。
+
+该入口带有托管 header，标明它属于 CC Safety Net，可以安全替换。安装和卸载都会拒绝符号链接或非目录的 `cc-safety-net` 条目，也会拒绝符号链接、非普通文件或不带托管 header 的 `index.ts`。在改用目录结构之前，插件以 `cc-safety-net.ts` 的形式发布在仓库根目录：托管的旧文件会在同一次提交中删除，非托管的旧文件会使安装失败。
+
+本地插件会遮蔽个人插件，因此安装还会清理 `~/.config/amp/plugins/` 下的残留：托管的旧文件 `cc-safety-net.ts`，以及手动复制过来、其中只有一个托管 `index.ts` 的 `cc-safety-net/` 目录。这两个路径上的其他任何本地条目都会使安装失败。设置和删除命令见<a href="/zh-Hans/installation#amp-code-安装">安装</a>。
 
 ### 嵌入的策略快照
 
