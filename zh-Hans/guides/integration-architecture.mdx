@@ -131,6 +131,8 @@ Pi 的命令工具适配器只有内置的 **`bash`** 工具。它的 `command` 
 
 Amp Code 把 CC Safety Net 作为**个人插件**加载：Amp 账户托管的 Personal Plugins 仓库中一个名为 `cc-safety-net` 的目录，里面是自包含的入口文件 `index.ts`。插件通过 `@ampcode/plugin` API 订阅 Amp 的 `tool.call` 事件，返回 `allow` 或带消息的 `reject-and-continue`。它和 Pi、OpenClaw、OpenCode 一样在进程内运行。个人插件跟随账户而不是单台机器，因此也覆盖在 Amp Orb 等远程执行器上运行的线程。
 
+Amp 的 workspace 根目录（`amp.system.workspaceRoot`）就是配置目录。shell 工具调用带有字符串 `dir` 时，该值成为执行目录：相对路径基于 workspace 根目录解析，结果再经过 `realpath`，并且必须是已存在的目录。Windows 命名空间路径会被拒绝，无法解析的 `dir` 会 fail closed。与 OpenClaw 的 `workdir` 不同，解析结果不要求留在 workspace 内：Amp 把它指向自己的技能缓存或同级仓库都是正当用法，而同样的操作写成 `cd <dir> && …` 本来就在那里执行。配置目录仍是 workspace 根目录，因此项目自身的规则配置照常生效。Git 元数据防护同时以执行目录和配置目录为锚点，所以命令在别处执行时，workspace 自身的 `.git` 仍受保护。见<a href="/zh-Hans/reference/blocked-commands#git-元数据">Git 元数据</a>。
+
 `install --amp` 把 artifact 发布到该仓库：确认账户有可写的 Personal Plugins 仓库（`amp plugins repositories --json`），把仓库克隆到一次性 checkout（`amp clone user-plugins`），写入 `cc-safety-net/index.ts`，然后提交并推送。暂存使用明确的 pathspec（`git add -- cc-safety-net/index.ts`）而不是整个目录，这样插件路径被 gitignore 时会中止安装，而不是什么都不暂存。安装和卸载写入或 `git rm` 的始终只有这一个入口文件，因此你放在同一目录里的其他文件不会被改动。
 
 该入口带有托管 header，标明它属于 CC Safety Net，可以安全替换。安装和卸载都会拒绝符号链接或非目录的 `cc-safety-net` 条目，也会拒绝符号链接、非普通文件或不带托管 header 的 `index.ts`。在改用目录结构之前，插件以 `cc-safety-net.ts` 的形式发布在仓库根目录：托管的旧文件会在同一次提交中删除，非托管的旧文件会使安装失败。

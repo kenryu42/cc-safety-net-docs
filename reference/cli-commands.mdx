@@ -132,7 +132,12 @@ bunx cc-safety-net doctor
 
 For GitHub Copilot CLI, `doctor` checks the plugin checkout and hook definitions. For inline settings, the precedence is `<repo>/.github/copilot/settings.local.json`, `<repo>/.github/copilot/settings.json`, `<repo>/.claude/settings.local.json`, `<repo>/.claude/settings.json`, `$COPILOT_HOME/settings.json`, then `$COPILOT_HOME/config.json` (`COPILOT_HOME` defaults to `~/.copilot`). It also scans `<repo>/.github/hooks/*.json` and `$COPILOT_HOME/hooks/*.json`. An entry in a `.claude` file counts only when its command includes `hook --copilot-cli` or `hook -cp`; a Claude Code hook alone does not count. Inline settings require GitHub Copilot CLI `1.0.8+`, and user hook files require `0.0.422+`.
 
-`doctor` exits with a nonzero code when it detects a failure. Failures include no configured agent, a failed hook inspection, a failed self-test, or invalid user or project configuration.
+`doctor` exits `1` when the engine self-test reports a failure, or when any finding in the Findings section has `error` severity. Otherwise it exits `0`. Warnings never change the exit code. These findings carry `error` severity:
+
+- No agent integration is configured.
+- A hook inspection failed.
+- The user or project rule configuration is invalid.
+- The policy, config, or audit directory is unsafe: it is not owned by you, is group- or world-writable, is a symbolic link, or is not a directory.
 
 When some audit log files cannot be read, the Recent Activity section ends with `Warning: <n> audit log sources could not be read; this summary is incomplete` (`source` when it is one), so a quiet week is not mistaken for a complete one.
 
@@ -308,6 +313,12 @@ Remove a rulebook source and sync. Add `--delete-source` to also delete the loca
 npx -y cc-safety-net rule remove project-rules
 npx -y cc-safety-net rule remove project-rules --delete-source
 ```
+
+Clean means the directory holds `rulebook.json` and nothing else. `--delete-source` checks that twice: once before the sync, and again at delete time, because the sync in between can await GitHub fetches.
+
+- If a concurrent process adds a file during that gap, the second check refuses the delete with `Local rulebook source directory contains extra files: <dir>. delete manually if you really want to remove the directory.` The config change is then rolled back and re-synced, so the source you asked to remove comes back.
+- The delete is not recursive. It removes the validated `rulebook.json`, then the directory itself with a non-recursive `rmdir`. A file that lands after the unlink makes the `rmdir` fail, and that file is preserved. Only the rulebook file is ever deleted.
+- A directory that has already vanished by delete time is skipped and reported as success, because the requested end state is reached.
 
 ### rule update
 

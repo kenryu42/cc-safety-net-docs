@@ -1,0 +1,144 @@
+---
+title: "库 API 参考"
+sidebarTitle: "库 API"
+description: "cc-safety-net/api 子路径导出：checkCommand 函数、CheckCommandInput 和 CheckCommandResult 类型、它抛出的 TypeError 消息，以及一次调用检查和不检查的内容。"
+keywords:
+  - "库 API"
+  - "checkCommand"
+  - "cc-safety-net/api"
+  - "CheckCommandInput"
+  - "CheckCommandResult"
+  - "Node.js"
+  - "ESM"
+  - "程序化检查"
+---
+
+Node.js 主机若要在自己进程内得到允许或拒绝的决策，可以调用 `checkCommand`，而不必安装智能体集成。该函数按当前策略检查一条 shell 命令并返回决策，不会执行这条命令。
+
+这只是一个函数，不是插件框架。它可以替代哪些集成，请参阅[集成架构](/zh-Hans/guides/integration-architecture)。
+
+## 安装与导入
+
+```bash
+npm install cc-safety-net
+```
+
+```ts
+import { checkCommand } from 'cc-safety-net/api';
+```
+
+该包在根导出之外还导出 `cc-safety-net/api` 子路径：
+
+```json
+"./api": { "types": "./dist/api.d.ts", "import": "./dist/api.js" }
+```
+
+该包需要 Node.js 18 或更高版本以及 ESM。它声明为 `"type": "module"`，没有 CommonJS 构建，因此 `require()` 无法解析该子路径。
+
+## `checkCommand`
+
+```ts
+function checkCommand(input: CheckCommandInput): CheckCommandResult;
+```
+
+调用是同步的：先读取本地策略文件、文件系统状态和 `CC_SAFETY_NET_*` 环境设置，再返回允许或拒绝。
+
+### 输入
+
+```ts
+type CheckCommandInput = Readonly<{
+  command: string;
+  cwd: string;
+}>;
+```
+
+| 字段 | 类型 | 描述 |
+| --- | --- | --- |
+| `command` | `string` | 待检查的 shell 命令文本，不能为空 |
+| `cwd` | `string` | 绝对目录路径，作为命令中相对目标的解析基准，并决定使用哪个项目的规则配置 |
+
+`cwd` 必填，没有默认值。API 不会回退到 `process.cwd()`，因此由主机决定命令属于哪个项目。
+
+### 结果
+
+```ts
+type CheckCommandResult =
+  | Readonly<{ kind: 'allow' }>
+  | Readonly<{ kind: 'deny'; reason: string; ruleId?: string }>;
+```
+
+| 字段 | 何时出现 | 描述 |
+| --- | --- | --- |
+| `kind` | 始终 | `'allow'` 或 `'deny'` |
+| `reason` | 仅拒绝 | 向用户展示的阻止原因 |
+| `ruleId` | 命中规则的拒绝 | 产生该阻止的规则 ID |
+
+决策以 `kind` 为准。`deny` 表示主机不得执行这条命令。`reason` 是展示文本。不要解析或比较它，`ruleId` 也只作为诊断数据。拒绝可能对应哪些情况，请参阅[被阻止的命令](/zh-Hans/reference/blocked-commands)。
+
+### 错误
+
+没有类型约束的调用方可能传入 TypeScript 会拒绝的值，因此该函数会重新校验输入。`checkCommand` 抛出的 `TypeError` 带有以下消息之一：
+
+| 消息 | 条件 |
+| --- | --- |
+| `checkCommand requires an input object with command and cwd` | `input` 不是非 null 的对象 |
+| `command must be a non-empty string` | `command` 不是字符串，或只有空白字符 |
+| `cwd must be an absolute directory path` | `cwd` 不是字符串、只有空白字符，或不是绝对路径 |
+
+`checkCommand` 会捕获已知的防护失败，转而返回它的 fail-closed 拒绝，以免该失败变成主机侧的 fail-open 失误。其余异常都会抛给调用方。
+
+<Warning>
+  如果 `checkCommand` 抛出异常，不要执行这条命令。抛出异常不等于允许。
+</Warning>
+
+### 不可用的工作目录
+
+`cwd` 先用 `resolve()` 归一化，再做检查。该路径的 stat 结果必须是目录，且可读、可搜索。这里刻意没有 `realpath` 步骤，因此 OpenCode 插件和本函数对同一个目录给出一致的决策。
+
+该检查失败时，调用返回带 fail-closed 原因的拒绝，而不是去分析错误的项目：
+
+```
+CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user.
+```
+
+## 示例
+
+```ts
+import { checkCommand } from 'cc-safety-net/api';
+
+function canRun(command: string, cwd: string): boolean {
+  try {
+    const result = checkCommand({ command, cwd });
+    if (result.kind === 'allow') return true;
+    console.error(result.reason);
+    return false;
+  } catch (error) {
+    console.error('CC Safety Net could not check the command', error);
+    return false;
+  }
+}
+
+canRun('git status', process.cwd());
+```
+
+## 一次调用会做什么
+
+该函数构造一个名为 `library-api` 的命令工具调用，shell 设为 `auto`，配置工作目录和执行工作目录都设为归一化后的 `cwd`，然后直接交给防护评估。因为它调用的是防护而不是智能体集成，所以既不会执行命令，也不会写入审计记录、修改配置或发起网络请求。
+
+命令会被完整检查，包括命令对机密文件的访问。主机自己的非 shell 文件工具，例如读取、写入、编辑和搜索，不在本函数的检查范围内。
+
+## 环境变量
+
+每次调用都从进程环境读取 `CC_SAFETY_NET_*` 设置，因此修改这些设置会改变后续决策。无效的 `CC_SAFETY_NET_LEVEL` 会被忽略，并在 stderr 上报告：
+
+```
+CC Safety Net: ignored invalid CC_SAFETY_NET_LEVEL="<value>". Use standard, strict, paranoid.
+```
+
+报告的值以 JSON 字符串形式加引号，并截断到前 40 个字符。完整列表请参阅[环境变量](/zh-Hans/configuration/environment)。
+
+## 相关页面
+
+- [环境变量](/zh-Hans/configuration/environment)：一次调用会读取的全部设置。
+- [被阻止的命令](/zh-Hans/reference/blocked-commands)：拒绝可能对应哪些情况。
+- [集成架构](/zh-Hans/guides/integration-architecture)：各智能体集成的说明；对自行执行命令的主机来说，本函数可以替代它们。

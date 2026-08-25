@@ -65,7 +65,7 @@ Allow paths never widen anything else. They do not relax sensitive-path protecti
 
 ## Heredoc data consumers
 
-A quoted heredoc on stdin whose consumer only stores or publishes the body is data, not a program, so the body is never scanned as command text. The consumer must be a literal `cat`, `tee`, `git apply`, `git commit`, `gh pr create`, or `gh issue create`; the heredoc must be the command's only input redirection; and `cat`/`tee` must not feed an output process substitution (`>(...)`). This allowance holds in **every** level, strict and paranoid included.
+An unexpanded heredoc on stdin whose consumer only stores or publishes the body is data, not a program, so the body is never scanned as command text. The consumer must be a literal `cat`, `tee`, `git apply`, `git commit`, `gh pr create`, or `gh issue create`; the heredoc must be the command's only input redirection; and `cat`/`tee` must not feed an output process substitution (`>(...)`). This allowance holds in **every** level, strict and paranoid included.
 
 | Command pattern | Why it's safe |
 | --- | --- |
@@ -75,7 +75,7 @@ A quoted heredoc on stdin whose consumer only stores or publishes the body is da
 | `git commit -F - <<'EOF'` | The body becomes the commit message, even when it describes destructive commands in prose |
 | `gh pr create --body-file - <<'EOF'`, `gh issue create -F - <<'EOF'` | The body is published as PR or issue text |
 
-The delimiter must be quoted (`<<'EOF'`). An unquoted `<<EOF` body can expand substitutions, so standard scans it and fail-closed modes deny it. Commands outside the heredoc are still analyzed. For example, `cat <<'EOF' && rm -rf ~` blocks on the `rm`. For `cat`, `tee`, `git commit`, `gh pr create`, and `gh issue create`, the body is also masked before sensitive-path extraction. Prose that mentions a secret filename therefore does not block the commit. `git apply` bodies stay visible because a patch names the files it writes. See [Heredoc analysis](/guides/analysis-engine#heredoc-analysis) for the full gate and standard-mode behavior when a heredoc fails it.
+The heredoc must be unexpanded: either the delimiter is quoted (`<<'EOF'`), or the delimiter is unquoted and its body contains no `$`, backtick, or backslash, which leaves the shell nothing to expand or unescape. An unquoted body that does contain one of those three characters goes through shell expansion or escape processing, so standard scans it and fail-closed modes deny it. Commands outside the heredoc are still analyzed. For example, `cat <<'EOF' && rm -rf ~` blocks on the `rm`. For `cat`, `tee`, `git commit`, `gh pr create`, and `gh issue create`, a body whose delimiter is quoted is also masked before sensitive-path extraction. Prose that mentions a secret filename therefore does not block the commit. An unquoted body is not masked, even when it passes the gate, so a filename-looking token inside it is still extracted. `git apply` bodies stay visible because a patch names the files it writes. See [Heredoc analysis](/guides/analysis-engine#heredoc-analysis) for the full gate and standard-mode behavior when a heredoc fails it.
 
 ## Standard-only allowances
 

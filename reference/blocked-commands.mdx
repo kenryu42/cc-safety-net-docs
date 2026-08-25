@@ -124,7 +124,7 @@ Only a *write* to a device triggers the `dd` rule. Reading from a device into a 
 
 ## Git metadata
 
-CC Safety Net resolves the nearest ancestor `.git` entry of the execution directory and protects it, its resolved Git directories, and their `hooks` subtrees. This protection applies **even when you are inside the working directory**, and it is evaluated before any configuration is loaded, so it carries no safety level and cannot be turned off by policy.
+CC Safety Net resolves the nearest ancestor `.git` entry for each of two directories: the execution directory, and the configuration directory that selects the project's rule configuration. It protects each entry, its resolved Git directories, and their `hooks` subtrees. The two are the same directory in the common case. They differ when an agent runs a command outside the project, such as an Amp `shell_command.dir` or an OpenCode `workdir`. Both Git control planes then stay protected. This protection applies **even when you are inside the working directory**, and it is evaluated before any configuration is loaded, so it carries no safety level and cannot be turned off by policy.
 
 | Blocked shape | Note |
 | --- | --- |
@@ -140,7 +140,7 @@ CC Safety Net resolves the nearest ancestor `.git` entry of the execution direct
 A symlinked `.git` directory and a symlinked hooks directory are protected on **both** the lexical and the canonical alias, and a `.git` marker pointing at a missing Git directory still blocks. A trailing `*` glob in a POSIX shell does not match dot-entries, so `rm -rf ./*` at a repository root does not cover `.git`, but `rm -rf .git/worktrees/*` and PowerShell wildcards do.
 
 <Note>
-  Boundary: this guard covers the nearest ancestor Git control plane of the execution directory. Other repositories nested below the execution directory, and Git-internal paths outside the resolved set, are not covered.
+  Boundary: this guard covers the nearest ancestor Git control plane of the execution directory and of the configuration directory. Other repositories nested below either directory, and Git-internal paths outside the resolved set, are not covered.
 </Note>
 
 ## Canonical policy.json
@@ -243,11 +243,11 @@ When the fail-closed capability is active, a heredoc command is allowed only whe
 
 - The command has one heredoc.
 - The heredoc is on standard input.
-- The delimiter is quoted.
+- The heredoc is unexpanded: either the delimiter is quoted, or the delimiter is unquoted and its body contains no `$`, backtick, or backslash.
 - The command has no other input redirection.
 - The consumer is a literal `cat`, `tee`, `git apply`, `git commit`, `gh pr create`, or `gh issue create`.
 
-The fail-closed capability is active in [strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) and [paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1). An unquoted delimiter denies with:
+The fail-closed capability is active in [strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) and [paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1). An unquoted delimiter whose body contains `$`, a backtick, or a backslash denies with:
 
 ```text
 Unquoted heredoc input is not supported safely. Quote the delimiter or ask the user to verify.

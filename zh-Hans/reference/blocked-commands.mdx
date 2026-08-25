@@ -120,7 +120,7 @@ CC Safety Net 在每个安全级别分析 `dd`、`mkfs` 和 `shred`。这些规�
 
 ## Git 元数据
 
-CC Safety Net 会解析出执行目录最近的祖先 `.git` 条目，并保护该条目、解析出的 Git 目录及其 `hooks` 子树。即使你位于工作目录内，此保护也会生效。它在加载任何配置之前判定，因此不带安全级别，策略也无法将其关闭。
+CC Safety Net 会解析两个目录最近的祖先 `.git` 条目：一个是执行目录，一个是决定项目规则配置的配置目录。这些条目、解析出的 Git 目录及其 `hooks` 子树都受保护。这两个目录通常是同一个；智能体在项目之外执行命令时才会不同，例如 Amp 的 `shell_command.dir` 或 OpenCode 的 `workdir`。这时两个 Git 控制面都受保护。即使你位于工作目录内，此保护也会生效。它在加载任何配置之前判定，因此不带安全级别，策略也无法将其关闭。
 
 | 被阻止的形式 | 说明 |
 | --- | --- |
@@ -135,7 +135,7 @@ CC Safety Net 会解析出执行目录最近的祖先 `.git` 条目，并保护�
 
 符号链接的 `.git` 和 hooks 会同时按字面路径和规范路径保护，指向缺失 Git 目录的 `.git` 标记仍会阻止。POSIX shell 中末尾的 `*` 不匹配以点开头的条目，因此仓库根目录中的 `rm -rf ./*` 不涵盖 `.git`，但 `rm -rf .git/worktrees/*` 和 PowerShell 通配符会涵盖。
 
-<Note>边界：此防护覆盖执行目录最近的祖先 Git 控制面，不包括执行目录下的其他嵌套仓库，也不包括解析集合之外的 Git 内部路径。</Note>
+<Note>边界：此防护覆盖执行目录和配置目录各自最近的祖先 Git 控制面，不包括这两个目录下的其他嵌套仓库，也不包括解析集合之外的 Git 内部路径。</Note>
 
 ## 规范 `policy.json`
 
@@ -233,13 +233,13 @@ command 形式的提取是有界且结构化的：触及结构性 shell 语法�
 
 - 命令只有一个 heredoc。
 - heredoc 用于标准输入。
-- 分隔符带引号。
+- heredoc 不展开：分隔符带引号，或者分隔符不带引号且正文中不含 `$`、反引号或反斜杠。
 - 命令没有其他输入重定向。
 - 消费者是字面量 `cat`、`tee`、`git apply`、`git commit`、`gh pr create` 或 `gh issue create`。
 
 `fail_closed` 在 [`strict`](/zh-Hans/configuration/modes#strict-mode) 和 [`paranoid`](/zh-Hans/configuration/modes#paranoid-mode) 中启用。
 
-不带引号的分隔符会使用以下拒绝消息：
+分隔符不带引号且正文含有 `$`、反引号或反斜杠时，会使用以下拒绝消息：
 
 ```text
 Unquoted heredoc input is not supported safely. Quote the delimiter or ask the user to verify.

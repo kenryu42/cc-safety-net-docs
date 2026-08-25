@@ -132,7 +132,12 @@ bunx cc-safety-net doctor
 
 GitHub Copilot CLI では、`doctor` はプラグインの checkout 状態と hook の定義を確認します。インライン設定の優先順は、`<repo>/.github/copilot/settings.local.json`、`<repo>/.github/copilot/settings.json`、`<repo>/.claude/settings.local.json`、`<repo>/.claude/settings.json`、`$COPILOT_HOME/settings.json`、`$COPILOT_HOME/config.json` です（`COPILOT_HOME` の既定値は `~/.copilot`）。さらに、`<repo>/.github/hooks/*.json` と `$COPILOT_HOME/hooks/*.json` も調べます。`.claude` ファイルのエントリは、コマンドに `hook --copilot-cli` または `hook -cp` がある場合だけ対象です。Claude Code 用の hook だけでは対象になりません。インライン設定には GitHub Copilot CLI `1.0.8+`、ユーザー hook ファイルには `0.0.422+` が必要です。
 
-`doctor` は、失敗を検出するとゼロ以外のコードで終了します。設定済みのエージェントがない、hook 検査に失敗した、セルフテストに失敗した、ユーザーまたはプロジェクト設定が無効な場合などが失敗です。
+`doctor` が `1` で終了するのは、エンジンのセルフテストが失敗した場合と、Findings セクションに `error` 重大度の finding が 1 つでもある場合です。それ以外は `0` で終了します。警告は終了コードに影響しません。次の finding は `error` 重大度です。
+
+- エージェント連携が設定されていません。
+- hook の検査に失敗しました。
+- ユーザーまたはプロジェクトのルール設定が無効です。
+- policy、config、audit のいずれかのディレクトリが安全ではありません。現在のユーザーの所有ではない、グループまたはその他のユーザーに書き込み権限がある、シンボリックリンクである、ディレクトリではない、のいずれかに当てはまる状態を指します。
 
 一部の監査ログファイルを読み取れない場合、Recent Activity セクションの末尾に `Warning: <n> audit log sources could not be read; this summary is incomplete` が表示されます（1 件の場合は `source`）。これにより、操作が少ない週を完全なデータと誤認しません。
 
@@ -267,7 +272,7 @@ npx cc-safety-net explain --json 'loop() { loop; }; loop'
 | `-g`, `--global` | プロジェクトスコープではなくユーザースコープのルール設定を使う | `list` と `migrate` 以外のすべてのサブコマンド |
 | `--check` | ロックまたはキャッシュの状態を変更せずに確認する | `migrate` 以外のすべてのサブコマンド。`init`、`add`、`remove`、`update`、`sync` で意味がある |
 | `--cleanup` | `rule migrate` が検証した後にレガシーファイルを削除する | `migrate` のみ |
-| `--delete-source` | 削除時に、変更がないローカルソースディレクトリも削除する | `remove` のみ |
+| `--delete-source` | 削除時に、中身が `rulebook.json` だけのローカルソースディレクトリも削除する | `remove` のみ |
 | `--example` | 非アクティブなサンプル rulebook を作成する | `init` のみ |
 | `-h`, `--help` | ヘルプを表示する | すべて |
 
@@ -302,12 +307,18 @@ npx -y cc-safety-net rule add --global my-personal-rules
 
 ### rule remove
 
-rulebook ソースを削除して同期します。ローカルソースディレクトリに変更がない場合に、そのディレクトリも削除するには `--delete-source` を追加します。
+rulebook ソースを削除して同期します。ローカルソースディレクトリの中身が `rulebook.json` だけの場合に、そのディレクトリも削除するには `--delete-source` を追加します。
 
 ```bash
 npx -y cc-safety-net rule remove project-rules
 npx -y cc-safety-net rule remove project-rules --delete-source
 ```
+
+`--delete-source` は、ディレクトリの中身が `rulebook.json` だけであることを 2 回確認します。1 回目は同期の前、2 回目は削除の直前です。その間の同期で、GitHub からの取得を待つことがあるためです。
+
+- その間に別のプロセスがファイルを追加した場合、2 回目の確認が削除を拒否し、`Local rulebook source directory contains extra files: <dir>. delete manually if you really want to remove the directory.` を出力します。設定の変更はロールバックされて再同期されるため、削除しようとしたソースは元に戻ります。
+- 削除は再帰的ではありません。検証済みの `rulebook.json` を削除してから、非再帰の `rmdir` でディレクトリ自体を削除します。unlink の後にファイルが追加されると `rmdir` が失敗し、そのファイルはそのまま残ります。削除されるのは rulebook ファイルだけです。
+- 削除の時点でディレクトリがすでにない場合は、削除をスキップして成功として報告します。求められた最終状態に達しているためです。
 
 ### rule update
 

@@ -124,7 +124,7 @@ CC Safety Net は、どの安全レベルでも `dd`、`mkfs`、`shred` を解�
 
 ## Git メタデータ
 
-実行ディレクトリに最も近い祖先 `.git`、解決後の Git ディレクトリ、`hooks` サブツリーを保護します。この確認は設定読み込み前に実行するため、無効化できません。
+最も近い祖先 `.git` エントリを解決する対象は、実行ディレクトリと、プロジェクトのルール設定を決める設定ディレクトリの 2 つです。それぞれについて、そのエントリ、解決後の Git ディレクトリ、`hooks` サブツリーを保護します。両者は通常同じディレクトリですが、エージェントがプロジェクトの外でコマンドを実行する場合（Amp の `shell_command.dir` や OpenCode の `workdir`）は異なります。そのときは両方の Git 管理領域を保護します。この確認は設定読み込み前に実行するため、無効化できません。
 
 | ブロックする形式 | 説明 |
 | --- | --- |
@@ -140,7 +140,7 @@ CC Safety Net は、どの安全レベルでも `dd`、`mkfs`、`shred` を解�
 シンボリックリンクになっている `.git` ディレクトリと hooks ディレクトリは、表記上のパスと正規化後のパスの**どちらでも**保護します。存在しない Git ディレクトリを指す `.git` の参照ファイルもブロックします。POSIX シェルの末尾の `*` glob はドットで始まるエントリに一致しないため、リポジトリルートでの `rm -rf ./*` は `.git` を対象にしません。ただし、`rm -rf .git/worktrees/*` と PowerShell のワイルドカードは対象になります。
 
 <Note>
-  範囲の目安：このガードが対象とするのは、実行ディレクトリから見て最も近い上位の Git 管理領域です。実行ディレクトリの下に入れ子になった別のリポジトリや、解決された対象に含まれない Git 内部のパスは対象外です。
+  範囲の目安：このガードが対象とするのは、実行ディレクトリと設定ディレクトリから見て、それぞれ最も近い上位の Git 管理領域です。どちらかのディレクトリの下に入れ子になった別のリポジトリや、解決された対象に含まれない Git 内部のパスは対象外です。
 </Note>
 
 ## 正規の `policy.json`
@@ -245,11 +245,11 @@ fail closed の機能が有効な場合、heredoc を含むコマンドは、次
 
 - コマンドに含まれる heredoc が 1 つだけであること。
 - その heredoc が標準入力に接続されていること。
-- デリミタが引用符で囲まれていること。
+- 展開されない heredoc であること。デリミタが引用符で囲まれているか、引用符がなくても本文に `$`、バッククォート、バックスラッシュが含まれないことを指します。
 - 他に入力リダイレクトがないこと。
 - 読み取り側が、リテラルで書かれた `cat`、`tee`、`git apply`、`git commit`、`gh pr create`、`gh issue create` のいずれかであること。
 
-fail closed の機能は、[strict](/ja/configuration/modes#strict-mode) と [paranoid](/ja/configuration/modes#paranoid-mode) で有効になります。デリミタが引用符で囲まれていない場合は、次の理由で拒否されます。
+fail closed の機能は、[strict](/ja/configuration/modes#strict-mode) と [paranoid](/ja/configuration/modes#paranoid-mode) で有効になります。デリミタに引用符がなく、本文に `$`、バッククォート、バックスラッシュのいずれかが含まれる場合は、次の理由で拒否されます。
 
 ```text
 Unquoted heredoc input is not supported safely. Quote the delimiter or ask the user to verify.

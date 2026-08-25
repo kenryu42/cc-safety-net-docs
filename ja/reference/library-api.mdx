@@ -1,0 +1,144 @@
+---
+title: "ライブラリ API リファレンス"
+sidebarTitle: "ライブラリ API"
+description: "cc-safety-net/api サブパスエクスポートのリファレンスです。checkCommand 関数、CheckCommandInput と CheckCommandResult の型、投げられる TypeError のメッセージ、1 回の呼び出しが検査する範囲を示します。"
+keywords:
+  - "ライブラリ API"
+  - "checkCommand"
+  - "cc-safety-net/api"
+  - "CheckCommandInput"
+  - "CheckCommandResult"
+  - "Node.js"
+  - "ESM"
+  - "プログラムからの検査"
+---
+
+自身のプロセス内で許可または拒否の判定が必要な Node.js のホストは、エージェント連携をインストールする代わりに `checkCommand` を呼び出せます。この関数は、シェルコマンド 1 つを現在のポリシーと照らして検査し、判定を返します。コマンドを実行することはありません。
+
+これは 1 つの関数であり、プラグインフレームワークではありません。この関数が代わりとなる連携については、[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
+
+## インストールとインポート
+
+```bash
+npm install cc-safety-net
+```
+
+```ts
+import { checkCommand } from 'cc-safety-net/api';
+```
+
+パッケージは、ルートのエクスポートに加えて `cc-safety-net/api` サブパスをエクスポートします。
+
+```json
+"./api": { "types": "./dist/api.d.ts", "import": "./dist/api.js" }
+```
+
+Node.js 18 以降と ESM が必要です。パッケージは `"type": "module"` で、CommonJS ビルドはありません。そのため `require()` ではこのサブパスを解決できません。
+
+## `checkCommand`
+
+```ts
+function checkCommand(input: CheckCommandInput): CheckCommandResult;
+```
+
+呼び出しは同期的です。ローカルのポリシーファイル、ファイルシステムの状態、`CC_SAFETY_NET_*` の環境設定を読み取り、許可または拒否を返します。
+
+### 入力
+
+```ts
+type CheckCommandInput = Readonly<{
+  command: string;
+  cwd: string;
+}>;
+```
+
+| フィールド | 型 | 説明 |
+| --- | --- | --- |
+| `command` | `string` | 検査するシェルコマンドのテキスト。空にはできない |
+| `cwd` | `string` | 絶対パスのディレクトリ。相対パスの対象を解決する基準になり、プロジェクトのルール設定を選択する |
+
+`cwd` は必須で、既定値はありません。API が `process.cwd()` にフォールバックすることはないため、コマンドがどのプロジェクトに属するかはホストが決めます。
+
+### 結果
+
+```ts
+type CheckCommandResult =
+  | Readonly<{ kind: 'allow' }>
+  | Readonly<{ kind: 'deny'; reason: string; ruleId?: string }>;
+```
+
+| フィールド | 有無 | 説明 |
+| --- | --- | --- |
+| `kind` | 常に | `'allow'` または `'deny'` |
+| `reason` | 拒否のみ | ユーザーに表示されるブロック理由 |
+| `ruleId` | ルールが一致した拒否 | ブロックを生成したルールの ID |
+
+判定は `kind` で読み取ります。`deny` は、ホストがそのコマンドを実行してはならないことを意味します。`reason` は表示用のテキストです。解析や比較には使わないでください。`ruleId` は診断データとしてのみ扱います。どのような場合に拒否になるかは、[ブロックされるコマンド](/ja/reference/blocked-commands)を参照してください。
+
+### エラー
+
+型のない呼び出し元は TypeScript が拒否する値も渡せるため、この関数は入力を再検証します。`checkCommand` は、次のいずれかのメッセージを持つ `TypeError` を投げます。
+
+| メッセージ | 条件 |
+| --- | --- |
+| `checkCommand requires an input object with command and cwd` | `input` がオブジェクトでない、または `null` |
+| `command must be a non-empty string` | `command` が文字列でない、または空白のみ |
+| `cwd must be an absolute directory path` | `cwd` が文字列でない、空白のみ、または絶対パスでない |
+
+`checkCommand` は既知のガードの失敗を捕捉し、例外を投げる代わりに、その fail closed の拒否を返します。その失敗が、ホスト側の fail open のミスに変わらないようにするためです。それ以外の例外は、すべて呼び出し元に伝わります。
+
+<Warning>
+  `checkCommand` が例外を投げた場合は、そのコマンドを実行しないでください。例外は許可を意味しません。
+</Warning>
+
+### 使用できない作業ディレクトリ
+
+`cwd` は `resolve()` で正規化してから確認します。パスはディレクトリとして stat でき、読み取りと検索ができる必要があります。`realpath` の手順は意図的に設けていません。これにより、OpenCode プラグインとこの関数は、同じディレクトリに対して同じ判定になります。
+
+この確認に失敗した場合は、誤ったプロジェクトを解析する代わりに、fail closed の理由を持つ拒否を返します。
+
+```
+CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user.
+```
+
+## 例
+
+```ts
+import { checkCommand } from 'cc-safety-net/api';
+
+function canRun(command: string, cwd: string): boolean {
+  try {
+    const result = checkCommand({ command, cwd });
+    if (result.kind === 'allow') return true;
+    console.error(result.reason);
+    return false;
+  } catch (error) {
+    console.error('CC Safety Net could not check the command', error);
+    return false;
+  }
+}
+
+canRun('git status', process.cwd());
+```
+
+## 1 回の呼び出しで行われること
+
+この関数は、`library-api` という名前のコマンド種別のツール呼び出しを構築します。シェルは `auto`、設定用と実行用の作業ディレクトリはどちらも解決後の `cwd` です。そのうえで、ガードをそのまま評価します。エージェント連携ではなくガードを直接呼び出すため、コマンドの実行、監査レコードの書き込み、設定の変更、ネットワーク通信は、いずれも行いません。
+
+検査はコマンド全体に及びます。コマンド経由のシークレットファイルへのアクセスも対象です。読み取り、書き込み、編集、検索といった、ホストが持つシェル以外のファイル操作ツールは、この関数の検査対象ではありません。
+
+## 環境設定
+
+呼び出しのたびに、プロセスの環境から `CC_SAFETY_NET_*` の設定を読み取ります。そのため、これらの設定を変更すると、以降の判定も変わります。無効な `CC_SAFETY_NET_LEVEL` は無視し、標準エラー出力に報告します。
+
+```
+CC Safety Net: ignored invalid CC_SAFETY_NET_LEVEL="<value>". Use standard, strict, paranoid.
+```
+
+報告される値は JSON 文字列として引用され、先頭 40 文字に切り詰められます。すべての変数については[環境変数](/ja/configuration/environment)を参照してください。
+
+## 関連ページ
+
+- [環境変数](/ja/configuration/environment)：呼び出しが読み取る設定の一覧。
+- [ブロックされるコマンド](/ja/reference/blocked-commands)：拒否になりうる内容。
+- [連携アーキテクチャ](/ja/guides/integration-architecture)：自分でコマンドを実行するホストにとって、この関数が代わりとなるエージェント連携。

@@ -1,0 +1,144 @@
+---
+title: "Library API reference"
+sidebarTitle: "Library API"
+description: "The cc-safety-net/api subpath export: the checkCommand function, its CheckCommandInput and CheckCommandResult types, the TypeError messages it throws, and what one call does and does not check."
+keywords:
+  - "library API"
+  - "checkCommand"
+  - "cc-safety-net/api"
+  - "CheckCommandInput"
+  - "CheckCommandResult"
+  - "Node.js"
+  - "ESM"
+  - "programmatic check"
+---
+
+A Node.js host that needs an allow or deny decision inside its own process can call `checkCommand` instead of installing an agent integration. The function checks one shell command against the current policy and returns the decision. It never runs the command.
+
+This is one function, not a plugin framework. See [Integration architecture](/guides/integration-architecture) for the integrations it can replace.
+
+## Install and import
+
+```bash
+npm install cc-safety-net
+```
+
+```ts
+import { checkCommand } from 'cc-safety-net/api';
+```
+
+The package exports the `cc-safety-net/api` subpath alongside its root export:
+
+```json
+"./api": { "types": "./dist/api.d.ts", "import": "./dist/api.js" }
+```
+
+It requires Node.js 18 or later and ESM. The package is `"type": "module"` and there is no CommonJS build, so `require()` cannot resolve the subpath.
+
+## `checkCommand`
+
+```ts
+function checkCommand(input: CheckCommandInput): CheckCommandResult;
+```
+
+The call is synchronous. It reads local policy files, filesystem facts, and `CC_SAFETY_NET_*` environment settings, then returns an allow or a deny.
+
+### Input
+
+```ts
+type CheckCommandInput = Readonly<{
+  command: string;
+  cwd: string;
+}>;
+```
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `command` | `string` | The shell command text to check. Must be non-empty |
+| `cwd` | `string` | An absolute directory path. It anchors relative command targets and selects the project's rule configuration |
+
+`cwd` is required and has no default. The API never falls back to `process.cwd()`, so the host decides which project a command belongs to.
+
+### Result
+
+```ts
+type CheckCommandResult =
+  | Readonly<{ kind: 'allow' }>
+  | Readonly<{ kind: 'deny'; reason: string; ruleId?: string }>;
+```
+
+| Field | Presence | Description |
+| --- | --- | --- |
+| `kind` | always | `'allow'` or `'deny'` |
+| `reason` | deny only | The block message, as displayed to a user |
+| `ruleId` | deny with a matched rule | The id of the rule that produced the block |
+
+Read `kind` for the decision. A `deny` means the host must not execute the command. `reason` is display text. Do not parse or compare it, and treat `ruleId` as diagnostic data only. For what a deny can be, see [Blocked commands](/reference/blocked-commands).
+
+### Errors
+
+The function re-validates its input, because an untyped caller can pass anything TypeScript would reject. `checkCommand` throws `TypeError` with one of these messages:
+
+| Message | Condition |
+| --- | --- |
+| `checkCommand requires an input object with command and cwd` | `input` is not a non-null object |
+| `command must be a non-empty string` | `command` is not a string, or is blank |
+| `cwd must be an absolute directory path` | `cwd` is not a string, is blank, or is not absolute |
+
+`checkCommand` catches a known guard failure and returns its fail-closed deny instead, so that failure does not become a fail-open host mistake. Every other throw reaches the caller.
+
+<Warning>
+  If `checkCommand` throws, do not execute the command. A throw is not an allow.
+</Warning>
+
+### Unusable working directory
+
+`cwd` is normalized with `resolve()`, then checked. The path must stat as a directory and be readable and searchable. There is deliberately no `realpath` step, so the OpenCode plugin and this function decide alike for one directory.
+
+When that check fails, the call returns a deny with the fail-closed reason instead of analyzing the wrong project:
+
+```
+CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user.
+```
+
+## Example
+
+```ts
+import { checkCommand } from 'cc-safety-net/api';
+
+function canRun(command: string, cwd: string): boolean {
+  try {
+    const result = checkCommand({ command, cwd });
+    if (result.kind === 'allow') return true;
+    console.error(result.reason);
+    return false;
+  } catch (error) {
+    console.error('CC Safety Net could not check the command', error);
+    return false;
+  }
+}
+
+canRun('git status', process.cwd());
+```
+
+## What one call does
+
+The function builds a command tool invocation named `library-api`, with the shell set to `auto` and both the config and execution working directories set to the resolved `cwd`. It then evaluates the guard directly. Because it calls the guard rather than an agent integration, it never executes the command, writes an audit record, changes configuration, or makes a network request.
+
+It checks commands in full, including any secret-file access a command performs. It does not check the host's own non-shell file tools, such as read, write, edit, and search.
+
+## Environment
+
+Every call reads the `CC_SAFETY_NET_*` settings from the process environment, so changing them changes later decisions. An invalid `CC_SAFETY_NET_LEVEL` is ignored and reported on stderr:
+
+```
+CC Safety Net: ignored invalid CC_SAFETY_NET_LEVEL="<value>". Use standard, strict, paranoid.
+```
+
+The reported value is JSON-quoted and truncated to its first 40 characters. See [Environment variables](/configuration/environment) for the full list.
+
+## Related pages
+
+- [Environment variables](/configuration/environment) documents every setting a call reads.
+- [Blocked commands](/reference/blocked-commands) lists what a deny can be.
+- [Integration architecture](/guides/integration-architecture) covers the agent integrations this function replaces when the host runs its own commands.

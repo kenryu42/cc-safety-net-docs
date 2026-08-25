@@ -44,7 +44,7 @@ standard はこのほかにも、動的な実行ファイル、コマンド置�
 strict モードは `fail_closed` 機能を有効にします。厳しくなるのは解析できないコマンドだけではなく、次の 5 点です。
 
 - **解析できないコマンドをブロックします。** フォールバックのテキストスキャンで危険なパターンが見つからなかった場合でも、パーサーがトークンに分割できないコマンドは「Command could not be safely analyzed (strict mode)」として拒否します。`echo 'unterminated` は standard では許可されますが、ここではブロックされます。
-- **heredoc を fail closed で扱います。** 次の条件をすべて満たす場合を除き、heredoc を含むコマンドを拒否します。heredoc が 1 つだけで標準入力を対象とし、デリミタが引用符で囲まれ、他に入力リダイレクトがなく、読み取り側が `cat`、`tee`、`git apply`、`git commit`、`gh pr create`、`gh issue create` のいずれかとしてリテラルに書かれていることが必要です。そのため `python3 - <<'PY'` や引用符で囲まれていない `<<EOF` は拒否され、`git commit -F - <<'EOF'` は許可されます。正確な条件は [heredoc の解析](/ja/guides/analysis-engine#heredoc-analysis)を参照してください。
+- **heredoc を fail closed で扱います。** 次の条件をすべて満たす場合を除き、heredoc を含むコマンドを拒否します。標準入力を対象とする展開されない heredoc が 1 つだけで、他に入力リダイレクトがなく、読み取り側が `cat`、`tee`、`git apply`、`git commit`、`gh pr create`、`gh issue create` のいずれかとしてリテラルに書かれていることが必要です。展開されない heredoc とは、デリミタが引用符で囲まれているもの（`<<'EOF'`）か、引用符がなくても本文に `$`、バッククォート、バックスラッシュが含まれないものを指します。そのため `python3 - <<'PY'` や、本文に `$HOME` を含む `cat <<EOF` は拒否され、`git commit -F - <<'EOF'` と、本文がプレーンテキストだけの `cat <<EOF` は許可されます。正確な条件は [heredoc の解析](/ja/guides/analysis-engine#heredoc-analysis)を参照してください。
 - 下に挙げる 5 つのルールによって、**検証できない破壊的対象をブロックします**。
 - **メタデータのみで機密パスを探る操作をブロックします。** `test -f ~/.ssh/id_rsa` と `find ~/.ssh -type f` は standard では許可され、strict では拒否されます。
 - **standard 限定のインラインデータ緩和が無効になります。** standard では、Node や Bun のインライン評価に機密パスのリテラルが含まれていても、上限付きの字句スキャンでファイルシステム操作やコマンド実行の痕跡が見つからなければ、実害のない診断用データとして扱います。strict ではこの緩和がなくなります。

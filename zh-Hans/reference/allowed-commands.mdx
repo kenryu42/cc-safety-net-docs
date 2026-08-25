@@ -65,7 +65,7 @@ CC Safety Net 通过语义分析区分允许的命令形式和破坏性的命令
 
 ## Heredoc 数据消费者
 
-标准输入上带引号的 heredoc，如果其消费者只是存储或发布正文，那么正文属于数据而不是程序，因此永远不会被当作命令文本扫描。消费者必须是字面量 `cat`、`tee`、`git apply`、`git commit`、`gh pr create` 或 `gh issue create`；heredoc 必须是该命令唯一的输入重定向；`cat`/`tee` 也不能把内容送入输出进程替换（`>(...)`）。此项允许在**每个**级别都成立，`strict` 和 `paranoid` 也不例外。
+标准输入上不展开的 heredoc，如果其消费者只是存储或发布正文，那么正文属于数据而不是程序，因此永远不会被当作命令文本扫描。消费者必须是字面量 `cat`、`tee`、`git apply`、`git commit`、`gh pr create` 或 `gh issue create`；heredoc 必须是该命令唯一的输入重定向；`cat`/`tee` 也不能把内容送入输出进程替换（`>(...)`）。此项允许在**每个**级别都成立，`strict` 和 `paranoid` 也不例外。
 
 | 命令模式 | 安全原因 |
 | --- | --- |
@@ -75,7 +75,7 @@ CC Safety Net 通过语义分析区分允许的命令形式和破坏性的命令
 | `git commit -F - <<'EOF'` | 正文会成为提交信息，即使其中用文字描述了破坏性命令 |
 | `gh pr create --body-file - <<'EOF'`、`gh issue create -F - <<'EOF'` | 正文作为 PR 或 issue 文本发布 |
 
-分隔符必须带引号（`<<'EOF'`）。不带引号的 `<<EOF` 正文可能展开替换，因此在 `standard` 中仍会被扫描，启用 fail-closed 后则直接被拒绝。heredoc 之外的命令仍会分析。`cat <<'EOF' && rm -rf ~` 会因 `rm` 被阻止。对于 `cat`、`tee`、`git commit`、`gh pr create` 和 `gh issue create`，正文在提取敏感路径前还会被遮蔽，因此正文里提到机密文件名不会阻止提交；`git apply` 的正文仍对路径提取可见，因为 patch 会列出它写入的文件。完整关卡以及 `standard` 如何处理未通过关卡的 heredoc，见 [Heredoc 分析](/zh-Hans/guides/analysis-engine#heredoc-分析)。
+heredoc 必须是不展开的：分隔符带引号（`<<'EOF'`），或者分隔符不带引号且正文中不含 `$`、反引号或反斜杠，这样 shell 就没有需要展开或转义处理的内容。不带引号且含有这三个字符之一的正文会经过 shell 展开或转义处理，因此在 `standard` 中仍会被扫描，启用 fail-closed 后则直接被拒绝。heredoc 之外的命令仍会分析。`cat <<'EOF' && rm -rf ~` 会因 `rm` 被阻止。对于 `cat`、`tee`、`git commit`、`gh pr create` 和 `gh issue create`，分隔符带引号的正文在提取敏感路径前还会被遮蔽，因此正文里提到机密文件名不会阻止提交。不带引号的正文即使通过关卡也不会被遮蔽，其中形似文件名的 token 仍会被提取。`git apply` 的正文仍对路径提取可见，因为 patch 会列出它写入的文件。完整关卡以及 `standard` 如何处理未通过关卡的 heredoc，见 [Heredoc 分析](/zh-Hans/guides/analysis-engine#heredoc-分析)。
 
 ## 仅标准允许
 

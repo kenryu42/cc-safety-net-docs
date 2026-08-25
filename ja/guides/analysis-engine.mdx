@@ -43,7 +43,7 @@ standard は、認識できる破壊的コマンドをブロックします。�
 - **解析できないコマンドをブロックします。** `echo 'unterminated` は、安全に解析できなかったという理由で拒否されます。
 - **メタデータのみで機密パスを探る操作をブロックします。** `test -f ~/.ssh/id_rsa` と `find ~/.ssh -type f` は standard では許可され、strict ではブロックされます。
 - Node や Bun のインライン評価に含まれる機密パスのリテラルを、実行されない診断用データとして扱う standard 限定の緩和を無効にします。
-- **heredoc が fail closed になります。** heredoc を含むコマンドは、他のアナライザーがそのセグメントを処理する前に、[heredoc の解析](#heredoc-analysis)で説明する狭い条件を満たさないかぎり拒否されます。条件とは、標準入力に接続された引用符付きの heredoc が 1 つだけで、他に入力リダイレクトがなく、読み取り側がリテラルで書かれた 6 つの候補のいずれかであることです。デリミタが引用符で囲まれていない場合は「Unquoted heredoc input is not safely supported. Quote the delimiter or ask the user to verify.」で拒否され、それ以外の不一致は「This heredoc form or stdin consumer is not safely supported. Use a quoted heredoc with a supported consumer (cat, tee, git apply, git commit, gh pr create, gh issue create), or ask the user to verify.」で拒否されます。実際の例では、`python3 - <<'PY'` と引用符で囲まれていない `<<EOF` が strict と paranoid で拒否されます。
+- **heredoc が fail closed になります。** heredoc を含むコマンドは、他のアナライザーがそのセグメントを処理する前に、[heredoc の解析](#heredoc-analysis)で説明する狭い条件を満たさないかぎり拒否されます。条件とは、標準入力に接続された展開されない heredoc が 1 つだけで、他に入力リダイレクトがなく、読み取り側がリテラルで書かれた 6 つの候補のいずれかであることです。デリミタに引用符がなく、シェルが本文を展開する場合は「Unquoted heredoc input is not supported safely. Quote the delimiter or ask the user to verify.」で拒否され、条件を満たさないそれ以外の場合は「This heredoc form or stdin consumer is not supported safely. Use a quoted heredoc with a supported consumer (cat, tee, git apply, git commit, gh pr create, gh issue create), or ask the user to verify.」で拒否されます。そのため `python3 - <<'PY'` と、本文に `$HOME` を含む `cat <<EOF` はここで拒否され、本文がプレーンテキストだけの `cat <<EOF` は通過します。
 - **検証できない破壊的対象をブロックします。** 次の 5 つのルールは fail closed 機能によって切り替わるため、standard では許可され、strict ではブロックされます。
 
 | ルール ID | 例 | intent |
@@ -125,23 +125,23 @@ standard を含むすべてのレベルで、2 つの構造上の境界が fail 
 heredoc の本文は、標準入力に渡されるテキストです。そのテキストをデータとして扱うかプログラムとして扱うかは、読み取り側のコマンドが決めます。そこでエンジンは、他のアナライザーがセグメントを処理する前に、狭く定義した対応条件を確認します。次の条件を**すべて**満たす場合だけ通過します。
 
 - コマンドに含まれる heredoc（`<<` または `<<-`）が、標準入力（fd 0）に接続されたもの 1 つだけであること。
-- デリミタが引用符で囲まれていること（`<<'EOF'`）。これにより、本文の中で展開が行われません。
+- 展開されない heredoc であること。デリミタが引用符で囲まれている（`<<'EOF'`）か、引用符がなくても本文に `$`、バッククォート、バックスラッシュが含まれないことを指します。どちらの場合もシェルは展開もエスケープ処理も行わないため、本文はバイト単位でそのまま読み取り側に渡ります。
 - 標準入力と競合する他の入力リダイレクト（`<`、`<<`、`<<-`、`<<<`、`<&`、`<>`）がないこと。
 - 読み取り側が、リテラルで書かれた `cat`、`tee`、`git apply`、`git commit`、`gh pr create`、`gh issue create` のいずれかであること。パスを前置した形や、`env` のようなラッパーを介した形は認められません。出力側のプロセス置換（`>(...)`）がある場合は本文が別のコマンドに渡るため、`cat` と `tee` であっても拒否します。
 
-条件を満たしたコマンドでは、どのレベルでも本文を実行されないデータとして扱います。たとえば `cat > note.md <<'EOF'` や `git commit -F - <<'EOF'` は、本文に破壊的なコマンドが書かれていても許可されます。
+条件を満たしたコマンドでは、どのレベルでも本文を実行されないデータとして扱います。たとえば `cat > note.md <<'EOF'`、`git commit -F - <<'EOF'`、本文がプレーンテキストだけの `cat <<EOF` は、本文に破壊的なコマンドが書かれていても許可されます。
 
-`cat`、`tee`、`git commit`、`gh pr create`、`gh issue create` では、機密パスを抽出する前に本文もマスクします。これにより、「credentials」という単語を含むコミットメッセージがファイル名として扱われることを防ぎます。`git apply` の本文は patch が書き込むファイル名を含むため、マスクしません。なお、heredoc の外にあるコマンドは引き続き解析します。たとえば `cat <<'EOF' && rm -rf ~` は、`rm` によってブロックされます。
+`cat`、`tee`、`git commit`、`gh pr create`、`gh issue create` では、デリミタが引用符で囲まれた本文を、機密パスの抽出前にマスクします。これにより、「credentials」という単語を含むコミットメッセージがファイル名として扱われることを防ぎます。マスクには引用符が必要です。引用符のない本文も、展開される要素がなければ条件を通過しますが、マスクの対象にはならないため、その中にファイル名らしいトークンがあれば抽出されます。`git apply` の本文は patch が書き込むファイル名を含むため、マスクしません。なお、heredoc の外にあるコマンドは引き続き解析します。たとえば `cat <<'EOF' && rm -rf ~` は、`rm` によってブロックされます。
 
 条件を満たさないコマンドは、[strict](#strict) と paranoid ではすべて拒否します。standard では、次の 3 つの経路のいずれかで本文を解析します。
 
-1. 構文チェックだけを行うシェル（`bash -n` など）の標準入力に渡される引用符付きの heredoc は、実行されないデータとして許可します。
-2. インタープリター（`python`／`python2`／`python3`、`node`、`ruby`、`perl`）の標準入力に渡される引用符付きの heredoc。ただし、コマンドライン上の他のすべての語が `-` で始まるリテラルで、インタープリターが標準入力からプログラムを読む場合にかぎります。`python3 - <<'PY'` は条件を満たしますが、`python3 tool.py <<'PY'` は満たしません。後者では標準入力がスクリプトへのデータになるためです。本文はインタープリターのルールで解析します。[paranoid interpreters](/ja/configuration/modes#paranoid-interpreters)では `interpreter.one-liner-paranoid` としてすべてブロックし、そうでない場合は本文に危険なコードがあれば `interpreter.dangerous-command` としてブロック、安全であれば許可します。
-3. それ以外すべて（引用符で囲まれていないデリミタ、不明な読み取り側、`bash` に渡す heredoc スクリプト、スクリプトを引数に取るインタープリター呼び出し）は、連結した本文に対する危険な文字列のヒューリスティックなスキャンに回します。一致した場合は `raw-text.dangerous-command` としてブロックし、一致しなければ許可します。
+1. 構文チェックだけを行うシェル（`bash -n` など）の標準入力に渡される展開されない heredoc は、実行されないデータとして許可します。
+2. インタープリター（`python`／`python2`／`python3`、`node`、`ruby`、`perl`）の標準入力に渡される展開されない heredoc。ただし、コマンドライン上の他のすべての語が `-` で始まるリテラルで、インタープリターが標準入力からプログラムを読む場合にかぎります。`python3 - <<'PY'` は条件を満たしますが、`python3 tool.py <<'PY'` は満たしません。後者では標準入力がスクリプトへのデータになるためです。本文はインタープリターのルールで解析します。[paranoid interpreters](/ja/configuration/modes#paranoid-interpreters)では `interpreter.one-liner-paranoid` としてすべてブロックし、そうでない場合は本文に危険なコードがあれば `interpreter.dangerous-command` としてブロック、安全であれば許可します。
+3. それ以外の形式はすべて、連結した本文に対する危険な文字列のヒューリスティックなスキャンに回します。不明な読み取り側、`bash` に渡す heredoc スクリプト、スクリプトを引数に取るインタープリター呼び出し、デリミタに引用符がなく本文に `$`、バッククォート、バックスラッシュのいずれかを含む heredoc などが該当します。一致した場合は `raw-text.dangerous-command` としてブロックし、一致しなければ許可します。
 
 3 つの経路には共通の構造上の境界があります。heredoc の本文はシェルのテキストとして解析し直すため、本文の中でさらに別の heredoc を宣言できます。この解析し直しをまたいだネストは、パーサーの最大深度 64 に制限されます。これを超えた場合は解析状態として `structural-limit` を報告し、standard を含む**すべて**の安全レベルでコマンドを拒否します。
 
-実行されないデータとして条件を通過した場合でも、本文をファイルに保存するときは追加の処理があります。条件を満たした heredoc を、追記ではなくリテラルのパスにそのまま書き込む場合（`cat > setup.sh <<'EOF'` や `tee setup.sh <<'EOF'`）、エンジンはそのパスと本文を記憶します。同じコマンド内で後から `bash setup.sh`、`sh setup.sh`、`source setup.sh` を実行したり、シェル起動時の設定（`BASH_ENV`、`ENV`、`--rcfile`、`--init-file`）から参照したりすると、記憶しておいたスクリプトのテキストを解析します。トレースには、理由 `heredoc-file` の `recurse` ステップとして表示されます。そのため、本文が破壊的であれば `cat > x.sh <<'EOF' … EOF && bash x.sh` はブロックされます。追跡の範囲は意図的に限定しています。記憶するのは 1 回の解析につき最大 64 ファイルまでで（`MAX_TRACKED_HEREDOC_FILES`。超えた場合は派生コマンドの処理量の上限によって fail closed になります）、`/dev`、`/proc`、`/sys` 配下のパスは追跡しません。追跡中のパスにその後書き込みやリダイレクトがあった場合、記憶した本文は無効になります。
+実行されないデータとして条件を通過した場合でも、本文をファイルに保存するときは追加の処理があります。条件を満たした heredoc を、追記ではなくリテラルのパスにそのまま書き込む場合（`cat > setup.sh <<'EOF'`、本文がプレーンテキストだけの `cat > setup.sh <<EOF`、`tee setup.sh <<'EOF'`）、エンジンはそのパスと本文を記憶します。同じコマンド内で後から `bash setup.sh`、`sh setup.sh`、`source setup.sh` を実行したり、シェル起動時の設定（`BASH_ENV`、`ENV`、`--rcfile`、`--init-file`）から参照したりすると、記憶しておいたスクリプトのテキストを解析します。トレースには、理由 `heredoc-file` の `recurse` ステップとして表示されます。そのため、本文が破壊的であれば `cat > x.sh <<'EOF' … EOF && bash x.sh` はブロックされます。追跡の範囲は意図的に限定しています。記憶するのは 1 回の解析につき最大 64 ファイルまでで（`MAX_TRACKED_HEREDOC_FILES`。超えた場合は派生コマンドの処理量の上限によって fail closed になります）、`/dev`、`/proc`、`/sys` 配下のパスは追跡しません。追跡中のパスにその後書き込みやリダイレクトがあった場合、記憶した本文は無効になります。
 
 <span id="git-rule-engine"></span>
 

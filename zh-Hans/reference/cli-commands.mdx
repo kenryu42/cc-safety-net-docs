@@ -132,7 +132,12 @@ bunx cc-safety-net doctor
 
 对于 GitHub Copilot CLI，`doctor` 会检查插件签出和 hook 定义。内联设置的优先顺序是 `<repo>/.github/copilot/settings.local.json`、`<repo>/.github/copilot/settings.json`、`<repo>/.claude/settings.local.json`、`<repo>/.claude/settings.json`、`$COPILOT_HOME/settings.json`，然后是 `$COPILOT_HOME/config.json`（`COPILOT_HOME` 默认为 `~/.copilot`）。它还会扫描 `<repo>/.github/hooks/*.json` 和 `$COPILOT_HOME/hooks/*.json`。`.claude` 文件中的条目仅在命令包含 `hook --copilot-cli` 或 `hook -cp` 时才算；仅有 Claude Code hook 不算。内联设置需要 GitHub Copilot CLI `1.0.8+`，用户 hook 文件需要 `0.0.422+`。
 
-`doctor` 检测到失败时以非零退出码退出。失败包括：没有配置任何智能体、hook 检查失败、自检失败，或用户或项目配置无效。
+引擎自检失败，或 Findings 部分出现任何 `error` 严重程度的条目时，`doctor` 退出 `1`；否则退出 `0`。警告不影响退出码。以下条目属于 `error` 严重程度：
+
+- 没有配置任何智能体集成。
+- hook 检查失败。
+- 用户或项目的规则配置无效。
+- policy、config 或 audit 目录不安全，即不归当前用户所有、组或其他用户可写、是符号链接，或不是目录。
 
 当某些审计日志文件无法读取时，Recent Activity 部分以 `Warning: <n> audit log sources could not be read; this summary is incomplete`（当只有一个时为 `source`）结尾，以免把平静的一周误当成完整的记录。
 
@@ -308,6 +313,12 @@ npx -y cc-safety-net rule add --global my-personal-rules
 npx -y cc-safety-net rule remove project-rules
 npx -y cc-safety-net rule remove project-rules --delete-source
 ```
+
+干净指目录里只有 `rulebook.json`，没有其他文件。`--delete-source` 会检查两次：一次在同步之前，一次在删除之时，因为中间的同步可能要等待 GitHub 拉取。
+
+- 若并发进程在这段间隙里新增了文件，第二次检查会拒绝删除并报错：`Local rulebook source directory contains extra files: <dir>. delete manually if you really want to remove the directory.` 随后配置改动会回滚并重新同步，你要求移除的源又会回来。
+- 删除不是递归的：先删掉通过校验的 `rulebook.json`，再用非递归的 `rmdir` 删除目录本身。unlink 之后才落地的文件会让 `rmdir` 失败，该文件原样保留。被删除的始终只有 rulebook 文件。
+- 如果删除时目录已经不存在，就跳过删除并报告成功：请求的最终状态已达成。
 
 ### rule update
 
