@@ -141,6 +141,29 @@ GitHub Copilot CLI では、`doctor` はプラグインの checkout 状態と ho
 
 一部の監査ログファイルを読み取れない場合、Recent Activity セクションの末尾に `Warning: <n> audit log sources could not be read; this summary is incomplete` が表示されます（1 件の場合は `source`）。これにより、操作が少ない週を完全なデータと誤認しません。
 
+### 管理対象 hook の設定ずれ
+
+Cursor と Grok Build は、hook のエントリを手で編集できる設定ファイルに保持します。そのため `doctor` は、ディスク上のエントリと、インストールが書き込むエントリを比較します。ずれているエントリも、管理対象のエントリであることに変わりはありません。エージェントは `Configured` のままで、一致しなかった項目ごとに `Warning (<Agent>): <message>` を出力し、終了コードも変わりません。インストールを実行し直せば、エントリは書き直されます。
+
+| エージェント | 警告 | ずれている箇所 |
+| --- | --- | --- |
+| Cursor | `Multiple managed cc-safety-net hooks found; reinstall to collapse duplicates` | `hooks.preToolUse` に管理対象のエントリが複数ある |
+| Cursor | `Managed hook is missing "failClosed": true; reinstall to repair` | 最初の管理対象エントリの `failClosed` が `true` でない。この場合、hook が判定できなかった呼び出しを Cursor が許可してしまう |
+| Cursor | `Managed hook "timeout" is not 30; reinstall to repair` | 最初の管理対象エントリの `timeout` が `30` でない |
+| Grok Build | `Managed hook has a "matcher" that narrows coverage; reinstall to repair` | 管理対象エントリの `matcher` が `""` でも `"*"` でもない。この 2 つは Grok Build がすべてに一致するものとして扱う書き方で、それ以外の値では一部のツール呼び出しが hook を通らなくなる |
+| Grok Build | `Managed hook "type" is not "command"; reinstall to repair` | 管理対象ハンドラーの `type` が `command` でない |
+| Grok Build | `Managed hook "timeout" is not 30; reinstall to repair` | 管理対象ハンドラーの `timeout` が `30` でない |
+
+Antigravity CLI には、ずれの検査がありません。`doctor` は正規のエントリと比較するのではなく、コマンドのパターンで hook を照合します。そのため `Detected` かつ `Configured` と報告し、hook の定義に `enabled: false` がある場合は `Detected` かつ `Not configured` と報告します。
+
+hook の設定ファイルをパースできない場合は、3 つとも結果が変わります。検出の段階で管理対象のエントリが見つからないため、そのエージェントは未設定として数えられ、Discovery、Configuration、Inspection の各列は `Unknown`、`Unknown`、`Failed` になります。メッセージも、警告ではなくエラーとして赤で表示されます。
+
+- `Error (Antigravity CLI): Failed to parse Antigravity hooks config <path>: <reason>`
+- `Error (Cursor): Failed to parse Cursor hooks config <path>: <reason>`
+- `Error (Grok Build): Failed to parse Grok Build hooks config <path>: <reason>`
+
+いずれの場合も `<Agent> inspection failed` の finding が `error` 重大度で発生するため、`doctor` は `1` で終了します。
+
 ## logs
 
 `logs` は、1 つの許可またはブロックされたコマンド判定を 1 レコードとして、[監査ログ](/ja/reference/audit-log)を読み取ります。

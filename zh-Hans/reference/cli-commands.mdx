@@ -141,6 +141,29 @@ bunx cc-safety-net doctor
 
 当某些审计日志文件无法读取时，Recent Activity 部分以 `Warning: <n> audit log sources could not be read; this summary is incomplete`（当只有一个时为 `source`）结尾，以免把平静的一周误当成完整的记录。
 
+### 托管 hook drift
+
+Cursor 和 Grok Build 的 hook 条目所在的配置文件也可以手动编辑，因此 `doctor` 会把磁盘上的条目与安装写入的条目做比对。发生 drift 的条目仍然算托管条目：智能体状态保持 `Configured`，每处不一致按 `Warning (<Agent>): <message>` 打印，退出码不变。重新运行安装即可重写该条目。
+
+| 智能体 | 警告 | 偏离内容 |
+| --- | --- | --- |
+| Cursor | `Multiple managed cc-safety-net hooks found; reinstall to collapse duplicates` | `hooks.preToolUse` 中有不止一个托管条目 |
+| Cursor | `Managed hook is missing "failClosed": true; reinstall to repair` | 第一个托管条目的 `failClosed` 不是 `true`，此时 hook 无法判定的调用会被 Cursor 放行 |
+| Cursor | `Managed hook "timeout" is not 30; reinstall to repair` | 第一个托管条目的 `timeout` 不是 `30` |
+| Grok Build | `Managed hook has a "matcher" that narrows coverage; reinstall to repair` | 托管条目带有 `matcher`，且不是 `""` 或 `"*"`：只有这两种写法会被 Grok Build 编译成匹配全部，因此部分工具调用会跳过 hook |
+| Grok Build | `Managed hook "type" is not "command"; reinstall to repair` | 托管 handler 的 `type` 不是 `command` |
+| Grok Build | `Managed hook "timeout" is not 30; reinstall to repair` | 托管 handler 的 `timeout` 不是 `30` |
+
+Antigravity CLI 没有 drift 检查。`doctor` 用命令模式匹配它的 hook，而不是比对规范条目，因此结果是 `Detected` 和 `Configured`；hook 定义带 `enabled: false` 时则是 `Detected` 和 `Not configured`。
+
+hook 配置无法解析则是另一种结果，三个智能体都一样：检测找不到托管条目，该智能体计为未配置，Discovery、Configuration 和 Inspection 三列分别显示 `Unknown`、`Unknown` 和 `Failed`，消息也以红色按错误打印，而不是警告：
+
+- `Error (Antigravity CLI): Failed to parse Antigravity hooks config <path>: <reason>`
+- `Error (Cursor): Failed to parse Cursor hooks config <path>: <reason>`
+- `Error (Grok Build): Failed to parse Grok Build hooks config <path>: <reason>`
+
+每一种都还会产生一条 `error` 严重程度的 `<Agent> inspection failed` Findings 条目，因此 `doctor` 退出 `1`。
+
 ## logs
 
 `logs` 读取[审计日志](/zh-Hans/reference/audit-log)：每个允许或阻止的命令决策对应一条记录。
