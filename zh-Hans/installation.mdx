@@ -1,7 +1,7 @@
 ---
 title: "为编码智能体安装 CC Safety Net"
 sidebarTitle: "安装"
-description: "在全部十二个受支持的编码智能体中安装和卸载 CC Safety Net：Amp Code、Antigravity CLI、Claude Code、Codex、Cursor、Gemini CLI、GitHub Copilot CLI、Hermes Agent、Kimi Code、OpenClaw、OpenCode 和 Pi。"
+description: "在全部十三个受支持的编码智能体中安装和卸载 CC Safety Net：Amp Code、Antigravity CLI、Claude Code、Codex、Cursor、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code、OpenClaw、OpenCode 和 Pi。"
 ---
 
 CC Safety Net 以插件、扩展或 hook 的形式安装在编码智能体内，不需要常驻服务或守护进程。部分集成会为每次检查启动一个短时 hook 子进程。
@@ -64,6 +64,7 @@ npx -y cc-safety-net@latest update
 | [Cursor](#cursor-安装) | `npx -y cc-safety-net@latest install --cursor` | `npx -y cc-safety-net@latest uninstall --cursor` |
 | [Gemini CLI](#gemini-cli-安装) | `npx -y cc-safety-net@latest install --gemini-cli` | `npx -y cc-safety-net@latest uninstall --gemini-cli` |
 | [GitHub Copilot CLI](#github-copilot-cli-安装) | `npx -y cc-safety-net@latest install --copilot-cli` | `npx -y cc-safety-net@latest uninstall --copilot-cli` |
+| [Grok Build](#grok-build-安装) | `npx -y cc-safety-net@latest install --grok-build` | `npx -y cc-safety-net@latest uninstall --grok-build` |
 | [Hermes Agent](#hermes-agent-安装) | `npx -y cc-safety-net@latest install --hermes-agent` | `npx -y cc-safety-net@latest uninstall --hermes-agent` |
 | [Kimi Code](#kimi-code-安装) | `npx -y cc-safety-net@latest install --kimi-code` | `npx -y cc-safety-net@latest uninstall --kimi-code` |
 | [OpenClaw](#openclaw-安装) | `npx -y cc-safety-net@latest install --openclaw` | `npx -y cc-safety-net@latest uninstall --openclaw` |
@@ -215,6 +216,32 @@ npx -y cc-safety-net@latest uninstall --copilot-cli
 </Note>
 
 Copilot CLI 的 hook 支持受版本限制。doctor 会检查 `.github/hooks` 下的仓库 hook 文件；`.github/copilot/settings.local.json`、`.github/copilot/settings.json`、`.claude/settings.local.json`、`.claude/settings.json`、`~/.copilot/settings.json` 和 `~/.copilot/config.json` 中的内联 hook 定义；以及 `~/.copilot/hooks` 下的用户 hook 文件。内联 hook 定义要求 Copilot CLI **1.0.8** 或更高版本，用户 hook 文件要求 **0.0.422** 或更高版本。插件会为你处理此问题；如果你手动配置 hook 并遇到问题，请运行 `npx cc-safety-net doctor`。它会报告检测到的 Copilot 版本，以及哪些 hook 来源受支持。
+
+## Grok Build 安装
+
+```bash
+npx -y cc-safety-net@latest install --grok-build
+```
+
+此命令在 `~/.grok/hooks/cc-safety-net.json`（设置了 `GROK_HOME` 时为 `$GROK_HOME/hooks/cc-safety-net.json`）中写入托管的 `PreToolUse` 项：
+
+```json
+{ "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --grok-build", "timeout": 30 }] }
+```
+
+该项不带 matcher，因此到达适配器的不只是 `run_terminal_command`，而是每一次工具调用；适配器还会检查文件类和 patch 类工具输入中的受保护路径。
+
+由于 hook 通过 `npx` 运行，安装会先清除 npm `_npx` 缓存中的 `cc-safety-net` 副本，以便 hook 解析到当前版本；卸载不会触及该缓存。缓存位置见 [Antigravity CLI 部分](#antigravity-cli-安装)。
+
+```bash
+npx -y cc-safety-net@latest uninstall --grok-build
+```
+
+两条命令都只改动托管的 handler。安装先从已有项中剥离托管 handler，再把规范项作为独立的一项追加进去，因此非托管的项、与托管 handler 同处一项的非托管 handler，以及其他 hook 事件都原样保留。卸载只移除托管 handler；某一项移除后不再有 handler，该项也一并删除。整个文件只有在其中没有其他内容时才删除。无法解析的文件在卸载时原样保留；安装则会把它修复为规范内容，因为 Grok Build 会整个跳过无法解析的 hook 文件，这样的文件本来也无法承载可用的 hook。
+
+<Note>
+  Grok Build hook 是故障时放行，宿主也没有提供 `failClosed` 开关。只有明确的 deny 才能阻止工具调用；hook 崩溃、超时或输出格式错误时，调用照常执行。
+</Note>
 
 ## Hermes Agent 安装
 

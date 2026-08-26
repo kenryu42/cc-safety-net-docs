@@ -187,6 +187,8 @@ Allow paths must be absolute or `~/`-prefixed directories. They apply in **every
 
 Both recursive (`-r`/`-R`/`--recursive`) and force (`-f`/`--force`) flags must be present for this classification to run. Path comparison uses canonical (realpath) resolution, so a symlink to `/` is correctly classified as dangerous, and `/tmp-malicious` does not match the `/tmp` temp rule.
 
+On Windows, Git Bash and other MSYS shells hand over `/c/Users/...` spellings, which the Windows path APIs read as paths under the current drive. Before any comparison, a leading `/<drive-letter>` followed by `/` or the end of the string becomes `<drive-letter>:/`, so `/c/Users/you` compares as `c:/Users/you`. Only that leading segment changes. Other platforms are untouched, and POSIX paths, UNC paths, and native Windows drive-letter paths pass through unchanged. The rewrite runs before `rm` target classification, before policy-file and Git-metadata protection, and before sensitive-path protection. It also rewrites `HOME` and `CC_SAFETY_NET_HOME` when the environment is captured, so those roots and the command operands compare in the same form. Temp-root comparison also folds case on Windows, so a lowercase MSYS path under the native temp directory classifies as a temp target instead of an outside-cwd one.
+
 <Note>
   The important distinction for everyday use: `rm -rf ./subdir` (within cwd) is **allowed**, but `rm -rf .` (the cwd itself) is **blocked**. See [Allowed commands](/reference/allowed-commands).
 </Note>

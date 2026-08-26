@@ -110,7 +110,7 @@ bunx cc-safety-net doctor
 
 | 部分 | 描述 |
 | --- | --- |
-| Hook Integration | 验证每个受支持智能体的配置：Claude Code、Amp Code、Antigravity CLI、Codex、Cursor、Gemini CLI、GitHub Copilot CLI、Hermes Agent、Kimi Code、OpenClaw、OpenCode 和 Pi |
+| Hook Integration | 验证每个受支持智能体的配置：Claude Code、Amp Code、Antigravity CLI、Codex、Cursor、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code、OpenClaw、OpenCode 和 Pi |
 | Guard Engine Verification | 运行合成自检，确认阻止确实生效（`git reset --hard` 和 `rm -rf /` 被阻止；`rm -rf ./node_modules` 被允许） |
 | Configuration | 验证用户和项目规则配置，并列出有效和被遮蔽的规则 |
 | Environment | 显示 CC Safety Net 环境变量的状态 |
@@ -428,7 +428,7 @@ npx -y cc-safety-net install --claude-code
 
 ### 目标
 
-接受十二个目标，这里按安装顺序列出：
+接受十三个目标，这里按安装顺序列出：
 
 | 标志 | 智能体 | 安装方式 |
 | --- | --- | --- |
@@ -439,6 +439,7 @@ npx -y cc-safety-net install --claude-code
 | `--cursor` | Cursor | 将 hook 条目写入 `~/.cursor/hooks.json` |
 | `--gemini-cli` | Gemini CLI | 运行 Gemini CLI 的扩展安装命令 |
 | `--copilot-cli` | GitHub Copilot CLI | 运行 Copilot CLI 自带的插件市场命令 |
+| `--grok-build` | Grok Build | 将 hook 条目写入 `~/.grok/hooks/cc-safety-net.json`（或 `$GROK_HOME/hooks/cc-safety-net.json`） |
 | `--hermes-agent` | Hermes Agent | 把托管的 Python 插件写入 `~/.hermes/plugins/cc-safety-net`（或 `$HERMES_HOME` 下），并用 `hermes plugins enable` 启用 |
 | `--kimi-code` | Kimi Code | 在终端中先出现方式选择提示，然后将 `[[hooks]]` 块写入 `~/.kimi-code/config.toml`（或 `$KIMI_CODE_HOME/config.toml`） |
 | `--openclaw` | OpenClaw | 通过 OpenClaw 自带的 `openclaw plugins` 命令安装并启用捆绑的插件 |
@@ -450,10 +451,10 @@ npx -y cc-safety-net install --claude-code
 CC Safety Net 使用三种安装机制：
 
 - **原生插件或扩展命令**：Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、OpenClaw、OpenCode 和 Pi。CC Safety Net 调用智能体自带的插件管理器，并顺带清理已被取代的插件 ID。OpenClaw 的安装在完成后还会验证 OpenClaw 是否报告插件已加载，然后请你重启 OpenClaw Gateway。OpenCode 的安装会导入缓存的包条目，并验证它导出了可调用的 `CCSafetyNetPlugin`；如果 OpenCode 会什么都不加载并 fail open，则安装失败。
-- **配置文件写入**：Antigravity CLI、Cursor 和 Kimi Code。这三者是 CC Safety Net 唯一直接编辑的智能体配置。
+- **配置文件写入**：Antigravity CLI、Cursor、Grok Build 和 Kimi Code。这四者是 CC Safety Net 唯一直接编辑的智能体配置。
 - **托管插件产物**：Amp Code 和 Hermes Agent。Amp 的插件通过 amp CLI 发布到你账户下托管的 Amp Personal Plugins 仓库（预检命令是 `amp plugins repositories --json`），因此安装需要 amp CLI 和 `amp login`；发布后的插件对每个 Amp 会话都生效，包括 Orb 线程。遗留在 `~/.config/amp/plugins/cc-safety-net.ts` 的托管本地副本会遮蔽个人插件，因此安装会将其移除。改动之后，请重启 Amp 或运行 `plugins: reload`。对于 Hermes Agent，安装会把插件写入磁盘并运行 `hermes plugins enable`，改动同样需要重启 Hermes。
 
-在配置文件安装（Antigravity CLI、Cursor 或 Kimi Code）或 Hermes Agent 安装写入任何内容之前，它会先清除 `npx` 缓存中过时的 `cc-safety-net` 副本：npm 缓存的 `_npx` 目录下，每个 `node_modules` 含有 `cc-safety-net` 的条目都会被移除。缓存路径为 `$npm_config_cache`（如果已设置）；否则在 macOS 和 Linux 上为 `~/.npm`，在 Windows 上为 `%LOCALAPPDATA%\npm-cache`。这四个集成都通过 `npx` 运行 hook，因此新安装的 hook 会解析到最新版本，而不是缓存版本。
+在配置文件安装（Antigravity CLI、Cursor、Grok Build 或 Kimi Code）或 Hermes Agent 安装写入任何内容之前，它会先清除 `npx` 缓存中过时的 `cc-safety-net` 副本：npm 缓存的 `_npx` 目录下，每个 `node_modules` 含有 `cc-safety-net` 的条目都会被移除。缓存路径为 `$npm_config_cache`（如果已设置）；否则在 macOS 和 Linux 上为 `~/.npm`，在 Windows 上为 `%LOCALAPPDATA%\npm-cache`。这五个集成都通过 `npx` 运行 hook，因此新安装的 hook 会解析到最新版本，而不是缓存版本。
 
 **Kimi Code 有两种安装方式。** 在终端中，`install --kimi-code`（或在选择器中选中 Kimi Code）会打开一个单选提示：现在安装全局 hook，或改为打印原生 Kimi 插件的步骤（在 Kimi Code 内运行 `/plugins install https://github.com/kenryu42/cc-safety-net`，信任提示默认是取消，然后运行 `/reload` 或开始新会话）。选择插件方式不会写入任何内容，只打印步骤。非交互式会话会跳过该提示，直接安装全局 hook。由于该提示是拿到插件步骤的唯一途径，即使全局 hook 已配置，安装时 Kimi Code 那一行依然可选，只是标记为 `(global hook installed)`。
 
@@ -484,11 +485,23 @@ npx -y cc-safety-net@latest update
 
 系统通过读取每个智能体的配置和状态文件来查找目标。只要检测到已安装的集成，它就符合条件，**即使当前处于禁用状态**。Amp Code 通过 `amp plugins list` 的输出获得资格。该输出与 `codex plugin list` 一样以 30 秒超时获取，因为冷启动会通过网络刷新签出，可能超过默认的 5 秒。GitHub Copilot CLI 是例外。它仅在 Copilot 的 `installed-plugins` 目录中存在 CC Safety Net 插件签出时才有资格，因为它的禁用状态与没有安装插件的关闭开关无法区分，而更新绝不能变成安装。系统也会识别仍使用旧 `safety-net@cc-marketplace` 插件 ID 的安装。在 Claude Code 和 Codex 中，这表现为旧插件 ID；在 GitHub Copilot CLI 中，则表现为插件签出 `cc-marketplace/safety-net`。更新会将它们迁移到当前 ID，并尽力移除旧版副本。移除失败只会发出警告，不会使该目标失败。
 
-所有目标会在同一个 `Updating <n> integration…` 或 `Updating <n> integrations…` 加载指示器后面，并发运行与 `install` 相同的操作。命令会等所有目标结束，然后按固定的集成目录顺序统一打印报告，消息改为 `Updated …` 或 `… up to date`。对于安装过程会驱动智能体自带 CLI 的目标（Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、Hermes Agent、OpenClaw、OpenCode 和 Pi），会先探测厂商的二进制文件：二进制文件缺失时打印 `<Agent> not found; skipped`（例如 `Codex not found; skipped`），运行继续。配置文件类目标（Antigravity CLI、Cursor 和 Kimi Code）不需要二进制文件，总是会刷新。Amp Code 不需要单独的探测：仅当 `amp plugins list` 显示个人插件时才会被检测到，其刷新会驱动 amp CLI 发布当前产物。在 Claude Code、Codex 和 GitHub Copilot CLI 上，已注册的市场会在插件步骤之前先刷新（例如 `claude plugin marketplace update cc-marketplace`），而不是依赖无操作的 `add`，因此过时的目录签出不会使更新失败。
+所有目标会在同一个 `Updating <n> integration…` 或 `Updating <n> integrations…` 加载指示器后面，并发运行与 `install` 相同的操作。命令会等所有目标结束，然后按固定的集成目录顺序统一打印报告，消息改为 `Updated …` 或 `… up to date`。对于安装过程会驱动智能体自带 CLI 的目标（Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、Hermes Agent、OpenClaw、OpenCode 和 Pi），会先探测厂商的二进制文件：二进制文件缺失时打印 `<Agent> not found; skipped`（例如 `Codex not found; skipped`），运行继续。配置文件类目标（Antigravity CLI、Cursor、Grok Build 和 Kimi Code）不需要二进制文件，总是会刷新。Amp Code 不需要单独的探测：仅当 `amp plugins list` 显示个人插件时才会被检测到，其刷新会驱动 amp CLI 发布当前产物。在 Claude Code、Codex 和 GitHub Copilot CLI 上，已注册的市场会在插件步骤之前先刷新（例如 `claude plugin marketplace update cc-marketplace`），而不是依赖无操作的 `add`，因此过时的目录签出不会使更新失败。
 
-在并发阶段前，如果存在任何依赖缓存的目标，即 Antigravity CLI、Cursor、Hermes Agent 或 Kimi Code，`update` 会清除一次 `npx` 缓存。如果清除失败，只有这些依赖缓存的目标会失败；其他目标仍会运行。
+在并发阶段前，如果存在任何依赖缓存的目标，即 Antigravity CLI、Cursor、Grok Build、Hermes Agent 或 Kimi Code，`update` 会清除一次 `npx` 缓存。如果清除失败，只有这些依赖缓存的目标会失败；其他目标仍会运行。
 
-当没有任何目标符合条件时，`update` 打印 ``No installed integrations found. Run `cc-safety-net install` to set one up.`` 并退出 `0`。
+`bunx` 缓存的清除是无条件的。`bunx cc-safety-net` 由你自己发起，而不是由某个集成调用，因此每一次 `update` 都会清除其中属于你自己的 `cc-safety-net` 条目，包括没有找到任何已安装集成的那一次。
+
+`bunx` 会把每个包安装到操作系统临时目录下，目录名形如 `bunx-<uid>-<package>@<version-or-latest>`，清除按这个名字匹配。在 macOS 和 Linux 上只匹配你自己的 uid。在 Windows 上匹配任意数字 ID，因为 `%TEMP%` 本就按用户区分。名字末尾的 `@` 把 `cc-safety-net-*` 这类相似名称排除在外。当前进程正在运行的那个条目会被跳过，因此从 `bunx` 启动的 `update` 不会删掉自己正在用的文件；该条目改由 bun 自己的 manifest TTL 重新解析。清除失败会打印错误并退出 `1`。
+
+当没有任何目标符合条件时，`update` 打印 ``No installed integrations found. Run `cc-safety-net install` to set one up.`` 并退出 `0`。这一次运行唯一可能退出 `1` 的原因，是 `bunx` 缓存清除失败。
+
+当 npm 注册表上有更新的版本时，`update` 会在最后尽力打印一条提示：
+
+```text
+Update available: cc-safety-net <current> → <latest>. Update this CLI with your package manager, e.g. `npm i -g cc-safety-net@latest` for a global install.
+```
+
+这条提示面向持久安装。`npx` 和 `bunx` 的运行是临时的，上面的缓存清除已经让它们取到最新版本，因此这类运行完全跳过注册表检查。`update` 依据路径中是否含有 `_npx` 段，或是否含有符合 bun 真实缓存命名 `bunx-<digits>-` 的段来识别这两种运行。持久路径中只是含有不带数字的 `bunx-`（例如 `/opt/bunx-tools`）时，依然会打印提示。检查失败、离线运行和开发版构建都不打印任何内容，也不改变退出码。
 
 `update` 不接受任何目标标志和参数，只接受 `-h`/`--help`。任何其他选项都会打印 `Unknown option for update: <flag>`，位置参数会打印 `Unexpected argument for update: <arg>`，两者都会退出 `1`。一个目标的失败不会停止运行：它的错误会以与 `install` 相同的提示打印，update 继续处理其余目标，若有任何目标失败，命令在最后退出 `1`，否则退出 `0`。
 
@@ -496,7 +509,7 @@ npx -y cc-safety-net@latest update
 
 ## uninstall
 
-`uninstall` 接受与 `install` 相同的十二个目标标志，并使用相同的选择规则和目标顺序。
+`uninstall` 接受与 `install` 相同的十三个目标标志，并使用相同的选择规则和目标顺序。
 
 ```bash
 npx -y cc-safety-net uninstall
@@ -518,6 +531,7 @@ npx -y cc-safety-net uninstall --cursor
 | `-cu`, `--cursor` | Cursor | `preToolUse` | 无 |
 | `-gc`, `--gemini-cli` | Gemini CLI | `BeforeTool` | 顶层形式 `cc-safety-net -gc` 和 `cc-safety-net --gemini-cli` |
 | `-cp`, `--copilot-cli` | GitHub Copilot CLI | `PreToolUse` | 顶层形式 `cc-safety-net -cp` 和 `cc-safety-net --copilot-cli` |
+| `-gb`, `--grok-build` | Grok Build | `PreToolUse` | 无 |
 | `-ha`, `--hermes-agent` | Hermes Agent | `pre_tool_call` | 无 |
 | `-kc`, `--kimi-code` | Kimi Code | `PreToolUse` | 无 |
 
@@ -538,6 +552,12 @@ Amp Code、Codex、OpenClaw、OpenCode 和 Pi 没有各自的 `hook` 标志。Am
 `install --cursor` 将命令 `npx -y cc-safety-net hook --cursor` 写入 `~/.cursor/hooks.json` 的 `hooks.preToolUse` 下，在一个 `"version": 1` 文档中，带有 30 秒超时和 `failClosed: true`。安装程序会校验文档的版本和结构；遇到无法识别的内容时，它会以描述性的错误信息失败，而不是直接重写。重复的托管条目会被合并成一条。
 
 运行时，hook 读取 Cursor 的 `Shell` 工具调用，从 `conversation_id` 取得会话 ID，并以 `{ "permission": "deny", … }` 或 `{ "permission": "allow" }` 回应。Cursor 的 `working_directory` 字段会与工作区根目录做包含性检查；该字段已声明却缺失、或指向工作区之外时，会按 fail closed 处理。
+
+### Grok Build 入口点
+
+`install --grok-build` 将命令 `npx -y cc-safety-net hook --grok-build` 写入 `~/.grok/hooks/cc-safety-net.json`（设置了 `GROK_HOME` 时则写入 `$GROK_HOME/hooks/cc-safety-net.json`）。这是一个超时 30 秒、不带 matcher 的 `PreToolUse` 条目，因此每一次工具调用都会到达 hook，而不只是 `run_terminal_command`。安装只改写托管条目，其他条目、同一条目中的其他 handler 以及其他 hook 事件都原样保留。它还会把无法解析的文件修复成规范形式：Grok Build 会整个跳过无法解析的 hook 文件，这样的文件不可能承载可用的其他 hook。卸载只移除托管 handler，只有文件中不再剩下任何内容时才删除该文件。
+
+运行时，hook 读取 Grok Build 的 camelCase 输入：`toolName`、`toolInput`、`sessionId`、`cwd` 和 `workspaceRoot`。命令类工具只有 `run_terminal_command`，其 shell 方言自动识别。会话 ID 取自 `sessionId`，hook 以 `{ "decision": "deny", "reason": … }` 或 `{ "decision": "allow" }` 回应，这是 Grok Build 唯一会读取的输出形式。`toolInputTruncated: true` 会按 fail closed 处理：Grok Build 在 128 KB 处截断工具输入，被截断的命令无法分析。受信任的根目录是 `workspaceRoot`，缺少 `workspaceRoot` 时则是 `cwd`；`cwd` 规范化后必须是该根目录内的一个目录，缺失或为空的 `cwd` 按 `.` 处理。根目录无法规范化，或 `cwd` 落在根目录之外时，都按 fail closed 处理。
 
 ## gui
 

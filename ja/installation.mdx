@@ -1,7 +1,7 @@
 ---
 title: "コーディングエージェントに CC Safety Net をインストールする"
 sidebarTitle: "インストール"
-description: "Amp Code、Antigravity CLI、Claude Code、Codex、Cursor、Gemini CLI、GitHub Copilot CLI、Hermes Agent、Kimi Code、OpenClaw、OpenCode、Pi に CC Safety Net をインストールまたはアンインストールします。"
+description: "Amp Code、Antigravity CLI、Claude Code、Codex、Cursor、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code、OpenClaw、OpenCode、Pi に CC Safety Net をインストールまたはアンインストールします。"
 ---
 
 CC Safety Net は、コーディングエージェント内のプラグイン、拡張機能、または hook として動作します。常駐サービスやデーモンは不要です。連携によっては、チェックのたびに短命の hook subprocess を起動します。
@@ -62,6 +62,7 @@ npx -y cc-safety-net@latest update
 | [Cursor](#cursor) | `npx -y cc-safety-net@latest install --cursor` | `npx -y cc-safety-net@latest uninstall --cursor` |
 | [Gemini CLI](#gemini-cli) | `npx -y cc-safety-net@latest install --gemini-cli` | `npx -y cc-safety-net@latest uninstall --gemini-cli` |
 | [GitHub Copilot CLI](#github-copilot-cli) | `npx -y cc-safety-net@latest install --copilot-cli` | `npx -y cc-safety-net@latest uninstall --copilot-cli` |
+| [Grok Build](#grok-build) | `npx -y cc-safety-net@latest install --grok-build` | `npx -y cc-safety-net@latest uninstall --grok-build` |
 | [Hermes Agent](#hermes-agent) | `npx -y cc-safety-net@latest install --hermes-agent` | `npx -y cc-safety-net@latest uninstall --hermes-agent` |
 | [Kimi Code](#kimi-code) | `npx -y cc-safety-net@latest install --kimi-code` | `npx -y cc-safety-net@latest uninstall --kimi-code` |
 | [OpenClaw](#openclaw) | `npx -y cc-safety-net@latest install --openclaw` | `npx -y cc-safety-net@latest uninstall --openclaw` |
@@ -213,6 +214,32 @@ npx -y cc-safety-net@latest uninstall --copilot-cli
 </Note>
 
 Copilot CLI の hook 対応にはバージョン条件があります。doctor は、`.github/hooks` 内のリポジトリ hook ファイル、`.github/copilot/settings.local.json`、`.github/copilot/settings.json`、`.claude/settings.local.json`、`.claude/settings.json`、`~/.copilot/settings.json`、`~/.copilot/config.json` 内のインライン hook 定義、`~/.copilot/hooks` 内のユーザー hook ファイルを確認します。インライン hook 定義には Copilot CLI **1.0.8** 以降、ユーザー hook ファイルには **0.0.422** 以降が必要です。この条件はプラグインが処理するため、通常は意識する必要はありません。hook を手動で設定して問題が起きた場合は、`npx cc-safety-net doctor` を実行してください。検出した Copilot のバージョンと、対応している hook の取得元を報告します。
+
+## Grok Build
+
+```bash
+npx -y cc-safety-net@latest install --grok-build
+```
+
+`~/.grok/hooks/cc-safety-net.json`（`GROK_HOME` が設定されている場合は `$GROK_HOME/hooks/cc-safety-net.json`）に、管理対象の `PreToolUse` エントリとして次を書き込みます。
+
+```json
+{ "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --grok-build", "timeout": 30 }] }
+```
+
+このエントリにマッチャーはありません。そのため `run_terminal_command` だけでなく、すべてのツール呼び出しがアダプターに届きます。アダプターは、ファイル系ツールやパッチ系ツールの入力についても、保護対象のパスが含まれていないかを検査します。
+
+hook は `npx` 経由で動作するため、インストール時にはまず npm の `_npx` キャッシュからキャッシュ済みの `cc-safety-net` を削除し、hook が最新リリースを解決できるようにします。アンインストールではキャッシュに手を加えません。キャッシュの場所は [Antigravity CLI のセクション](#antigravity-cli)を参照してください。
+
+```bash
+npx -y cc-safety-net@latest uninstall --grok-build
+```
+
+どちらのコマンドも、触れるのは管理対象のハンドラーだけです。インストールでは既存のエントリから管理対象のハンドラーを取り除いたうえで、正規のエントリを単独で追加します。そのため、管理対象外のエントリ、管理対象のハンドラーと同じエントリにあった管理対象外のハンドラー、他の hook イベントは、いずれもそのまま残ります。アンインストールでは管理対象のハンドラーを取り除き、ハンドラーが 1 つも残らなくなったエントリは削除します。ファイル自体を削除するのは、他に何も残っていない場合だけです。パースできないファイルは、アンインストールではそのまま残します。インストールでは正規の内容に修復します。Grok Build はパースできない hook ファイルを丸ごと読み飛ばすため、そのようなファイルはどのみち機能する hook を保持できないからです。
+
+<Note>
+  Grok Build の hook は fail open であり、ホスト側に `failClosed` に相当する設定はありません。ツール呼び出しをブロックできるのは明示的な deny だけです。hook がクラッシュした場合、タイムアウトした場合、不正な出力を返した場合は、その呼び出しはそのまま実行されます。
+</Note>
 
 ## Hermes Agent
 

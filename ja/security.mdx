@@ -18,7 +18,7 @@ description: "CC Safety Net のセキュリティ脆弱性を報告する方法�
 
 - 影響を受ける `cc-safety-net` のバージョン
 - OS とランタイムのバージョン
-- 影響を受ける連携（Claude Code、OpenCode、Gemini CLI、GitHub Copilot CLI、Codex など）
+- 影響を受ける連携（Claude Code、OpenCode、Gemini CLI、GitHub Copilot CLI、Grok Build、Codex など）
 - 再現手順と、CC Safety Net を迂回・弱体化・悪用するコマンドまたは入力
 - `cc-safety-net explain` や `cc-safety-net doctor` の関連する出力
 - データ損失、コマンド実行、シークレットの露出など、具体的なセキュリティ影響につながるかどうか
@@ -55,6 +55,8 @@ CC Safety Net の役割は、選択した安全レベルについて文書化さ
 - ドキュメントの誤り
 - セキュリティ影響のないインストールの問題
 - カスタムルールや設定についての質問
+
+Grok Build の hook は設計上 fail open であり、ホスト側に `failClosed` に相当する設定はありません。ツール呼び出しをブロックできるのは、標準出力に明示的な deny を返した場合だけです。hook がクラッシュした場合、タイムアウトした場合、不正な出力を返した場合は、その呼び出しはそのまま実行されます。アダプター自身が fail closed とするケース（ツール入力の切り詰めや、作業ディレクトリを利用できない場合）には、それでも明示的に deny を出力します。このホストでは、アダプターが出力を一切返せなくなる失敗が起きた場合、その呼び出しをブロックできません。これはホスト側の挙動であり、未対応には当たりません。
 
 <Note>
   破壊的コマンドの未対応は、深刻に見える場合でも公開扱いのままです。脆弱性に再分類することはなく、非公開の報告経路は上に挙げた分類のために確保しています。[standard モードで文書化された緩和](/ja/guides/security-model#各安全レベルの保証)によって許可されるコマンドは、そもそも未対応には当たりません。standard はベストエフォートであり、これらの形式に対して fail closed になるのは strict と paranoid です。

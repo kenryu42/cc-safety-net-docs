@@ -187,6 +187,8 @@ Git 支持用 `GIT_SSH_COMMAND`、`GIT_SSH` 和 `GIT_SSH_VARIANT` 在网络操�
 
 必须同时存在递归标志（`-r`/`-R`/`--recursive`）和强制标志（`-f`/`--force`），此分类才会运行。路径比较使用规范化（realpath）解析，因此指向 `/` 的符号链接会被正确判定为危险，而 `/tmp-malicious` 不会匹配 `/tmp` 临时规则。
 
+在 Windows 上，Git Bash 等 MSYS shell 传入的是 `/c/Users/...` 形式的路径，而 Windows 路径 API 会把它读成当前驱动器下的路径。因此在任何比较之前，开头的 `/<drive-letter>` 若后接 `/` 或已到字符串结尾，就会改写为 `<drive-letter>:/`，于是 `/c/Users/you` 按 `c:/Users/you` 参与比较。改写只影响开头这一段。其他平台不受影响，POSIX 路径、UNC 路径和 Windows 原生盘符路径都原样保留。该改写在 `rm` 目标分类、策略文件和 Git 元数据保护、敏感路径保护之前运行。捕获环境时，`HOME` 和 `CC_SAFETY_NET_HOME` 同样会经过该改写，因此这两个根路径与命令操作数以相同形式比较。临时目录根路径的比较在 Windows 上还会忽略大小写，所以位于 Windows 原生临时目录下的小写 MSYS 路径会归类为临时目标，而不是 cwd 外目标。
+
 <Note>
 日常使用中最重要的区别：`rm -rf ./subdir`（cwd 内）会被**允许**，而 `rm -rf .`（cwd 本身）会被**阻止**。见[允许的命令](/zh-Hans/reference/allowed-commands)。
 </Note>

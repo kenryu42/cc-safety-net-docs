@@ -134,15 +134,25 @@ Codex 的统一 exec 路径（在 macOS 和 Linux 上是默认的 shell 路径�
 
 这个缺口无法从 hook 一侧填补：宿主不会为该调用发出事件，因此根本没有可供分析的内容。如果在你的环境中需要防范向运行中的会话注入，请用[沙箱](/zh-Hans/guides/vs-sandboxing)作为隔离层。
 
+## Grok Build 是故障时放行的宿主
+
+Grok Build hook 在设计上就是故障时放行，宿主也没有提供 `failClosed` 开关。只有 stdout 上明确的 deny 才能阻止工具调用。hook 崩溃、超时或输出格式错误时，调用照常执行。
+
+适配器仍会为自身的 fail-closed 情况输出明确的 deny，例如工具输入被截断或工作目录不可用。但在这个宿主上，如果失败导致适配器完全没有输出，它就无法阻止这次调用。如果这项残余风险在你的环境中值得关注，请用[沙箱](/zh-Hans/guides/vs-sandboxing)作为隔离层。
+
 ## 解决过期集成缓存
 
 ### OpenCode 过期缓存
 
 新版本发布后，OpenCode 的插件安装程序可能仍然提供缓存中过期的 `cc-safety-net`。如果更新未生效，请清除缓存并重新安装，见 <a href="/zh-Hans/installation#opencode-安装">OpenCode 安装步骤</a>。运行 `npx cc-safety-net doctor` 可确认检测到的插件版本。
 
-### 过期 npx 缓存（Antigravity CLI、Cursor、Hermes Agent、Kimi Code）
+### 过期 npx 缓存（Antigravity CLI、Cursor、Grok Build、Hermes Agent、Kimi Code）
 
-Antigravity CLI、Cursor 和 Kimi Code hook 以及 Hermes Agent 插件通过 `npx -y cc-safety-net` 运行，因此 npx 自身缓存也可能继续提供旧版本。安装这四个目标中的任何一个时，系统会先删除所有包含 `cc-safety-net` 的 npx 缓存条目（`_npx/*/node_modules/cc-safety-net`），因此直接重新安装就能用上新版本，无需手动清理缓存。安装其他目标不会触及此缓存。
+Antigravity CLI、Cursor、Grok Build 和 Kimi Code hook 以及 Hermes Agent 插件通过 `npx -y cc-safety-net` 运行，因此 npx 自身缓存也可能继续提供旧版本。安装这五个目标中的任何一个时，系统会先删除所有包含 `cc-safety-net` 的 npx 缓存条目（`_npx/*/node_modules/cc-safety-net`），因此直接重新安装就能用上新版本，无需手动清理缓存。安装其他目标不会触及此缓存。
+
+### 过期 bunx 缓存
+
+bunx 把每个包的缓存放在操作系统临时目录下，因此 `bunx cc-safety-net` 也可能用到旧版本。每次运行 `cc-safety-net update` 都会清除其中属于你自己的 `cc-safety-net` 条目，即使一个集成都没有安装也一样。只有一个条目会保留：从 bunx 启动的 `update` 不会删除自己正在运行的那个条目，因为删除使用中的文件在 Windows 上会失败。该条目会按 bun 自己的 manifest TTL 重新解析。
 
 ## 破坏性命令漏过时的处理方法
 

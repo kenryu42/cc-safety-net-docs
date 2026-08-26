@@ -138,15 +138,25 @@ Codex の統合された exec 経路（macOS と Linux では既定のシェル�
 
 この隙間を hook 側から塞ぐことはできません。ホストがその呼び出しに対してイベントを発行しないため、解析する対象そのものが存在しないからです。実行中のセッションへの入力が自分の環境で懸念になる場合は、封じ込めの層として[サンドボックス](/ja/guides/vs-sandboxing)を使ってください。
 
+## Grok Build は fail open のホスト
+
+Grok Build の hook は設計上 fail open であり、ホスト側に `failClosed` に相当する設定はありません。ツール呼び出しをブロックできるのは、標準出力に明示的な deny を返した場合だけです。hook がクラッシュした場合、タイムアウトした場合、不正な出力を返した場合は、その呼び出しはそのまま実行されます。
+
+アダプター自身が fail closed とするケース（ツール入力の切り詰めや、作業ディレクトリを利用できない場合）には、それでも明示的に deny を出力します。このホストでは、アダプターが出力を一切返せなくなる失敗が起きた場合、その呼び出しをブロックできません。この残るリスクが自分の環境で問題になる場合は、封じ込めの層として[サンドボックス](/ja/guides/vs-sandboxing)を使ってください。
+
 ## 連携のキャッシュが古い場合の対処
 
 ### OpenCode のキャッシュが古い場合
 
 新しいリリースを公開した後も、OpenCode のプラグインインストーラーが古いキャッシュ版の `cc-safety-net` を使い続けることがあります。更新が反映されない場合は、キャッシュを消去してから再インストールしてください。手順は [OpenCode のインストール](/ja/installation#opencode)にあります。検出されたプラグインのバージョンは、`npx cc-safety-net doctor` で確認できます。
 
-### npx のキャッシュが古い場合（Antigravity CLI、Cursor、Hermes Agent、Kimi Code）
+### npx のキャッシュが古い場合（Antigravity CLI、Cursor、Grok Build、Hermes Agent、Kimi Code）
 
-Antigravity CLI、Cursor、Kimi Code の hook と Hermes Agent のプラグインは `npx -y cc-safety-net` を使うため、npx 自身のキャッシュが古いリリースを返すことがあります。この 4 つのいずれかを対象にインストールすると、まず `cc-safety-net` を含む npx キャッシュの項目（`_npx/*/node_modules/cc-safety-net`）をすべて削除します。そのため、通常どおり再インストールするだけで新しいリリースを取得でき、手動でキャッシュを消す必要はありません。他の対象のインストールでは、このキャッシュには手を加えません。
+Antigravity CLI、Cursor、Grok Build、Kimi Code の hook と Hermes Agent のプラグインは `npx -y cc-safety-net` を使うため、npx 自身のキャッシュが古いリリースを返すことがあります。この 5 つのいずれかを対象にインストールすると、まず `cc-safety-net` を含む npx キャッシュの項目（`_npx/*/node_modules/cc-safety-net`）をすべて削除します。そのため、通常どおり再インストールするだけで新しいリリースを取得でき、手動でキャッシュを消す必要はありません。他の対象のインストールでは、このキャッシュには手を加えません。
+
+### bunx のキャッシュが古い場合
+
+bunx はパッケージごとのキャッシュを OS の一時ディレクトリに置くため、`bunx cc-safety-net` でも古いリリースが使われることがあります。`cc-safety-net update` は実行のたびに、自分の `cc-safety-net` のキャッシュ項目を削除します。連携が 1 つもインストールされていない場合も同じです。残る項目はちょうど 1 つです。bunx から起動した `update` は、自分自身が実行中の項目を削除しません。使用中のファイルの削除は Windows で失敗するためです。この項目は、bun 自身のマニフェスト TTL に従って再解決されます。
 
 ## 破壊的コマンドが通過した場合
 

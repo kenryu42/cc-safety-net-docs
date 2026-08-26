@@ -110,7 +110,7 @@ bunx cc-safety-net doctor
 
 | セクション | 説明 |
 | --- | --- |
-| Hook Integration | サポート対象の各エージェントの設定を確認する。Claude Code、Amp Code、Antigravity CLI、Codex、Cursor、Gemini CLI、GitHub Copilot CLI、Hermes Agent、Kimi Code、OpenClaw、OpenCode、Pi が対象 |
+| Hook Integration | サポート対象の各エージェントの設定を確認する。Claude Code、Amp Code、Antigravity CLI、Codex、Cursor、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code、OpenClaw、OpenCode、Pi が対象 |
 | Guard Engine Verification | ブロックが動作することを確認する合成セルフテストを実行する（`git reset --hard` と `rm -rf /` はブロック、`rm -rf ./node_modules` は許可） |
 | Configuration | ユーザーとプロジェクトのルール設定を検証し、有効なルールと隠されたルールを表示する |
 | Environment | CC Safety Net の環境変数の状態を表示する |
@@ -428,7 +428,7 @@ npx -y cc-safety-net install --claude-code
 
 ### ターゲット
 
-12 個のターゲットを使用できます。次の順序はインストールされる順序です。
+13 個のターゲットを使用できます。次の順序はインストールされる順序です。
 
 | フラグ | エージェント | インストール方法 |
 | --- | --- | --- |
@@ -439,6 +439,7 @@ npx -y cc-safety-net install --claude-code
 | `--cursor` | Cursor | `~/.cursor/hooks.json` に hook エントリを書き込む |
 | `--gemini-cli` | Gemini CLI | Gemini CLI の拡張機能インストールコマンドを実行する |
 | `--copilot-cli` | GitHub Copilot CLI | Copilot CLI 自身のプラグインマーケットプレイスコマンドを実行する |
+| `--grok-build` | Grok Build | `~/.grok/hooks/cc-safety-net.json`（または `$GROK_HOME/hooks/cc-safety-net.json`）に hook エントリを書き込む |
 | `--hermes-agent` | Hermes Agent | `~/.hermes/plugins/cc-safety-net`（または `$HERMES_HOME` の下）に管理対象 Python プラグインを書き込み、`hermes plugins enable` で有効にする |
 | `--kimi-code` | Kimi Code | ターミナルでは方式プロンプトの後に、`~/.kimi-code/config.toml`（または `$KIMI_CODE_HOME/config.toml`）に `[[hooks]]` ブロックを書き込む |
 | `--openclaw` | OpenClaw | OpenClaw 自身の `openclaw plugins` コマンドで同梱プラグインをインストールして有効にする |
@@ -450,10 +451,10 @@ npx -y cc-safety-net install --claude-code
 CC Safety Net は、3 つのインストール方法を使います。
 
 - **ネイティブのプラグインまたは拡張機能のコマンド**：Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、OpenClaw、OpenCode、Pi。CC Safety Net はエージェント自身のプラグインマネージャーを実行し、置き換えられた古いプラグイン ID を削除します。OpenClaw のインストールは、その後に OpenClaw がプラグインを読み込み済みと報告することも確認し、OpenClaw Gateway の再起動を求めます。OpenCode のインストールは、キャッシュ済みパッケージのエントリを import し、呼び出し可能な `CCSafetyNetPlugin` を export することを確認します。OpenCode が何も読み込まず fail open になる場合、インストールは失敗します。
-- **設定ファイルへの書き込み**：Antigravity CLI、Cursor、Kimi Code。CC Safety Net がエージェントの設定を直接編集するのは、この 3 つだけです。
+- **設定ファイルへの書き込み**：Antigravity CLI、Cursor、Grok Build、Kimi Code。CC Safety Net がエージェントの設定を直接編集するのは、この 4 つだけです。
 - **管理対象プラグイン成果物**：Amp Code と Hermes Agent。Amp のプラグインは、amp CLI を通じてアカウントのホスト型 Amp Personal Plugins リポジトリに公開されます（事前確認は `amp plugins repositories --json`）。そのため、インストールには amp CLI と `amp login` が必要です。公開されたプラグインは、Orb スレッドを含むすべての Amp セッションに適用されます。`~/.config/amp/plugins/cc-safety-net.ts` に管理対象のローカルコピーが残っているとパーソナルプラグインを覆い隠すため、インストール時に削除されます。変更後は Amp を再起動するか `plugins: reload` を実行します。Hermes Agent では、インストール時にプラグインをディスクに書き込んで `hermes plugins enable` も実行し、変更後に Hermes の再起動が必要です。
 
-設定ファイルへのインストール（Antigravity CLI、Cursor、Kimi Code）または Hermes Agent へのインストールが何かを書き込む前に、`npx` キャッシュから古い `cc-safety-net` を削除します。npm キャッシュの `_npx` ディレクトリ（`$npm_config_cache` が設定されている場合はその場所。それ以外は macOS と Linux で `~/.npm`、Windows で `%LOCALAPPDATA%\npm-cache`）の下にあり、`node_modules` が `cc-safety-net` を含むすべてのエントリを削除します。この 4 つの連携は `npx` で hook を実行するため、この処理により、新しくインストールした hook はキャッシュ済みのバージョンではなく最新版を解決します。
+設定ファイルへのインストール（Antigravity CLI、Cursor、Grok Build、Kimi Code）または Hermes Agent へのインストールが何かを書き込む前に、`npx` キャッシュから古い `cc-safety-net` を削除します。npm キャッシュの `_npx` ディレクトリ（`$npm_config_cache` が設定されている場合はその場所。それ以外は macOS と Linux で `~/.npm`、Windows で `%LOCALAPPDATA%\npm-cache`）の下にあり、`node_modules` が `cc-safety-net` を含むすべてのエントリを削除します。この 5 つの連携は `npx` で hook を実行するため、この処理により、新しくインストールした hook はキャッシュ済みのバージョンではなく最新版を解決します。
 
 **Kimi Code には 2 つのインストール方式があります。** ターミナルで `install --kimi-code` を実行するか、ピッカーで Kimi Code を選択すると、単一選択プロンプトが開きます。グローバル hook を今インストールするか、代わりにネイティブ Kimi プラグインの手順を表示するかを選びます（Kimi Code 内で `/plugins install https://github.com/kenryu42/cc-safety-net` を実行し、次に `/reload` を実行するか新しいセッションを開始します。信頼プロンプトの既定はキャンセルです）。プラグイン方式を選んでも何も書き込まれず、手順を表示するだけです。非対話セッションではプロンプトをスキップして、グローバル hook を直接インストールします。このプロンプトがプラグイン手順への唯一の経路であるため、グローバル hook が設定済みでも install 時の Kimi Code の行は選択可能なままで、`(global hook installed)` と表示されます。
 
@@ -484,11 +485,23 @@ TTY で `update` を直接実行すると、インストールバナーを表示
 
 ターゲットは、各エージェントの設定ファイルと状態ファイルを読み取って検出します。現在無効な場合でも、インストール済みと検出される連携が対象です。Amp Code は `amp plugins list` の出力によって対象になります。この出力は、`codex plugin list` と同じく 30 秒のタイムアウトで取得します。コールドラン時は checkout をネットワーク経由で更新するため、既定の 5 秒を超えることがあるからです。GitHub Copilot CLI は例外です。Copilot の `installed-plugins` ディレクトリに CC Safety Net プラグインの checkout がある場合だけ対象になります。無効状態と、何もインストールされていない kill-switch 状態を区別できず、update が install になることを防ぐためです。改名前の `safety-net@cc-marketplace` プラグイン ID を使うインストール（Claude Code、Codex、および GitHub Copilot CLI のプラグイン checkout `cc-marketplace/safety-net`）も検出されます。更新時に現在の ID へ移行し、レガシーコピーをベストエフォートで削除します。レガシーコピーの削除に失敗しても、ターゲットは失敗せず警告になります。
 
-すべてのターゲットは、1 つの `Updating <n> integration…` または `Updating <n> integrations…` スピナーの後ろで、`install` と同じ操作を並列に実行します。すべてのターゲットが完了した後、レポートを安定したカタログ順でまとめて出力します。メッセージだけが `Updated …` または `… up to date` に変わります。インストール時にエージェント自身の CLI を使うターゲット、つまり Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、Hermes Agent、OpenClaw、OpenCode、Pi では、先にベンダーバイナリを調べます。バイナリがない場合は `<Agent> not found; skipped`（例は `Codex not found; skipped`）を出力して処理を続けます。設定ファイルを使うターゲット、つまり Antigravity CLI、Cursor、Kimi Code にはバイナリが不要で、常に更新されます。Amp Code には別途の検査は不要です。`amp plugins list` がパーソナルプラグインを表示する場合にのみ検出され、その更新は amp CLI を実行して現在の成果物を公開します。Claude Code、Codex、GitHub Copilot CLI では、登録済みのマーケットプレイスをプラグイン処理の前に更新します（例は `claude plugin marketplace update cc-marketplace`）。何もしない `add` に頼らないため、古いカタログ checkout が更新を失敗させることはありません。
+すべてのターゲットは、1 つの `Updating <n> integration…` または `Updating <n> integrations…` スピナーの後ろで、`install` と同じ操作を並列に実行します。すべてのターゲットが完了した後、レポートを安定したカタログ順でまとめて出力します。メッセージだけが `Updated …` または `… up to date` に変わります。インストール時にエージェント自身の CLI を使うターゲット、つまり Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、Hermes Agent、OpenClaw、OpenCode、Pi では、先にベンダーバイナリを調べます。バイナリがない場合は `<Agent> not found; skipped`（例は `Codex not found; skipped`）を出力して処理を続けます。設定ファイルを使うターゲット、つまり Antigravity CLI、Cursor、Grok Build、Kimi Code にはバイナリが不要で、常に更新されます。Amp Code には別途の検査は不要です。`amp plugins list` がパーソナルプラグインを表示する場合にのみ検出され、その更新は amp CLI を実行して現在の成果物を公開します。Claude Code、Codex、GitHub Copilot CLI では、登録済みのマーケットプレイスをプラグイン処理の前に更新します（例は `claude plugin marketplace update cc-marketplace`）。何もしない `add` に頼らないため、古いカタログ checkout が更新を失敗させることはありません。
 
-並列処理の前に、キャッシュに依存するターゲット（Antigravity CLI、Cursor、Hermes Agent、Kimi Code）が 1 つでもある場合、`update` は `npx` キャッシュを 1 回消去します。消去に失敗した場合、そのキャッシュに依存するターゲットだけが失敗し、ほかのターゲットは実行を続けます。
+並列処理の前に、キャッシュに依存するターゲット（Antigravity CLI、Cursor、Grok Build、Hermes Agent、Kimi Code）が 1 つでもある場合、`update` は `npx` キャッシュを 1 回消去します。消去に失敗した場合、そのキャッシュに依存するターゲットだけが失敗し、ほかのターゲットは実行を続けます。
 
-対象がない場合、`update` は ``No installed integrations found. Run `cc-safety-net install` to set one up.`` を出力して `0` で終了します。
+`bunx` キャッシュの消去は無条件です。`bunx cc-safety-net` は連携ではなくユーザー自身が実行するものなので、対象の連携が 1 つも見つからない実行も含め、`update` は毎回このキャッシュから自分の `cc-safety-net` のエントリを消去します。
+
+`bunx` は各パッケージを、OS の一時ディレクトリの下に `bunx-<uid>-<package>@<version-or-latest>` という名前でインストールします。消去の対象はこの名前で判定します。macOS と Linux では、自分の uid と一致するものだけが対象です。Windows では `%TEMP%` がユーザーごとに分かれているため、任意の数値 ID が対象になります。末尾の `@` があるため、`cc-safety-net-*` のような似た名前は対象になりません。実行中のプロセス自身のエントリは対象から除外されます。そのため、`bunx` から起動した `update` が自分のファイルを削除することはありません。除外されたエントリは、bun 自身のマニフェスト TTL によって再解決されます。消去に失敗した場合は、エラーを出力して `1` で終了します。
+
+対象がない場合、`update` は ``No installed integrations found. Run `cc-safety-net install` to set one up.`` を出力して `0` で終了します。この実行が `1` で終了するのは、`bunx` キャッシュの消去に失敗した場合だけです。
+
+npm レジストリに新しいリリースがある場合、`update` は最後にベストエフォートで次の案内を出力します。
+
+```text
+Update available: cc-safety-net <current> → <latest>. Update this CLI with your package manager, e.g. `npm i -g cc-safety-net@latest` for a global install.
+```
+
+この案内は、永続的にインストールした CLI に向けたものです。`npx` と `bunx` での実行は一時的なもので、上記のキャッシュ消去によってすでに最新版に更新されるため、レジストリの確認自体をスキップします。一時的な実行かどうかは、パスに `_npx` のセグメントがあるか、bun の実際のキャッシュ名 `bunx-<digits>-` に一致するセグメントがあるかで判定します。数字を伴わない `bunx-` を含むだけのパス（たとえば `/opt/bunx-tools`）は永続的なインストールとして扱われ、案内が出ます。確認に失敗した場合、オフラインの場合、開発ビルドの場合は、何も出力されず終了コードも変わりません。
 
 `update` はターゲットフラグも引数も受け取りません。使用できるのは `-h` / `--help` だけです。ほかのオプションは `Unknown option for update: <flag>`、位置引数は `Unexpected argument for update: <arg>` を出力し、どちらも `1` で終了します。1 つのターゲットが失敗しても実行は止まりません。エラーは `install` と同じヒントとともに表示され、update は残りのターゲットを続行し、いずれかのターゲットが失敗していれば最後に `1` で終了します。それ以外の終了コードは `0` です。
 
@@ -496,7 +509,7 @@ TTY で `update` を直接実行すると、インストールバナーを表示
 
 ## uninstall
 
-`uninstall` は、`install` と同じ 12 個のターゲットフラグを受け取り、同じ選択ルールとターゲット順序を使います。
+`uninstall` は、`install` と同じ 13 個のターゲットフラグを受け取り、同じ選択ルールとターゲット順序を使います。
 
 ```bash
 npx -y cc-safety-net uninstall
@@ -518,6 +531,7 @@ npx -y cc-safety-net uninstall --cursor
 | `-cu`, `--cursor` | Cursor | `preToolUse` | 該当なし |
 | `-gc`, `--gemini-cli` | Gemini CLI | `BeforeTool` | 最上位形式の `cc-safety-net -gc` と `cc-safety-net --gemini-cli` |
 | `-cp`, `--copilot-cli` | GitHub Copilot CLI | `PreToolUse` | 最上位形式の `cc-safety-net -cp` と `cc-safety-net --copilot-cli` |
+| `-gb`, `--grok-build` | Grok Build | `PreToolUse` | 該当なし |
 | `-ha`, `--hermes-agent` | Hermes Agent | `pre_tool_call` | 該当なし |
 | `-kc`, `--kimi-code` | Kimi Code | `PreToolUse` | 該当なし |
 
@@ -538,6 +552,12 @@ Amp Code、Codex、OpenClaw、OpenCode、Pi には、独自の `hook` フラグ�
 `install --cursor` は、コマンド `npx -y cc-safety-net hook --cursor` を `~/.cursor/hooks.json` の `hooks.preToolUse` に書き込みます。`"version": 1` のドキュメントで、30 秒のタイムアウトと `failClosed: true` を設定します。インストーラーはドキュメントのバージョンと形式を検証し、認識できないものを書き換えず、説明付きエラーで失敗します。重複する管理対象エントリは 1 つにまとめられます。
 
 実行時、hook は Cursor の `Shell` ツール呼び出しを読み取り、`conversation_id` からセッション ID を取得して、`{ "permission": "deny", … }` または `{ "permission": "allow" }` を返します。Cursor の `working_directory` フィールドは、ワークスペースのルート内に収まっているかを検査されます。宣言されているのに値がない場合、またはワークスペースのルートの外を指す場合は fail closed になります。
+
+### Grok Build エントリーポイント
+
+`install --grok-build` は、コマンド `npx -y cc-safety-net hook --grok-build` を `~/.grok/hooks/cc-safety-net.json`（`GROK_HOME` が設定されている場合は `$GROK_HOME/hooks/cc-safety-net.json`）に書き込みます。30 秒のタイムアウトを持ち、マッチャーのない `PreToolUse` エントリです。そのため `run_terminal_command` だけでなく、すべてのツール呼び出しが hook に届きます。install が書き換えるのは管理対象のエントリだけです。管理対象外のエントリ、同じエントリ内の管理対象外のハンドラー、ほかの hook イベントはそのまま残ります。パースできないファイルは、正規の内容に修復します。Grok Build はパースできない hook ファイルを丸ごと読み飛ばすため、そのようなファイルが動作する管理対象外の hook を保持していることはないからです。uninstall は管理対象のハンドラーだけを取り除き、ファイルを削除するのは、ほかに何も残らない場合だけです。
+
+実行時、hook は Grok Build の camelCase の入力（`toolName`、`toolInput`、`sessionId`、`cwd`、`workspaceRoot`）を読み取ります。コマンドツールは `run_terminal_command` だけで、そのシェルの方言は自動判定します。セッション ID は `sessionId` から取得し、Grok Build が読み取る唯一の形式である `{ "decision": "deny", "reason": … }` または `{ "decision": "allow" }` を返します。`toolInputTruncated: true` は fail closed になります。Grok Build はツール入力を 128 KB で切り詰めるため、切れたコマンドは解析できないからです。信頼するルートは `workspaceRoot` で、`workspaceRoot` がない場合は `cwd` です。`cwd` は、正規化した結果がそのルートの内側のディレクトリでなければなりません。`cwd` がない場合や空の場合は `.` として扱います。ルートを正規化できない場合、または `cwd` がルートの外を指す場合は fail closed になります。
 
 ## gui
 

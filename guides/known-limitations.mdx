@@ -134,15 +134,25 @@ Codex's unified exec path, the default shell path on macOS and Linux, sends a `P
 
 This gap cannot be closed from the hook side: the host emits no event for that call, so there is nothing to analyze. If injection into a running session is a concern in your environment, use [sandboxing](/guides/vs-sandboxing) as the containment layer.
 
+## Grok Build is a fail-open host
+
+Grok Build hooks are fail-open by design, and the host exposes no `failClosed` knob. Only an explicit deny on stdout blocks a tool call. A hook that crashes, times out, or emits malformed output lets the call proceed.
+
+The adapter still emits an explicit deny for its own fail-closed outcomes, such as truncated tool input or an unusable working directory. On this host it cannot block a call when the failure leaves the adapter with no output at all. If that residual risk matters in your environment, use [sandboxing](/guides/vs-sandboxing) as the containment layer.
+
 ## Resolve stale integration caches
 
 ### OpenCode stale cache
 
 OpenCode's plugin installer can keep serving a stale cached version of `cc-safety-net` after a new release is published. If updates do not take effect, clear the cache and reinstall. See the [OpenCode installation steps](/installation#opencode-installation). Run `npx cc-safety-net doctor` to confirm the detected plugin version.
 
-### Stale npx cache (Antigravity CLI, Cursor, Hermes Agent, Kimi Code)
+### Stale npx cache (Antigravity CLI, Cursor, Grok Build, Hermes Agent, Kimi Code)
 
-The Antigravity CLI, Cursor, and Kimi Code hooks and the Hermes Agent plugin run through `npx -y cc-safety-net`, so npx's own cache can also keep serving an old release. Installing any of those four targets first removes every npx cache entry that contains `cc-safety-net` (the `_npx/*/node_modules/cc-safety-net` entries). A plain reinstall then picks up the new release without manual cache clearing. Installs for other targets do not touch this cache.
+The Antigravity CLI, Cursor, Grok Build, and Kimi Code hooks and the Hermes Agent plugin run through `npx -y cc-safety-net`, so npx's own cache can also keep serving an old release. Installing any of those five targets first removes every npx cache entry that contains `cc-safety-net` (the `_npx/*/node_modules/cc-safety-net` entries). A plain reinstall then picks up the new release without manual cache clearing. Installs for other targets do not touch this cache.
+
+### Stale bunx cache
+
+bunx keeps its own per-package cache under the OS temp dir, so a `bunx cc-safety-net` run can serve an old release too. Every `cc-safety-net update` run clears your `cc-safety-net` entries there, even when no integration is installed. Exactly one entry survives: a bunx-launched `update` does not delete the entry it is running from, because removing files in use fails on Windows. That entry re-resolves through bun's own manifest TTL instead.
 
 ## What to do if a destructive command slipped through
 

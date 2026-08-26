@@ -110,7 +110,7 @@ bunx cc-safety-net doctor
 
 | Section | Description |
 | --- | --- |
-| Hook Integration | Verifies configuration for each supported agent: Claude Code, Amp Code, Antigravity CLI, Codex, Cursor, Gemini CLI, GitHub Copilot CLI, Hermes Agent, Kimi Code, OpenClaw, OpenCode, and Pi |
+| Hook Integration | Verifies configuration for each supported agent: Claude Code, Amp Code, Antigravity CLI, Codex, Cursor, Gemini CLI, GitHub Copilot CLI, Grok Build, Hermes Agent, Kimi Code, OpenClaw, OpenCode, and Pi |
 | Guard Engine Verification | Runs a synthetic self-test to confirm blocking works (`git reset --hard` and `rm -rf /` blocked; `rm -rf ./node_modules` allowed) |
 | Configuration | Validates user and project rule config and lists effective and shadowed rules |
 | Environment | Shows the state of the CC Safety Net environment variables |
@@ -428,7 +428,7 @@ npx -y cc-safety-net install --claude-code
 
 ### Targets
 
-Twelve targets are accepted, listed here in the order they are installed:
+Thirteen targets are accepted, listed here in the order they are installed:
 
 | Flag | Agent | How it installs |
 | --- | --- | --- |
@@ -439,6 +439,7 @@ Twelve targets are accepted, listed here in the order they are installed:
 | `--cursor` | Cursor | Writes the hook entry into `~/.cursor/hooks.json` |
 | `--gemini-cli` | Gemini CLI | Runs Gemini CLI's extension install command |
 | `--copilot-cli` | GitHub Copilot CLI | Runs Copilot CLI's own plugin marketplace commands |
+| `--grok-build` | Grok Build | Writes the hook entry into `~/.grok/hooks/cc-safety-net.json` (or `$GROK_HOME/hooks/cc-safety-net.json`) |
 | `--hermes-agent` | Hermes Agent | Writes a managed Python plugin to `~/.hermes/plugins/cc-safety-net` (or under `$HERMES_HOME`) and enables it with `hermes plugins enable` |
 | `--kimi-code` | Kimi Code | Writes a `[[hooks]]` block into `~/.kimi-code/config.toml` (or `$KIMI_CODE_HOME/config.toml`), after a method prompt in a terminal |
 | `--openclaw` | OpenClaw | Installs and enables the bundled plugin through OpenClaw's own `openclaw plugins` commands |
@@ -450,10 +451,10 @@ Twelve targets are accepted, listed here in the order they are installed:
 CC Safety Net uses three installation mechanisms:
 
 - **Native plugin or extension commands.** Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, OpenClaw, OpenCode, and Pi. CC Safety Net uses the agent's plugin manager and removes superseded plugin IDs. OpenClaw installation verifies that OpenClaw reports the plugin as loaded, then asks you to restart the Gateway. OpenCode installation imports the cached package entry and verifies that it exports a callable `CCSafetyNetPlugin`; installation fails if OpenCode would load nothing and fail open.
-- **Config-file writes.** Antigravity CLI, Cursor, and Kimi Code. These are the only agent configurations that CC Safety Net edits directly.
+- **Config-file writes.** Antigravity CLI, Cursor, Grok Build, and Kimi Code. These are the only agent configurations that CC Safety Net edits directly.
 - **Managed plugin artifacts.** Amp Code and Hermes Agent. CC Safety Net publishes the Amp plugin to your account's hosted Personal Plugins repository through the Amp CLI. The preflight is `amp plugins repositories --json`, so installation requires the Amp CLI and `amp login`. The published plugin applies to every Amp session, including Orb threads. Install removes a managed local copy at `~/.config/amp/plugins/cc-safety-net.ts` because it would mask the personal plugin. After a change, restart Amp or run `plugins: reload`. For Hermes Agent, installation writes the plugin to disk and runs `hermes plugins enable`. Restart Hermes after a change.
 
-Before a config-file install for Antigravity CLI, Cursor, or Kimi Code, or a Hermes Agent install writes anything, it clears stale `cc-safety-net` copies from the `npx` cache. It removes each entry under the npm cache's `_npx` directory whose `node_modules` contains `cc-safety-net`. The npm cache is `$npm_config_cache` when set, otherwise `~/.npm` on macOS and Linux or `%LOCALAPPDATA%\npm-cache` on Windows. These four integrations run the hook through `npx`, so the new hook resolves the latest version instead of a cached one.
+Before a config-file install for Antigravity CLI, Cursor, Grok Build, or Kimi Code, or a Hermes Agent install writes anything, it clears stale `cc-safety-net` copies from the `npx` cache. It removes each entry under the npm cache's `_npx` directory whose `node_modules` contains `cc-safety-net`. The npm cache is `$npm_config_cache` when set, otherwise `~/.npm` on macOS and Linux or `%LOCALAPPDATA%\npm-cache` on Windows. These five integrations run the hook through `npx`, so the new hook resolves the latest version instead of a cached one.
 
 **Kimi Code has two install methods.** In a terminal, `install --kimi-code` or selecting Kimi Code in the picker opens a single-select prompt. You can install the global hook or print the native Kimi plugin steps. For the plugin, run `/plugins install https://github.com/kenryu42/cc-safety-net` inside Kimi Code. The trust prompt defaults to cancel. Then run `/reload` or start a new session. Choosing the plugin method writes nothing; it only prints the steps. A non-interactive session skips the prompt and installs the global hook directly. The Kimi Code picker row stays selectable during install even when the global hook is configured because the prompt is the only path to the plugin steps. The row is then labelled `(global hook installed)`.
 
@@ -484,11 +485,23 @@ In a TTY, a direct `update` starts detection before it shows the install banner,
 
 `update` reads each agent's configuration and state files. An integration qualifies when it is installed, **even when it is disabled**. Amp Code qualifies through `amp plugins list`, which uses a 30-second timeout like `codex plugin list` because a cold run can refresh checkouts over the network. GitHub Copilot CLI is the exception. It qualifies only when a CC Safety Net checkout exists in Copilot's `installed-plugins` directory because its disabled state is indistinguishable from a kill switch with nothing installed. Installations that still use the old `safety-net@cc-marketplace` ID in Claude Code or Codex also qualify. The GitHub Copilot CLI checkout `cc-marketplace/safety-net` also qualifies. Updating migrates them to the current ID and removes the legacy copy on a best-effort basis, so a failed removal warns without failing the target.
 
-All targets run the same operation as `install` concurrently behind one `Updating <n> integration…` or `Updating <n> integrations…` spinner. The command waits for every target to settle, then prints all reports in stable catalog order, with messages changed to `Updated …` or `… up to date`. For the targets whose install drives the agent's own CLI, Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Hermes Agent, OpenClaw, OpenCode, and Pi, the vendor binary is probed first: a missing binary prints `<Agent> not found; skipped` (for example `Codex not found; skipped`) and the run continues. The config-file targets, Antigravity CLI, Cursor, and Kimi Code, need no binary and always refresh. Amp Code needs no separate probe: it is detected only when `amp plugins list` shows the personal plugin, and its refresh drives the amp CLI to publish the current artifact. On Claude Code, Codex, and GitHub Copilot CLI, an already-registered marketplace is refreshed before the plugin step (for example `claude plugin marketplace update cc-marketplace`) instead of relying on a no-op `add`, so a stale catalog checkout cannot fail the update.
+All targets run the same operation as `install` concurrently behind one `Updating <n> integration…` or `Updating <n> integrations…` spinner. The command waits for every target to settle, then prints all reports in stable catalog order, with messages changed to `Updated …` or `… up to date`. For the targets whose install drives the agent's own CLI, Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Hermes Agent, OpenClaw, OpenCode, and Pi, the vendor binary is probed first: a missing binary prints `<Agent> not found; skipped` (for example `Codex not found; skipped`) and the run continues. The config-file targets, Antigravity CLI, Cursor, Grok Build, and Kimi Code, need no binary and always refresh. Amp Code needs no separate probe: it is detected only when `amp plugins list` shows the personal plugin, and its refresh drives the amp CLI to publish the current artifact. On Claude Code, Codex, and GitHub Copilot CLI, an already-registered marketplace is refreshed before the plugin step (for example `claude plugin marketplace update cc-marketplace`) instead of relying on a no-op `add`, so a stale catalog checkout cannot fail the update.
 
-Before the concurrent phase, `update` clears the `npx` cache once when any cache-dependent target is present: Antigravity CLI, Cursor, Hermes Agent, or Kimi Code. If that clear fails, only those cache-dependent targets fail; the other targets still run.
+Before the concurrent phase, `update` clears the `npx` cache once when any cache-dependent target is present: Antigravity CLI, Cursor, Grok Build, Hermes Agent, or Kimi Code. If that clear fails, only those cache-dependent targets fail; the other targets still run.
 
-When nothing qualifies, `update` prints ``No installed integrations found. Run `cc-safety-net install` to set one up.`` and exits `0`.
+The `bunx` cache clear is unconditional. Every `update` run clears your `cc-safety-net` entries there, including a run that finds no integrations at all, because you invoke `bunx cc-safety-net` yourself rather than an integration invoking it.
+
+`bunx` installs each package into the OS temp directory as `bunx-<uid>-<package>@<version-or-latest>`, and the clear matches entries by that name. On macOS and Linux it matches only your own uid. On Windows it matches any numeric id, because `%TEMP%` is already per user. The trailing `@` keeps `cc-safety-net-*` lookalikes out. The entry the running process executes from is skipped, so a `bunx`-launched `update` does not delete its own files; that entry re-resolves through bun's manifest TTL instead. A failed clear prints the error and exits `1`.
+
+When nothing qualifies, `update` prints ``No installed integrations found. Run `cc-safety-net install` to set one up.`` and exits `0`. A failed `bunx` cache clear is the only thing that can make that run exit `1`.
+
+`update` ends with a best-effort nudge when the npm registry has a newer release:
+
+```text
+Update available: cc-safety-net <current> → <latest>. Update this CLI with your package manager, e.g. `npm i -g cc-safety-net@latest` for a global install.
+```
+
+The nudge is for persistent installs. An `npx` or `bunx` run is ephemeral and the cache clears above already refresh it, so those runs skip the registry check entirely. `update` recognizes them by a `_npx` path segment, or by a segment matching bun's real cache naming `bunx-<digits>-`. A persistent path that merely contains `bunx-` with no digits, `/opt/bunx-tools` for example, still gets the nudge. A failed check, an offline run, and a dev build print nothing and never change the exit code.
 
 `update` accepts only `-h` or `--help`, with no target flags or arguments. Any other option prints `Unknown option for update: <flag>`, while a positional argument prints `Unexpected argument for update: <arg>`. Both exit `1`. One target's failure does not stop the run. Its error prints with the same hints as `install`, and update continues with the remaining targets. The command exits `1` if any target failed and `0` otherwise.
 
@@ -496,7 +509,7 @@ You can also reach the update flow from the interactive `install` selector by pr
 
 ## uninstall
 
-`uninstall` accepts the same twelve target flags and uses the same selection rules and target order as `install`.
+`uninstall` accepts the same thirteen target flags and uses the same selection rules and target order as `install`.
 
 ```bash
 npx -y cc-safety-net uninstall
@@ -518,6 +531,7 @@ For the config-file targets, uninstall removes only the entries CC Safety Net ma
 | `-cu`, `--cursor` | Cursor | `preToolUse` | None |
 | `-gc`, `--gemini-cli` | Gemini CLI | `BeforeTool` | `cc-safety-net -gc` and `cc-safety-net --gemini-cli` as top-level forms |
 | `-cp`, `--copilot-cli` | GitHub Copilot CLI | `PreToolUse` | `cc-safety-net -cp` and `cc-safety-net --copilot-cli` as top-level forms |
+| `-gb`, `--grok-build` | Grok Build | `PreToolUse` | None |
 | `-ha`, `--hermes-agent` | Hermes Agent | `pre_tool_call` | None |
 | `-kc`, `--kimi-code` | Kimi Code | `PreToolUse` | None |
 
@@ -538,6 +552,12 @@ At runtime the hook reads Antigravity's `run_command` tool calls, takes the sess
 `install --cursor` writes the command `npx -y cc-safety-net hook --cursor` into `~/.cursor/hooks.json` under `hooks.preToolUse`, in a `"version": 1` document, with a 30-second timeout and `failClosed: true`. The installer validates the document's version and shape and fails with a descriptive error rather than rewriting something it does not recognize. Duplicate managed entries are collapsed into one.
 
 At runtime the hook reads Cursor's `Shell` tool calls, takes the session id from `conversation_id`, and answers with `{ "permission": "deny", … }` or `{ "permission": "allow" }`. Cursor's `working_directory` field is containment-checked against the workspace roots and fails closed when it is missing-but-declared or points outside them.
+
+### Grok Build entry point
+
+`install --grok-build` writes the command `npx -y cc-safety-net hook --grok-build` into `~/.grok/hooks/cc-safety-net.json`, or `$GROK_HOME/hooks/cc-safety-net.json` when `GROK_HOME` is set, as a `PreToolUse` entry with a 30-second timeout and no matcher, so every tool call reaches the hook instead of only `run_terminal_command`. Install rewrites only the managed entry and keeps foreign entries, foreign handlers, and other hook events. It repairs an unparsable file to the canonical form, because Grok Build skips an unparsable hook file entirely and such a file cannot carry working foreign hooks. Uninstall strips only the managed handler and deletes the file only when nothing else is left in it.
+
+At runtime the hook reads Grok Build's camelCase input: `toolName`, `toolInput`, `sessionId`, `cwd`, and `workspaceRoot`. `run_terminal_command` is the only command tool, and its shell dialect is detected automatically. The session id comes from `sessionId`, and the hook answers with `{ "decision": "deny", "reason": … }` or `{ "decision": "allow" }`, the only output form Grok Build reads. `toolInputTruncated: true` fails closed, because Grok Build truncates tool input at 128 KB and the cut command cannot be analyzed. The trusted root is `workspaceRoot`, or `cwd` when `workspaceRoot` is absent; `cwd` must canonicalize to a directory inside that root, and an absent or empty `cwd` is read as `.`. A root that cannot be canonicalized, or a `cwd` outside it, fails closed.
 
 ## gui
 

@@ -1,7 +1,7 @@
 ---
 title: "Install CC Safety Net for your coding agent"
 sidebarTitle: "Installation"
-description: "Install and uninstall CC Safety Net across all twelve supported coding agents: Amp Code, Antigravity CLI, Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot CLI, Hermes Agent, Kimi Code, OpenClaw, OpenCode, and Pi."
+description: "Install and uninstall CC Safety Net across all thirteen supported coding agents: Amp Code, Antigravity CLI, Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot CLI, Grok Build, Hermes Agent, Kimi Code, OpenClaw, OpenCode, and Pi."
 ---
 
 CC Safety Net installs as a plugin, extension, or hook inside your coding agent. You do not need a persistent service or daemon. Some integrations start a short-lived hook subprocess for each check.
@@ -64,6 +64,7 @@ For scripted, non-interactive installs, pass exactly one target flag. Passing ze
 | [Cursor](#cursor-installation) | `npx -y cc-safety-net@latest install --cursor` | `npx -y cc-safety-net@latest uninstall --cursor` |
 | [Gemini CLI](#gemini-cli-installation) | `npx -y cc-safety-net@latest install --gemini-cli` | `npx -y cc-safety-net@latest uninstall --gemini-cli` |
 | [GitHub Copilot CLI](#github-copilot-cli-installation) | `npx -y cc-safety-net@latest install --copilot-cli` | `npx -y cc-safety-net@latest uninstall --copilot-cli` |
+| [Grok Build](#grok-build-installation) | `npx -y cc-safety-net@latest install --grok-build` | `npx -y cc-safety-net@latest uninstall --grok-build` |
 | [Hermes Agent](#hermes-agent-installation) | `npx -y cc-safety-net@latest install --hermes-agent` | `npx -y cc-safety-net@latest uninstall --hermes-agent` |
 | [Kimi Code](#kimi-code-installation) | `npx -y cc-safety-net@latest install --kimi-code` | `npx -y cc-safety-net@latest uninstall --kimi-code` |
 | [OpenClaw](#openclaw-installation) | `npx -y cc-safety-net@latest install --openclaw` | `npx -y cc-safety-net@latest uninstall --openclaw` |
@@ -215,6 +216,32 @@ npx -y cc-safety-net@latest uninstall --copilot-cli
 </Note>
 
 Hook support in Copilot CLI depends on its version. Doctor checks repository hook files under `.github/hooks`; inline hook definitions in `.github/copilot/settings.local.json`, `.github/copilot/settings.json`, `.claude/settings.local.json`, `.claude/settings.json`, `~/.copilot/settings.json`, and `~/.copilot/config.json`; and user hook files under `~/.copilot/hooks`. Inline hook definitions require Copilot CLI **1.0.8** or later, and user hook files require **0.0.422** or later. The plugin handles this for you. If you configure hooks manually and find a problem, run `npx cc-safety-net doctor`. It reports the detected Copilot version and the supported hook sources.
+
+## Grok Build installation
+
+```bash
+npx -y cc-safety-net@latest install --grok-build
+```
+
+This writes a managed `PreToolUse` entry to `~/.grok/hooks/cc-safety-net.json`, or to `$GROK_HOME/hooks/cc-safety-net.json` when `GROK_HOME` is set:
+
+```json
+{ "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --grok-build", "timeout": 30 }] }
+```
+
+The entry carries no matcher, so every tool call reaches the adapter instead of only `run_terminal_command`. The adapter also inspects the inputs of file and patch tools for protected paths.
+
+Because the hook runs through `npx`, install first clears cached `cc-safety-net` copies from the npm `_npx` cache so the hook resolves the current release; uninstall does not touch the cache. The cache locations are listed in the [Antigravity CLI section](#antigravity-cli-installation).
+
+```bash
+npx -y cc-safety-net@latest uninstall --grok-build
+```
+
+Both commands only ever touch the managed handler. Install strips managed handlers out of the existing entries and appends the canonical entry standalone, so foreign entries, foreign handlers that shared an entry with it, and other hook events all survive. Uninstall removes the managed handler, drops an entry once it has no handlers left, and deletes the file only when nothing else remains in it. Uninstall leaves an unparsable file alone; install repairs one to the canonical entry, because Grok Build skips an unparsable hook file entirely, so such a file cannot carry working hooks anyway.
+
+<Note>
+  Grok Build hooks are fail-open and the host exposes no `failClosed` knob. Only an explicit deny blocks a tool call. A hook that crashes, times out, or emits malformed output lets the call proceed.
+</Note>
 
 ## Hermes Agent installation
 
