@@ -67,7 +67,7 @@ Standard、strict 和 paranoid 是三个预设，为 `fail_closed`、`paranoid_r
 
 <Steps>
   <Step title="Hook 入口点">
-    Hook 适配器用 try/catch 包装分析调用。如果分析抛出错误，hook 会发出拒绝判定，而不会让命令继续。命令达到分析预算时，拒绝会带上专门的原因，提示智能体简化或拆分命令。`failed closed` 这个原因只用于分析器的意外失败。所有基于 stdin hook 的智能体都适用：Antigravity CLI、Claude Code、Cursor、Gemini CLI、GitHub Copilot CLI、Grok Build 和 Kimi Code。Grok Build 有一点不同：它的 hook 是故障时放行，宿主也没有提供 `failClosed` 开关，因此只有 stdout 上明确的 deny 才能阻止工具调用。适配器仍会为自身的 fail-closed 情况输出明确的 deny，例如工具输入被截断或工作目录不可用。在这个宿主上，如果失败导致适配器完全没有输出，这次调用就不会被阻止。
+    Hook 适配器用 try/catch 包装分析调用。如果分析抛出错误，hook 会发出拒绝判定，而不会让命令继续。命令达到分析预算时，拒绝会带上专门的原因，提示智能体简化或拆分命令。`failed closed` 这个原因只用于分析器的意外失败。所有基于 stdin hook 的智能体都适用：Antigravity CLI、Claude Code、Cursor、Gemini CLI、GitHub Copilot CLI、Grok Build 和 Kimi Code。Grok Build 有一点不同：它的 hook 是 fail open，宿主也没有提供 `failClosed` 开关，因此只有 stdout 上明确的 deny 才能阻止工具调用。适配器仍会为自身的 fail-closed 情况输出明确的 deny，例如工具输入被截断或工作目录不可用。在这个宿主上，如果失败导致适配器完全没有输出，这次调用就不会被阻止。
   </Step>
   <Step title="插件和扩展入口点">
     Amp Code、OpenCode、OpenClaw 和 Pi 进程内集成使用相同模式：捕获分析错误并再次作为阻止消息返回，使平台把命令视为已拒绝。Codex 以插件安装，但运行共享 stdin hook 入口点，因此属于上一步。Hermes Agent 叠加两层：其托管 Python 插件调用相同 stdin hook（`cc-safety-net hook --hermes-agent`），并在分析无法完成时由插件自身阻止该调用，包括缺少 `npx`、无法解析工作目录或 Hermes 会话记录、spawn 失败、30 秒超时、非零分析器退出码，或无法读取输出。各智能体采用哪种集成方式见<a href="/zh-Hans/guides/integration-architecture">集成架构</a>。

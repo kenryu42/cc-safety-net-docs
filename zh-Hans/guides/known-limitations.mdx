@@ -1,7 +1,7 @@
 ---
 title: "已知限制和易错点"
 sidebarTitle: "已知限制"
-description: "CC Safety Net 无法捕获的内容：不透明命令代理、二进制文件内部行为、文件系统隔离和网络、符号链接 TOCTOU、解释器标志、基于 eval 的执行，以及 Hermes Agent 和 OpenClaw 的覆盖边界。"
+description: "CC Safety Net 无法捕获的内容：不透明命令代理、二进制文件内部行为、文件系统隔离和网络、符号链接 TOCTOU、解释器标志、基于 eval 的执行、Codex 交互会话缺口、fail-open 的宿主 Grok Build，以及 Hermes Agent 和 OpenClaw 的覆盖边界。"
 ---
 
 CC Safety Net 分析智能体尝试运行的命令字符串。它能阻止已知的破坏性 Git 和文件系统操作，降低意外丢失数据的风险，但不是完整的安全方案。本页列出仍存在的**残余**限制，并说明何时应改用<a href="/zh-Hans/guides/vs-sandboxing">沙箱</a>。
@@ -134,9 +134,9 @@ Codex 的统一 exec 路径（在 macOS 和 Linux 上是默认的 shell 路径�
 
 这个缺口无法从 hook 一侧填补：宿主不会为该调用发出事件，因此根本没有可供分析的内容。如果在你的环境中需要防范向运行中的会话注入，请用[沙箱](/zh-Hans/guides/vs-sandboxing)作为隔离层。
 
-## Grok Build 是故障时放行的宿主
+## Grok Build 是 fail-open 的宿主
 
-Grok Build hook 在设计上就是故障时放行，宿主也没有提供 `failClosed` 开关。只有 stdout 上明确的 deny 才能阻止工具调用。hook 崩溃、超时或输出格式错误时，调用照常执行。
+Grok Build hook 在设计上就是 fail open，宿主也没有提供 `failClosed` 开关。只有 stdout 上明确的 deny 才能阻止工具调用。hook 崩溃、超时或输出格式错误时，调用照常执行。
 
 适配器仍会为自身的 fail-closed 情况输出明确的 deny，例如工具输入被截断或工作目录不可用。但在这个宿主上，如果失败导致适配器完全没有输出，它就无法阻止这次调用。如果这项残余风险在你的环境中值得关注，请用[沙箱](/zh-Hans/guides/vs-sandboxing)作为隔离层。
 
