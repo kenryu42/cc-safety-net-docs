@@ -23,12 +23,13 @@ CC Safety Net 是一道尽力而为的静态执行前策略门，作用于受支
 
 ### 次级边界
 
-四个次级边界从外部来源进入 CC Safety Net。每一个都会先经过验证，之后才能影响分析。
+五个次级边界从外部来源进入 CC Safety Net。每一个都会先经过验证，之后才能影响分析。
 
 | 边界 | 来源 | 验证方式 |
 | --- | --- | --- |
-| 用户配置 | 磁盘上的 `policy.json` 和规则配置 | 解析并验证 schema；被拒绝的候选配置绝不会生效。运行时会回退，不会拒绝普通工作（见[配置恢复边界](#配置恢复边界)） |
-| Rulebook 来源 | 从 GitHub 或本地目录获取的 rulebook | 通过 lockfile 中的 SHA-256 digest 检查远程 rulebook 完整性；无法验证的来源不提供任何规则 |
+| 用户配置 | 磁盘上的用户 `policy.json` 和规则配置 | 解析并验证 schema；被拒绝的候选配置绝不会生效。运行时会回退，不会拒绝普通工作（见[配置恢复边界](#配置恢复边界)） |
+| 项目策略 | 项目根目录下的 `.cc-safety-net/policy.json`，任何能向仓库提交的人都可以添加 | 按字段验证 schema，再按固定合并规则叠加到用户策略之上：项目设定的字段以项目值为准，`allow_paths` 和 `deny_paths` 取两个范围的并集，`audit` 部分会被忽略并给出诊断。项目削弱的每个字段各占一行报告。写入该文件与写入用户策略文件一样被拒绝 |
+| Rulebook 来源 | 从 GitHub 落盘的 rulebook，或本地编写的 rulebook | `rule add` 和 `rule update` 会对获取到的内容做 schema 验证，要求 rulebook 的 `name` 与来源一致，并运行 `rulebook_version: 2` 的 fixture，之后才写入落盘副本；运行时在加载时再次做 schema 验证，无法加载的来源被丢弃，因而不提供任何规则 |
 | Hook 输入 JSON | 各智能体在 stdin 上发送的 JSON payload | 防御性解析；格式错误或超大输入会触发拒绝 |
 | 环境变量 | 级别和能力标志以及路径 override（`CC_SAFETY_NET_*`、`TMPDIR` 等） | 显式读取；安全关键值按不可信数据处理 |
 
@@ -46,14 +47,14 @@ Standard、strict 和 paranoid 是三个预设，为 `fail_closed`、`paranoid_r
   Standard 模式**不具备对抗级能力**。它不会一律阻止动态 `rm -rf` 目标。`rm -rf "$target"` 在 standard 中允许，只有 strict 或 paranoid 会阻止。当命令可能来自提示注入或其他对抗性上下文时，必须使用 strict 或 paranoid。
 </Warning>
 
-启用机密保护时，安全级别不会放宽已匹配敏感**内容**的访问，也不会放宽用户配置的拒绝路径及其后代。配置的 `secret_protection.allow_paths` 条目可以让字面文件或目录树豁免于非 CLI 的内置机密规则；拒绝路径和 `secret.cli.*` 规则仍然优先。灾难性保护始终强制执行，包括递归删除根目录或用户主目录、对受保护 Git 元数据的破坏性更改，以及对规范用户 `policy.json` 的破坏性更改。
+启用机密保护时，安全级别不会放宽已匹配敏感**内容**的访问，也不会放宽用户配置的拒绝路径及其后代。配置的 `secret_protection.allow_paths` 条目可以让字面文件或目录树豁免于非 CLI 的内置机密规则；拒绝路径和 `secret.cli.*` 规则仍然优先。灾难性保护始终强制执行，包括递归删除根目录或用户主目录、对受保护 Git 元数据的破坏性更改，以及对用户或项目 `policy.json` 的破坏性更改。
 
 ## 配置恢复边界
 
 配置是信任边界，不是 kill switch。无效配置会落入两种运行时状态之一，且**绝不会仅因无效而拒绝普通工作**。
 
 - **`ready`**：每个活动来源都已通过验证。
-- **`degraded`**：某个候选来源被拒绝，并由安全的替代方案接替生效：无法验证的规则来源被丢弃，不提供任何规则；发生 drift 或无效的本地 rulebook 继续使用通过 digest 验证的缓存；重复的 rulebook 名保留第一次声明；无法读取的策略文件回退到可挽救的策略或内置保护默认值。
+- **`degraded`**：某个候选来源被拒绝，并由安全的替代方案接替生效：rulebook 文件缺失、无法读取、无效或名称与来源不符时，该来源被丢弃，不提供任何规则；重复的 rulebook 名称保留第一次声明；项目策略中的 `audit` 部分被忽略；任一范围中无法读取的策略文件回退到可挽救的策略或内置保护默认值。
 
 被拒绝的候选来源绝不会当作活动来源。丢弃某个来源会移除该来源带来的拒绝，这相对于你配置的策略确实降低了执行力度；所有界面都会报告这种降低，而不会把它呈现为安全中性。丢弃来源不能削弱内置规则：rulebook 只能提供阻止规则，忽略无法读取的 `rule.json` 会恢复其中 `overrides` 原本禁用的内置规则。一个例外有明确范围和记录：`transparent_wrappers` 位于 `rule.json`，因此某个范围的 `rule.json` 无法读取时，内置分析在该范围内展开的包装命令范围会收窄。作为交换，系统不会把任何命令或路径加入允许列表，因为不会有任何东西因无法配置而被拒绝。
 
@@ -107,7 +108,8 @@ Standard、strict 和 paranoid 是三个预设，为 `fail_closed`、`paranoid_r
 | **包装器和解释器剥离** | 在 `sudo`、`env`、`bash -c` 或解释器单行命令后隐藏破坏性命令 | 迭代剥离包装器（有迭代上限）；递归重新分析 shell 包装器和解释器代码，最多 10 层；在 `transparent_wrappers` 中声明的命令会在分析前展开到可见子命令 |
 | **敏感文件访问** | 通过 command、path、search 或 patch 形式读取或发现 `.env`、`~/.ssh/id_*` 或 `~/.aws/credentials` 等凭证 | 敏感路径保护覆盖受支持的 command、path、search 和 patch 形式，并包含未知工具的回退检查；用户配置的拒绝路径及其后代最先匹配且绝不放宽；字面机密允许路径可以豁免非 CLI 的内置匹配，但 Coding CLI 路径仍然受保护；strict 和 paranoid 还会阻止仅元数据的发现。覆盖范围是有界的模式集，不是通用的读取边界 |
 | **rm 分析中的路径遍历** | 使用符号链接或路径技巧让危险 `rm -rf` 目标绕过分类 | 把目标解析为规范路径；检测指向已知临时目录之外的 `$TMPDIR` override；仍存在残余的 TOCTOU 窗口（见<a href="/zh-Hans/guides/known-limitations#符号链接-toctou-风险">已知限制</a>） |
-| **Rulebook 供应链** | 从 GitHub 来源提供恶意 rulebook | 根据 lockfile 对远程 rulebook 做 SHA-256 验证和 schema 验证；恶意 rulebook 可以添加规则，但不能删除内置阻止 |
+| **Rulebook 供应链** | 从 GitHub 来源提供恶意 rulebook | `rule add` 和 `rule update` 会把 ref 解析到 commit，禁止重定向，限制响应的字节数和时间，对内容做 schema 验证，并运行 `rulebook_version: 2` 的 fixture，之后才写入落盘副本；落盘文件位于使用方仓库中，人可以评审；运行时在加载时再次做 schema 验证；恶意 rulebook 可以添加规则，但不能删除内置阻止 |
+| **项目策略文件** | 提交一个降低安全级别或放行敏感路径的 `.cc-safety-net/policy.json`，让所有 clone 该仓库的人都受其影响 | 合并规则限定了影响范围：`deny_paths` 取两个范围的并集，项目文件无法去掉用户的拒绝路径，`audit` 也只属于用户范围。每一处削弱都各占一行，显示在 `status`、`doctor`、状态行和 GUI 上。写入任一策略文件都会以 `hard_stop` intent 拒绝，智能体执行 `cc-safety-net policy apply` 也以相同 intent 拒绝，因此会话中的智能体既写不了该文件，也无法自行应用提案 |
 | **审计日志机密泄漏** | 设法让机密写入磁盘上的审计日志 | 每次日志写入前运行 `redactSecrets`；模式列表持续增量维护 |
 | **Hook 输入解析** | 用格式错误的 JSON 让 hook 崩溃 | `JSON.parse` 失败触发拒绝，而不是崩溃；平台适配器执行额外验证 |
 | **审计日志路径遍历** | 构造会话 ID，使写入落到日志目录之外 | 会话 ID 会被清理为文件系统安全的形式，长度受限，并拒绝 `.` 和 `..` |

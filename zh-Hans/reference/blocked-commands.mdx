@@ -137,25 +137,35 @@ CC Safety Net 会解析两个目录最近的祖先 `.git` 条目：一个是执�
 
 <Note>边界：此防护覆盖执行目录和配置目录各自最近的祖先 Git 控制面，不包括这两个目录下的其他嵌套仓库，也不包括解析集合之外的 Git 内部路径。</Note>
 
-## 规范 `policy.json`
+## 受保护的 `policy.json`
 
-修改或删除规范用户策略文件始终被阻止。默认路径是 `~/.cc-safety-net/policy.json`；设置 `CC_SAFETY_NET_HOME` 后，路径为 `$CC_SAFETY_NET_HOME/policy.json`。此检查在加载配置**之前**运行，因此它所保护的策略无法禁用这项检查，其拒绝也不带安全级别和配置状态。原因字符串固定为：
+修改或删除受保护的策略文件始终被阻止。受保护的文件有两个：用户策略文件，默认路径是 `~/.cc-safety-net/policy.json`，设置 `CC_SAFETY_NET_HOME` 后为 `$CC_SAFETY_NET_HOME/policy.json`；以及项目策略文件 `.cc-safety-net/policy.json`，它分别从执行目录和配置目录解析。此检查在加载配置**之前**运行，因此它所保护的策略无法禁用这项检查，其拒绝也不带安全级别和配置状态。原因字符串固定为：
 
 ```text
 This path contains the protected policy config and you must not modify or delete it.
 ```
 
-匹配覆盖该文件、它所在的目录以及该目录的各级祖先，涵盖以下形式：
+匹配覆盖这两个文件，以及一组随范围而不同的目录。对于用户策略文件，覆盖它所在的目录以及该目录的各级祖先；对于项目策略文件，只覆盖它自身的 `.cc-safety-net` 目录，不再向上，因此项目根目录下的 `rm -rf .` 返回的仍是破坏性命令规则本来的原因，而不是这一条。涵盖以下形式：
 
 - 直接的写入、编辑和 patch 目标。
 - 精确的 shell 操作数和写入重定向。
 - 受支持的环境变量、相对路径和现有符号链接别名。
-- 对策略目录或其祖先的递归 `rm`。
-- 以该文件、其目录或祖先为源的 `mv`。
+- 对受保护目录的递归 `rm`。
+- 以受保护的文件或目录为源的 `mv`。
 
 只读的检查命令在允许列表中，可以通过：`[`、`cat`、`file`、`grep`、`head`、`jq`、`less`、`ls`、`more`、`rg`、`sed`、`stat`、`tail`、`test`、`wc`。
 
-<Warning>这是范围很小的精确路径保护，不是命令模拟器。它会跟踪只做赋值的 shell 变量和显式的 `cd`，但不会展开 glob 或 brace，也不会推断计算得出的解释器路径、检查解释器正文、推断归档成员、模拟 `find` 操作或推断传输后的最终文件名。rulebook、lockfile、缓存、同级文件和对策略目录的检查都不在此防护范围内，只有 `policy.json` 具备防篡改能力。</Warning>
+<Warning>这是范围很小的精确路径保护，不是命令模拟器。它会跟踪只做赋值的 shell 变量和显式的 `cd`，但不会展开 glob 或 brace，也不会推断计算得出的解释器路径、检查解释器正文、推断归档成员、模拟 `find` 操作或推断传输后的最终文件名。`rule.json`、rulebook、同级文件和对策略目录的检查都不在此防护范围内。只有 `policy.json` 具备防篡改能力，两个范围都受保护。</Warning>
+
+### 智能体运行 `cc-safety-net policy apply`
+
+`policy apply` 会重写这道防护所保护的文件，因此同一阶段会在加载配置之前拒绝它，intent 为 `hard_stop`。只有你本人可以应用提案，没有任何选项能解除这一点。原因字符串固定为：
+
+```text
+Only the user may apply a policy proposal, because it rewrites the configuration CC Safety Net enforces. Ask them to run `cc-safety-net policy apply <file>` themselves in a terminal; you can run `cc-safety-net policy check <file>` to show them what it would change.
+```
+
+识别逻辑有意放宽匹配，覆盖直接调用 `cc-safety-net` 或 `ccsn`，以及 `npx`、`bunx`、`pnpx`、`pnpm dlx`、`yarn dlx`、`npm exec`、`pnpm exec`、`yarn exec`、`cc-safety-net@latest` 这类带版本的写法，还有用 `bun` 或 `node` 运行 `src/cli/cc-safety-net.ts` 或 `dist/bin/cc-safety-net.js`。把运行器选项放在目标之前也无法绕开，`-g` 和 `--global` 出现在任何位置都会被跳过。`policy check` 和其他所有子命令仍然允许。
 
 ## PowerShell `Remove-Item`
 

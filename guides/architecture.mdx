@@ -64,12 +64,12 @@ Which agent uses which adapter, its hook flag, and where its config lives are al
 
 ## The policy snapshot
 
-`loadPolicySnapshot()` composes the effective runtime policy from local policy configuration, rulebook lockfiles, and verified rulebook cache entries. Its contract matters as much as its content:
+`loadPolicySnapshot()` composes the effective runtime policy from the user policy file, the project policy file, each scope's `rule.json`, and the rulebook file every configured source names. Its contract matters as much as its content:
 
-- It performs **no writes, no network requests, and no in-memory caching**. Synchronizing a remote rulebook stays an explicit CLI operation (`cc-safety-net rule sync`).
+- It performs **no writes, no network requests, and no in-memory caching**. Rulebooks are live files, so the loader reads each `rulebook.json` from disk on every tool call. Only `cc-safety-net rule add` and `cc-safety-net rule update` reach the network.
 - The result is **deeply immutable**. The policy object, the rules array, each rule and its `block_args`, the transparent-wrapper list, the safety block and its overrides, the destructive-command rule overrides, the allow paths, and the secret-protection block with its disabled rules and deny paths are all frozen, as is the snapshot wrapper itself.
 - It resolves to exactly **two states**: `ready`, where every validated source is enforced, and `degraded`, where a candidate source was rejected and something safe is enforced in its place. A degraded reason names the failing source, states what is not active, and states the repair.
-- The snapshot records each rule's provenance: rulebook name and version, public source spec, and override reason. Diagnostics and the GUI render this snapshot.
+- The snapshot records each rule's provenance: rulebook name and version, public source spec, and override reason. When a project policy file exists, it also records which scope set the safety level and one line per field the project policy relaxed. Diagnostics and the GUI render this snapshot.
 
 A rejected policy or rule source does not, by itself, deny an ordinary tool call. The runtime drops the source instead of converting it into a block. See [Configuration recovery](/configuration/recovery) for the state contract and repair path.
 
@@ -84,7 +84,7 @@ Every tool call, on every integration, runs this fixed order. Operations that de
 | 3 | `command-analysis` | Declared-command parser budget exceeded, so the command is denied for hitting the recursion limit. | No |
 | 4 | `command-validation` | Structural command-validation budget exceeded (input length, word count, nesting depth), so the command is denied. | No |
 | 5 | Not reported | Resolve protected Git metadata for the execution working directory. | No |
-| 6 | `policy-protection` | **Policy-file protection.** A write, move, or recursive delete that touches the canonical user `policy.json`, its directory, or an ancestor is denied with intent `hard_stop`. | No |
+| 6 | `policy-protection` | **Policy-file protection.** A write, move, or recursive delete that touches the user `policy.json`, the project `policy.json`, the project file's own `.cc-safety-net` directory, or the user file's directory or any ancestor of it is denied with intent `hard_stop`. An agent that runs `cc-safety-net policy apply` is denied at this stage too, with the same intent. `cc-safety-net policy check` stays allowed. | No |
 | 7 | `policy-protection` | **Git-metadata protection.** A delete, move, redirection, write-tool, patch, or unknown-tool route that targets the resolved `.git` entry, its directories, or its hooks directories is denied with intent `hard_stop`. Read-only tools are exempt on the write-tool, patch, and unknown-tool routes. | No |
 | 8 | `config-load` | **Load the policy snapshot** and resolve the effective safety level from policy plus environment. | Not applicable |
 | 9 | `secret-protection` | **Sensitive-path protection.** The guard inspects command, path, search, and patch shapes for built-in sensitive paths and configured deny paths. A match denies with intent `hard_stop` and carries the matched rule id. The guard skips this stage when the policy disables secret protection. | Yes |

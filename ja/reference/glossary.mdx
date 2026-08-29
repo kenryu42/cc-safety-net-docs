@@ -37,7 +37,9 @@ keywords:
 | 用語 | 定義 |
 | --- | --- |
 | **ポリシー** | 設定ドキュメント `policy.json`。既定では `~/.cc-safety-net/policy.json`。安全 preset、機能 override、worktree モード、破壊的コマンド保護、シークレット保護、監査保持を格納します。カスタムルールを格納する場所ではありません。[ポリシー](/ja/configuration/policy)を参照してください。 |
-| **ポリシースナップショット** | 各ツール呼び出しで、ポリシーファイル、`rule.json`、ロックファイル、ダイジェスト検証済みの rulebook キャッシュから構成される有効なランタイムポリシー。読み込み時に書き込み、ネットワーク要求、キャッシュを実行しません。状態は `ready` と `degraded` の 2 つだけです。[設定の復旧](/ja/configuration/recovery)を参照してください。 |
+| **プロジェクトポリシー** | プロジェクトルートに置ける `.cc-safety-net/policy.json`。設定したフィールドだけを持つファイルで、省略したフィールドはユーザーポリシーの値をそのまま引き継ぎます。`audit` セクションは持ちません。監査設定はユーザースコープ専用です。書き込みはユーザーポリシーファイルと同じく拒否されます。[ポリシー](/ja/configuration/policy)を参照してください。 |
+| **実効ポリシー** | ユーザーポリシーの上にプロジェクトポリシーを重ねた結果。`safety.level`、`workflow.worktree_mode`、およびプロジェクトが設定した各 `enabled` フラグは、プロジェクト側の値が優先されます。ルールごとの override はルール ID 単位でマージされ、`allow_paths` と `deny_paths` は両スコープの和集合になります。プロジェクトが緩和したフィールドは、1 行ずつ報告されます。[ポリシー](/ja/configuration/policy)を参照してください。 |
+| **ポリシースナップショット** | 各ツール呼び出しで、ユーザーとプロジェクトのポリシーファイル、各スコープの `rule.json`、および設定した各ソースの rulebook ファイルから構成される有効なランタイムポリシー。読み込み時に書き込み、ネットワーク要求、キャッシュを実行しません。状態は `ready` と `degraded` の 2 つだけです。[設定の復旧](/ja/configuration/recovery)を参照してください。 |
 | **preset** | 継承する機能の既定値を提供する `safety.level` の値。`standard`、`strict`、`paranoid` のいずれかです。override によってどの preset にも一致しない組み合わせになると、報告される有効レベルは `custom` です。[モード](/ja/configuration/modes)を参照してください。 |
 | **機能** | preset から継承され、個別に設定できる保護動作。`fail_closed`、`paranoid_rm`、`paranoid_interpreters` のいずれかです。ポリシーファイルの `safety.overrides` は機能を上げ下げします。レガシーの環境変数フラグは上げることしかできません。[モード](/ja/configuration/modes)を参照してください。 |
 | **Degraded** | 設定ソースが拒否されたときのポリシースナップショット状態。検証できないソースは削除されるか、保護的な既定値へフォールバックします。通常の作業は継続し、すべての診断表示で状態が報告されます。もう 1 つの状態は `ready` です。[設定の復旧](/ja/configuration/recovery)を参照してください。 |
@@ -70,10 +72,10 @@ keywords:
 
 | 用語 | 定義 |
 | --- | --- |
-| **rulebook** | カスタムのブロックルール、メタデータ、任意のフィクスチャを収めた JSON ファイル。`rule.json` で参照先として設定し、SHA-256 ダイジェストでロックファイルに固定したうえで、検証済みのキャッシュから適用されます。rulebook の名前は、ユーザースコープとプロジェクトスコープをまたいで一意に確保されます。[カスタムルール](/ja/configuration/custom-rules)を参照してください。 |
+| **rulebook** | カスタムのブロックルール、メタデータ、任意のフィクスチャを収めた JSON ファイル。`rule.json` で参照先として設定し、そのスコープの `.cc-safety-net` ディレクトリ配下の `rules/<name>/rulebook.json` に置きます。ランタイムがツール呼び出しのたびに読み取るため、保存した編集は次のコマンドから反映されます。`name` は、その rulebook を参照するソースと一致していなければなりません。rulebook の名前は、ユーザースコープとプロジェクトスコープをまたいで一意に確保されます。[カスタムルール](/ja/configuration/custom-rules)を参照してください。 |
 | **transparent wrapper** | `rule.json` の `transparent_wrappers` で宣言するコマンド。解析はラッパーを通して、ラッパーが実行する保護対象コマンドに到達します。ラッパーは rulebook ではなく `rule.json` にあります。そのため、rulebook が削除されてもラッパーは残りますが、`rule.json` を読み取れないと、そのスコープのラッパーは失われます。[カスタムルール](/ja/configuration/custom-rules)を参照してください。 |
-| **ロックファイル** | rulebook ソースのダイジェストとキャッシュ済み内容を追跡する JSON ファイル（`rule.lock`）。古い rulebook や改ざんされた rulebook の検出に使います。[カスタムルール](/ja/configuration/custom-rules)を参照してください。 |
+| **取り込まれた rulebook** | リモートの rulebook を検証したうえで、`rule add` と `rule update` が利用側自身の `rules/<name>/rulebook.json` に書き込むコピー。リポジトリ内の通常のファイルなので、人間がそのまま読めますし、更新の差分もそのまま確認できます。ネットワークに接続するのは `rule add` と `rule update` だけで、ランタイムはこのファイルを読むだけです。[カスタムルール](/ja/configuration/custom-rules)を参照してください。 |
 
 <Note>
-  rulebook、ルール、フィクスチャ、ロックファイルの正式なスキーマについては、[カスタムルール](/ja/configuration/custom-rules)を参照してください。`policy.json` のスキーマについては、[ポリシー](/ja/configuration/policy)を参照してください。`explain --json` が返す JSON 形式については、[explain トレース](/ja/reference/explain-trace)を参照してください。
+  rulebook、ルール、フィクスチャの正式なスキーマについては、[カスタムルール](/ja/configuration/custom-rules)を参照してください。`policy.json` のスキーマについては、[ポリシー](/ja/configuration/policy)を参照してください。`explain --json` が返す JSON 形式については、[explain トレース](/ja/reference/explain-trace)を参照してください。
 </Note>

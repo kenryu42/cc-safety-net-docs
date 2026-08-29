@@ -1,0 +1,102 @@
+---
+title: "The /cc-safety-net skill"
+sidebarTitle: "Skill"
+description: "Invoke the /cc-safety-net skill to explain a block, triage a false positive, author rulebook rules, propose a policy change, manage integrations, and diagnose protection. It runs only when you invoke it."
+---
+
+CC Safety Net ships a skill that turns your coding agent into an operator for the tool. Ask it why a command was refused, have it write a rulebook rule, or have it check your installation. It runs the `cc-safety-net` CLI, reads the output, and reports back in plain language.
+
+The skill operates CC Safety Net. It does not enforce anything. Protection comes from the hook, which runs whether or not the skill is loaded.
+
+## How you invoke it
+
+The skill ships inside the plugin, so installing the plugin installs the skill.
+
+| Agent | Invocation |
+| --- | --- |
+| Claude Code | `cc-safety-net:cc-safety-net`, listed under the plugin's namespace |
+| Pi and OpenCode | `/cc-safety-net`, a built-in command their integrations register |
+
+Antigravity CLI and Kimi Code add the skill separately with `npx skill add kenryu42/cc-safety-net`. See [Installation](/installation).
+
+Whatever you type after the invocation becomes the request:
+
+```text
+/cc-safety-net why was my last git command blocked
+/cc-safety-net block terraform destroy in this project
+```
+
+## It never fires on its own
+
+The model cannot decide to load this skill mid-task. Two settings enforce that, one per agent family:
+
+- `disable-model-invocation: true` in the SKILL.md frontmatter, honored by Claude Code and Kimi Code.
+- `allow_implicit_invocation: false` in `agents/openai.yaml` next to the skill, for Codex, which ignores the frontmatter field.
+
+## When to reach for it
+
+- A command was refused with `BLOCKED by CC Safety Net` and you want the step-by-step reason.
+- A block looks wrong and you want it triaged: reproduce the decision, fix the custom rule responsible, or report a built-in false positive.
+- You want custom blocking rules written, edited, or migrated for you.
+- You want the safety level changed, a protection toggled, or a path list adjusted.
+- You want CC Safety Net installed into, updated in, or removed from another agent CLI.
+- A rule you added does not fire, or you want to confirm protection is active.
+- You want to know why the analyzer treats a construct a certain way, beyond what `explain` and `rule doc` show.
+
+## What each workflow does
+
+The skill routes your request to one of seven workflows.
+
+**Explain a decision.** It gets the exact blocked command, from `logs` when you do not have it to hand, and passes it to `explain` as one literal argument. It then reads the trace for the rule that matched and reports the reason, along with the safer alternative the reason names. `explain` exits 0 for both allowed and blocked verdicts, so the skill reads the verdict from the output rather than the exit status. See [Explain trace](/reference/explain-trace).
+
+**Triage a false positive.** It lists recent suspect denials with `logs --suspect --since 7`, reproduces the decision with `explain`, and identifies the rule that fired. If a custom rule fired, it edits or overrides that rulebook and re-runs `explain` to confirm the new verdict. If a built-in rule fired, no rule edit can relax it, so it looks for the escape hatch the reason documents, such as `CC_SAFETY_NET_WORKTREE=1` for local git discards in linked worktrees, or `rule wrapper add` when a trusted transparent wrapper hid the real command. Otherwise it explains the risk and points you at the issue tracker.
+
+**Configure rules.** It picks the scope, either user, project, or a shareable rulebook in the current repository, inspects what is there with `rule verify` and `rule list`, writes the JSON using `rule doc` output as the schema authority, and validates the result. A saved rulebook is live, so there is nothing to activate afterwards. See [Custom rules](/configuration/custom-rules).
+
+**Configure the policy.** Both `policy.json` files are protected, so the skill proposes and you apply. It writes a proposal to an unprotected path, runs `policy check` on it, and shows you the diff. Then it hands you the exact `policy apply` command to run in your own terminal. See [Policy](/configuration/policy).
+
+**Manage integrations.** It runs `doctor` first for what is detected, configured, and verified, installs with an explicit target flag such as `install --claude-code`, and runs `doctor` again to confirm the affected row reads as verified. Bare `install` opens an interactive picker, which it leaves for your own terminal.
+
+**Diagnose.** `status` reports what the runtime enforces right now, including a degraded `policy.json` that `rule list` does not report. `doctor` verifies platform detection and hook config, runs a synthetic guard self-test, and checks the configuration scopes. When a custom rule does not fire, it runs `rule verify`, then `rule list`, then re-tests the command with `explain`. See [Troubleshooting](/guides/troubleshooting).
+
+**Answer from version-matched source.** For questions the CLI output cannot settle, it reads the source of the version you are actually running. See below.
+
+## Reading version-matched source
+
+The published npm package contains only a minified `dist`, so there is no readable source in it. The skill gets `<version>` from `--version` and then looks for source in two places.
+
+A plugin install ships the whole repository, and the skill file sits at `<repo>/skills/cc-safety-net/SKILL.md` inside it, so the repository root is two directories up. The skill accepts that candidate only when its `package.json` has `"name": "cc-safety-net"` and the matching version, and a `src/` directory sits next to it.
+
+Failing that, it resolves the commit recorded with the published package through `npm view "cc-safety-net@<version>" gitHead`, requires a 40-character lowercase hexadecimal commit, and fetches that exact commit into a fresh owner-only temporary directory with inherited git hooks and templates disabled. It verifies that `HEAD` is the expected commit before reading anything, and removes the checkout when it is done.
+
+It never answers from `main`, which can carry unreleased behavior your installed version does not have, and it states in the answer which version the source came from. The located source is read-only reference: the skill does not edit, build, or run it.
+
+## Commands it treats as read-only
+
+These are the commands the skill considers safe to run for discovery, at any point in any workflow:
+
+`--help`, `--version`, `status`, `doctor`, `logs` (without `--prune-legacy`), `explain`, `rule list`, `rule verify`, `rule doc`, `policy check`, `help`.
+
+Every other command changes configuration or installed integrations. The skill runs those only as a step in one of the workflows above. See [CLI commands](/reference/cli-commands) for what each one does.
+
+## How it handles your command text
+
+A command that got blocked is often the kind of text a shell would mangle. The skill passes command text and wrapper names to the CLI as separate argv values, or shell-escapes the whole thing as one argument when it has to go through a shell. Command substitutions, backticks, and variables therefore stay inert until the analyzer receives them.
+
+Once received, `explain` analyzes the string and never executes it. The same holds for rulebook fixtures: `rule verify` evaluates `rulebook_version` 2 fixtures against the rulebook's own rules, and the fixture commands are analyzer input that CC Safety Net never runs.
+
+## What it will not do
+
+- Help you evade CC Safety Net. It will not lower the level, uninstall, edit config, or propose a weakening policy to get a blocked command through, unless you ask for that outcome and understand what the block guards against.
+- Write either `policy.json`. Reading them is allowed, writing them is not. `policy apply` invoked by an agent is blocked by design, there is no `--yes` flag, and the skill will not wrap the command or write the file another way.
+- Offer to add a GitHub rulebook source while authoring rules. Installing rulebooks from a GitHub source sits outside that workflow. It uses `rule add owner/repo --only <rulebook...>` only when you explicitly ask to install existing rulebooks, and adds `--ref <ref>` only when you name a non-default ref.
+- Run `hook`. That is the integration entry point that reads hook JSON from stdin, not a user-facing command.
+- Run `logs --prune-legacy` without an explicit request, and it runs `--dry-run` first when you do ask. The command permanently deletes legacy logs.
+- Run `rule remove --delete-source` without asking. That flag deletes the local source directory.
+- Run `rule sync` to validate or activate anything. It is deprecated and only migrates lock and cache leftovers from an earlier version.
+
+It also prefers `gui --no-open` and gives you the URL instead of opening a browser from your session.
+
+<Note>
+  The skill reads `cc-safety-net rule doc` as the complete authority for rulebook schema, paths, GitHub sources, matching behavior, and validation. [Custom rules](/configuration/custom-rules) documents the same contract for you.
+</Note>

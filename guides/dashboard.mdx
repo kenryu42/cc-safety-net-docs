@@ -39,6 +39,8 @@ The dashboard is not a hosted service. Its server listens only on the local loop
 - A JSON request body larger than 1 MiB is rejected with `413` and the error `Request body is too large` before it is parsed, because the whole body would otherwise sit in memory.
 - Responses are served with `cache-control: no-store`.
 
+The token is printed on stdout, so whoever launched the command can read it. That is what lets the browser page work at all, and it means an agent that ran `cc-safety-net gui` itself can reach the same token-gated endpoints, including the project-policy apply described below. The token keeps out another page, and any process that never saw that line. It does not keep out the launcher. What stays closed is the direct route: an agent editing `policy.json` by command, or running `cc-safety-net policy apply`, is still denied.
+
 The page makes no outbound requests for its data. Everything it renders comes from your local policy file and audit logs. The update check and GitHub star action on Overview are the only opt-in exceptions.
 
 <Note>
@@ -143,9 +145,27 @@ Edits accumulate in a draft and apply only when you save.
 
 Saving writes the policy file and reports its path. While the on-disk policy has an error, every form control shows the built-in default instead of the values that the runtime salvaged from disk. Only the raw JSON mirror shows the file's contents. The dashboard refuses to save in this state with `Repair policy before saving changes.` This prevents the displayed defaults from overwriting your file. Repair the policy before saving. The form then reloads the settings that the repair preserved.
 
+### Draft a project policy
+
+`Draft project policy` in the view head switches the whole Policy view into a draft of the project file. The draft bar names the path it writes and states the rule that file follows: `Only the fields you mark are written here; everything else keeps inheriting from each member's own policy.` `Exit draft` returns you to editing your own policy. `Change…` retargets the draft at another directory when a native directory picker is available, and discards the current draft when you accept the confirmation. Until you change it, the target is the directory the dashboard was launched from.
+
+**Marked versus inherited.** Every control gains a chip naming whose value it is showing. `Inherited` means the field stays out of the project file and each member keeps their own value. `Set by project` means the draft writes it, and clicking that chip drops the field back to inherited. Editing a control marks its field. A marked path list shows the project's own entries only, so marking one starts it empty rather than publishing your personal paths into the repository.
+
+**Review and apply.** **Save** becomes **Review & apply**. It asks the server for the diff and opens an `Apply this project policy?` dialog carrying the target path and a `Setting` / `Now` / `After` table of the effective policy before and after, with `(unset)` where a field is absent from one side. `No change to the effective policy.` replaces the table when nothing differs. Below the table the dialog lists one warning per field the draft relaxes relative to your user policy, in the same wording [Policy](/configuration/policy#reported-weakenings) documents, and adds `The existing project policy file is invalid and will be replaced.` when the file already on disk cannot be read. Cancel is focused by default.
+
+An edit that lands while the diff is loading forces another pass, with `Error: the draft changed while the review was loading. Review it again.` If a second tab moved the project directory, the draft reloads for the new target and asks you to review it again before applying.
+
+**When the draft refuses to start.** A user policy with errors degrades to protective defaults in the runtime, and a draft seeded from those would present defaults as the baseline your team inherits. So the dashboard refuses, reporting `Error: repair your user policy before drafting a project policy.` with the diagnostics. A project file that exists but cannot be read behaves differently. The draft starts empty and prints that file's diagnostics above the form.
+
+**The same guarantees as the CLI.** The draft is `cc-safety-net policy check` and `cc-safety-net policy apply` behind a form. It writes the same sparse file, diffs the proposal against the same runtime user baseline, and writes nothing until you confirm. See [Policy](/configuration/policy#project-policy) for the file contract and the rules by which the two scopes merge.
+
+One difference is worth knowing. `cc-safety-net policy apply` run by an agent is hard-stopped by the guard, because rewriting the configuration CC Safety Net enforces has to come from you. The dashboard apply is that same human action. You click it on a page only someone holding the session token can open, and as [Local loopback scope](#local-loopback-scope) notes, an agent that launched the dashboard holds that token too.
+
 ### Test a command
 
 Paste a shell command into **Test a command** to see whether it would be blocked. The test evaluates against your **current unsaved edits**, so you can check a change before committing to it.
+
+In a project draft the test evaluates what the runtime would load, which is the inherited baseline with the draft's marked fields laid over it. It takes each path list as the union of your own entries and the draft's, because the loader unions them. The same evaluation feeds the protection summary and the per-rule status lines on this view, so a marked path list that reads empty on screen does not make your own paths look unprotected.
 
 The test also enforces custom rulebook rules loaded from disk, although the dashboard cannot edit rulebooks. Treat it as a preview of the full decision, not only the built-in layer. Use [`explain`](/reference/cli-commands#explain) for the same analysis in the terminal.
 
@@ -191,6 +211,16 @@ While the master switch is on, the panel summary reads `N active, N disabled`. W
 **Deny paths** live in this panel. Configured paths and everything inside them are blocked while secret protection is on. Turning secret protection off also stops enforcing deny paths. See [Deny paths](/configuration/policy#deny-paths) for the accepted entry forms.
 
 **Allow paths** also live in this panel. An exact file or directory tree can be exempted from the built-in pattern rules, but deny paths and Coding CLI protections still apply. The dashboard validates each addition before it enters the draft. Glob patterns, paths that cover home, and the guard's own configuration are rejected. See [Secret allow paths](/configuration/policy#secret-allow-paths) for the complete precedence and validation rules.
+
+### Policy JSON
+
+The **Policy JSON** panel sits at the bottom of this view. It is a read-only mirror with a copy button, not a second editor. Its subtitle names what you are looking at:
+
+| Subtitle | What the box shows |
+| --- | --- |
+| `Read-only mirror of the controls.` | The user policy the form would save |
+| `Read-only original policy JSON. Repair preserves valid settings and writes canonical JSON.` | The file as it is on disk, while it has errors |
+| `Only the fields marked for this project. Writes to <path>.` | The exact sparse file the project apply would write |
 
 ### Actions that ask for confirmation
 
@@ -256,7 +286,7 @@ Inputs:
 - **Request.** Describe the rules you want. Rules match a command, an optional subcommand, and exact arguments. They do not match file paths or patterns.
 - **Examples.** One-click starters for suggesting rules, blocking a command, and verifying existing rules.
 
-The generated prompt tells your agent to use the CC Safety Net skill or run `cc-safety-net rule doc` and treat that output as the source of truth. It includes the scope, project path, and existing rulebook names so the agent can select an unused name. The text includes **only** rulebook names. It does not include rule names, blocked arguments, reasons, or versions.
+The generated prompt tells your agent to use the `cc-safety-net` skill, and to run `npx -y cc-safety-net rule doc` first when that skill is unavailable and treat its output as the source of truth for schema, paths, and validation. It includes the scope, project path, and existing rulebook names so the agent can select an unused name. The text includes **only** rulebook names. It does not include rule names, blocked arguments, reasons, or versions.
 
 Copying is refused, with a specific message, when rules have not loaded yet, when the request is empty, or when project scope is selected with no project path.
 
@@ -284,15 +314,13 @@ Settings covers appearance, file locations, and maintenance.
 
 **Appearance.** A theme control cycling `Auto → Light → Dark`. The preference is stored in this browser, not in your policy.
 
-**Files.** Two read-only rows showing where CC Safety Net reads and writes on this machine: the policy file and the audit log directory.
+**Files.** Read-only rows showing where CC Safety Net reads and writes on this machine: the policy file and the audit log directory. A **Project policy** row appears between them when a project policy is in force, and a notice under the rows lists what that file changes, headed `Merged on top of this file:`.
 
-**Audit log retention.** Sets how many days of audit records to keep. See [Audit log](/reference/audit-log#retention) for the accepted range, recorded data, and sweep behavior. Unlike the Policy view, retention **saves immediately on change** with no save bar. You cannot save it while the Policy view has unsaved changes. Unlike the Policy save button, this control remains active while the on-disk policy has errors. In that state, the form holds defaults, so changing retention writes an all-defaults document with only your new retention over the file. Repair the policy before changing retention.
+**Audit log retention.** Sets how many days of audit records to keep. See [Audit log](/reference/audit-log#retention) for the accepted range, recorded data, and sweep behavior. Unlike the Policy view, retention **saves immediately on change** with no save bar. You cannot save it while the Policy view has unsaved changes, and retention is user scope only, so you cannot save it while a project draft is open either. Unlike the Policy save button, this control remains active while the on-disk policy has errors. In that state, the form holds defaults, so changing retention writes an all-defaults document with only your new retention over the file. Repair the policy before changing retention.
 
 <Warning>
   Shortening retention is irreversible. The next sweep deletes audit entries older than the new window, and the Activity view can then look back only as far as the new value. The dashboard asks you to confirm and names the log directory it will prune. Export needed entries first. Each Activity entry has a copy-as-JSON button.
 </Warning>
-
-**Policy JSON.** A read-only mirror of the Policy controls with a copy button. Use it to inspect and share the policy, not as a second editor.
 
 **Version.** A single read-only row showing the CC Safety Net version you are running.
 

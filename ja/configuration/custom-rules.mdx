@@ -1,7 +1,7 @@
 ---
 title: "カスタムルール：追加のコマンド引数パターン"
 sidebarTitle: "カスタムルール"
-description: "JSON の設定ファイルを使って、CC Safety Net にプロジェクト単位・ユーザー単位のカスタムブロックルールを定義します。コマンド、サブコマンド、リテラルな引数パターンを照合し、独自の理由メッセージを添えてコマンドをブロックできます。"
+description: "JSON の rulebook を使って、CC Safety Net にプロジェクト単位・ユーザー単位のカスタムブロックルールを定義します。バージョン 1 のサブコマンドと引数パターン、またはバージョン 2 の厳密なコマンドパスで照合し、GitHub リポジトリから rulebook を導入して、独自の理由メッセージを添えてブロックできます。"
 ---
 
 カスタムのブロックルールでは、チームの規約やプロジェクト固有の安全ポリシーを強制できます。**rulebook ベースの構成**で、ユーザースコープとプロジェクトスコープをマージします。個人の既定値を保ちながら、プロジェクト固有の設定を重ねられます。
@@ -11,7 +11,7 @@ description: "JSON の設定ファイルを使って、CC Safety Net にプロ�
 </Warning>
 
 <Tip>
-カスタムルールは、エージェント内で **`/cc-safety-net` スキル**を使うと作成できます。自然言語で対話しながら、必要なルールを指定してください。
+ルールの作成は、**`/cc-safety-net` スキル**が扱うワークフローの 1 つです。エージェント内でスキルを実行し、やりたいことを自然言語で伝えてください。
 
   ```text
   /cc-safety-net read my package.json and suggest blocking rules
@@ -19,7 +19,7 @@ description: "JSON の設定ファイルを使って、CC Safety Net にプロ�
   /cc-safety-net verify my rules and fix any errors
   ```
 
-エージェントがスキルに対応していない場合は、次のように指示してください。
+このスキルが扱う他のワークフローは、[`/cc-safety-net` スキル](/ja/guides/skill)を参照してください。エージェントがスキルに対応していない場合は、次のように指示してください。
 
   ```text
   run npx -y cc-safety-net rule doc and help me set up custom rules
@@ -33,12 +33,12 @@ CC Safety Net は、2 つのスコープから rulebook を読み込んでマー
 1. **ユーザースコープ**：`~/.cc-safety-net/rules/rule.json`（`rule init --global` で作成）。すべてのプロジェクトに適用したい個人の既定値に使います。
 2. **プロジェクトスコープ**：プロジェクトルートの `.cc-safety-net/rules/rule.json`。バージョン管理にコミットできる、チームやプロジェクト固有のルールに使います。
 
-ローカルの rulebook は、`project-rules` のような単純な名前で参照します。GitHub 上の rulebook は `owner/repo#ref/<rulebook-name>` の形式で参照し、そのリポジトリ内の `.cc-safety-net/rules/<rulebook-name>/rulebook.json` を指します。
+ローカルの rulebook は、`project-rules` のような単純な名前で参照します。GitHub 上の rulebook は `owner/repo#ref/<rulebook-name>` の形式で参照し、そのリポジトリ内の `.cc-safety-net/rules/<rulebook-name>/rulebook.json` を指します。`rule add` と `rule update` は、そのファイルを同じ相対パスで自分のスコープに取り込みます。有効な rulebook は、どれも自分の設定ディレクトリ内のファイルです。
 
 ### スコープをマージするときの挙動
 
 - 両スコープの rulebook を、ユーザースコープを先にして結合します。
-- **有効な rulebook の名前が重複した場合は、先に読み込んだ側が優先されます。** ユーザースコープを先に読み込むため、同名のプロジェクト rulebook は読み込まれません。ルールの一部だけが隠れるわけではありません。この衝突は警告として報告され、ランタイムは `degraded` 状態になります。どちらかの名前を変更して `rule sync` を実行してください。この衝突は致命的エラーではなく、先に読み込んだ側を採用して解決されるため、片方のスコープの `rule sync` は成功します。
+- **有効な rulebook の名前が重複した場合は、先に読み込んだ側が優先されます。** ユーザースコープを先に読み込むため、同名のプロジェクト rulebook は読み込まれません。ルールの一部だけが隠れるわけではありません。この衝突は警告として報告され、ランタイムは `degraded` 状態になります。どちらかの名前を、rulebook ファイルとそれを参照する `rule.json` の両方で変更してください。この衝突は致命的エラーではなく、先に読み込んだ側を採用して解決されます。そのため、もう一方のスコープが同じ名前をすでに使っていても、参照先の追加や更新は成功します。
 - **各スコープの `overrides` は、そのスコープ自身のルールにのみ適用されます。** ユーザースコープのルールを指定したプロジェクト側の override は警告とともに無視され、そのルールはユーザー設定の状態を保ちます。プロジェクトの設定から、ユーザーのルールを無効にしたり書き換えたりすることはできません。
 - どの既知のルールにも一致しない override のキーは、警告とともに無視されます。他の override とルールは設定どおりのまま有効です。
 - `transparent_wrappers` は、両スコープの内容を統合します。
@@ -50,31 +50,45 @@ CC Safety Net は、2 つのスコープから rulebook を読み込んでマー
 rulebook の参照先は、`rule.json` の `rules` 配列のエントリで指定します。指定できるのは次の 2 種類です。
 
 - **ローカル**：`project-rules` のような単純な名前です。rulebook は `.cc-safety-net/rules/project-rules/rulebook.json`（プロジェクト）または `~/.cc-safety-net/rules/project-rules/rulebook.json`（ユーザー）に置きます。ローカルの参照先は、設定ディレクトリの外に出てはいけません。
-- **GitHub**：`owner/repo#ref/<rulebook-name>` の形式で、そのリポジトリと ref にある `.cc-safety-net/rules/<rulebook-name>/rulebook.json` を指します。
+- **GitHub**：`owner/repo#ref/<rulebook-name>` の形式で、そのリポジトリと ref にある `.cc-safety-net/rules/<rulebook-name>/rulebook.json` を指します。`rule add` と `rule update` は、取得したバイト列をそのまま自分のスコープの `.cc-safety-net/rules/<rulebook-name>/rulebook.json` に取り込むため、ローカルの rulebook とまったく同じように読み込まれます。
 
-参照先の追加・更新・削除には、`rule.json` やロックファイルを直接編集するのではなく `rule` コマンドを使ってください。
+参照先の追加・更新・削除には、`rule.json` を直接編集するのではなく `rule` コマンドを使ってください。
 
 ```bash
-# Add a local rulebook source and sync
+# Add a local rulebook source
 npx -y cc-safety-net rule add project-rules
 
-# Add a GitHub rulebook source (creates a lock entry pinned by SHA-256 digest)
+# Add one rulebook from a GitHub repository and ref
 npx -y cc-safety-net rule add kenryu42/cc-safety-net#main/example-rules
 
-# Refresh the lock and cache after editing sources
-npx -y cc-safety-net rule sync
+# Add every rulebook a repository publishes, from its default branch
+npx -y cc-safety-net rule add acme/safety-rules
 
-# Update a single source, or all sources when no source is given
+# Add selected rulebooks from a branch, tag, or commit
+npx -y cc-safety-net rule add acme/safety-rules --ref v2 --only aws gcloud
+
+# Re-fetch a single source, or every source when no source is given
 npx -y cc-safety-net rule update example-rules
 
-# List active rulebooks and their resolved sources
+# List active rulebooks, rules, overrides, and wrappers
 npx -y cc-safety-net rule list
 
 # Remove a source (--delete-source also deletes a local source directory)
 npx -y cc-safety-net rule remove example-rules --delete-source
 ```
 
-`--global`（`-g`）を付けると、プロジェクトスコープではなくユーザースコープを対象に実行します。`rule` の各サブコマンドとそのオプション、終了時の挙動は、[CLI コマンド](/ja/reference/cli-commands)を参照してください。
+`--global`（`-g`）を付けると、プロジェクトスコープではなくユーザースコープを対象に実行します。例外は `rule list` で、常に両方のスコープを読み、`--global` は受け付けません。`rule` の各サブコマンドとそのオプション、終了時の挙動は、[CLI コマンド](/ja/reference/cli-commands)を参照してください。
+
+### リポジトリから rulebook をインストールする
+
+`rule add` は、正式な形式である `owner/repo#ref/<rulebook-name>` に加えて、リポジトリだけを指定する `owner/repo` も受け付けます。リポジトリだけを指定した場合は、そのリポジトリが `.cc-safety-net/rules/` 配下で公開しているすべての rulebook を追加します。対象を絞るオプションが 2 つあり、どちらも `owner/repo` 形式の `rule add` でのみ使えます。
+
+- `--only <rulebook...>` には rulebook 名を 1 つ以上指定します。指定した順序はそのまま保たれます。
+- `--ref <ref>` では、リポジトリの既定ブランチではなくブランチ・タグ・コミットを指定します。ref には `/` を含められるので、`--ref feature/rulebook-v2` のような指定も可能です。
+
+`rule.json` に保存されるのは正式な形式 `owner/repo#ref/<rulebook-name>` で、解決後のコミットではなく指定した ref がそのまま残ります。つまり、この ref は動く参照のままです。解決されたコミットは保存されず、実行結果として `Vendored at 1a2b3c4.` のように表示されるだけです。rulebook ファイルは書き込まれますが、コミットを固定するロックファイルはありません。
+
+`rule update` は、選択した参照先をすべて解決し直します。ブランチやタグの ref は現在の位置に追従し、取り込み済みのファイルはそこから書き直されます。参照先ごとの処理は独立しています。取得や検証に失敗した参照先は取り込み済みのファイルを保ったまま `Failed to update <spec>: <message>` として報告され、他の参照先は更新されます。例外はリソース上限の超過で、この場合は実行全体が中止されます。
 
 <span id="resource-limits"></span>
 
@@ -82,18 +96,39 @@ npx -y cc-safety-net rule remove example-rules --delete-source
 
 `rules` 配列に指定できる参照先は、スコープごとに最大 **64** 件です。これを超えるエントリを持つ `rule.json` は、`Rule config exceeds CC Safety Net's safe source limit.` という 1 件のエラーで検証に失敗します。件数超過の配列はエントリごとに個別報告されず、他の無効な `rule.json` と同じように、そのスコープの設定全体が実行中のスナップショットから破棄されます。
 
-`rule sync` は決められた上限の中で動作します。同時に処理する参照先は最大 **4** 件、1 回の実行で発行する GitHub リクエストは最大 **131** 件、すべての参照先を合わせて読み取るレスポンスは最大 **64 MiB** です。いずれかの上限を超えると、`Rule synchronization exceeds CC Safety Net's safe resource limits.` を表示して処理を中止します。
+GitHub からの取得は、決められた上限の中で動作します。`rule add` と `rule update` が同時に処理する参照先は最大 **4** 件、1 回の実行で発行する GitHub リクエストは最大 **131** 件、すべての参照先を合わせて読み取るレスポンスは最大 **64 MiB** です。いずれかの上限を超えると、`Rule synchronization exceeds CC Safety Net's safe resource limits.` を表示して処理を中止します。このとき失敗するのは上限を超えた参照先だけではなく、その実行に含まれるすべての参照先です。
 
-### ロックとキャッシュ
+### rulebook はライブファイル
 
-設定されたすべての参照先は SHA-256 のダイジェストで `rule.lock` ファイルに固定され、その rulebook は `.cc-safety-net/cache/rulebooks/` 配下にキャッシュされます。実行時、CC Safety Net はキャッシュ済みの rulebook をダイジェストと照合して検証します。この検証中に、書き込み・取得・キャッシュのいずれも行いません。
+ロックファイルもダイジェストもキャッシュもありません。どの参照先も `<config-dir>/<rulebook-name>/rulebook.json` から読み込まれ、ランタイムはツール呼び出しのたびにそのファイルを読みます。ローカルの rulebook はその場所で直接編集し、リモートの rulebook は `rule add` と `rule update` がその場所に取り込みます。保存した編集は次のコマンドから有効になり、あとから反映させたり再構築したりする手順はありません。
 
-検証に失敗したときの挙動は、どちら側が壊れているかによって異なります。
-
-- **ロックファイルがない、ロックのエントリがない、キャッシュのエントリがない、ダイジェストが一致しない、キャッシュ済み rulebook をパースできない**場合、その参照先は実行中のスナップショットから破棄されます。`rule sync` を実行するまで、そこからルールは読み込まれません。検証に成功した他の参照先とすべての組み込み保護は適用され続け、通常のコマンドも動き続けます。破棄された参照先は、作業をブロックするのではなく、ランタイムを `degraded` にします。
-- 一方、ローカルの参照先が固定済みのダイジェストと**食い違っている**場合（ディスク上で見つからない、パースできない、スキーマに適合しない場合を含む）は、障害とは扱われません。ランタイムはダイジェスト検証済みの**キャッシュ**しか読まず、ローカルのファイルを読み直すことはないためです。ローカルでの編集は、`rule sync` を実行するまで反映されません。なお、`rule sync` と `rule verify` は、無効なローカル参照先やシンボリックリンクになっている参照先を拒否します。
+`rulebook.json` が見つからない、読み取れない、または無効な参照先は無効になります。その参照先はルールを提供しませんが、他のすべての参照先と組み込み保護は適用され続け、通常のコマンドも動き続けます。ランタイムはこの状態を `degraded` として報告します。`rule.json` が読み取れない、または無効な場合は、そのスコープのすべての参照先が無効になります。GitHub の参照先がまだ取り込まれていない場合は、`npx -y cc-safety-net rule update` を実行してください。
 
 状態遷移の全体像、診断メッセージの正確な文言、修復手順については、[設定の復旧](/ja/configuration/recovery)を参照してください。
+
+### `rule sync` は非推奨
+
+`rule sync` はもう何も同期しません。以前のバージョンが残したロックとキャッシュをオフラインで移行するだけのコマンドで、実行するたびに次のメッセージを表示します。
+
+```text
+`cc-safety-net rule sync` is deprecated: rulebooks are live files that need no synchronization. This run only migrates the lock and cache an earlier version left behind.
+```
+
+移行処理は、使用可能な rulebook ファイルがない GitHub の参照先について、古いキャッシュを探します。記録されたダイジェストと一致し、その参照先の名前で検証も通るキャッシュは、`rule add` が取り込んだはずの内容そのものです。そのためライブのパスに書き出され、`Vendored <source> from the v2 cache.` として報告されます。壊れたファイルがすでに置かれていた場合は `Restored <source> from the v2 cache over an invalid file.` になります。移行できなかった参照先は次のように報告されます（ユーザースコープでは末尾に `--global` が付きます）。
+
+```text
+Could not migrate <source> from the v2 cache. Run `cc-safety-net rule update <source>` to vendor it.
+```
+
+その後、`rule.lock` とキャッシュディレクトリを削除し、`Removed the v2 lock and cache under <dir>.` を表示します。
+
+残存ファイルがある状態でそのスコープの `rule.json` が見つからない、または読み取れない場合、移行処理は実行を拒否します。どの参照先が設定されていたかを示す記録が、ロックしか残っていないためです。
+
+```text
+Cannot migrate: the rules config in <dir> is missing or unreadable while v2 leftovers remain. Restore rule.json, then re-run rule sync.
+```
+
+移行するものが何もなければ `No v2 lock or cache leftovers found in <dir>; nothing to migrate.` を表示して終了コード 0 で終わります。残存ファイルがある場合、`doctor` は `info` 重大度の finding `Rulebook lock and cache leftovers detected` として報告します。
 
 <span id="transparent-wrappers"></span>
 
@@ -124,7 +159,7 @@ npx -y cc-safety-net rule wrapper add rtk --global
 - ここに登録されて**いない**ラッパーや、子コマンドをそのまま exec せずに書き換えたり隠したりするラッパーは、透過処理の対象になりません。そうしたコマンドを拾える可能性があるのは、トップレベルの危険な文字列に対するフォールバックスキャンだけです。
 
 <Warning>
-`transparent_wrappers` は、ロックもダイジェストも持たない `rule.json` の中にあります。あるスコープの `rule.json` が読み取れなくなると、そのスコープのラッパー設定は適用されなくなります。設定が実行中のスナップショットから破棄されたときに、組み込みの保護範囲まで狭まるのはここだけです。**rulebook** の側が破棄された場合（キャッシュのエントリがない、ロックのエントリがない、ダイジェストの不一致）でも、`rule.json` 自体は読み取れるためラッパー設定は維持されます。
+`transparent_wrappers` は `rule.json` の中にあります。あるスコープの `rule.json` が読み取れなくなると、そのスコープのラッパー設定は適用されなくなります。設定が実行中のスナップショットから破棄されたときに、組み込みの保護範囲まで狭まるのはここだけです。**rulebook** の読み込みに失敗した場合でも、`rule.json` 自体は読み取れるためラッパー設定は維持されます。
 </Warning>
 
 ## 最初のカスタムルールを作る
@@ -197,16 +232,11 @@ npx -y cc-safety-net rule add example-rules
 }
 ```
 
-rulebook を編集したら、次を実行します。
+ファイルを保存すれば、それだけで有効になります。次のコマンドから、`git add -A`、`git add --all`、`git add .` が指定したメッセージとともにブロックされます。その前にファイルを確認したい場合は、次を実行します。
 
 ```bash
-npx -y cc-safety-net rule sync
 npx -y cc-safety-net rule verify
 ```
-
-`rule sync` で編集した rulebook が有効になり、続く `rule verify` で有効な設定を検証します。
-
-これで、`git add -A`、`git add --all`、`git add .` が、指定したメッセージとともにブロックされます。
 
 ## `rule.json` のスキーマ
 
@@ -266,7 +296,7 @@ CC Safety Net は、ランタイムと同じ定義から生成した `rule.json`
 各 rulebook は、独立した `rulebook.json` ファイルです。
 
 <ParamField body="rulebook_version" type="integer" required>
-rulebook のスキーマバージョン。`1` である必要があります。
+rulebook のスキーマバージョン。`1` または `2` である必要があります。それ以外の値は `rulebook_version must be 1 or 2` として検証に失敗します。[バージョン 2 のルール](#version-2-rules)を参照してください。
 </ParamField>
 
 <ParamField body="name" type="string" required>
@@ -294,12 +324,14 @@ rulebook の作成者。
 </ParamField>
 
 <ParamField body="tests" type="array">
-rulebook のフィクスチャ（任意）です。[フィクスチャのスキーマ](#fixture-schema)を参照してください。フィクスチャは意図した動作を記録するためのもので、CC Safety Net は形式だけを検証し、実行はしません。
+rulebook のフィクスチャ（任意）です。[フィクスチャのスキーマ](#fixture-schema)を参照してください。バージョン 1 のフィクスチャは形式だけを検証します。バージョン 2 のフィクスチャは、rulebook 自身のルールに対して実際に評価されます。
 </ParamField>
 
 <span id="rule-schema"></span>
 
 ## ルールのスキーマ
+
+以下のフィールドは `rulebook_version` 1 のルールを定義します。バージョン 2 では `subcommand` と `block_args` が `match` オブジェクトに置き換わります。[バージョン 2 のルール](#version-2-rules)を参照してください。
 
 <ParamField body="name" type="string" required>
 rulebook 内で一意である必要があります。先頭は英字で、以降は英数字、ハイフン、アンダースコアが使えます。最大 64 文字です。
@@ -325,11 +357,80 @@ rulebook 内で一意である必要があります。先頭は英字で、以�
 ブロックメッセージの末尾に付与される、エージェントの次の行動の指針です。`hard_stop`、`use_alternative`、`scope_down`、`manual_only`、`stop_and_explain` のいずれかを指定します。既定値は `manual_only` です。
 </ParamField>
 
+<span id="version-2-rules"></span>
+
+## バージョン 2 のルール
+
+`"rulebook_version": 2` を指定すると、サブコマンドと引数の集合ではなく、コマンドパスの完全一致で照合できます。`gcloud compute` の下で `delete` をブロックするバージョン 1 のルールは、コマンドのどこにそのトークンがあっても照合するため、`gcloud compute instances create delete` もブロックします。コマンドパスに `["compute", "instances", "delete"]` を指定したバージョン 2 のルールなら、これはブロックしません。
+
+バージョン 1 の rulebook は、フィールドも照合の挙動も、形式のみを検証するフィクスチャも、これまでどおりです。各 rulebook は、自身が宣言したバージョンで検証されます。
+
+バージョン 2 のルールは、バージョン 1 の `name`、`command`、`reason`、`intent` をそのまま引き継ぎ、`subcommand` と `block_args` を `match` オブジェクトに置き換えます。
+
+<ParamField body="match.command_path" type="array" required>
+コマンドの後に、この順序で続く必要があるコマンドワード。空でない文字列からなる、空でない配列です。
+</ParamField>
+
+<ParamField body="match.any_args" type="array">
+引数の中に、ここに挙げたトークンが少なくとも 1 つそのまま現れる必要があります。空でない文字列からなる、重複のない空でない配列です。
+</ParamField>
+
+<ParamField body="match.exclude_args" type="array">
+引数の中にここに挙げたトークンがそのまま現れると、照合しません。空でない文字列からなる、重複のない空でない配列です。
+</ParamField>
+
+バージョン 2 は、バージョン 1 のフィールドを無視するのではなく拒否します。`subcommand` や `block_args` が残っているルールは、`rules[0].subcommand: not supported in rulebook_version 2` および `rules[0].block_args: not supported in rulebook_version 2` として検証に失敗します。
+
+```json
+{
+  "rulebook_version": 2,
+  "name": "terraform-rules",
+  "version": "1.0.0",
+  "allowed_commands": ["terraform"],
+  "rules": [
+    {
+      "name": "block-terraform-apply-destroy",
+      "command": "terraform",
+      "match": {
+        "command_path": ["apply"],
+        "any_args": ["-destroy", "--destroy"]
+      },
+      "reason": "Review a destroy plan first with 'terraform plan -destroy'.",
+      "intent": "use_alternative"
+    }
+  ],
+  "tests": [
+    {
+      "command": "terraform apply -destroy",
+      "expect": "blocked",
+      "rule": "block-terraform-apply-destroy"
+    },
+    {
+      "command": "terraform -chdir=infra apply",
+      "expect": "allowed"
+    }
+  ]
+}
+```
+
+<span id="version-2-matching"></span>
+
+### バージョン 2 の照合
+
+- **コマンド**：バージョン 1 と同じく、小文字のベース名に正規化されます。
+- **コマンドパス**：CC Safety Net は引数をたどり、認識済みの値を取るグローバルオプションを、その値ごと読み飛ばします。そこで現れるコマンドワードが、`command_path` と順序も含めて完全に一致する必要があります。パスより後ろの引数は、パスの照合に影響しません。
+- **グローバルオプションの一覧**：値を取るグローバルオプションが組み込まれているのは `aws`、`gcloud`、`az` の 3 つだけです。Terraform に一覧は不要です。唯一のグローバルオプションである `-chdir=DIR` は `=` で連結されているため、1 つのトークンとして読み飛ばされます。
+- **未知のオプション**：そのコマンドの一覧にない `-` で始まるトークンは、値を消費せずに読み飛ばされます。そのため、一覧にない値を取るオプションを値と分けて書くと（`--newflag value`）、ルールは照合しません。この不一致は意図的なものです。CC Safety Net は、認識できないオプションではブロックせずに fail open します。rulebook の作成者は、これを既知の穴として rulebook 内に明記してください。
+- **短いオプションは展開しません**：`-Ap` は `-Ap` のままです。`"-destroy"` と `"--destroy"` のように、拾いたい表記をすべて列挙してください。
+- **リテラルかつ大文字小文字を区別**：正規表現・glob・部分一致には対応しません。
+- **最初に一致したルールが優先**：ルールは順に評価され、最初に一致したルールがブロックを生成します。
+- **リリースチャネルには専用のルールが必要**：`gcloud beta compute instances delete` は、`["compute", "instances", "delete"]` という `command_path` には一致しません。`["beta", "compute", "instances", "delete"]` を指定した 2 つ目のルールを書いてください。
+
 <span id="fixture-schema"></span>
 
 ## フィクスチャのスキーマ
 
-フィクスチャは、意図した動作を記録するための任意の項目です。形式のみが検証され、CC Safety Net が実行することはありません。
+フィクスチャは、意図した動作を記録するためのものです。CC Safety Net はコマンドをパースして rulebook のルールに掛けるだけで、実行することはありません。
 
 <ParamField body="command" type="string" required>
 フィクスチャとなるシェルコマンド。
@@ -343,9 +444,22 @@ rulebook 内で一意である必要があります。先頭は英字で、以�
 そのコマンドをブロックすると想定されるルール。`blocked` のフィクスチャでは必須です。
 </ParamField>
 
+バージョン 1 のフィクスチャは形式のみを検証します。バージョン 2 のフィクスチャは、`rule add` や `rule update` が参照先を取得したときと、`rule verify` が rulebook のディレクトリを読んだときに、rulebook 自身のルールに対して評価されます。`blocked` のフィクスチャは、指定したルールが最初に一致した場合にだけ通ります。`allowed` のフィクスチャは、どのルールも一致しなかった場合にだけ通ります。フィクスチャが失敗した参照先はファイルが書き込まれる前に拒否されるため、自身のフィクスチャと矛盾する rulebook が有効になることはありません。rulebook の読み込み時に、フィクスチャが再評価されることはありません。
+
+失敗は、`tests` 内のインデックスとともに報告されます。
+
+```text
+tests[<index>]: expected "<rule>" to block "<command>" but no rule matched
+tests[<index>]: expected "<rule>" to block "<command>" but "<other-rule>" matched first
+tests[<index>]: expected "<command>" to be allowed but "<rule>" matched
+tests[<index>]: could not parse fixture command: <command>
+```
+
+`rule verify` は、`example-rules/rulebook.json: tests[0]: ...` のように rulebook ファイル名を先頭に付けて表示します。
+
 ## 照合の挙動
 
-CC Safety Net は、次のルールで照合します。
+以下のサブコマンド・引数・オプションの規則は、`rulebook_version` 1 のルールについての説明です。バージョン 2 のルールの照合は[バージョン 2 の照合](#version-2-matching)を参照してください。コマンドの正規化、評価順序、transparent wrapper は、どちらのバージョンにも当てはまります。
 
 - **コマンドの正規化**：コマンドは照合前にベース名へ変換されます。`/usr/local/bin/npm` は `"command": "npm"` のルールに一致します。
 - **サブコマンドの判定**：サブコマンドは、コマンドの後にある最初のオプションでない引数です。`git --no-pager add -A` のサブコマンドは `add` です。
@@ -487,12 +601,10 @@ Command: git add -A
 rulebook を作成または編集したら、次のコマンドで検証します。
 
 ```bash
-npx -y cc-safety-net rule sync
 npx -y cc-safety-net rule verify
 ```
 
-- `rule sync` は、設定された rulebook の参照先についてロックとキャッシュを再構築します。
-- `rule verify` は、設定内容、ロックとキャッシュの状態、ローカルの rulebook、および共有可能な GitHub 参照先用の rulebook ディレクトリを検査します。リモートのコンテンツは取得しません。
+`rule verify` は、両方のスコープの `rule.json` を検査し、設定された各参照先をガードと同じ方法で読み込み、カレントリポジトリの `.cc-safety-net/rules/` 配下にあるすべての rulebook ディレクトリを、バージョン 2 のフィクスチャも含めて検証します。リモートのコンテンツを取得することはありません。
 
 <span id="migrate-legacy-configuration"></span>
 
@@ -537,10 +649,10 @@ npx -y cc-safety-net rule verify
 
 ## カスタムルールの設定が無効な場合
 
-検証できないカスタムルールの設定は、**破棄され、強制されません。その設定自体が拒否に変わることもありません**。通常のコマンドは動き続けます。検証に成功した他の参照先と組み込みの保護も引き続き適用されます。ランタイムは、この状態を `degraded` として報告します。
+読み込みに失敗したカスタムルールの設定は、**破棄され、強制されません。その設定自体が拒否に変わることもありません**。通常のコマンドは動き続けます。有効な他の参照先と組み込みの保護も引き続き適用されます。ランタイムは、この状態を `degraded` として報告します。
 
 参照先が破棄されると、それまでの拒否が**なくなります**。拒否が増えるわけではないため、この失敗だけで作業が止まることはありません。日常の確認には `npx cc-safety-net status` を使ってください。失敗とフォールバックの対応表、診断メッセージ、表示箇所、修復手順は、[設定の復旧](/ja/configuration/recovery)を参照してください。
 
 <Warning>
-カスタムルールの設定に**改ざん耐性はありません**。`rule.json`、rulebook、ロックファイル、キャッシュはいずれもベストエフォートで、保護対象パスとして扱われるのは正規のユーザー `policy.json` だけです。カスタムルールを手作業で追加・変更した場合は、必ず `npx -y cc-safety-net rule verify` で検証してください。
+カスタムルールの設定に**改ざん耐性はありません**。`rule.json` と rulebook のファイルはいずれもベストエフォートで、保護対象パスとして扱われるのは `policy.json` だけです。カスタムルールを手作業で追加・変更した場合は、必ず `npx -y cc-safety-net rule verify` で検証してください。
 </Warning>

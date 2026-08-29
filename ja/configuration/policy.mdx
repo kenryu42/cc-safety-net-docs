@@ -1,29 +1,70 @@
 ---
 title: "ポリシーファイル：policy.json の完全な仕様"
 sidebarTitle: "ポリシー"
-description: "CC Safety Net の policy.json の完全なリファレンスです。ファイルの場所、スキーマ、安全 preset と機能の override、worktree モード、破壊的コマンドとシークレットの保護、deny path と allow path のルール、監査ログの保持期間、既定値、優先順位を扱います。"
+description: "CC Safety Net の policy.json の完全なリファレンスです。ユーザースコープとプロジェクトスコープの重ね方、スキーマ、安全 preset と機能の override、worktree モード、破壊的コマンドとシークレットの保護、deny path と allow path のルール、監査ログの保持期間、policy check と policy apply コマンドを扱います。"
 ---
 
-`policy.json` は、CC Safety Net のユーザースコープ設定ファイルです。安全 preset、組み込み保護の有効／無効、保護対象パス、監査レコードの保持期間を設定します。
+`policy.json` は、CC Safety Net の設定ファイルです。安全 preset、組み込み保護の有効／無効、保護対象パス、監査レコードの保持期間を設定します。スコープは 2 つあり、ユーザーファイルと、リポジトリにコミットする任意のプロジェクトファイルです。
 
 独自のブロックルールを定義する `rule.json` や rulebook とは別のファイルです。それらのスキーマは[カスタムルール](/ja/configuration/custom-rules)を参照してください。
 
 ## ポリシーファイルの場所
 
-| セットアップ | パス |
+| スコープ | パス |
 | --- | --- |
-| 既定 | `~/.cc-safety-net/policy.json` |
-| `CC_SAFETY_NET_HOME` を設定 | `$CC_SAFETY_NET_HOME/policy.json` |
+| ユーザー（既定） | `~/.cc-safety-net/policy.json` |
+| ユーザー（`CC_SAFETY_NET_HOME` を設定） | `$CC_SAFETY_NET_HOME/policy.json` |
+| プロジェクト | `.cc-safety-net/policy.json`（プロジェクトルートから解決） |
 
-`CC_SAFETY_NET_HOME` を設定すると、このファイルは指定したディレクトリの**直下**に置かれ、`rules/` と並びます。指定方法は[環境変数](/ja/configuration/environment)を参照してください。
+`CC_SAFETY_NET_HOME` を設定すると、ユーザーファイルは指定したディレクトリの**直下**に置かれ、`rules/` と並びます。指定方法は[環境変数](/ja/configuration/environment)を参照してください。
 
-ポリシーファイルは 1 つだけです。**プロジェクトスコープの `policy.json` は存在しません。** ランタイムはこの 1 つのパスしか読み取らないため、プロジェクト側からユーザーのポリシーを引き上げたり引き下げたりすることはできません。
+`CC_SAFETY_NET_HOME` が効くのはユーザーファイルだけです。プロジェクトファイルは常にプロジェクトルート直下の `.cc-safety-net/policy.json` で、ルールのスコープが解決するディレクトリと同じです。
 
-ダッシュボードがこのファイルを書き込むときは、ディレクトリを `0700`、ファイルを `0600` で作成します。
+ランタイムはツール呼び出しごとに両方のファイルを読み取ります。ユーザーファイルが基準となり、その上にプロジェクトファイルが重なります。[プロジェクトポリシー](#プロジェクトポリシー)を参照してください。
+
+ダッシュボードがユーザーファイルを書き込むときは、ディレクトリを `0700`、ファイルを `0600` で作成します。
+
+## プロジェクトポリシー
+
+チームは `.cc-safety-net/policy.json` をリポジトリにコミットすることで、安全ポリシーを配布できます。メンバーが実行するコマンドはありません。ランタイムが次のツール呼び出しでこのファイルを読み取ります。どのチェックアウトでも同じです。
+
+プロジェクトファイルに書かれるのは、**設定したフィールドだけ**です。書かれていないフィールドは、引き続きユーザーポリシーから継承します。ルールの override を 1 つだけ設定したプロジェクトファイルは、そのルール以外には影響しません。
+
+実効ポリシーは、ユーザーポリシーの上にプロジェクトポリシーを重ねた結果です。
+
+| フィールド | 2 つのスコープの合成方法 |
+| --- | --- |
+| `safety.level`、`workflow.worktree_mode`、および各 `enabled` フラグ | プロジェクトが値を設定していれば、その値が優先 |
+| `safety.overrides` | 機能のキー単位でマージし、プロジェクト側が優先 |
+| `destructive_command_protection.overrides`、`secret_protection.overrides` | ルール ID 単位でマージし、プロジェクト側が優先 |
+| `destructive_command_protection.allow_paths`、`secret_protection.deny_paths`、`secret_protection.allow_paths` | 両スコープの和集合。一方が他方の項目を消すことはない |
+| `audit` | ユーザースコープのみ |
+
+プロジェクトファイルの `audit` セクションは無視され、読み込み時に `project policy audit settings are ignored; audit is user scope only` が報告されます。
+
+### 報告される緩和
+
+プロジェクトポリシーは書かれたとおりに適用されます。ユーザーポリシーの水準まで引き戻されることはありません。その代わり、ユーザーポリシーより緩めているフィールドが 1 行ずつ報告されます。
+
+- `project policy lowers level: <user> -> <project>`
+- `project policy disables fail_closed`、`project policy disables paranoid_rm`、`project policy disables paranoid_interpreters`
+- `project policy enables worktree mode relaxations`
+- `project policy disables destructive command protection`
+- `project policy disables secret protection`
+- `project policy disables rule <id>`
+- `project policy adds destructive allow path: <path>`
+- `project policy adds secret allow path: <path>`
+
+報告される場所は次の 4 つです。
+
+- `status` は、プロジェクトファイルのパスを示す `Project` 行と、これらの行を並べた `Project policy` ブロックを追加します。
+- ステータスラインは、緩和が 1 つでもある間 `🔻` を表示します。[ステータスライン](/ja/configuration/status-line)を参照してください。
+- `doctor` は、Effective Safety の下に `Project policy deltas:` ブロックを出力します。
+- `doctor` と `explain` は、安全 preset を供給したスコープを `user policy`、`project policy`、`built-in default` のいずれかで併記します。[explain トレース](/ja/reference/explain-trace)を参照してください。
 
 ## ポリシーファイルの保護
 
-正規のユーザー `policy.json` は、ready でも degraded でも、**すべての**ランタイム状態で保護対象のパスです。ポリシーファイルの保護は設定スナップショットの読み込みより前に動作するため、設定が壊れていても弱められません。次の操作は即座にブロックされます。
+`policy.json` は**両方のスコープ**で、ready でも degraded でも、**すべての**ランタイム状態で保護対象のパスです。ポリシーファイルの保護は設定スナップショットの読み込みより前に動作するため、設定が壊れていても弱められません。次の操作は即座にブロックされます。
 
 - 任意のツールによる、このファイルへの書き込み、編集、パッチ適用
 - ファイル名をオペランドに含むシェルコマンド
@@ -32,10 +73,12 @@ description: "CC Safety Net の policy.json の完全なリファレンスです
 - このファイルに到達する `find … -delete` と `find … -exec rm`
 - このファイル、そのディレクトリ、または上位ディレクトリを移動元とする `mv`
 
+保護されるディレクトリの範囲はスコープごとに異なります。ユーザーファイルは、自身のディレクトリとそのすべての上位ディレクトリを対象にします。プロジェクトファイルは、実行時の作業ディレクトリと設定時の作業ディレクトリの両方から解決され、それぞれ自身の `.cc-safety-net` ディレクトリだけを対象にします。ここで打ち切るのは意図的です。さらに上までたどると、作業ディレクトリとそのすべての上位ディレクトリまで対象に入ってしまいます。このガードは破壊的コマンドのルールより先に動くため、`rm -rf .` や `find . -delete` が本来の具体的な理由ではなく、この汎用的な理由を返すようになります。
+
 読み取りは許可されます。読み取り専用コマンドの許可リストには、`[`、`cat`、`file`、`grep`、`head`、`jq`、`less`、`ls`、`more`、`rg`、`sed`、`stat`、`tail`、`test`、`wc` が含まれます。ただし `sed` は、`-i` や `--in-place` によるその場編集を行わない場合にかぎります。Grep や Glob のような読み取り専用ツールは、完全に対象外です。
 
 <Warning>
-  エージェントはこのファイルを書き込めないため、変更内容を*提示*してもらうようにしてください。ポリシーの変更は、自分でエディターを使って適用するか、ダッシュボードから適用します。
+  エージェントはこのファイルを書き込めないため、変更内容を*提示*してもらうようにしてください。ポリシーの変更は、自分でエディターを使って適用するか、ダッシュボードまたは `policy apply` から適用します。
 </Warning>
 
 ## ポリシーファイルを編集する
@@ -44,6 +87,7 @@ description: "CC Safety Net の policy.json の完全なリファレンスです
 
 - **ダッシュボードを使う。** `cc-safety-net gui` を実行します。ダッシュボードは適切なパーミッションでファイルを書き込み、検証に通らないファイルを修復できます。ファイルにエラーがある間は、フォームにファイル内の有効な値ではなく既定値一式が表示され、ファイルを修復するまで保存できません。修復では、認識できる有効な設定は残し、無効なフィールドを破棄します。この修復動作を使いたくない場合は、ファイルを手動で編集して `status` で確認してください。
 - **JSON を直接編集する。** エディターでファイルを開いて手作業で変更します。ランタイムは次のツール呼び出しで変更を読み込むため、再起動は必要ありません。
+- **提案を適用する。** `cc-safety-net policy apply <file>` を実行すると、ターミナルで差分を確認したうえで、提案ファイルの内容をどちらかのスコープに書き込みます。[提案の確認と適用](#提案の確認と適用)を参照してください。
 
 手作業で編集したら、結果を確認します。
 
@@ -52,6 +96,52 @@ npx cc-safety-net status
 ```
 
 判定が `degraded` になった場合は、ファイルの一部が拒否されています。`npx cc-safety-net doctor` を実行すると、該当するフィールドが分かります。ランタイムが `policy.json` を自動で書き換えることは**ありません**。無効なファイルは、手作業またはダッシュボードの修復機能で直すまで残ります。
+
+## 提案の確認と適用
+
+`policy check` と `policy apply` は、1 つの流れをエージェントとユーザーで分担します。エージェントは提案の JSON を書き、`policy check` を実行して変更内容を示します。`policy apply` は、ユーザー自身がターミナルで実行します。
+
+```
+policy <subcommand>
+  check <file>   Validate a policy proposal and print its diff
+  apply <file>   Apply a proposal after confirming in a terminal
+  -g, --global   Use the user-scope policy instead of the project one
+  -h, --help     Show this help
+```
+
+どちらのサブコマンドも、何かを書き込む前に同じヘッダーと差分を出力します。
+
+```
+Scope: project (<project>/.cc-safety-net/policy.json)
+Proposal: <file>
+Effective policy (user + project merged):
+Changes (2):
+  safety.level: strict -> standard
+  secret_protection.allow_paths: (none) -> fixtures/credentials
+```
+
+プロジェクトスコープでは、マージ後の実効ポリシーを適用前と適用後で比較します。`Effective policy (user + project merged):` の行がそれを示します。設定したフィールドだけを持つ提案でも、セッションが実際に動作するレベルは変わるため、確認画面にはファイル自体の内容ではなくマージ結果を表示します。`-g, --global` を指定すると、ヘッダーは `Scope: user (<path>)` になり、マージの行はなくなり、`audit.retention_days` を含めてユーザーファイルと提案を比較します。
+
+差分の行は、`Changes (<n>):` の見出しの下に `  <field>: <before> -> <after>` の形式で並びます。片側が存在しない場合は `(unset)` と表示されます。変更がない場合は `No changes.` と出力します。
+
+プロジェクトの提案に `audit` セクションがある場合は、差分を出力する前に `<file>: audit settings are user scope only; remove the audit section from a project proposal` で拒否されます。
+
+`policy apply` は、stdin と stdout の両方が TTY である必要があります。TTY でない場合は、実行すべきコマンドを示して終了コード 1 で終了します。
+
+```
+policy apply confirms interactively; run this yourself in a terminal:
+  cc-safety-net policy apply <file>
+```
+
+ターミナル上では `Apply this policy to <path>? [y/N] ` と確認します。受け入れるのは大文字小文字を問わず `y` または `yes` だけで、それ以外は拒否と扱われます。EOF も拒否です。拒否した場合は `Cancelled; nothing was written.` を出力して終了コード 0 で終了します。書き込んだ場合は `Policy applied: <path>` を出力します。`--yes` フラグも非対話モードもありません。
+
+エージェントが `policy apply` を実行した場合は即座にブロックされます。理由の文言は次のとおりです。
+
+```text
+Only the user may apply a policy proposal, because it rewrites the configuration CC Safety Net enforces. Ask them to run `cc-safety-net policy apply <file>` themselves in a terminal; you can run `cc-safety-net policy check <file>` to show them what it would change.
+```
+
+この判定は意図的に広めに一致します。対象は、直接の実行、`npx`、`bunx`、`pnpx`、`pnpm dlx` と `yarn dlx`、`npm exec`、`pnpm exec`、`yarn exec`、`cc-safety-net@latest` のようなバージョン指定、`bun` や `node` によるエントリポイントファイルの実行です。対象の前にランナーのオプションが置かれていても一致します。`policy check` はエージェントにも許可されたままです。
 
 ## ポリシーの完全な例
 
@@ -301,7 +391,7 @@ npx cc-safety-net status
 
 ## 無効なポリシーの扱い
 
-`policy.json` が無効でも、通常の作業がブロックされることはありません。ランタイムは `degraded` に移行し、フォールバックを使用します。
+`policy.json` が無効でも、通常の作業がブロックされることはありません。ランタイムは `degraded` に移行し、フォールバックを使用します。次の表は 1 つのファイルについての説明です。どちらのスコープも同じ救済処理を通り、診断には元のファイルのパスが接頭辞として付きます。
 
 | ファイルの状態 | ランタイムの動作 |
 | --- | --- |
@@ -325,6 +415,8 @@ npx cc-safety-net status
 | `secret_protection.deny_paths` | 無効な項目を破棄。配列でない場合は `[]` |
 | `secret_protection.allow_paths` | 無効な項目を破棄。配列でない場合は `[]`。シークレットの除外はなし |
 | `audit.retention_days` | 範囲内に丸める。使用できない場合は `30` |
+
+壊れたプロジェクトファイルも同じように救済されます。拒否されたセクションだけが落ち、両方のファイルの残りはそのまま有効です。ユーザーファイルが読み取れない場合でも、プロジェクトポリシーがフィールドを提供していれば、そのフィールドが有効になるため、組み込みの既定値ではなく救済として報告されます。スコープの由来情報は、プロジェクトファイルが存在すれば有効・無効を問わず表示されるため、`status` は `Project` 行を出し続けます。
 
 <Warning>
   無効な項目は**破棄されるだけで、修復はされません**。書き間違えた deny path はその場所を保護しなくなり、無効な `safety.level` は黙って `standard` に下がります。この 2 つが、特に気づきにくい失敗パターンです。手作業で編集したら、そのつど `npx cc-safety-net status` を実行してください。

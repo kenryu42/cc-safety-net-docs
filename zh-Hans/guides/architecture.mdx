@@ -59,12 +59,12 @@ graph TD
 
 ## 策略快照
 
-`loadPolicySnapshot()` 由本地策略配置、rulebook lockfile 和已验证的 rulebook 缓存条目组合出有效运行时策略。它的约定和内容同样重要：
+`loadPolicySnapshot()` 由用户策略文件、项目策略文件、各范围的 `rule.json`，以及每个已配置来源指向的 rulebook 文件组合出有效运行时策略。它的约定和内容同样重要：
 
-- 它**不写入、不发出网络请求，也不使用内存缓存**。同步远程 rulebook 始终是显式 CLI 操作（`cc-safety-net rule sync`）。
+- 它**不写入、不发出网络请求，也不使用内存缓存**。rulebook 是实时文件，加载器每次工具调用都从磁盘读取各个 `rulebook.json`。只有 `cc-safety-net rule add` 和 `cc-safety-net rule update` 会访问网络。
 - 结果**深度不可变**。策略对象、规则数组、每条规则及其 `block_args`、透明包装器列表、安全块及其 override、破坏性命令规则 override、允许路径、机密保护块及其 disabled rule 和拒绝路径都已冻结，快照包装器本身也是如此。
 - 它只解析为**两种状态**：`ready` 表示每个通过验证的来源都已生效；`degraded` 表示某个候选来源被拒绝，改为执行安全的替代内容。degraded 原因会指出失败的来源、哪些内容未生效，以及如何修复。
-- 每条规则的来源信息（rulebook 名和版本、公开 source spec、override 原因）会注册到快照，供诊断和 GUI 显示。
+- 每条规则的来源信息（rulebook 名和版本、公开 source spec、override 原因）会注册到快照。存在项目策略文件时，还会记录安全级别由哪个范围设定，并为项目策略削弱的每个字段各记录一行。这些内容供诊断和 GUI 显示。
 
 被拒绝的策略或规则来源本身不会导致普通工具调用被拒绝。运行时会丢弃该来源，而不是把它转为阻止。状态约定和修复路径见<a href="/zh-Hans/configuration/recovery">配置恢复</a>。
 
@@ -79,7 +79,7 @@ graph TD
 | 3 | `command-analysis` | 已声明命令的解析器预算超限，命令因触及递归限制被拒绝。 | 否 |
 | 4 | `command-validation` | 结构化命令验证预算超限（输入长度、word 数、嵌套深度），命令被拒绝。 | 否 |
 | 5 | 无 | 为执行工作目录解析受保护的 Git 元数据。 | 否 |
-| 6 | `policy-protection` | **策略文件保护**：写入、移动或递归删除触及规范用户 `policy.json`、其目录或上级目录时，以 `hard_stop` intent 拒绝。 | 否 |
+| 6 | `policy-protection` | **策略文件保护**：写入、移动或递归删除触及用户 `policy.json`、项目 `policy.json`、项目文件自身的 `.cc-safety-net` 目录，或用户文件的目录及其任一上级目录时，以 `hard_stop` intent 拒绝。智能体执行 `cc-safety-net policy apply` 也在此阶段以相同 intent 拒绝；`cc-safety-net policy check` 仍然放行。 | 否 |
 | 7 | `policy-protection` | **Git 元数据保护**：删除、移动、重定向、写工具、patch 或未知工具路由指向已解析 `.git` 入口、其目录或 hooks 目录时，以 `hard_stop` intent 拒绝。写工具、patch 和未知工具路由中的只读工具除外。 | 否 |
 | 8 | `config-load` | **加载策略快照**，并根据策略和环境解析有效安全级别。 | 不适用 |
 | 9 | `secret-protection` | **敏感路径保护**：检查 command、path、search 和 patch 形式中的内置敏感路径及配置的拒绝路径。匹配时以 `hard_stop` intent 拒绝，并携带匹配的 rule ID。策略禁用机密保护时完全跳过。 | 是 |

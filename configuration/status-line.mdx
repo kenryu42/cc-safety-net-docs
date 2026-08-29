@@ -1,7 +1,7 @@
 ---
 title: "Status line: real-time mode indicators"
 sidebarTitle: "Status line"
-description: "Display CC Safety Net's effective safety level, worktree relaxations, and degraded-config warning in Claude Code's status line using bunx, npx, or claude x."
+description: "Display CC Safety Net's effective safety level, worktree relaxations, project-policy weakenings, and degraded-config warning in Claude Code's status line using bunx, npx, or claude x."
 ---
 
 CC Safety Net can display its state in Claude Code's status line as one line of emoji indicators. It shows whether protection is active and the effective safety level without a separate diagnostic command.
@@ -66,7 +66,7 @@ Add a `statusLine` entry to your `~/.claude/settings.json`. Choose the runner th
 The output is exactly one line with this shape:
 
 ```text
-🛡️ CC Safety Net <level><worktree><degraded>
+🛡️ CC Safety Net <level><worktree><weakened><degraded>
 ```
 
 When the Claude Code plugin is disabled, the whole line collapses to a single indicator instead:
@@ -90,14 +90,17 @@ The `custom` indicator appears in two cases: the enabled capabilities match no p
 
 See [Modes](/configuration/modes) for what each level blocks, and [Environment](/configuration/environment) for the precedence rules that produce the effective level.
 
-### Worktree and degraded indicators
+### Worktree, project-policy, and degraded indicators
 
 These are appended after the level emoji, in this order:
 
 | Display | Meaning |
 | --- | --- |
 | 🌳 | Worktree mode is active through `workflow.worktree_mode` in `policy.json` or `CC_SAFETY_NET_WORKTREE=1` |
+| 🔻 | A project `.cc-safety-net/policy.json` was read, and merging it over the user policy relaxed at least one field |
 | ⚠️ | The runtime is **degraded**: at least one configuration source could not be verified, so evaluation is running against a fallback |
+
+The 🔻 marker names no field. Run `npx cc-safety-net status` for the `Project policy` block, which prints one line per relaxed field, such as `project policy lowers level: strict -> standard` or `project policy disables rule <id>`. `npx cc-safety-net doctor` prints the same lines under `Project policy deltas:`. See [Policy](/configuration/policy) for what a project policy can set.
 
 The ⚠️ marker is the only passive signal that configuration is degraded. It does not identify the failed source. Run `npx cc-safety-net status` for the diagnostics or `npx cc-safety-net doctor` for the full report. See [Configuration recovery](/configuration/recovery) for what `ready` and `degraded` mean and how to repair each one.
 
@@ -107,7 +110,7 @@ The ⚠️ marker is the only passive signal that configuration is degraded. It 
 | --- | --- |
 | ❌ | The Claude Code plugin `cc-safety-net@cc-marketplace` is not enabled in `~/.claude/settings.json` |
 
-This is the same condition that `status` reports as the first item under `Not active`. The verdict stays `ready` or `degraded` because a disabled plugin affects only the Claude Code integration. The `statusline` command checks this condition first and replaces the rest of the line, so no level, worktree, or degraded indicator appears alongside `❌`.
+This is the same condition that `status` reports as the first item under `Not active`. The verdict stays `ready` or `degraded` because a disabled plugin affects only the Claude Code integration. The `statusline` command checks this condition first and replaces the rest of the line, so no level, worktree, project-policy, or degraded indicator appears alongside `❌`.
 
 <Note>
   The `❌` state means that the Claude Code marketplace plugin is disabled. If you run CC Safety Net as a manual Claude Code hook instead of the marketplace plugin, or for another agent, the status line may show `❌` even though protection is active. It reflects only the `enabledPlugins` entry in `~/.claude/settings.json`.

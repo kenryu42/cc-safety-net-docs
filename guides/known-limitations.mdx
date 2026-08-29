@@ -86,7 +86,7 @@ For a boundary that constrains *all* reads rather than a recognized set, use [sa
 
 ### No complete filesystem containment
 
-CC Safety Net denies a tool call before it runs; it does not enforce filesystem permissions. The block message is guidance to the agent, not a claim of complete filesystem enforcement. Catastrophic protections (recursive deletion of root or home, the protected Git metadata set, and the canonical user `policy.json`) are always enforced, but when you need complete protection rather than best-effort interception, use a trusted write broker, operating-system permissions, a sandbox, or equivalent runtime enforcement.
+CC Safety Net denies a tool call before it runs; it does not enforce filesystem permissions. The block message is guidance to the agent, not a claim of complete filesystem enforcement. Catastrophic protections (recursive deletion of root or home, the protected Git metadata set, and `policy.json` in both scopes) are always enforced, but when you need complete protection rather than best-effort interception, use a trusted write broker, operating-system permissions, a sandbox, or equivalent runtime enforcement.
 
 ### No network layer
 
@@ -98,7 +98,11 @@ Blocking prompt-injection-driven exfiltration, authenticating users, and enforci
 
 ### Custom rule configuration is not tamper-resistant
 
-Tamper resistance covers the canonical user `policy.json` only. `rule.json`, rulebooks, lockfiles, and caches are best-effort against agent modification: in the `ready` state an agent can already remove a rulebook entry from `rule.json`, and removal is not drift, so nothing gates it. Protecting `rule.json` is a deferred product decision.
+Tamper resistance covers `policy.json` in both scopes: the user file, and the project file resolved from the execution directory and from the configuration directory. `rule.json` and rulebooks are not protected. Every rulebook is a live file the runtime rereads on each tool call, so an agent that can write in the rules directory changes what is enforced on the next one.
+
+Removing a source entry from `rule.json` is no longer the only ungated change. Nothing records what `rule update` wrote into a vendored `rulebook.json`, so an edit to a rule's `match` or `reason` inside that file leaves no evidence of the edit. At load the runtime checks the file against the schema and checks that its `name` matches the source, then enforces whatever it finds. The edit stands until the next `rule update` overwrites the file. Protecting `rule.json` is a deferred product decision.
+
+The project `policy.json` has one deliberate bound. Its protected directory chain stops at its own `.cc-safety-net` directory, while the user file's chain covers its directory and every ancestor up to the filesystem root. Walking the project chain further would claim the project directory and every ancestor above it. Those are exactly the paths the destructive-command rules target, and policy protection runs first, so `rm -rf .` and `find . -delete` would report this guard's generic reason in place of their own.
 
 ## Hermes Agent and OpenClaw coverage boundaries
 

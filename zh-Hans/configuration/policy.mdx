@@ -1,29 +1,70 @@
 ---
 title: "策略文件：完整的 policy.json 契约"
 sidebarTitle: "策略"
-description: "CC Safety Net policy.json 的完整参考：位置、schema、安全预设和能力覆盖、worktree 模式、破坏性命令和机密保护、拒绝和允许路径规则、审计保留期、默认值及优先级。"
+description: "CC Safety Net policy.json 的完整参考：用户范围与项目范围如何合并、schema、安全预设和能力覆盖、worktree 模式、破坏性命令和机密保护、拒绝和允许路径规则、审计保留期，以及 policy check 和 policy apply 命令。"
 ---
 
-`policy.json` 是 CC Safety Net 的用户级设置文件。它用于选择安全预设、开关内置保护、添加受保护路径，以及设置审计记录的保留时间。
+`policy.json` 是 CC Safety Net 的设置文件。它用于选择安全预设、开关内置保护、添加受保护路径，以及设置审计记录的保留时间。它有两个范围：用户文件，以及可选的、提交到仓库的项目文件。
 
 它与 `rule.json` 和 rulebook 分开。后两者用于定义自定义阻止规则，schema 见[自定义规则](/zh-Hans/configuration/custom-rules)。
 
 ## 策略文件位置
 
-| 情形 | 路径 |
+| 范围 | 路径 |
 | --- | --- |
-| 默认 | `~/.cc-safety-net/policy.json` |
-| 已设置 `CC_SAFETY_NET_HOME` | `$CC_SAFETY_NET_HOME/policy.json` |
+| 用户，默认 | `~/.cc-safety-net/policy.json` |
+| 用户，已设置 `CC_SAFETY_NET_HOME` | `$CC_SAFETY_NET_HOME/policy.json` |
+| 项目 | `.cc-safety-net/policy.json`，从项目根目录解析 |
 
-设置 `CC_SAFETY_NET_HOME` 后，该文件**直接**位于该目录下，与 `rules/` 同级。覆盖变量本身参见[环境](/zh-Hans/configuration/environment)。
+设置 `CC_SAFETY_NET_HOME` 后，用户文件**直接**位于该目录下，与 `rules/` 同级。覆盖变量本身参见[环境](/zh-Hans/configuration/environment)。
 
-策略文件只有一个。**不存在项目范围的 `policy.json`**。运行时只读取上述路径，因此项目无法降低或提高你的策略。
+`CC_SAFETY_NET_HOME` 只作用于用户文件。项目文件始终是项目根目录下的 `.cc-safety-net/policy.json`，与规则范围解析的目录相同。
 
-仪表板写入该文件时，会以 `0700` 创建目录、以 `0600` 创建文件。
+运行时在每次工具调用时读取这两个文件。用户文件是基线，项目文件叠加在它之上。参见[项目策略](#项目策略)。
+
+仪表板写入用户文件时，会以 `0700` 创建目录、以 `0600` 创建文件。
+
+## 项目策略
+
+把 `.cc-safety-net/policy.json` 提交上去，团队就能通过仓库分发一份安全策略。成员无需运行任何命令，运行时会在下一次工具调用时读取该文件，仓库的每一份检出都是如此。
+
+项目文件是**稀疏**的：只写入它设置的字段，未写入的字段继续从用户策略继承。只设置了一条规则覆盖的项目文件，就只改变那一条规则。
+
+生效策略是用户策略叠加项目策略的结果：
+
+| 字段 | 两个范围如何合并 |
+| --- | --- |
+| `safety.level`、`workflow.worktree_mode` 以及各个 `enabled` 开关 | 项目设置了值就以项目值为准 |
+| `safety.overrides` | 按能力键合并，项目条目优先 |
+| `destructive_command_protection.overrides`、`secret_protection.overrides` | 按规则 ID 合并，项目条目优先 |
+| `destructive_command_protection.allow_paths`、`secret_protection.deny_paths`、`secret_protection.allow_paths` | 两个范围的并集，任何一方都不会抹掉另一方的条目 |
+| `audit` | 仅用户范围 |
+
+项目文件中的 `audit` 部分会被忽略，加载时报告 `project policy audit settings are ignored; audit is user scope only`。
+
+### 报告的削弱
+
+项目策略按写下的样子生效，没有任何机制会把它拉回用户策略的基线。相应地，它相对用户策略放宽的每个字段，都会各自报告一行：
+
+- `project policy lowers level: <user> -> <project>`
+- `project policy disables fail_closed`、`project policy disables paranoid_rm`、`project policy disables paranoid_interpreters`
+- `project policy enables worktree mode relaxations`
+- `project policy disables destructive command protection`
+- `project policy disables secret protection`
+- `project policy disables rule <id>`
+- `project policy adds destructive allow path: <path>`
+- `project policy adds secret allow path: <path>`
+
+这些行出现在四个地方：
+
+- `status` 增加一行 `Project` 显示项目文件的路径，并增加一个 `Project policy` 区块列出这些行。
+- 只要存在任何削弱，状态行就显示 `🔻`。参见[状态行](/zh-Hans/configuration/status-line)。
+- `doctor` 在 Effective Safety 下输出 `Project policy deltas:` 区块。
+- `doctor` 和 `explain` 会在安全预设旁标出提供它的范围，取 `user policy`、`project policy` 或 `built-in default`。参见 [Explain 跟踪](/zh-Hans/reference/explain-trace)。
 
 ## 策略文件保护
 
-规范的用户 `policy.json` 在**每个**运行时状态（`ready` 或 `degraded`）下都是受保护路径。策略文件保护在加载配置快照之前运行，因此损坏的配置无法削弱它。以下操作一律硬停止：
+`policy.json` 在**两个范围**中、在**每个**运行时状态（`ready` 或 `degraded`）下都是受保护路径。策略文件保护在加载配置快照之前运行，因此损坏的配置无法削弱它。以下操作一律硬停止：
 
 - 通过任何工具对该文件的写入、编辑和修补
 - 以该文件作为操作数的 Shell 命令
@@ -32,10 +73,12 @@ description: "CC Safety Net policy.json 的完整参考：位置、schema、安�
 - 触及该文件的 `find … -delete` 和 `find … -exec rm`
 - 以该文件、其所在目录或上级目录为源的 `mv`
 
+两个范围保护的目录链不同。用户文件贡献自己所在的目录及其全部上级目录。项目文件在两个位置上匹配，分别从执行工作目录和配置工作目录解析，各自只贡献自己的 `.cc-safety-net` 目录。目录链到此为止是有意为之。再往上走就会把工作目录及其全部上级目录也纳入进来，而本防护先于其他检查运行，于是 `rm -rf .` 和 `find . -delete` 会报出这条通用原因，而不是破坏性命令规则本该给出的具体原因。
+
 读取仍然允许。只读命令允许列表包括 `[`、`cat`、`file`、`grep`、`head`、`jq`、`less`、`ls`、`more`、`rg`、`sed`、`stat`、`tail`、`test` 和 `wc`。`sed` 仅限未使用 `-i` 或 `--in-place` 就地编辑的情况。Grep、Glob 等只读工具不受此限制。
 
 <Warning>
-智能体无法写入此文件，因此请改为让它把改动*展示*给你。策略修改由你自己在编辑器中应用，或通过仪表板应用。
+智能体无法写入此文件，因此请改为让它把改动*展示*给你。策略修改由你自己在编辑器中应用，或通过仪表板、`policy apply` 应用。
 </Warning>
 
 ## 编辑策略文件
@@ -44,6 +87,7 @@ description: "CC Safety Net policy.json 的完整参考：位置、schema、安�
 
 - **使用仪表板。**运行 `cc-safety-net gui`。仪表板会以正确的权限写入文件，并且能修复校验不通过的文件。文件存在错误期间，表单显示的是完整的默认值，而不是文件中那些有效的值。在修复文件之前无法保存。修复会保留每一项可识别的有效设置，并丢弃无效字段。如果不想要这种修复行为，请手动编辑文件，并用 `status` 检查。
 - **直接编辑 JSON。** 在编辑器中打开文件手动修改。运行时会在下一次工具调用时读取改动，无需重启任何东西。
+- **应用提案。** 运行 `cc-safety-net policy apply <file>`，在终端确认差异后，把提案文件写入其中一个范围。参见[确认并应用提案](#确认并应用提案)。
 
 手动编辑后，确认结果：
 
@@ -52,6 +96,52 @@ npx cc-safety-net status
 ```
 
 判定为 `degraded`，说明文件中有字段被拒绝。`npx cc-safety-net doctor` 会指出具体字段。运行时**从不**自行重写 `policy.json`。在你手动修复或使用仪表板修复前，无效文件会原样保留。
+
+## 确认并应用提案
+
+`policy check` 和 `policy apply` 把同一个流程拆给智能体和你。智能体写出提案 JSON，运行 `policy check` 展示它会改变什么。`policy apply` 由你自己在终端里运行。
+
+```
+policy <subcommand>
+  check <file>   Validate a policy proposal and print its diff
+  apply <file>   Apply a proposal after confirming in a terminal
+  -g, --global   Use the user-scope policy instead of the project one
+  -h, --help     Show this help
+```
+
+在写入任何内容之前，两个子命令都会输出同样的头部和差异：
+
+```
+Scope: project (<project>/.cc-safety-net/policy.json)
+Proposal: <file>
+Effective policy (user + project merged):
+Changes (2):
+  safety.level: strict -> standard
+  secret_protection.allow_paths: (none) -> fixtures/credentials
+```
+
+项目范围比较的是合并后的生效策略，前后各一份，`Effective policy (user + project merged):` 这一行标明的就是这件事。稀疏的提案同样会改变会话实际运行的级别，因此确认时展示的是合并结果，而不是文件自身的内容。加上 `-g, --global` 后，头部变成 `Scope: user (<path>)`，没有那一行合并说明，差异比较的是用户文件和提案本身，并且包含 `audit.retention_days`。
+
+差异行在 `Changes (<n>):` 标题下按 `  <field>: <before> -> <after>` 的格式排列。某一侧不存在时显示 `(unset)`。没有任何改动时，命令输出 `No changes.`。
+
+项目提案中如果带有 `audit` 部分，会在输出差异之前被拒绝，报 `<file>: audit settings are user scope only; remove the audit section from a project proposal`。
+
+`policy apply` 要求 stdin 和 stdout 都是 TTY。不是 TTY 时，它会打印出该由你运行的命令，并以退出码 1 结束：
+
+```
+policy apply confirms interactively; run this yourself in a terminal:
+  cc-safety-net policy apply <file>
+```
+
+在终端里，它会询问 `Apply this policy to <path>? [y/N] `。只有 `y` 或 `yes` 表示接受，不区分大小写；其他输入都算拒绝，EOF 同样如此。拒绝时输出 `Cancelled; nothing was written.` 并以退出码 0 结束。写入成功时输出 `Policy applied: <path>`。没有 `--yes` 选项，也没有非交互模式。
+
+智能体运行 `policy apply` 会被硬停止，原因文本正是：
+
+```text
+Only the user may apply a policy proposal, because it rewrites the configuration CC Safety Net enforces. Ask them to run `cc-safety-net policy apply <file>` themselves in a terminal; you can run `cc-safety-net policy check <file>` to show them what it would change.
+```
+
+识别逻辑有意放宽匹配，涵盖直接调用、`npx`、`bunx`、`pnpx`、`pnpm dlx` 和 `yarn dlx`、`npm exec`、`pnpm exec` 和 `yarn exec`、`cc-safety-net@latest` 这类带版本的写法，以及用 `bun` 或 `node` 执行入口文件；目标前面带有运行器选项时同样匹配。`policy check` 对智能体仍然放行。
 
 ## 完整的策略示例
 
@@ -301,7 +391,7 @@ Schema 版本。必须为 `1`。这是唯一的必填字段；值缺失或错误
 
 ## 无效策略的行为
 
-无效的 `policy.json` 永远不会阻止正常工作。它会把运行时置为 `degraded` 并改用回退值。
+无效的 `policy.json` 永远不会阻止正常工作。它会把运行时置为 `degraded` 并改用回退值。下表描述的是单个文件。两个范围走同一套挽救流程，每条诊断都以来源文件的路径作为前缀。
 
 | 文件状态 | 运行时行为 |
 | --- | --- |
@@ -325,6 +415,8 @@ Schema 版本。必须为 `1`。这是唯一的必填字段；值缺失或错误
 | `secret_protection.deny_paths` | 无效条目被丢弃；非数组变为 `[]` |
 | `secret_protection.allow_paths` | 无效条目被丢弃；非数组变为 `[]`：没有任何机密豁免 |
 | `audit.retention_days` | 限制在范围内，无法使用时取 `30` |
+
+损坏的项目文件也按同样的方式挽救：被拒绝的部分丢弃，两个文件中的其余内容继续生效。用户文件无法读取、而项目策略仍然提供了字段时，这些项目字段是生效的，因此报告的是挽救而不是内置默认值。只要项目文件存在，无论是否有效，都会记录字段来自哪个范围，所以 `status` 会一直打印 `Project` 行。
 
 <Warning>
 无效条目会被**丢弃，而不是修复**。拼错的拒绝路径不再保护对应位置。无效的 `safety.level` 会回退到 `standard`。这两种失效都不会直接提示你。每次手动编辑后，请运行 `npx cc-safety-net status`。

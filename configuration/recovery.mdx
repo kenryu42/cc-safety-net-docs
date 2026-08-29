@@ -4,7 +4,7 @@ sidebarTitle: "Configuration recovery"
 description: "How CC Safety Net behaves when configuration cannot be verified: ready versus degraded state, what stays enforced, how the state is reported, and the exact commands that repair it."
 ---
 
-CC Safety Net loads a policy snapshot on every tool call, reading your local policy file, `rule.json`, rule lockfiles, and digest-verified rulebook caches. That load never writes, never reaches the network, and never caches results, so the snapshot always reflects the configuration currently on disk.
+CC Safety Net loads a policy snapshot on every tool call. The load reads the user policy file, the project policy file that layers over it, and `rule.json` in both scopes. Every rulebook a `rule.json` lists is a live file, read from `<scope>/rules/<name>/rulebook.json` on that same call. The load never writes, never reaches the network, and never caches results, so the snapshot always reflects the configuration currently on disk.
 
 The snapshot has exactly two states: **ready** and **degraded**. This page is the complete contract for both, including what stops being enforced when a source is rejected and how to get back to `ready`.
 
@@ -13,7 +13,7 @@ The snapshot has exactly two states: **ready** and **degraded**. This page is th
 | State | When it happens | What it means |
 | --- | --- | --- |
 | `ready` | Every active source loaded and validated cleanly | Ordinary evaluation against exactly the configuration you wrote |
-| `degraded` | Any rule error, any rule warning, or any `policy.json` error | Ordinary evaluation continues against a fallback, and every reporting surface carries a warning naming the rejected source |
+| `degraded` | Any rule error, any rule warning, or any error from either scope's `policy.json` | Ordinary evaluation continues against a fallback, and every reporting surface carries a warning naming the rejected source |
 
 A single warning is enough to move the runtime to `degraded`. The distinction between an error and a warning is about the source, not about severity of the state:
 
@@ -33,15 +33,15 @@ Invalid configuration never denies ordinary work merely because it is invalid. A
 - A rule source that cannot be verified is **dropped**. Its rules stop being enforced.
 - Every other verified scope keeps enforcing its rules.
 - Every built-in protection keeps applying in every case. Destructive-command rules, secret protection, policy-file protection, and Git-metadata protection do not read rule configuration.
-- An unreadable `policy.json` falls back to **protective** defaults, so both destructive-command protection and secret protection stay on.
+- An unreadable user `policy.json` falls back to **protective** defaults, so both destructive-command protection and secret protection stay on. An unreadable project `policy.json` contributes nothing and leaves the user policy in force.
 
-There is no special recovery mode and no allowlist while degraded, because nothing is denied for being unconfigurable. Reading `rule.json`, editing it in place, and running `cc-safety-net rule sync` are ordinary tool calls that pass or fail on their own merits, so your agent can repair the configuration itself.
+There is no special recovery mode and no allowlist while degraded, because nothing is denied for being unconfigurable. Reading `rule.json`, editing it in place, and running `cc-safety-net rule update` are ordinary tool calls that pass or fail on their own merits, so your agent can repair the configuration itself.
 
 <Warning>
-  Dropping a source is not security-neutral. It **removes** the denials that source contributed, so a command you deliberately blocked in a dropped rulebook can run again until you repair and re-sync it. Never assume a rulebook named in an error is still protecting you.
+  Dropping a source is not security-neutral. It **removes** the denials that source contributed, so a command you deliberately blocked in a dropped rulebook can run again until you repair it. Never assume a rulebook named in an error is still protecting you.
 </Warning>
 
-The one thing that stays protected in every state is the canonical user `policy.json`. Policy-file protection and Git-metadata protection run **before** the configuration snapshot is loaded, so they cannot be affected by a broken config. See [Policy](/configuration/policy) for exactly which operations are blocked.
+What stays protected in every state is `policy.json` in both scopes. Policy-file protection and Git-metadata protection run **before** the configuration snapshot is loaded, so they cannot be affected by a broken config. See [Policy](/configuration/policy) for exactly which operations are blocked.
 
 ## Configuration fallback matrix
 
@@ -51,16 +51,14 @@ The one thing that stays protected in every state is the canonical user `policy.
 
 | Failure | What stops being enforced | What still applies |
 | --- | --- | --- |
-| Missing lockfile while rule sources are configured | Every rulebook in that scope | The other scope's verified rules and all built-ins |
-| Missing lock entry for a configured source | That one rulebook | Every other rulebook and all built-ins |
-| Missing cache entry for a source | That one rulebook | Every other rulebook and all built-ins |
-| Cache digest mismatch | That one rulebook | Every other rulebook and all built-ins |
-| Cached rulebook is unparseable or fails the schema | That one rulebook | Every other rulebook and all built-ins |
-| A lockfile entry does not match its configured source identity because it has the wrong `kind`, or a `path`/`name` differs from the source spec | Every rulebook in that scope. The whole lockfile is rejected as malformed | The other scope's verified rules and all built-ins |
+| A remote source has nothing vendored yet, so `rules/<name>/rulebook.json` is missing | That one rulebook | Every other rulebook and all built-ins |
+| A local source's `rules/<name>/rulebook.json` is missing or was deleted | That one rulebook | Every other rulebook and all built-ins |
+| A rulebook file is not valid JSON or fails the rulebook schema | That one rulebook | Every other rulebook and all built-ins |
+| A rulebook's `name` does not match the source that lists it | That one rulebook | Every other rulebook and all built-ins |
 | `rule.json` is malformed, empty, or has an unsupported `version` | That whole scope, **including its `transparent_wrappers`** | The other scope's verified rules and all built-ins |
 | The policy filesystem cannot be read safely | That scope | The other scope's verified rules and all built-ins |
 
-Every one of these messages names the file or source it rejected and, where a repair exists, tells you to run `cc-safety-net rule sync`.
+Every one of these messages names the file or source it rejected and the repair that fits it. A missing rulebook for a remote source ends with ``run `cc-safety-net rule update` to vendor <source>``. A missing rulebook for a local source ends with `create that file or remove that source from the rules config`. An invalid rulebook and a name mismatch both end with `fix that file`.
 
 <span id="warnings-the-source-stays-active"></span>
 
@@ -72,11 +70,11 @@ Every one of these messages names the file or source it rejected and, where a re
 | Unknown override key in `rule.json` | Only that one override | Every other override and every rule keeps its configured state |
 | A project override targets a user-scoped rule | Only that one override | The rule keeps its user-configured state |
 
-<Warning>
-  The local rulebook source is deliberately absent from both tables. Runtime load reads only the digest-verified cache, so editing a local rulebook, breaking it, or deleting its source directory produces **no warning at all**. The cached rulebook from the last successful sync remains active, not the file you just edited. Your edit becomes active only when `cc-safety-net rule sync` succeeds.
-</Warning>
+<Note>
+  Every rulebook is a live file, so a saved edit is enforced on the next tool call with nothing to publish. A **broken** edit is not silent either. A file that fails to parse or fails the schema is dropped with the invalid-rulebook error above, and a deleted file is dropped with the missing-file error. Both move the snapshot to `degraded`.
+</Note>
 
-Duplicate rulebook names resolve deterministically: the first claim wins, and the user scope is loaded first, so a name claimed by your user scope shadows the project one. The later rulebook contributes nothing rather than partially shadowing rules. Because this is resolved rather than fatal, `rule sync` for one scope still succeeds when the other scope already uses that name.
+Duplicate rulebook names resolve deterministically: the first claim wins, and the user scope is loaded first, so a name claimed by your user scope shadows the project one. The later rulebook contributes nothing rather than partially shadowing rules. Because this is resolved rather than fatal, a change in one scope does not fail on a name the other scope already claims.
 
 <span id="policy-json-salvaged-or-replaced-with-protective-defaults"></span>
 
@@ -84,14 +82,19 @@ Duplicate rulebook names resolve deterministically: the first claim wins, and th
 
 | Situation | Result | State |
 | --- | --- | --- |
-| The file does not exist | Built-in defaults | `ready`. No diagnostic |
-| The file is empty or whitespace only | Built-in protective defaults | `degraded` |
-| The file is not valid JSON | Built-in protective defaults | `degraded` |
-| The file parses to something that is not an object | Built-in protective defaults | `degraded` |
-| The file parses to an object but fails validation | **Field-by-field salvage**: every recognized valid section stays active, and protective defaults replace the rest | `degraded` |
-| The file is valid | Your policy, exactly as written | `ready` |
+| The user file does not exist | Built-in defaults | `ready`. No diagnostic |
+| The user file is empty or whitespace only | Built-in protective defaults | `degraded` |
+| The user file is not valid JSON | Built-in protective defaults | `degraded` |
+| The user file parses to something that is not an object | Built-in protective defaults | `degraded` |
+| The user file parses to an object but fails validation | **Field-by-field salvage**: every recognized valid section stays active, and protective defaults replace the rest | `degraded` |
+| The user file is valid | Your policy, exactly as written | `ready` |
+| The project file does not exist | The user policy alone | `ready`. No diagnostic |
+| The project file is empty, is not valid JSON, or parses to something that is not an object | The user policy alone. The project file contributes nothing | `degraded` |
+| The project file parses to an object and some fields fail validation | Field-by-field salvage: its recognized valid fields still layer over the user policy, the rest is dropped | `degraded` |
+| The project file has an `audit` section | The user policy's audit settings. Every other project field still layers on | `degraded` |
+| The user file is unreadable while the project file sets fields | Built-in protective defaults with the project file's valid fields layered on top | `degraded` |
 
-Field-level salvage means one bad field cannot drop the protections the rest of the file still configures. The protective defaults deliberately err toward more denials: destructive-command protection and secret protection are forced on, invalid entries in both allow-path lists are dropped, and disabling overrides are dropped. Valid secret allow paths remain in the salvaged policy. See [Policy](/configuration/policy) for the per-field salvage behavior.
+Field-level salvage means one bad field cannot drop the protections the rest of the file still configures. The protective defaults deliberately err toward more denials: destructive-command protection and secret protection are forced on, invalid entries in both allow-path lists are dropped, and disabling overrides are dropped. Valid secret allow paths remain in the salvaged policy. The project file at `.cc-safety-net/policy.json` is salvaged the same way, with one difference. `audit` is user scope only, so a project `audit` section is ignored with the diagnostic `project policy audit settings are ignored; audit is user scope only`. See [Policy](/configuration/policy) for the per-field salvage behavior.
 
 The runtime never rewrites `policy.json`. Repair it by hand, or use the repair action in the dashboard.
 
@@ -99,7 +102,7 @@ While the file has errors, the dashboard form shows the full defaults instead of
 
 ## Transparent-wrapper coverage gap
 
-`transparent_wrappers` is declared in `rule.json`, not in a rulebook, and `rule.json` carries no lock or digest. That has two consequences:
+`transparent_wrappers` is declared in `rule.json`, not in a rulebook, and `rule.json` carries no digest. That has two consequences:
 
 - A **dropped rulebook** keeps its scope's wrappers, because `rule.json` itself is still readable.
 - An **unreadable `rule.json`** loses that scope's wrappers, because there is no verified copy to fall back to. Analysis stops looking through those wrapper commands to the protected command underneath.
@@ -144,7 +147,7 @@ Two structural limits are worth knowing:
 ## Visible and silent failures
 
 - **A dropped rule source is quiet.** It removes denials rather than adding them, so a clean session produces no friction and no signal at all. This is the case to check deliberately after any change to rule configuration and after every upgrade. Make `cc-safety-net status` a habit; run `doctor` for the full report.
-- **A local rulebook edit and an unmigrated legacy configuration are quieter.** Neither produces a runtime diagnostic. The digest-verified cache keeps enforcing the pre-edit rulebook, and a legacy file is not loaded. `rule sync` makes the edit active. `rule verify` flags the legacy file.
+- **An unmigrated legacy configuration is quieter.** The runtime does not load the file and reports nothing about it, so the snapshot stays `ready` while those rules protect nothing. `rule verify` flags it.
 - **An invalid `policy.json` mostly announces itself**, because rejected sections fall back to protective defaults: both protections forced on, allow paths dropped, disabling overrides dropped. You discover it as *more* denials than you configured.
 - **The quiet half of an invalid `policy.json`**: an invalid `safety.level` silently falls back to `standard`, so a typo in `paranoid` **lowers** your preset. Invalid `secret_protection.deny_paths` entries and per-rule overrides that would raise a rule above its default are discarded rather than repaired.
 - Only the status line marker is passive. The `Config warning:` line needs an unrelated denial to appear on, and every other surface waits for you to run a command or open the dashboard.
@@ -180,16 +183,20 @@ Every command below is an ordinary tool call, so your agent can run the whole se
     npx cc-safety-net rule verify
     ```
 
-    Validates the user and project `rule.json` against the schema and replays the runtime load, so it catches the same problems the guard would hit. It also flags legacy files that still need migration. The command can make one change. When a valid `rule.json` has no `$schema` key, `rule verify` adds one and prints `Added $schema to <scope> config.` Otherwise, it changes nothing.
+    Validates the user and project `rule.json` against the schema and replays the runtime load, so it catches the same problems the guard would hit. It also flags legacy files that still need migration. It ends with `All configs valid.` or `Configs valid with warnings.` when nothing is broken, and with `Config validation failed.` and exit `1` when something is. The command can make one change. When a valid `rule.json` has no `$schema` key, `rule verify` adds one and prints `Added $schema to <scope> config.` Otherwise, it changes nothing.
   </Step>
-  <Step title="Repair and re-sync">
+  <Step title="Repair the source">
+    A local rulebook needs no command. Edit the file the diagnostic names, and the guard reads it on the next tool call.
+
+    For a remote source that is missing or stale, vendor it again:
+
     ```bash
-    npx cc-safety-net rule sync
+    npx cc-safety-net rule update
     ```
 
-    Rewrites the lockfile and cache for the scope you are syncing, then reloads that scope exactly as the guard loads it. If any diagnostic remains, it reports that diagnostic and exits non-zero instead of claiming success. `Rule config synced.` means that the scope has no remaining diagnostic.
+    Re-resolves every configured remote source, writes each one to `rules/<name>/rulebook.json`, then reloads that scope exactly as the guard loads it. Name one source to update only that one, and add `--global` for the user scope. If any diagnostic remains, it reports that diagnostic and exits non-zero instead of claiming success. `Rule config synced.` followed by the `Active rulebooks (<n>):` list means the scope has no remaining diagnostic.
 
-    Verification covers only the scope being synchronized.
+    Each source updates independently. One that fails prints `Failed to update <spec>: <message>` and keeps the copy it already had, while the others still update. Verification covers only the scope being updated.
   </Step>
   <Step title="Fix policy.json by hand">
     The runtime never rewrites `policy.json`. Correct the fields named in the diagnostic yourself, or use the repair action in the dashboard, then rerun `status`. See [Policy](/configuration/policy) for the full schema and defaults.
@@ -197,6 +204,18 @@ Every command below is an ordinary tool call, so your agent can run the whole se
 </Steps>
 
 Repeat `status` after each repair. The runtime reloads on the next tool call, so there is nothing to restart.
+
+## Migrate lock and cache leftovers
+
+A scope configured by an earlier version can still carry a `rule.lock` and a `cache` directory. Neither is read any more, so the snapshot stays `ready` and nothing is enforced from them. `cc-safety-net doctor` reports them as the info finding `config.v2-leftovers`, titled `Rulebook lock and cache leftovers detected`, with the detail `Files an earlier version left behind are no longer read: <paths>.` Its fix hint is ``Run `cc-safety-net rule sync` (add `--global` for user scope) to migrate them, then rerun doctor.``
+
+That migration is all `rule sync` does now. It runs offline and opens with its deprecation notice:
+
+```
+`cc-safety-net rule sync` is deprecated: rulebooks are live files that need no synchronization. This run only migrates the lock and cache an earlier version left behind.
+```
+
+It vendors each cached rulebook that still matches its recorded digest, prints ``Could not migrate <source> from the v2 cache. Run `cc-safety-net rule update <source>` to vendor it.`` for the ones it cannot, then deletes the lock and the cache directory. With nothing to migrate it prints `No v2 lock or cache leftovers found in <dir>; nothing to migrate.` and exits `0`. It refuses when the scope's `rule.json` is missing or unreadable while leftovers remain, because the lock is then the only record of the configured sources.
 
 ## Migrate legacy inline rules
 
@@ -217,7 +236,7 @@ npx -y cc-safety-net rule migrate
     The complete `policy.json` contract, defaults, and per-field salvage.
   </Card>
   <Card title="Custom rules" icon="list-checks" href="/configuration/custom-rules">
-    Rulebook layout, sources, lock and cache, overrides, and transparent wrappers.
+    Rulebook layout, sources, vendoring, overrides, and transparent wrappers.
   </Card>
   <Card title="CLI commands" icon="terminal" href="/reference/cli-commands">
     Full options and exit behavior for `status`, `doctor`, and every `rule` subcommand.

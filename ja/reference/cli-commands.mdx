@@ -1,7 +1,7 @@
 ---
 title: "CLI コマンドリファレンス"
 sidebarTitle: "CLI コマンド"
-description: "CC Safety Net のすべての CLI コマンドをまとめたリファレンスです。status、doctor、logs、explain、rule、install、update、uninstall、hook、gui、statusline の各オプションと終了時の挙動を示します。"
+description: "CC Safety Net のすべての CLI コマンドをまとめたリファレンスです。status、doctor、logs、explain、rule、policy、install、update、uninstall、hook、gui、statusline の各オプションと終了時の挙動を示します。"
 keywords:
   - "cli"
   - "コマンドライン"
@@ -11,6 +11,7 @@ keywords:
   - "logs"
   - "explain"
   - "rule"
+  - "policy"
   - "install"
   - "update"
   - "hook"
@@ -26,7 +27,7 @@ CC Safety Net には、`cc-safety-net` という 1 つの CLI があります。
 
 ## コマンドの概要
 
-CLI は 11 個のコマンドを登録します。次の順序は、`cc-safety-net --help` に表示される順序です。
+CLI は 12 個のコマンドを登録します。次の順序は、`cc-safety-net --help` に表示される順序です。
 
 | コマンド | 使用方法 | 動作 |
 | --- | --- | --- |
@@ -35,6 +36,7 @@ CLI は 11 個のコマンドを登録します。次の順序は、`cc-safety-n
 | [`logs`](#logs) | `logs [options]` | hook が記録した監査ログエントリを表示する |
 | [`explain`](#explain) | `explain [options] <command>` | コマンドの解析方法をトレースする |
 | [`rule`](#rule) | `rule <subcommand>` | ルール設定、rulebook ソース、transparent wrapper を管理する |
+| [`policy`](#policy) | `policy <subcommand>` | プロジェクトまたはユーザーのポリシー提案を検査して適用する |
 | [`install`](#install) | `install [TARGET_FLAG]` | CC Safety Net をコーディングエージェント CLI にインストールする |
 | [`update`](#update) | `update` | インストール済みのすべての連携を更新する |
 | [`uninstall`](#uninstall) | `uninstall [TARGET_FLAG]` | CC Safety Net をコーディングエージェント CLI から削除する |
@@ -138,6 +140,8 @@ GitHub Copilot CLI では、`doctor` はプラグインの checkout 状態と ho
 - hook の検査に失敗しました。
 - ユーザーまたはプロジェクトのルール設定が無効です。
 - policy、config、audit のいずれかのディレクトリが安全ではありません。現在のユーザーの所有ではない、グループまたはその他のユーザーに書き込み権限がある、シンボリックリンクである、ディレクトリではない、のいずれかに当てはまる状態を指します。
+
+以前のバージョンが残した `rule.lock` ファイルまたは `cache` ディレクトリがあると、`info` 重大度の finding `config.v2-leftovers`（タイトルは `Rulebook lock and cache leftovers detected`）が発生します。ランタイムはどちらももう読み取りません。修正ヒントは ``Run `cc-safety-net rule sync` (add `--global` for user scope) to migrate them, then rerun doctor.`` です。`info` の finding は終了コードに影響しません。
 
 一部の監査ログファイルを読み取れない場合、Recent Activity セクションの末尾に `Warning: <n> audit log sources could not be read; this summary is incomplete` が表示されます（1 件の場合は `source`）。これにより、操作が少ない週を完全なデータと誤認しません。
 
@@ -293,15 +297,18 @@ npx cc-safety-net explain --json 'loop() { loop; }; loop'
 | フラグ | 説明 | 有効な対象 |
 | --- | --- | --- |
 | `-g`, `--global` | プロジェクトスコープではなくユーザースコープのルール設定を使う | `list` と `migrate` 以外のすべてのサブコマンド |
-| `--check` | ロックまたはキャッシュの状態を変更せずに確認する | `migrate` 以外のすべてのサブコマンド。`init`、`add`、`remove`、`update`、`sync` で意味がある |
 | `--cleanup` | `rule migrate` が検証した後にレガシーファイルを削除する | `migrate` のみ |
 | `--delete-source` | 削除時に、中身が `rulebook.json` だけのローカルソースディレクトリも削除する | `remove` のみ |
 | `--example` | 非アクティブなサンプル rulebook を作成する | `init` のみ |
+| `--ref <ref>` | ブランチ、タグ、コミットを指定する | `add` のみ |
+| `--only <rulebook...>` | リポジトリ内の指定した rulebook だけを追加する | `add` のみ |
 | `-h`, `--help` | ヘルプを表示する | すべて |
+
+`--check` は受け付けなくなりました。どのサブコマンドでも `Unknown option for rule <subcommand>: --check` として拒否されます。rulebook は毎回ディスクから読み込まれるため、`add` や `update` のドライランに意味を持たせるには、結局その候補を取得して検証するほかありません。オフラインでの検証には [`rule verify`](#rule-verify) を使います。
 
 ### rule init
 
-現在のスコープにルール設定を作成します。ファイルが存在する場合は、`rules`、`overrides`、`transparent_wrappers` を維持したまま、正規形式に書き換えます。必要な場合は、rulebook キャッシュディレクトリも作成します。
+現在のスコープにルール設定を作成します。ファイルが存在する場合は、`rules`、`overrides`、`transparent_wrappers` を維持したまま、正規形式に書き換えます。キャッシュディレクトリは作成しません。
 
 ```bash
 npx -y cc-safety-net rule init
@@ -316,17 +323,47 @@ npx -y cc-safety-net rule init --example
 
 サンプル rulebook は、`example-rules/rulebook.json` が存在しない場合にのみ書き込まれます。設定から参照されないため、**非アクティブ**です。有効にするには、`rule add example-rules` で追加します。
 
+書き込み後、`rule init` はガードと同じ方法でスコープを読み込みます。エラーがあれば出力して `1` で終了します。問題がなければ `Rule config initialized.` を出力して `0` で終了します。
+
 ### rule add
 
-rulebook ソースを追加して同期します。`<source>` は、裸のローカル名（例は `project-rules`）、または `owner/repo#ref/<rulebook-name>` 形式の GitHub ソースです。
+使用方法は `rule add <source> [--ref <ref>] [--only <rulebook...>]` です。`<source>` には 3 つの形式があります。`project-rules` のような裸のローカル名、`acme/safety-rules` のようなリポジトリ全体、`owner/repo#ref/<rulebook-name>` という正規形式で指定する単一の rulebook です。
+
+**オプション：**
+
+| フラグ | 説明 |
+| --- | --- |
+| `--ref <ref>` | ブランチ、タグ、コミットを指定する |
+| `--only <rulebook...>` | リポジトリ内の指定した rulebook だけを追加する |
+| `-g`, `--global` | ユーザースコープのルール設定を使う |
+| `-h`, `--help` | ヘルプを表示する |
+
+**例：**
 
 ```bash
-npx -y cc-safety-net rule add project-rules
-npx -y cc-safety-net rule add kenryu42/cc-safety-net#main/block-git-add-all
-npx -y cc-safety-net rule add --global my-personal-rules
+cc-safety-net rule add project-rules
+cc-safety-net rule add acme/safety-rules
+cc-safety-net rule add acme/safety-rules --only aws gcloud
+cc-safety-net rule add acme/safety-rules --ref v2 --only aws
 ```
 
-ソースを省略するとエラーになります。
+ソースを省略するとエラーになります。他のサブコマンドと同様に、`-g` / `--global` でユーザースコープを選択します。
+
+リポジトリをソースに指定した場合、`rule add` は書き込みの前に ref をコミットへ解決し、そのコミット時点のリポジトリにある `.cc-safety-net/rules/<name>/rulebook.json` をすべて列挙します。`--only` がなければ、それらを名前順ですべて追加します。`--only` を指定すると、指定した順序で該当する rulebook だけを追加し、重複は無視します。リポジトリに存在しない名前を指定すると、追加は失敗します。
+
+`--ref` と `--only` は `owner/repo` 形式のソースにのみ指定できます。それ以外では `--ref can only select a ref for an owner/repo source: <source>` または `--only can only select rulebooks from an owner/repo source` を出力します。`--ref` を省略した場合、`rule add` はリポジトリの既定ブランチを使います。ref には `/` を含むセグメントを指定できるため、`--ref feature/rulebook-v2` は有効です。ref 全体が `^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$` に一致する必要があり、一致しない場合は `--ref must use valid path segments: <ref>` を出力します。
+
+`rule.json` には、指定した ref を含む正規形式 `owner/repo#ref/<rulebook-name>` が保存されます。解決されたコミットは出力されるだけで、保存はされません。
+
+リポジトリを追加したときの出力は、次の順序です。
+
+- `Added <n> rulebooks from <source> at <ref>:`（1 件の場合は `rulebook`）に続けて、rulebook ごとに `  - <name>` の行
+- 選択した rulebook のうち `rule.json` にすでにあったものについて `Rulebooks already configured from <source> at <ref>: <names>`
+- `Vendored at <commit>.`。解決されたコミットを先頭 7 文字に短縮したもので、新しいソースを 1 つ以上書き込んだ場合にのみ出力される
+- 書き込んだファイルごとに 1 ブロック。新規ファイルは `Vendored <spec> (<version>)`、既存ファイルの更新は `Updated <spec> (<before> -> <after>)` に続けて、追加・削除・名前は同じで内容が変わったルールをそれぞれ `  + <rule>`、`  - <rule>`、`  ~ <rule>` の行で表示
+- `Rule config synced.`、空行、`Active rulebooks (<n>):`。各エントリは `  - <name> <version> (<n> rules)` と `    Source: <spec>`
+
+裸のローカル名または正規形式 `owner/repo#ref/<rulebook-name>` のソースでは、最初の 3 行は出力されません。リポジトリ追加で `Rule config synced.` が出る位置には、`Added rulebook source: <source>` が出力されます。
 
 ### rule remove
 
@@ -345,25 +382,40 @@ npx -y cc-safety-net rule remove project-rules --delete-source
 
 ### rule update
 
-設定済みの rulebook ソースについて、ロックとキャッシュを更新します。ソースを 1 つ指定した場合は、そのソースだけを更新します。
+設定済みのすべてのソースについて、リモート rulebook を再取得して取り込みます。ソースを 1 つ指定した場合は、そのソースだけを対象にします。
 
 ```bash
 npx -y cc-safety-net rule update
 npx -y cc-safety-net rule update project-rules
-npx -y cc-safety-net rule update --check
 ```
 
-ソース引数なしの `rule update` は、`rule sync` と正確に同じです。
+実行のたびにブランチとタグの ref を解決し直すため、`main` や移動するタグを指しているソースは現在のコミットを取り込みます。ローカルソースには取得するものがありません。設定済みのソースはすべてレポートに現れますが、再取得されるのは選択したソースだけで、残りはディスク上のファイルから読み込まれます。出力される変更ブロックは [`rule add`](#rule-add) と同じで、その後に `Rule config synced.` とアクティブな rulebook の一覧が続きます。
+
+各ソースは独立して更新されます。取得や検証に失敗したソースは、すでに取り込んである内容をそのまま保持し、`Failed to update <spec>: <message>` として報告されます。更新に成功した他のソースは書き込まれます。1 つでも失敗した場合は `1`、それ以外は `0` で終了します。
+
+例外はリソース制限による失敗です。GitHub の取得予算を使い切った実行は `Rule synchronization exceeds CC Safety Net's safe resource limits.` を出力して停止し、上限に達したソースだけでなく、その実行に含まれるすべてのソースが失敗します。
 
 ### rule sync
 
-すべての設定済み rulebook ソースについて、ロックとキャッシュを再構築します。`rule.json` を手動で編集した後に実行します。
+<Warning>
+  `rule sync` は非推奨です。rulebook はライブファイルであり、同期するものはありません。この実行は、以前のバージョンが書き込んだ `rule.lock` ファイルと `cache` ディレクトリをオフラインで移行し、その後どちらも削除します。
+</Warning>
 
 ```bash
 npx -y cc-safety-net rule sync
 ```
 
-`--check` を指定すると、`update` と `sync` は `Rule config synced.` ではなく `Rule config checked.` を報告し、ロックとキャッシュの状態を変更しません。
+実行は必ず次の非推奨の通知から始まります。
+
+```text
+`cc-safety-net rule sync` is deprecated: rulebooks are live files that need no synchronization. This run only migrates the lock and cache an earlier version left behind.
+```
+
+ネットワークからは何も取得しません。記録されたダイジェストと一致するキャッシュのコピーは `<config-dir>/<name>/rulebook.json` に書き込まれ、`Vendored <spec> from the v2 cache.` として報告されます。書き込み先のファイルは存在するものの使用できない場合は、`Restored <spec> from the v2 cache over an invalid file.` になります。キャッシュから復元できないソースについては ``Could not migrate <spec> from the v2 cache. Run `cc-safety-net rule update <spec>` to vendor it.`` を出力します。ユーザースコープでは、このコマンドに ` --global` が付きます。最後の行は `Removed the v2 lock and cache under <dir>.` です。
+
+移行するものがない場合は、`No v2 lock or cache leftovers found in <dir>; nothing to migrate.` を出力して `0` で終了します。これらのファイルが残っているのにスコープの `rule.json` が存在しないか読み取れない場合は、設定済みソースの唯一の記録を失わないように移行を拒否し、`Cannot migrate: the rules config in <dir> is missing or unreadable while v2 leftovers remain. Restore rule.json, then re-run rule sync.` を出力して `1` で終了します。
+
+`doctor` は、残っているこれらのファイルを `info` 重大度の finding `config.v2-leftovers` として報告します。
 
 ### rule list
 
@@ -374,6 +426,8 @@ npx -y cc-safety-net rule list
 ```
 
 `rule list` は両方のスコープを一度に読み取るため、`--global` は拒否されます。ポリシーの**エラー**がある場合だけ `1` で終了します。警告は出力されますが、終了コードは `0` です。
+
+`Active rules` では、どのルールも `  Command:`、`  Block args:`、`  Reason:` の同じ 3 行を出力します。バージョン 1 のルールは、サブコマンドを設定していれば `Command:` の行に `<command> <subcommand>` を表示し、ブロック対象の引数を `Block args:` に表示します。`rulebook_version: 2` のルールにはどちらもないため、`Command:` の行はコマンド名だけになり、`Block args:` の行は空になります。バージョン 2 の `match` の内容は `rule list` には出力されません。`match.command_path`、`match.any_args`、`match.exclude_args` は rulebook ファイル自体を読むか、[`rule doc`](#rule-doc) で作成ガイドを表示して確認してください。
 
 ### rule wrapper
 
@@ -420,7 +474,7 @@ npx -y cc-safety-net rule migrate
 npx -y cc-safety-net rule migrate --cleanup
 ```
 
-`--cleanup` は、移行したルールの検証後にレガシーファイルを削除します。`migrate` は、`--global`、`--check`、2 つ目の位置引数を拒否します。
+`--cleanup` は、移行したルールの検証後にレガシーファイルを削除します。`migrate` は、`--global` と 2 つ目の位置引数を拒否します。
 
 ### rule doc
 
@@ -437,6 +491,79 @@ UPDATE_AVAILABLE: cc-safety-net v<latest> is available (running v<current>). Ask
 ```
 
 ガイド自体は標準出力に出るため、パイプで渡す内容が混ざることはありません。同じバージョンについては 7 日間、再通知されません。この確認を完全に無効にするには `CC_SAFETY_NET_NO_UPDATE_CHECK` を設定します。レジストリへの問い合わせが失敗しても通知はされず、いずれの場合も終了コードは `0` のままです。
+
+## policy
+
+`policy` は、ポリシーの提案を検査して適用します。ポリシーファイルが持つフィールドと、それぞれの意味は[ポリシー](/ja/configuration/policy)を参照してください。
+
+| サブコマンド | 説明 |
+| --- | --- |
+| `check <file>` | ポリシー提案を検証して差分を出力する |
+| `apply <file>` | ターミナルで確認してから提案を適用する |
+
+**オプション：**
+
+| フラグ | 説明 |
+| --- | --- |
+| `-g`, `--global` | プロジェクトポリシーではなくユーザースコープのポリシーを使う |
+| `-h`, `--help` | ヘルプを表示する |
+
+**例：**
+
+```bash
+cc-safety-net policy check proposal.json
+cc-safety-net policy apply proposal.json
+cc-safety-net policy apply proposal.json --global
+```
+
+対象は、プロジェクトの `.cc-safety-net/policy.json` です。`--global` を指定した場合はユーザーポリシーファイルになります。
+
+### 出力
+
+どちらのサブコマンドも、`apply` が書き込む前に同じレポートを出力します。
+
+```text
+Scope: project (<path>)
+Proposal: <file>
+Effective policy (user + project merged):
+Changes (<n>):
+  <field>: <before> -> <after>
+```
+
+`--global` を指定した場合、1 行目は `Scope: user (<path>)` になります。プロジェクトスコープでは、ユーザーポリシーとプロジェクトファイルをマージした実効ポリシーについて、適用前と適用後を比較します。この差分は `Effective policy (user + project merged):` の見出しの下に並びます。設定したフィールドだけを持つ提案でも、セッションが実際に動作するレベルは変わります。そのため差分は、ファイル自体の内容ではなくその変化を報告します。`safety.level` を設定すれば実効レベルが下がるか上がり、設定しなければユーザーポリシーから継承したレベルに戻ります。ユーザースコープでは、ユーザーポリシーファイル自体を比較し、この見出しは出力しません。差分がない場合の出力は `No changes.` の 1 行だけです。片側に値がない行は `(unset)` と表示されます。
+
+`check` は差分を出力した時点で終了し、終了コードは `0` です。
+
+差分を出力する前に標準エラー出力へ書き出され、`1` で終了するエラーは次のとおりです。`Unknown option for policy: <arg>`、`Unknown policy subcommand: <name>`、`policy <subcommand> requires a file`、`Unexpected policy argument: <arg>`。監査設定はユーザースコープ専用のため、`audit` セクションを含むプロジェクト向けの提案も同じように拒否されます。
+
+```text
+<file>: audit settings are user scope only; remove the audit section from a project proposal
+```
+
+### 適用
+
+`apply` は stdin と stdout の両方が TTY であることを要求します。TTY でない場合は、自分で実行するためのコマンドを出力して `1` で終了します。
+
+```text
+policy apply confirms interactively; run this yourself in a terminal:
+  cc-safety-net policy apply <file>
+```
+
+`--global` を指定していた場合は、出力されるコマンドにも `--global` が付きます。
+
+ターミナルでは、`apply` は `Apply this policy to <path>? [y/N] ` と確認します。確認とみなされるのは、大文字小文字を問わず `y` または `yes` だけです。それ以外は、プロンプトでの EOF も含めてすべて拒否として扱われ、`Cancelled; nothing was written.` を出力して `0` で終了します。確認して適用した場合はファイルを書き込み、`Policy applied: <path>` を出力して、同じく `0` で終了します。プロジェクトへの適用では、提案が設定しているフィールドだけが書き込まれます。省略したフィールドは、引き続きユーザーポリシーを継承します。
+
+<Warning>
+  `--yes` はなく、非対話モードもありません。提案を適用する方法は、ターミナルでプロンプトに答えることだけです。
+</Warning>
+
+エージェントが `policy apply` を実行した場合、ガードは intent `hard_stop` と次の理由で拒否します。
+
+```text
+Only the user may apply a policy proposal, because it rewrites the configuration CC Safety Net enforces. Ask them to run `cc-safety-net policy apply <file>` themselves in a terminal; you can run `cc-safety-net policy check <file>` to show them what it would change.
+```
+
+`policy check` は許可されたままです。エージェントは提案を作成し、その差分を提示するところまでは実行できます。
 
 ## install
 

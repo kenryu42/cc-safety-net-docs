@@ -1,29 +1,70 @@
 ---
 title: "Policy file: the complete policy.json contract"
 sidebarTitle: "Policy"
-description: "Full reference for CC Safety Net's policy.json: location, schema, safety presets and capability overrides, worktree mode, destructive-command and secret protection, deny- and allow-path rules, audit retention, defaults, and precedence."
+description: "Full reference for CC Safety Net's policy.json: user and project scopes and how they merge, schema, safety presets and capability overrides, worktree mode, destructive-command and secret protection, deny- and allow-path rules, audit retention, and the policy check and policy apply commands."
 ---
 
-`policy.json` is CC Safety Net's user-scoped settings file. It selects your safety preset, turns individual built-in protections on or off, adds extra protected paths, and sets how long audit records are kept.
+`policy.json` is CC Safety Net's settings file. It selects your safety preset, turns individual built-in protections on or off, adds extra protected paths, and sets how long audit records are kept. It has two scopes: your user file, and an optional project file committed to a repository.
 
 It is separate from `rule.json` and rulebooks, which define your own custom blocking rules. See [Custom rules](/configuration/custom-rules) for that schema.
 
 ## Policy file location
 
-| Setup | Path |
+| Scope | Path |
 | --- | --- |
-| Default | `~/.cc-safety-net/policy.json` |
-| `CC_SAFETY_NET_HOME` set | `$CC_SAFETY_NET_HOME/policy.json` |
+| User, default | `~/.cc-safety-net/policy.json` |
+| User, `CC_SAFETY_NET_HOME` set | `$CC_SAFETY_NET_HOME/policy.json` |
+| Project | `.cc-safety-net/policy.json`, resolved from the project root |
 
-With `CC_SAFETY_NET_HOME` set, the file sits **directly** under that directory, as a sibling of `rules/`. See [Environment](/configuration/environment) for the override itself.
+With `CC_SAFETY_NET_HOME` set, the user file sits **directly** under that directory, as a sibling of `rules/`. See [Environment](/configuration/environment) for the override itself.
 
-There is exactly one policy file. **There is no project-scoped `policy.json`**. The runtime reads that single path and nothing else, so a project cannot lower or raise your policy.
+`CC_SAFETY_NET_HOME` governs the user file only. The project file is always `.cc-safety-net/policy.json` under the project root, the same directory the rules scope resolves.
 
-When the dashboard writes the file it creates the directory with `0700` and the file with `0600`.
+The runtime reads both files on every tool call. The user file is the baseline and the project file layers on top of it. See [Project policy](#project-policy).
+
+When the dashboard writes the user file it creates the directory with `0700` and the file with `0600`.
+
+## Project policy
+
+A team ships a safety policy through the repository by committing `.cc-safety-net/policy.json`. Members run nothing. The runtime reads the file on the next tool call, in every checkout.
+
+The project file is **sparse**. Only the fields it sets are written, and an absent field keeps inheriting from the user policy. A project file that sets one rule override changes that one rule and nothing else.
+
+The effective policy is the user policy with the project policy layered on top:
+
+| Field | How the scopes combine |
+| --- | --- |
+| `safety.level`, `workflow.worktree_mode`, and each `enabled` flag | The project value wins wherever the project sets one |
+| `safety.overrides` | Merged by capability key, project entry wins |
+| `destructive_command_protection.overrides`, `secret_protection.overrides` | Merged by rule id, project entry wins |
+| `destructive_command_protection.allow_paths`, `secret_protection.deny_paths`, `secret_protection.allow_paths` | The union of both scopes, so neither scope erases the other's entries |
+| `audit` | User scope only |
+
+An `audit` section in a project file is ignored, and the load reports `project policy audit settings are ignored; audit is user scope only`.
+
+### Reported weakenings
+
+A project policy is honored as written. Nothing clamps it back up to the user baseline. Instead, every field it relaxes relative to the user policy gets its own reported line:
+
+- `project policy lowers level: <user> -> <project>`
+- `project policy disables fail_closed`, `project policy disables paranoid_rm`, `project policy disables paranoid_interpreters`
+- `project policy enables worktree mode relaxations`
+- `project policy disables destructive command protection`
+- `project policy disables secret protection`
+- `project policy disables rule <id>`
+- `project policy adds destructive allow path: <path>`
+- `project policy adds secret allow path: <path>`
+
+They appear in four places:
+
+- `status` adds a `Project` row with the project file's path, and a `Project policy` block listing the lines.
+- The status line adds a `🔻` glyph while any weakening is in force. See [Status line](/configuration/status-line).
+- `doctor` prints a `Project policy deltas:` block under Effective Safety.
+- `doctor` and `explain` name the scope that supplied the safety preset next to it, as `user policy`, `project policy`, or `built-in default`. See [Explain trace](/reference/explain-trace).
 
 ## Policy file protection
 
-The canonical user `policy.json` is a protected path in **every** runtime state, ready or degraded. Policy-file protection runs before the configuration snapshot is loaded, so a broken config cannot weaken it. These operations hard-stop:
+`policy.json` is a protected path in **both** scopes and in **every** runtime state, ready or degraded. Policy-file protection runs before the configuration snapshot is loaded, so a broken config cannot weaken it. These operations hard-stop:
 
 - Writes, edits, and patches to the file through any tool
 - Shell commands naming the file as an operand
@@ -32,10 +73,12 @@ The canonical user `policy.json` is a protected path in **every** runtime state,
 - `find … -delete` and `find … -exec rm` reaching it
 - `mv` with the file, its directory, or an ancestor as the source
 
+The two scopes protect different directory chains. The user file contributes its own directory and every ancestor. The project file is matched at two locations, resolved from the execution working directory and from the config working directory, and each one contributes only its own `.cc-safety-net` directory. The chain stops there on purpose. Walking further up would claim the working directory and every ancestor above it, and since this guard runs first, `rm -rf .` and `find . -delete` would report this generic reason instead of the specific one their destructive-command rule gives them.
+
 Reading stays allowed. A read-only command whitelist covers `[`, `cat`, `file`, `grep`, `head`, `jq`, `less`, `ls`, `more`, `rg`, `sed`, `stat`, `tail`, `test`, and `wc`. It covers `sed` only when the command does not edit in place with `-i` or `--in-place`. Read-only tools such as Grep and Glob are exempt entirely.
 
 <Warning>
-  Because your agent cannot write this file, ask it to *show* you the change instead. Apply policy edits yourself in an editor, or through the dashboard.
+  Because your agent cannot write this file, ask it to *show* you the change instead. Apply policy edits yourself in an editor, through the dashboard, or with `policy apply`.
 </Warning>
 
 ## Edit the policy file
@@ -44,6 +87,7 @@ Choose one of these options:
 
 - **Use the dashboard.** Run `cc-safety-net gui`. The dashboard writes the file with the correct permissions and can repair a file that does not validate. While the file has an error, the form shows the full defaults instead of the valid values from your file. You cannot save until you repair the file. Repair keeps each recognized valid setting and discards invalid fields. If you do not want this repair behavior, edit the file by hand and check it with `status`.
 - **Edit the JSON directly.** Open the file in an editor and change it by hand. The runtime reads the change on the next tool call. You do not need to restart anything.
+- **Apply a proposal.** Run `cc-safety-net policy apply <file>` to write a proposal file into either scope after you confirm the diff in a terminal. See [Check and apply a proposal](#check-and-apply-a-proposal).
 
 After a hand edit, confirm the result:
 
@@ -52,6 +96,52 @@ npx cc-safety-net status
 ```
 
 A `degraded` verdict means part of your file was rejected. `npx cc-safety-net doctor` names exactly which fields. The runtime **never** rewrites `policy.json` on its own, so an invalid file stays exactly as you left it until you fix it or use the dashboard repair action.
+
+## Check and apply a proposal
+
+`policy check` and `policy apply` split one flow between the agent and you. The agent writes a proposal JSON and runs `policy check` to show what it would change. You run `policy apply` yourself, in a terminal.
+
+```
+policy <subcommand>
+  check <file>   Validate a policy proposal and print its diff
+  apply <file>   Apply a proposal after confirming in a terminal
+  -g, --global   Use the user-scope policy instead of the project one
+  -h, --help     Show this help
+```
+
+Both subcommands print the same header and diff before anything is written:
+
+```
+Scope: project (<project>/.cc-safety-net/policy.json)
+Proposal: <file>
+Effective policy (user + project merged):
+Changes (2):
+  safety.level: strict -> standard
+  secret_protection.allow_paths: (none) -> fixtures/credentials
+```
+
+Project scope diffs the effective merge, before against after. The `Effective policy (user + project merged):` line marks that. A sparse proposal moves the level the session actually runs at, so the confirmation shows the merged result rather than the file's own contents. With `-g, --global` the header reads `Scope: user (<path>)`, there is no merge line, and the diff compares the user file against the proposal with `audit.retention_days` included.
+
+Diff rows read `  <field>: <before> -> <after>` under a `Changes (<n>):` heading. An absent side renders as `(unset)`. With nothing to change, the command prints `No changes.`.
+
+An `audit` section in a project proposal is rejected before the diff, with `<file>: audit settings are user scope only; remove the audit section from a project proposal`.
+
+`policy apply` needs a TTY on both stdin and stdout. Without one it prints the command for you to run and exits 1:
+
+```
+policy apply confirms interactively; run this yourself in a terminal:
+  cc-safety-net policy apply <file>
+```
+
+In a terminal it asks `Apply this policy to <path>? [y/N] `. Only `y` or `yes` accepts, in any case; anything else declines, and so does EOF. A decline prints `Cancelled; nothing was written.` and exits 0. A write prints `Policy applied: <path>`. There is no `--yes` flag and no non-interactive mode.
+
+An agent that runs `policy apply` is denied with a hard stop, whose reason is exactly:
+
+```text
+Only the user may apply a policy proposal, because it rewrites the configuration CC Safety Net enforces. Ask them to run `cc-safety-net policy apply <file>` themselves in a terminal; you can run `cc-safety-net policy check <file>` to show them what it would change.
+```
+
+The recognizer over-matches on purpose. It covers direct invocation, `npx`, `bunx`, `pnpx`, `pnpm dlx` and `yarn dlx`, `npm exec`, `pnpm exec` and `yarn exec`, versioned specs such as `cc-safety-net@latest`, and `bun` or `node` running the entrypoint file, including runner options placed in front of the target. `policy check` stays allowed for agents.
 
 ## Complete policy example
 
@@ -301,7 +391,7 @@ Pruning is opportunistic: it runs at most one traversal per audit root per UTC d
 
 ## Invalid policy behavior
 
-An invalid `policy.json` never blocks ordinary work. It moves the runtime to `degraded` and uses a fallback.
+An invalid `policy.json` never blocks ordinary work. It moves the runtime to `degraded` and uses a fallback. This table describes one file. Both scopes go through the same salvage, and each diagnostic names the file it came from with a path prefix.
 
 | File state | Runtime behavior |
 | --- | --- |
@@ -325,6 +415,8 @@ Salvage is deliberately protective, which is why a broken file usually produces 
 | `secret_protection.deny_paths` | Invalid entries are discarded; a non-array becomes `[]` |
 | `secret_protection.allow_paths` | Invalid entries are discarded. A non-array becomes `[]`, with no secret exemptions |
 | `audit.retention_days` | Clamped, or `30` when unusable |
+
+A malformed project file is salvaged the same way. Its rejected sections drop, and everything else in both files stays in force. An unreadable user file normally falls back to built-in defaults. When a project file still contributes fields, those fields are in effect, so the state reports as salvaged rather than defaults. Scope provenance appears whenever the project file exists, valid or not, so `status` keeps printing its `Project` row.
 
 <Warning>
   Invalid entries are **discarded, not repaired**. A mistyped deny path silently stops protecting that location, and an invalid `safety.level` silently lowers you to `standard`. These are the two quiet failure modes. Run `npx cc-safety-net status` after every hand edit.

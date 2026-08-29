@@ -69,9 +69,10 @@ Review the output before you work through the individual issues below. Most prob
     2. Check the effective level in that output. [Standard mode](/configuration/modes#default-mode) is best-effort: it deliberately allows dynamic executables, command structure assembled through substitution, unverifiable recursive-delete targets such as `rm -rf "$target"`, and metadata-only checks of built-in sensitive paths. If your commands can come from prompt injection or another adversarial context, raise the level to [strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) or [paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1), which fail closed on all of those forms.
     3. The command may fall into an explicitly allowed category. For example, `rm -rf` within the current working directory is allowed by default because it's scoped to your project. See the [Allowed commands](/reference/allowed-commands) reference for the full list.
     4. Run `npx cc-safety-net status`. A `degraded` verdict means a rule source was dropped, so the denials that source contributed are not being enforced. See [Configuration recovery](/configuration/recovery).
-    5. If the command runs through a proxy that CC Safety Net does not analyze, register it with `npx -y cc-safety-net rule wrapper add <command>` so analysis looks through it to the real child command.
-    6. If you need the command blocked in your context, create a custom rulebook with `npx -y cc-safety-net rule init` and add a rule to `.cc-safety-net/rules/project-rules/rulebook.json`. See [Custom rules](/configuration/custom-rules) for the schema.
-    7. If none of the above explains it, the command shape may be a **coverage gap**, which is a public bug under the project policy. Open a [GitHub issue](https://github.com/kenryu42/cc-safety-net/issues) that describes the command *shape*, not a ready-to-paste payload. Secret leakage, a write outside the intended directory, and supply-chain or package-integrity problems use the private disclosure path. The [security policy](/security) defines both procedures.
+    5. Look for a `Project policy` block in that same `status` output. It appears when a project `.cc-safety-net/policy.json` relaxed the user policy, and each line names one relaxed field, for example `project policy lowers level: strict -> standard`, `project policy disables rule <id>`, or `project policy adds destructive allow path: <path>`. Any of those can explain a rule that stopped firing in this project but still fires elsewhere. The status line shows the same condition as `🔻`, and `doctor` prints the same lines under `Project policy deltas:`.
+    6. If the command runs through a proxy that CC Safety Net does not analyze, register it with `npx -y cc-safety-net rule wrapper add <command>` so analysis looks through it to the real child command.
+    7. If you need the command blocked in your context, create a custom rulebook with `npx -y cc-safety-net rule init` and add a rule to `.cc-safety-net/rules/project-rules/rulebook.json`. See [Custom rules](/configuration/custom-rules) for the schema.
+    8. If none of the above explains it, the command shape may be a **coverage gap**, which is a public bug under the project policy. Open a [GitHub issue](https://github.com/kenryu42/cc-safety-net/issues) that describes the command *shape*, not a ready-to-paste payload. Secret leakage, a write outside the intended directory, and supply-chain or package-integrity problems use the private disclosure path. The [security policy](/security) defines both procedures.
 
        Attach a reviewed `explain` trace from step 1. Never attach a raw trace or real credentials. If the boundary is documented, [Known limitations](/guides/known-limitations) identifies it and names the layer that covers it.
   </Accordion>
@@ -86,7 +87,14 @@ Review the output before you work through the individual issues below. Most prob
     3. If the deny reason is "CC Safety Net could not analyze the command because it exceeds safe analysis limits. Simplify or split the command and retry.", no rule matched either. The command crossed a fixed path-canonicalization or shell-structure budget. Commands that do this carry enough path-like tokens to exhaust the path-canonicalization budget, inline shell functions past the projection's cap of 256 call sites, or nest heredoc bodies deeper than the parser allows. The budget is a compile-time constant, so no configuration raises it. Simplify or split the command and retry.
     4. If the deny reason is "CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user.", the analysis hit an internal fault rather than a budget. Reworking the command is not the fix. Report it, as the reason says.
     5. If the deny reason is "CC Safety Net could not use the requested working directory because it does not exist, is inaccessible, is not a directory, or uses an unsupported path form. Use an existing accessible working directory. If the requested directory is missing, create it from an accessible location before retrying the command.", the command was never analyzed. This is an Amp Code shell call whose `dir` could not be resolved. Point the call at a directory that already exists, or create the missing one from an accessible location, and retry.
-    6. Consider these alternatives depending on your situation:
+    6. If the deny reason is the one below, the agent tried to run `cc-safety-net policy apply`:
+
+       ```text
+       Only the user may apply a policy proposal, because it rewrites the configuration CC Safety Net enforces. Ask them to run `cc-safety-net policy apply <file>` themselves in a terminal; you can run `cc-safety-net policy check <file>` to show them what it would change.
+       ```
+
+       This block is deliberate and has no override, because applying a proposal rewrites the policy the guards enforce. Run `npx cc-safety-net policy apply <file>` yourself in a terminal. `policy check` stays allowed, so the agent can still show you what the proposal would change. The recognizer over-matches on purpose, so it also fires on `npx`, `bunx`, `pnpm dlx`, `npm exec`, and `bun`/`node` forms of the same command.
+    7. Consider these alternatives depending on your situation:
        - **Working in a linked git worktree?** Turn on worktree mode with `workflow.worktree_mode` in `policy.json` or `CC_SAFETY_NET_WORKTREE=1`. This relaxes local-discard rules when the command is proven to run inside a linked worktree, which is designed to be a disposable, isolated workspace.
        - **Need a safer variant?** For example, `git push --force-with-lease` is allowed and provides the same outcome as `--force` with an added safety check. `git clean -n` (dry-run) is allowed and lets you preview what would be removed.
        - **Command is genuinely needed?** Run it manually outside the agent. This is always an option, and CC Safety Net will tell the agent to ask you to do exactly this when a block fires.
@@ -106,9 +114,9 @@ Review the output before you work through the individual issues below. Most prob
        - **Project scope**: `.cc-safety-net/rules/rule.json` in your project root
     4. Ensure both `rule.json` and your rulebook JSON files are valid JSON. Common mistakes include trailing commas and unquoted keys. An unreadable `rule.json` drops that whole scope, including its `transparent_wrappers`.
     5. Confirm that `"version": 1` is present in `rule.json` and `"rulebook_version": 1` is present in each `rulebook.json`. Both fields are required.
-    6. If you edited a local rulebook and the old behavior persists, the digest-verified cache is still what enforces, and no warning tells you so. Run `npx -y cc-safety-net rule sync` to promote the local edit.
+    6. If you edited a rulebook and the old behavior persists, you edited a file the scope does not load. Every source loads from `<rules dir>/<rulebook name>/rulebook.json`, where the name comes from the source entry in `rule.json`, and a saved edit there applies on the next tool call with no publishing step. Run `npx -y cc-safety-net rule list` to see the source and rulebook name each scope actually loaded, then check that the file you edited sits under that name. Check also that no `overrides` entry in `rule.json` turns the rule off. A rulebook name another source already claimed is ignored with a warning, so its rules never load at all.
     7. If you previously used the legacy inline config (`.safety-net.json` or `~/.cc-safety-net/config.json`), run `npx -y cc-safety-net rule migrate` to convert it to the new layout. An unmigrated legacy file's rules are inert until you do.
-    8. After making changes to rulebook sources, run `npx -y cc-safety-net rule sync` to rebuild the lock and cache, then re-run `rule verify`. `rule sync` reloads the scope the way the guard does and fails with the exact remaining diagnostic rather than reporting a false success.
+    8. After changing a rulebook source, run `npx -y cc-safety-net rule verify` to revalidate it. There is no rebuild step. `rule verify` reloads each scope the way the guard does and fails with the exact remaining diagnostic rather than reporting a false success. For a remote source, `npx -y cc-safety-net rule update` refetches it and overwrites the vendored `rulebook.json`, so local edits to that file are lost.
 
     You can run all of these while the runtime is `degraded`. Nothing is blocked only because it is unconfigurable.
   </Accordion>
@@ -119,11 +127,29 @@ Review the output before you work through the individual issues below. Most prob
     **Steps to resolve:**
 
     1. Run `npx cc-safety-net doctor`. The `config.runtime-degraded` finding carries the full reason, naming the rejected file and condition.
-    2. For a rule source, follow the fix it names and re-run `npx -y cc-safety-net rule sync`.
+    2. For a rule source, apply the repair the reason names. The `config.runtime-degraded` fix hint states it as:
+
+       ```text
+       Fix the file named in the reason, or run `cc-safety-net rule update` to vendor a remote source, then rerun doctor.
+       ```
+
+       An invalid or misnamed rulebook ends its reason with `fix that file`. A missing local rulebook ends with `create that file or remove that source from the rules config`. A missing remote rulebook ends with an instruction to run `cc-safety-net rule update` to vendor that source. Then run `npx -y cc-safety-net rule verify` to confirm.
     3. Fix `policy.json` by hand because the runtime never rewrites it. Rejected sections fall back to *protective* defaults, so the usual symptom is more denials than you configured. The exception is an invalid `safety.level`, which falls back to `standard` and therefore *lowers* your protection.
     4. Re-run `npx cc-safety-net status` and confirm the verdict is `ready`.
 
     See [Configuration recovery](/configuration/recovery) for every failure row and its fallback.
+  </Accordion>
+
+  <Accordion title="doctor reports rulebook lock and cache leftovers">
+    `doctor` reports the info finding `config.v2-leftovers`, titled `Rulebook lock and cache leftovers detected`, when a `rule.lock` file or a `cache` directory from an earlier version is still on disk in either scope. Its detail lists the paths it found.
+
+    Nothing reads those files. The runtime loads each `rulebook.json` directly, so the finding is informational. The verdict stays `ready` and every configured rule keeps enforcing. The fix hint is exactly:
+
+    ```text
+    Run `cc-safety-net rule sync` (add `--global` for user scope) to migrate them, then rerun doctor.
+    ```
+
+    `rule sync` is deprecated and does nothing else. It runs offline. It copies any cached rulebook that still matches its recorded digest into the live path its source loads from, then deletes the lock and the cache. For a source it could not migrate it prints one line naming the `rule update` command that vendors it instead. It refuses to run while `rule.json` is missing or unreadable, because the lock would then be the only surviving record of your sources.
   </Accordion>
 
   <Accordion title="Status line not showing in Claude Code">

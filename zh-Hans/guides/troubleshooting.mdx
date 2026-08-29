@@ -66,9 +66,10 @@ bunx cc-safety-net doctor
     2. 确认输出中的有效级别。[`standard` 模式](/zh-Hans/configuration/modes#默认模式)只提供尽力保护：它有意允许动态可执行文件名、通过替换拼接的命令结构、`rm -rf "$target"` 这类无法验证的递归删除目标，以及对内置敏感路径仅做元数据检查。如果命令可能来自提示注入或其他对抗性环境，请把级别提高到 [`strict`](/zh-Hans/configuration/modes#strict-mode) 或 [`paranoid`](/zh-Hans/configuration/modes#paranoid-mode)，它们对上述所有形式都会 fail closed。
     3. 检查命令是否属于明确允许的形式，例如当前工作目录内的 `rm -rf` 因为限定在项目范围内而默认允许。完整列表见[被允许的命令](/zh-Hans/reference/allowed-commands)。
     4. 运行 `npx cc-safety-net status`。`degraded` 判定表示某个规则来源已被丢弃，因此该来源贡献的拒绝规则不再生效。详情见[配置恢复](/zh-Hans/configuration/recovery)。
-    5. 如果命令通过 CC Safety Net 不分析的代理运行，请用 `npx -y cc-safety-net rule wrapper add <command>` 注册它，让分析能穿过它看到真实的子命令。
-    6. 如果需要在你的环境中阻止该命令，请运行 `npx -y cc-safety-net rule init` 创建自定义 rulebook，并向 `.cc-safety-net/rules/project-rules/rulebook.json` 添加规则。schema 见[自定义规则](/zh-Hans/configuration/custom-rules)。
-    7. 如果以上都无法解释，那就是规则尚未阻止的一种命令形式，即**覆盖缺口**；按项目策略，这属于公开 bug。请提交 [GitHub issue](https://github.com/kenryu42/cc-safety-net/issues)，说明命令*形式*，不要提供可直接粘贴的载荷。机密泄漏、预期目录外写入以及供应链或软件包完整性问题则走[安全策略](/zh-Hans/security)中的私密渠道。
+    5. 在同一份 `status` 输出中查找 `Project policy` 区块。项目的 `.cc-safety-net/policy.json` 削弱了用户策略时才会出现该区块，每个被削弱的字段占一行，例如 `project policy lowers level: strict -> standard`、`project policy disables rule <id>` 或 `project policy adds destructive allow path: <path>`。某条规则只在这个项目里不再触发、在别处照常触发，任何一行都可能是原因。状态行用 `🔻` 表示同一情况，`doctor` 则在 `Project policy deltas:` 下打印同样的行。
+    6. 如果命令通过 CC Safety Net 不分析的代理运行，请用 `npx -y cc-safety-net rule wrapper add <command>` 注册它，让分析能穿过它看到真实的子命令。
+    7. 如果需要在你的环境中阻止该命令，请运行 `npx -y cc-safety-net rule init` 创建自定义 rulebook，并向 `.cc-safety-net/rules/project-rules/rulebook.json` 添加规则。schema 见[自定义规则](/zh-Hans/configuration/custom-rules)。
+    8. 如果以上都无法解释，那就是规则尚未阻止的一种命令形式，即**覆盖缺口**；按项目策略，这属于公开 bug。请提交 [GitHub issue](https://github.com/kenryu42/cc-safety-net/issues)，说明命令*形式*，不要提供可直接粘贴的载荷。机密泄漏、预期目录外写入以及供应链或软件包完整性问题则走[安全策略](/zh-Hans/security)中的私密渠道。
 
        附上第 1 步中经过审阅的 `explain` 跟踪，绝不要附上原始跟踪，也绝不要附上真实凭证。如果你遇到的是已记录的边界，[已知限制](/zh-Hans/guides/known-limitations)会说明这一点，并指出改由哪一层来覆盖。
   </Accordion>
@@ -83,7 +84,14 @@ bunx cc-safety-net doctor
     3. 如果拒绝原因是 `CC Safety Net could not analyze the command because it exceeds safe analysis limits. Simplify or split the command and retry.`，同样说明没有规则匹配：命令越过了固定的路径规范化预算或 shell 结构预算。触发它的命令，要么带有足以耗尽路径规范化预算的类路径 token，要么内联 shell 函数的次数超出投影的 256 个调用点上限，要么 heredoc body 的嵌套超过解析器允许的层数。该预算同样是编译时常量，任何配置都无法提高。请简化或拆分命令，然后重试。
     4. 如果拒绝原因是 `CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user.`，说明分析遇到的是内部故障，而不是超出预算。改写命令解决不了问题，按原因所说直接报告即可。
     5. 如果拒绝原因是 `CC Safety Net could not use the requested working directory because it does not exist, is inaccessible, is not a directory, or uses an unsupported path form. Use an existing accessible working directory. If the requested directory is missing, create it from an accessible location before retrying the command.`，说明命令根本没有经过分析：这是 Amp Code 的 shell 调用，其 `dir` 无法解析。请改用已存在的目录，或从可访问的位置创建缺失的目录，然后重试。
-    6. 根据情况考虑以下替代方案：
+    6. 如果拒绝原因是下面这段，说明智能体试图运行 `cc-safety-net policy apply`：
+
+       ```text
+       Only the user may apply a policy proposal, because it rewrites the configuration CC Safety Net enforces. Ask them to run `cc-safety-net policy apply <file>` themselves in a terminal; you can run `cc-safety-net policy check <file>` to show them what it would change.
+       ```
+
+       应用提案会重写各道防护所依据的策略，因此这次阻止是有意为之，也没有任何开关可以解除。请自己在终端里运行 `npx cc-safety-net policy apply <file>`。`policy check` 仍然允许，智能体依旧可以向你展示该提案会改动什么。识别逻辑有意放宽匹配，因此同一条命令的 `npx`、`bunx`、`pnpm dlx`、`npm exec` 以及 `bun`/`node` 形式同样会被拦下。
+    7. 根据情况考虑以下替代方案：
        - **在 linked worktree 中工作？** 在 `policy.json` 中启用 `workflow.worktree_mode`，或设置 `CC_SAFETY_NET_WORKTREE=1`。当命令已确认在 linked worktree 内运行时，此模式会放宽本地丢弃规则。linked worktree 本就设计为可丢弃的隔离工作区。
        - **需要更安全的变体？** 例如 `git push --force-with-lease` 是允许的，效果与 `--force` 相同，还多了一层安全检查；`git clean -n`（dry-run）也是允许的，可以先预览会删除哪些内容。
        - **确实需要这条命令？** 在智能体外手动运行。这始终是一个选项；阻止触发时，CC Safety Net 也会让智能体请你这样做。
@@ -101,9 +109,9 @@ bunx cc-safety-net doctor
        - **项目范围**：项目根目录中的 `.cc-safety-net/rules/rule.json`
     4. 确认 `rule.json` 和 rulebook JSON 文件都是有效的 JSON。常见错误包括多余的尾随逗号和未加引号的 key。无法读取的 `rule.json` 会让整个范围被丢弃，其中的 `transparent_wrappers` 也一并失效。
     5. 确认 `rule.json` 包含 `"version": 1`，每个 `rulebook.json` 包含 `"rulebook_version": 1`。两者都是必填字段。
-    6. 如果编辑本地 rulebook 后仍是旧行为，那么实际生效的仍是经过 digest 校验的缓存，而且不会有任何提示。运行 `npx -y cc-safety-net rule sync` 让本地修改生效。
+    6. 如果编辑 rulebook 后仍是旧行为，说明你编辑的不是该范围实际加载的文件。每个来源都从 `<rules dir>/<rulebook name>/rulebook.json` 加载，其中的名称取自 `rule.json` 中的来源条目；对该文件的修改一经保存，下一次工具调用就生效，没有任何发布步骤。运行 `npx -y cc-safety-net rule list` 查看每个范围实际加载了哪些来源和 rulebook 名称，再确认你编辑的文件位于该名称之下。同时确认 `rule.json` 的 `overrides` 没有关闭这条规则。已被其他来源占用的 rulebook 名称会连同一条警告被忽略，其规则根本不会加载。
     7. 如果以前使用旧的内联配置（`.safety-net.json` 或 `~/.cc-safety-net/config.json`），运行 `npx -y cc-safety-net rule migrate` 转换为新布局。迁移之前，旧文件中的规则一直是无效的。
-    8. 更改 rulebook 来源后，运行 `npx -y cc-safety-net rule sync` 重建 lock 和缓存，然后再次运行 `rule verify`。`rule sync` 会像防护一样重新加载范围，并给出准确的剩余诊断信息后失败，而不会报告虚假的成功。
+    8. 更改 rulebook 来源后，运行 `npx -y cc-safety-net rule verify` 重新校验。没有重建这一步。`rule verify` 会像防护一样重新加载每个范围，并给出准确的剩余诊断信息后失败，而不会报告虚假的成功。对于远程来源，`npx -y cc-safety-net rule update` 会重新拉取并覆盖已落盘的 `rulebook.json`，因此对该文件的本地修改会丢失。
 
     运行时处于 `degraded` 时，这些命令都可以照常运行。配置无法生效不会阻止这些操作。
   </Accordion>
@@ -114,11 +122,29 @@ bunx cc-safety-net doctor
     **解决步骤：**
 
     1. 运行 `npx cc-safety-net doctor`。`config.runtime-degraded` 这一项会给出完整原因，并指出被拒绝的文件和具体条件。
-    2. 对于规则来源，请按它给出的修复方式处理，然后重新运行 `npx -y cc-safety-net rule sync`。
+    2. 对于规则来源，请按原因给出的修复方式处理。`config.runtime-degraded` 的 fix hint 原文如下：
+
+       ```text
+       Fix the file named in the reason, or run `cc-safety-net rule update` to vendor a remote source, then rerun doctor.
+       ```
+
+       rulebook 无效或名称不匹配时，原因以 `fix that file` 结尾；本地 rulebook 缺失时，以 `create that file or remove that source from the rules config` 结尾；远程 rulebook 缺失时，则以一句提示结尾，让你运行 `cc-safety-net rule update` 把该来源落盘。修复后运行 `npx -y cc-safety-net rule verify` 确认。
     3. 对于 `policy.json`，请手动修复文件，因为运行时绝不会重写它。被拒绝的部分会回退到*保护性*默认值，因此常见现象是拒绝比你配置的更多，而不是更少。不易察觉的例外是无效的 `safety.level`：它会回退到 `standard`，从而*降低*保护。
     4. 再次运行 `npx cc-safety-net status`，确认判定为 `ready`。
 
     每种失败及其回退值见[配置恢复](/zh-Hans/configuration/recovery)。
+  </Accordion>
+
+  <Accordion title="doctor 报告 rulebook 的 lock 和缓存残留">
+    任一范围内仍留有早期版本生成的 `rule.lock` 文件或 `cache` 目录时，`doctor` 会报告 `info` 级检查项 `config.v2-leftovers`，标题为 `Rulebook lock and cache leftovers detected`，详情中列出找到的路径。
+
+    已经没有任何东西会读取这些文件。运行时直接加载各个 `rulebook.json`，因此该项只是提示信息。判定仍为 `ready`，配置的规则也照常全部生效。修复提示原文如下：
+
+    ```text
+    Run `cc-safety-net rule sync` (add `--global` for user scope) to migrate them, then rerun doctor.
+    ```
+
+    `rule sync` 已弃用，除了这项迁移之外什么也不做。它离线运行，把仍与所记录 digest 相符的缓存 rulebook 复制到其来源实际加载的实时文件位置，然后删除 lock 和缓存。对于无法迁移的来源，它会各打印一行，指出改用哪条 `rule update` 命令把它落盘。`rule.json` 缺失或无法读取时它会拒绝运行，因为此时 lock 可能是这些来源仅存的记录。
   </Accordion>
 
   <Accordion title="Claude Code 中没有状态行">

@@ -143,27 +143,37 @@ A symlinked `.git` directory and a symlinked hooks directory are protected on **
   Boundary: this guard covers the nearest ancestor Git control plane of the execution directory and of the configuration directory. Other repositories nested below either directory, and Git-internal paths outside the resolved set, are not covered.
 </Note>
 
-## Canonical policy.json
+## Protected policy.json files
 
-Mutating or deleting the canonical user policy file, `~/.cc-safety-net/policy.json`, or `$CC_SAFETY_NET_HOME/policy.json` when that variable is set, is always blocked. This check runs **before** the configuration is loaded, so it can never be disabled by the policy it protects, and its denial carries no safety level and no config state. The reason string is exactly:
+Mutating or deleting a protected policy file is always blocked. Two files are protected: the user file at `~/.cc-safety-net/policy.json`, or `$CC_SAFETY_NET_HOME/policy.json` when that variable is set, and the project file at `.cc-safety-net/policy.json`, resolved from the execution directory and from the configuration directory. This check runs **before** the configuration is loaded, so it can never be disabled by the policy it protects, and its denial carries no safety level and no config state. The reason string is exactly:
 
 ```text
 This path contains the protected policy config and you must not modify or delete it.
 ```
 
-Matching covers the file, its directory, and that directory's ancestors, across these shapes:
+Matching covers both files, plus a directory set that differs by scope. For the user file it is that file's directory and every ancestor of it. For the project file it is that file's own `.cc-safety-net` directory and nothing above it, so `rm -rf .` at a project root keeps the destructive-command rules' own reason instead of this one. The shapes are:
 
 - Direct write, edit, and patch targets.
 - Exact shell operands and write redirections.
 - Supported environment-variable, relative, and existing-symlink aliases.
-- Recursive `rm` of the policy directory or an ancestor of it.
-- `mv` when the file, its directory, or an ancestor is a source.
+- Recursive `rm` of a protected directory.
+- `mv` when a protected file or directory is a source.
 
 Read-only inspection commands are allowlisted and pass through: `[`, `cat`, `file`, `grep`, `head`, `jq`, `less`, `ls`, `more`, `rg`, `sed`, `stat`, `tail`, `test`, `wc`.
 
 <Warning>
-  This is a minimal exact-path guard, not command emulation. It tracks assignment-only shell variables and explicit `cd`, but it does not expand globs or braces, infer computed interpreter paths, inspect interpreter bodies, infer archive members, simulate `find` actions, or infer a transfer's final filename. Rulebooks, lockfiles, caches, sibling files, and policy-directory inspection are outside this guard. Only `policy.json` is tamper-resistant.
+  This is a minimal exact-path guard, not command emulation. It tracks assignment-only shell variables and explicit `cd`, but it does not expand globs or braces, infer computed interpreter paths, inspect interpreter bodies, infer archive members, simulate `find` actions, or infer a transfer's final filename. `rule.json`, rulebooks, sibling files, and policy-directory inspection are outside this guard. Only `policy.json` is tamper-resistant, and it is protected in both scopes.
 </Warning>
+
+### Agent-run `cc-safety-net policy apply`
+
+`policy apply` rewrites the file this guard protects, so the same stage denies it before the configuration is loaded, with intent `hard_stop`. Only you may apply a proposal, and there is no flag that lifts this. The reason string is exactly:
+
+```text
+Only the user may apply a policy proposal, because it rewrites the configuration CC Safety Net enforces. Ask them to run `cc-safety-net policy apply <file>` themselves in a terminal; you can run `cc-safety-net policy check <file>` to show them what it would change.
+```
+
+The recognizer over-matches on purpose. It covers a direct `cc-safety-net` or `ccsn` call, `npx`, `bunx`, `pnpx`, `pnpm dlx`, `yarn dlx`, `npm exec`, `pnpm exec`, `yarn exec`, a versioned spec such as `cc-safety-net@latest`, and `bun` or `node` running `src/cli/cc-safety-net.ts` or `dist/bin/cc-safety-net.js`. Runner options placed before the target do not unhook it, and `-g` and `--global` are skipped in any position. `policy check` and every other subcommand stay allowed.
 
 ## PowerShell Remove-Item
 

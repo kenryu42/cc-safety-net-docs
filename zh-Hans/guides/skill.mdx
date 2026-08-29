@@ -1,0 +1,102 @@
+---
+title: "/cc-safety-net 技能"
+sidebarTitle: "技能"
+description: "调用 /cc-safety-net 技能来解释阻止原因、排查误报、编写 rulebook 规则、提出策略变更、管理集成以及诊断防护。它只在你调用时运行。"
+---
+
+CC Safety Net 附带一个技能，把编码智能体变成它的操作员。你可以问它某条命令为什么被拒绝，让它编写 rulebook 规则，或者让它检查安装状态。它会运行 `cc-safety-net` CLI，读取输出，再用平实的语言汇报。
+
+技能只负责操作 CC Safety Net，本身不提供防护。防护由 hook 完成，无论技能是否加载都照常运行。
+
+## 如何调用
+
+技能随插件一起分发。装好插件就有了技能。
+
+| 智能体 | 调用方式 |
+| --- | --- |
+| Claude Code | 在插件命名空间下列为 `cc-safety-net:cc-safety-net` |
+| Pi 和 OpenCode | `/cc-safety-net`，由各自的集成注册为内置命令 |
+
+Antigravity CLI 和 Kimi Code 需要单独添加：`npx skill add kenryu42/cc-safety-net`。见[安装](/zh-Hans/installation)。
+
+调用时写在后面的内容就是你的请求：
+
+```text
+/cc-safety-net why was my last git command blocked
+/cc-safety-net block terraform destroy in this project
+```
+
+## 它不会自行触发
+
+模型无法在任务中途自行加载这个技能。两项设置分别面向两类智能体，共同保证这一点：
+
+- SKILL.md frontmatter 中的 `disable-model-invocation: true`，Claude Code 和 Kimi Code 会遵循它。
+- 与技能放在一起的 `agents/openai.yaml` 中的 `allow_implicit_invocation: false`，供 Codex 使用，因为 Codex 会忽略 frontmatter 中的该字段。
+
+## 什么时候用它
+
+- 命令被 `BLOCKED by CC Safety Net` 拒绝，你想要逐步的原因说明。
+- 阻止看起来不对，需要排查：复现判定、修复出问题的自定义规则，或上报内置规则的误报。
+- 需要有人替你编写、修改或迁移自定义阻止规则。
+- 需要修改安全级别、开关某项防护，或调整路径列表。
+- 需要把 CC Safety Net 安装到另一个智能体 CLI、在其中更新或移除。
+- 你添加的规则没有触发，或者想确认防护仍然生效。
+- 想弄清分析器为什么这样处理某个结构，而 `explain` 和 `rule doc` 的输出说明不了。
+
+## 各个工作流做什么
+
+技能会根据请求选择七个工作流之一。
+
+**解释判定。** 先拿到被阻止的原始命令，你手上没有时就从 `logs` 里找。它把命令作为一个字面参数传给 `explain`，再从跟踪中读出命中的规则，报告原因以及原因中给出的更安全的替代做法。`explain` 对允许和阻止两种判定都返回退出码 0，因此技能从输出读判定，而不看退出码。见 [Explain 跟踪](/zh-Hans/reference/explain-trace)。
+
+**排查误报。** 用 `logs --suspect --since 7` 列出近期可疑的拒绝，用 `explain` 复现判定，确认是哪条规则触发。如果是自定义规则，就修改该 rulebook，或用 override 禁用它，然后重新运行 `explain` 确认新判定。如果是内置规则，任何规则改动都放宽不了它，技能便去找原因中写明的例外做法：linked worktree 中的本地 git 丢弃可以用 `CC_SAFETY_NET_WORKTREE=1`，可信透明包装器遮住真实命令时可以用 `rule wrapper add`。都不适用时，它会说明该规则防范的风险，并告诉你去哪里提交 issue。
+
+**配置规则。** 先确定范围：用户、项目，或当前仓库中可共享的 rulebook。再用 `rule verify` 和 `rule list` 查看现状，以 `rule doc` 的输出为 schema 依据写出 JSON，最后校验结果。保存后的 rulebook 是实时文件，不需要再做任何激活操作。见[自定义规则](/zh-Hans/configuration/custom-rules)。
+
+**配置策略。** 两个 `policy.json` 都是受保护路径，所以技能只负责提议，由你来应用。它把提案写到未受保护的路径，运行 `policy check` 并把差异展示给你，然后把 `policy apply` 命令原样交给你，由你在自己的终端里运行。见[策略](/zh-Hans/configuration/policy)。
+
+**管理集成。** 先运行 `doctor`，看清检测、配置和验证状态。安装时显式带上目标选项，例如 `install --claude-code`，完成后再运行一次 `doctor`，确认对应平台那一行显示为 verified。不带选项的 `install` 会打开交互式选择器，技能会把它留给你自己的终端。
+
+**诊断。** `status` 显示运行时当前实际执行的内容，包括 `rule list` 不会报告的降级 `policy.json`。`doctor` 校验平台检测和 hook 配置，运行一次合成命令的防护自检，并检查配置范围。自定义规则没有触发时，它按 `rule verify`、`rule list` 的顺序执行，再用 `explain` 重新测试该命令。见[故障排除](/zh-Hans/guides/troubleshooting)。
+
+**从版本匹配的源码作答。** CLI 输出回答不了的问题，它会去读你实际运行的那个版本的源码，详见下一节。
+
+## 读取版本匹配的源码
+
+npm 上发布的包里只有压缩过的 `dist`，没有可读的源码。因此技能先用 `--version` 取得 `<version>`，再依次查找两个位置。
+
+以插件方式安装时会附带完整仓库，技能文件位于其中的 `<repo>/skills/cc-safety-net/SKILL.md`，也就是说仓库根目录在其上两级。只有当该目录的 `package.json` 中 `"name"` 为 `"cc-safety-net"`、版本也一致，且旁边存在 `src/` 目录时，技能才采用这个候选。
+
+找不到时，它用 `npm view "cc-safety-net@<version>" gitHead` 解析出随发布包记录的提交，要求是 40 位小写十六进制。随后新建一个仅所有者可访问的临时目录，禁用继承来的 Git hook 和模板，只把该提交 fetch 进去。读取之前先校验 `HEAD` 确实是该提交，用完删除这份检出。
+
+它绝不会从 `main` 作答，因为 `main` 可能包含你安装的版本还没有的未发布行为。回答中会写明源码取自哪个版本。取到的源码只作只读参考：不编辑、不构建、不运行。
+
+## 视为只读的命令
+
+以下命令在任何工作流的任何环节都可以运行，用来了解现状：
+
+`--help`、`--version`、`status`、`doctor`、`logs`（不带 `--prune-legacy`）、`explain`、`rule list`、`rule verify`、`rule doc`、`policy check`、`help`。
+
+其余命令都会改动配置或已安装的集成。技能只在上述某个工作流的步骤中运行它们。各命令的具体作用见 [CLI 命令](/zh-Hans/reference/cli-commands)。
+
+## 如何处理命令文本
+
+被阻止的命令往往正是经过 shell 就会走样的那类文本。技能把命令文本和包装器名称作为独立的 argv 值传给 CLI；不得不经过 shell 时，就把整段做 shell 转义，作为一个参数传入。这样命令替换、反引号和变量在送达分析器之前都不会展开。
+
+收到之后，`explain` 只分析这个字符串，绝不执行它。rulebook 的 fixture 同理：`rule verify` 会用 rulebook 自身的规则评估 `rulebook_version` 2 的 fixture，而 fixture 中的命令只是分析器的输入，CC Safety Net 不会运行。
+
+## 它不会做的事
+
+- 帮你绕过 CC Safety Net。它不会为了放行一条被阻止的命令而降低级别、卸载、改配置或提出削弱防护的策略，除非你明确要求这个结果，并且清楚该阻止在防范什么。
+- 写入任何一个 `policy.json`。读取是允许的，写入不允许。智能体调用 `policy apply` 会按设计被阻止，也没有 `--yes` 选项，技能不会包装这条命令，也不会换个方式把文件写出去。
+- 在编写规则时提议添加 GitHub rulebook 来源。从 GitHub 来源安装 rulebook 不属于这个工作流。只有你明确要求安装现成的 rulebook 时，它才用 `rule add owner/repo --only <rulebook...>`；只有你指明非默认 ref 时，才加上 `--ref <ref>`。
+- 运行 `hook`。那是从 stdin 读取 hook JSON 的集成入口，不是面向用户的命令。
+- 未经明确要求就运行 `logs --prune-legacy`。这条命令会永久删除旧版日志，即使你要求运行，它也会先跑一次 `--dry-run`。
+- 未经确认就运行 `rule remove --delete-source`。该选项会删除本地来源目录。
+- 把 `rule sync` 当作校验或激活步骤来运行。`rule sync` 已弃用，只用于迁移早期版本遗留的 lock 和缓存。
+
+另外，它会优先使用 `gui --no-open`，把 URL 交给你，而不是从会话里打开浏览器。
+
+<Note>
+  技能以 `cc-safety-net rule doc` 的输出作为 rulebook schema、路径、GitHub 来源、匹配行为和校验的完整依据。同样的内容也写在[自定义规则](/zh-Hans/configuration/custom-rules)中。
+</Note>

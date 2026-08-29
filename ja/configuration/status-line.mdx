@@ -1,7 +1,7 @@
 ---
 title: "ステータスライン：モードをリアルタイムに表示する"
 sidebarTitle: "ステータスライン"
-description: "bunx、npx、claude x のいずれかを使って、CC Safety Net の有効な安全レベル、worktree の緩和、設定が degraded であることの警告を Claude Code のステータスラインに表示します。"
+description: "bunx、npx、claude x のいずれかを使って、CC Safety Net の有効な安全レベル、worktree の緩和、プロジェクトポリシーによる緩和、設定が degraded であることの警告を Claude Code のステータスラインに表示します。"
 ---
 
 CC Safety Net は、Claude Code のステータスラインに状態を絵文字 1 行で表示できます。診断コマンドを実行しなくても、保護の有効状態と安全レベルを確認できます。
@@ -66,7 +66,7 @@ CC Safety Net は、Claude Code のステータスラインに状態を絵文字
 出力は、必ず次の形式の 1 行です。
 
 ```text
-🛡️ CC Safety Net <level><worktree><degraded>
+🛡️ CC Safety Net <level><worktree><weakened><degraded>
 ```
 
 Claude Code のプラグインが無効な場合は、行全体が次の 1 つのインジケーターに置き換わります。
@@ -90,14 +90,17 @@ Claude Code のプラグインが無効な場合は、行全体が次の 1 つ�
 
 各レベルがブロックする内容は[安全レベル](/ja/configuration/modes)を、有効なレベルが決まる優先順位は[環境変数](/ja/configuration/environment)を参照してください。
 
-### worktree と degraded のインジケーター
+### worktree、プロジェクトポリシー、degraded のインジケーター
 
 次のインジケーターは、レベルの絵文字の後ろにこの順で追加されます。
 
 | 表示 | 意味 |
 | --- | --- |
 | 🌳 | worktree モードが有効。`policy.json` の `workflow.worktree_mode` または `CC_SAFETY_NET_WORKTREE=1` による |
+| 🔻 | プロジェクトの `.cc-safety-net/policy.json` を読み込み、ユーザーポリシーに重ねた結果、少なくとも 1 つの項目が緩和された |
 | ⚠️ | ランタイムが **degraded** の状態。設定元の少なくとも 1 つを検証できず、フォールバックで評価している |
+
+🔻 は、どの項目が緩和されたかまでは示しません。`npx cc-safety-net status` を実行すると `Project policy` のブロックが表示され、緩和された項目ごとに `project policy lowers level: strict -> standard` や `project policy disables rule <id>` のような行が 1 行ずつ並びます。`npx cc-safety-net doctor` は同じ行を `Project policy deltas:` の下に出力します。プロジェクトポリシーで設定できる内容は、[ポリシー](/ja/configuration/policy)を参照してください。
 
 ⚠️ は、設定が degraded であることを知らせる唯一の常時表示のサインです。どの設定元が失敗したかまでは示しません。詳しい診断は `npx cc-safety-net status`、詳細なレポートは `npx cc-safety-net doctor` で確認してください。`ready` と `degraded` の意味、およびそれぞれの修復方法については、[設定の復旧](/ja/configuration/recovery)を参照してください。
 
@@ -107,7 +110,7 @@ Claude Code のプラグインが無効な場合は、行全体が次の 1 つ�
 | --- | --- |
 | ❌ | Claude Code プラグイン `cc-safety-net@cc-marketplace` が `~/.claude/settings.json` で有効になっていない |
 
-これは、`status` が `Not active` の先頭項目として報告する条件と同じものです。プラグインが無効でも影響するのは Claude Code の連携だけなので、判定は `ready` または `degraded` のままです。`statusline` コマンドはこの条件を最初に確認し、行の残りを置き換えます。そのため、`❌` と並んでレベル、worktree、degraded のインジケーターが表示されることはありません。
+これは、`status` が `Not active` の先頭項目として報告する条件と同じものです。プラグインが無効でも影響するのは Claude Code の連携だけなので、判定は `ready` または `degraded` のままです。`statusline` コマンドはこの条件を最初に確認し、行の残りを置き換えます。そのため、`❌` と並んでレベル、worktree、プロジェクトポリシー、degraded のインジケーターが表示されることはありません。
 
 <Note>
   `❌` はあくまで、Claude Code のマーケットプレイスプラグインが無効であることを示します。CC Safety Net を手動の Claude Code hook として動かしている場合や、まったく別のエージェントで使っている場合は、保護が有効であってもステータスラインに `❌` が出ることがあります。ステータスラインが反映するのは、`~/.claude/settings.json` の `enabledPlugins` の項目だけです。

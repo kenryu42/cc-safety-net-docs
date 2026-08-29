@@ -69,9 +69,10 @@ bunx cc-safety-net doctor
     2. 出力に表示される有効なレベルを確認します。[standard モード](/ja/configuration/modes#既定モード)はベストエフォートで、動的な実行ファイル、コマンド置換で組み立てられたコマンド構造、`rm -rf "$target"` のような検証できない再帰削除の対象、組み込みの機密パスに対するメタデータのみのチェックを意図的に許可します。コマンドがプロンプトインジェクションなど敵対的な文脈から来る可能性がある場合は、これらすべてが fail closed になる [strict](/ja/configuration/modes#strict-mode) または [paranoid](/ja/configuration/modes#paranoid-mode) に引き上げてください。
     3. そのコマンドが、明示的に許可されている分類に該当することもあります。たとえばカレントディレクトリ配下の `rm -rf` は、プロジェクト内に閉じているため既定で許可されます。全一覧は[許可されるコマンド](/ja/reference/allowed-commands)を参照してください。
     4. `npx cc-safety-net status` を実行します。判定が `degraded` の場合、ルールの設定元が破棄されており、その設定元が提供していた拒否は適用されていません。[設定の復旧](/ja/configuration/recovery)を参照してください。
-    5. CC Safety Net が解析しないプロキシ経由でコマンドを実行している場合は、`npx -y cc-safety-net rule wrapper add <command>` で登録し、実際の子コマンドを解析できるようにしてください。
-    6. 自分の環境ではそのコマンドをブロックしたい場合は、`npx -y cc-safety-net rule init` でカスタムの rulebook を作成し、`.cc-safety-net/rules/project-rules/rulebook.json` にルールを追加します。スキーマは[カスタムルール](/ja/configuration/custom-rules)を参照してください。
-    7. 以上のどれにも当てはまらない場合、ルールがまだブロックしないコマンド形式は**対応漏れ**であり、このプロジェクトの方針では公開のバグとして扱います。そのまま貼り付けて実行できる攻撃コードではなく、コマンドの*形式*を説明した [GitHub Issue](https://github.com/kenryu42/cc-safety-net/issues) を作成してください。シークレットの漏えい、意図したディレクトリの外への書き込み、サプライチェーンやパッケージの完全性に関わる問題は、非公開の開示経路を使います。両方の手順と切り分けの基準は[セキュリティポリシー](/ja/security)にあります。
+    5. 同じ `status` の出力に `Project policy` のブロックがないか確認します。このブロックは、プロジェクトの `.cc-safety-net/policy.json` がユーザーポリシーを緩和したときに表示され、緩和された項目ごとに 1 行ずつ、`project policy lowers level: strict -> standard`、`project policy disables rule <id>`、`project policy adds destructive allow path: <path>` のように示されます。このプロジェクトだけルールが働かず、他では働くという状況は、いずれかの行で説明できます。ステータスラインは同じ状態を `🔻` で示し、`doctor` は同じ行を `Project policy deltas:` の下に出力します。
+    6. CC Safety Net が解析しないプロキシ経由でコマンドを実行している場合は、`npx -y cc-safety-net rule wrapper add <command>` で登録し、実際の子コマンドを解析できるようにしてください。
+    7. 自分の環境ではそのコマンドをブロックしたい場合は、`npx -y cc-safety-net rule init` でカスタムの rulebook を作成し、`.cc-safety-net/rules/project-rules/rulebook.json` にルールを追加します。スキーマは[カスタムルール](/ja/configuration/custom-rules)を参照してください。
+    8. 以上のどれにも当てはまらない場合、ルールがまだブロックしないコマンド形式は**対応漏れ**であり、このプロジェクトの方針では公開のバグとして扱います。そのまま貼り付けて実行できる攻撃コードではなく、コマンドの*形式*を説明した [GitHub Issue](https://github.com/kenryu42/cc-safety-net/issues) を作成してください。シークレットの漏えい、意図したディレクトリの外への書き込み、サプライチェーンやパッケージの完全性に関わる問題は、非公開の開示経路を使います。両方の手順と切り分けの基準は[セキュリティポリシー](/ja/security)にあります。
 
        報告には、手順 1 で内容を確認した `explain` のトレースを添えてください。未確認のトレースや本物の資格情報は添付しないでください。文書化された境界に該当する場合は、[既知の制限](/ja/guides/known-limitations)に説明と、代わりに使える対策があります。
   </Accordion>
@@ -86,7 +87,14 @@ bunx cc-safety-net doctor
     3. 拒否の理由が "CC Safety Net could not analyze the command because it exceeds safe analysis limits. Simplify or split the command and retry." の場合も、ルールに一致したわけではありません。パス正規化またはシェル構造の固定された上限を超えています。該当するのは、パス正規化の上限を使い切るほど多くのパスらしきトークンを含むコマンド、シェル関数のインライン展開が呼び出し位置 256 個という上限を超えるコマンド、heredoc の本文をパーサーが許す深さより深くネストさせたコマンドです。この上限もコンパイル時の定数で、設定では引き上げられません。コマンドを単純にするか分割して実行し直してください。
     4. 拒否の理由が "CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user." の場合は、上限の超過ではなく内部的な不具合です。コマンドを書き直しても解決しません。理由の文面どおり、そのまま報告してください。
     5. 拒否の理由が "CC Safety Net could not use the requested working directory because it does not exist, is inaccessible, is not a directory, or uses an unsupported path form. Use an existing accessible working directory. If the requested directory is missing, create it from an accessible location before retrying the command." の場合、コマンドは解析されていません。Amp Code のシェル呼び出しで `dir` を解決できなかったときに出ます。すでに存在するディレクトリを指定するか、存在しないディレクトリをアクセスできる場所から作成したうえで、実行し直してください。
-    6. 状況に応じて、次の選択肢を検討してください。
+    6. 拒否の理由が次の文面の場合、エージェントが `cc-safety-net policy apply` を実行しようとしています。
+
+       ```text
+       Only the user may apply a policy proposal, because it rewrites the configuration CC Safety Net enforces. Ask them to run `cc-safety-net policy apply <file>` themselves in a terminal; you can run `cc-safety-net policy check <file>` to show them what it would change.
+       ```
+
+       提案の適用はガードが強制しているポリシー自体を書き換えるため、このブロックは意図的なもので、解除する手段はありません。`npx cc-safety-net policy apply <file>` はターミナルで自分で実行してください。`policy check` は許可されたままなので、エージェントは提案による変更内容を提示できます。この判定は意図的に広めに一致するため、同じコマンドの `npx`、`bunx`、`pnpm dlx`、`npm exec`、`bun`/`node` 経由の形式でも発生します。
+    7. 状況に応じて、次の選択肢を検討してください。
        - **linked worktree で作業していませんか？** `policy.json` の `workflow.worktree_mode` か `CC_SAFETY_NET_WORKTREE=1` で worktree モードを有効にします。使い捨ての独立した作業環境である linked worktree 内での実行だと確認できた場合にかぎり、ローカル破棄のルールが緩和されます。
        - **より安全な書き方はありませんか？** たとえば `git push --force-with-lease` は許可されており、追加の安全確認付きで `--force` と同じ結果を得られます。`git clean -n`（ドライラン）も許可されており、何が削除されるかを事前に確認できます。
        - **本当にそのコマンドが必要ですか？** エージェントの外で自分で実行するという選択肢は、常に残されています。ブロック時にも、CC Safety Net はユーザーに実行を依頼するようエージェントに指示します。
@@ -106,9 +114,9 @@ bunx cc-safety-net doctor
        - **プロジェクトスコープ**：プロジェクトルートの `.cc-safety-net/rules/rule.json`
     4. `rule.json` と rulebook の JSON ファイルが、有効な JSON になっているか確認します。よくある間違いは、末尾の余分なカンマと、引用符で囲まれていないキーです。`rule.json` が読み取れないと、`transparent_wrappers` を含めてそのスコープ全体が破棄されます。
     5. `rule.json` に `"version": 1`、各 `rulebook.json` に `"rulebook_version": 1` があることを確認します。どちらも必須です。
-    6. ローカルの rulebook を編集しても以前の動作が続く場合は、ダイジェスト検証済みのキャッシュがそのまま適用されています。この状態では警告は出ません。`npx -y cc-safety-net rule sync` を実行して、ローカルの編集を反映してください。
+    6. rulebook を編集しても以前の動作が続く場合、そのスコープが読み込まないファイルを編集しています。どの設定元も `<rules dir>/<rulebook name>/rulebook.json` から読み込まれます。この名前は `rule.json` の設定元の記述に由来し、このファイルへの編集は保存した時点で、次のツール呼び出しから適用されます。別途反映させる手順はありません。`npx -y cc-safety-net rule list` で各スコープが実際に読み込んだ設定元と rulebook 名を確認し、編集したファイルがその名前の下にあるか確かめてください。あわせて、`rule.json` の `overrides` でそのルールが無効になっていないかも確認します。別の設定元がすでに使っている rulebook 名は警告付きで無視されるため、そのルールはまったく読み込まれません。
     7. 以前のインライン設定（`.safety-net.json` または `~/.cc-safety-net/config.json`）を使っていた場合は、`npx -y cc-safety-net rule migrate` を実行して新しい構成に変換します。未移行の旧ファイルにあるルールは、移行するまで何も保護しません。
-    8. rulebook の設定元を変更した後は、`npx -y cc-safety-net rule sync` でロックとキャッシュを再構築し、`rule verify` を実行し直します。`rule sync` はガードと同じ方法でスコープを読み込み直すため、誤って成功と報告することはなく、問題が残っていればその診断とともに失敗します。
+    8. rulebook の設定元を変更した後は、`npx -y cc-safety-net rule verify` を実行して検証し直します。再構築の手順はありません。`rule verify` はガードと同じ方法で各スコープを読み込み直すため、誤って成功と報告することはなく、問題が残っていればその診断とともに失敗します。リモートの設定元については、`npx -y cc-safety-net rule update` が取得し直して取り込み済みの `rulebook.json` を上書きするため、そのファイルへのローカルの編集は失われます。
 
     これらの操作は、ランタイムが `degraded` の間もすべて実行できます。設定できないことを理由にブロックされるものはありません。
   </Accordion>
@@ -119,11 +127,29 @@ bunx cc-safety-net doctor
     **対処手順：**
 
     1. `npx cc-safety-net doctor` を実行します。`config.runtime-degraded` の項目に、拒否されたファイルと条件を示す理由の全文があります。
-    2. ルールの設定元が原因の場合は、示された内容を修正して `npx -y cc-safety-net rule sync` を実行し直します。
+    2. ルールの設定元が原因の場合は、理由が示す修復をそのまま実施します。`config.runtime-degraded` の fix hint は次のとおりです。
+
+       ```text
+       Fix the file named in the reason, or run `cc-safety-net rule update` to vendor a remote source, then rerun doctor.
+       ```
+
+       rulebook が無効、または名前が一致しない場合、理由は `fix that file` で終わります。ローカルの rulebook が見つからない場合は `create that file or remove that source from the rules config` で終わります。リモートの rulebook が見つからない場合は、`cc-safety-net rule update` を実行してその設定元を取り込むよう指示して終わります。修正後は `npx -y cc-safety-net rule verify` で確認してください。
     3. `policy.json` が原因の場合は、自分でファイルを修正してください。ランタイムが書き換えることはありません。拒否されたセクションは*安全側の*既定値に戻るため、通常は設定したつもりより拒否が増えることはあっても減ることはありません。例外は無効な `safety.level` で、この場合は `standard` に戻るため保護が*弱くなります*。
     4. `npx cc-safety-net status` を実行し直し、判定が `ready` になったことを確認します。
 
     失敗とフォールバックの一覧は、[設定の復旧](/ja/configuration/recovery)を参照してください。
+  </Accordion>
+
+  <Accordion title="doctor が rulebook のロックとキャッシュの残骸を報告する">
+    以前のバージョンが作成した `rule.lock` ファイルや `cache` ディレクトリがいずれかのスコープに残っていると、`doctor` は `info` 重大度の finding `config.v2-leftovers`（タイトルは `Rulebook lock and cache leftovers detected`）を報告します。detail には見つかったパスが並びます。
+
+    これらのファイルはもう読み込まれません。ランタイムは各 `rulebook.json` を直接読み込むため、この finding は情報提供にとどまります。判定は `ready` のままで、設定したルールはすべて適用され続けます。fix hint は次のとおりです。
+
+    ```text
+    Run `cc-safety-net rule sync` (add `--global` for user scope) to migrate them, then rerun doctor.
+    ```
+
+    `rule sync` は非推奨で、これ以外の働きはありません。ネットワークにはアクセスせず、記録されたダイジェストと一致するキャッシュ済みの rulebook を、その設定元が読み込むライブファイルの位置にコピーしたうえで、ロックとキャッシュを削除します。移行できなかった設定元については、代わりに取り込むための `rule update` コマンドを示す行を 1 行ずつ出力します。`rule.json` が存在しないか読み取れない場合、ロックが設定元の唯一の記録として残っている可能性があるため、実行を中止します。
   </Accordion>
 
   <Accordion title="Claude Code にステータスラインが表示されない">

@@ -1,7 +1,7 @@
 ---
 title: "CLI commands reference"
 sidebarTitle: "CLI commands"
-description: "Reference for every CC Safety Net CLI command: status, doctor, logs, explain, rule, install, update, uninstall, hook, gui, and statusline, with their options and exit behavior."
+description: "Reference for every CC Safety Net CLI command: status, doctor, logs, explain, rule, policy, install, update, uninstall, hook, gui, and statusline, with their options and exit behavior."
 keywords:
   - "cli"
   - "command line"
@@ -11,6 +11,7 @@ keywords:
   - "logs"
   - "explain"
   - "rule"
+  - "policy"
   - "install"
   - "update"
   - "hook"
@@ -26,7 +27,7 @@ This page documents commands, subcommands, options, and exit behavior. See the [
 
 ## Command overview
 
-The CLI registers eleven commands. This is the order they appear in `cc-safety-net --help`.
+The CLI registers twelve commands. This is the order they appear in `cc-safety-net --help`.
 
 | Command | Usage | What it does |
 | --- | --- | --- |
@@ -35,6 +36,7 @@ The CLI registers eleven commands. This is the order they appear in `cc-safety-n
 | [`logs`](#logs) | `logs [options]` | Browse audit log entries recorded by the hooks |
 | [`explain`](#explain) | `explain [options] <command>` | Trace how a command is analyzed |
 | [`rule`](#rule) | `rule <subcommand>` | Manage rule config, rulebook sources, and transparent wrappers |
+| [`policy`](#policy) | `policy <subcommand>` | Check and apply project or user policy proposals |
 | [`install`](#install) | `install [TARGET_FLAG]` | Install CC Safety Net into a coding agent CLI |
 | [`update`](#update) | `update` | Update every installed integration in place |
 | [`uninstall`](#uninstall) | `uninstall [TARGET_FLAG]` | Remove CC Safety Net from a coding agent CLI |
@@ -138,6 +140,8 @@ For GitHub Copilot CLI, `doctor` checks the plugin checkout and hook definitions
 - A hook inspection failed.
 - The user or project rule configuration is invalid.
 - The policy, config, or audit directory is unsafe: it is not owned by you, is group- or world-writable, is a symbolic link, or is not a directory.
+
+A `rule.lock` file or a `cache` directory left by an earlier version raises the `info` finding `config.v2-leftovers`, titled `Rulebook lock and cache leftovers detected`. The runtime no longer reads either one. Its fix hint is ``Run `cc-safety-net rule sync` (add `--global` for user scope) to migrate them, then rerun doctor.`` An `info` finding never changes the exit code.
 
 When some audit log files cannot be read, the Recent Activity section ends with `Warning: <n> audit log sources could not be read; this summary is incomplete` (`source` when it is one), so a quiet week is not mistaken for a complete one.
 
@@ -293,15 +297,18 @@ Running `rule` with no subcommand prints help and exits `1`. `rule --help` print
 | Flag | Description | Valid with |
 | --- | --- | --- |
 | `-g`, `--global` | Use the user-scope rule config instead of the project scope | Every subcommand except `list` and `migrate` |
-| `--check` | Check without changing lock or cache state | Every subcommand except `migrate`; meaningful for `init`, `add`, `remove`, `update`, and `sync` |
 | `--cleanup` | Delete legacy files after `rule migrate` verifies them | `migrate` only |
 | `--delete-source` | Delete a clean local source directory when removing it | `remove` only |
 | `--example` | Create an inactive example rulebook | `init` only |
+| `--ref <ref>` | Use a branch, tag, or commit | `add` only |
+| `--only <rulebook...>` | Add only these repository rulebooks | `add` only |
 | `-h`, `--help` | Show help | Any |
+
+`--check` is no longer accepted. Every subcommand rejects it with `Unknown option for rule <subcommand>: --check`. Rulebooks are read from disk on every command, so an `add` or `update` dry run would have to fetch and validate the candidate to mean anything. [`rule verify`](#rule-verify) is the offline validation command.
 
 ### rule init
 
-Create a rule configuration for the current scope. If the file exists, the command rewrites it in the canonical format and preserves `rules`, `overrides`, and `transparent_wrappers`. The command creates the rulebook cache directory if needed.
+Create a rule configuration for the current scope. If the file exists, the command rewrites it in the canonical format and preserves `rules`, `overrides`, and `transparent_wrappers`. It creates no cache directory.
 
 ```bash
 npx -y cc-safety-net rule init
@@ -316,17 +323,47 @@ npx -y cc-safety-net rule init --example
 
 The example rulebook is written only when `example-rules/rulebook.json` does not exist. It is **inactive** because the configuration does not reference it. Add it with `rule add example-rules` to make it active.
 
+After writing, `rule init` loads the scope the way the guard loads it. Any error prints and the command exits `1`. A clean scope prints `Rule config initialized.` and exits `0`.
+
 ### rule add
 
-Add a rulebook source and sync. `<source>` is a bare local name (for example `project-rules`) or a GitHub source in the form `owner/repo#ref/<rulebook-name>`:
+Usage is `rule add <source> [--ref <ref>] [--only <rulebook...>]`. `<source>` takes three forms: a bare local name such as `project-rules`, a whole repository such as `acme/safety-rules`, or one rulebook in the canonical form `owner/repo#ref/<rulebook-name>`.
+
+**Options:**
+
+| Flag | Description |
+| --- | --- |
+| `--ref <ref>` | Use a branch, tag, or commit |
+| `--only <rulebook...>` | Add only these repository rulebooks |
+| `-g`, `--global` | Use user-scope rule config |
+| `-h`, `--help` | Show this help |
+
+**Examples:**
 
 ```bash
-npx -y cc-safety-net rule add project-rules
-npx -y cc-safety-net rule add kenryu42/cc-safety-net#main/block-git-add-all
-npx -y cc-safety-net rule add --global my-personal-rules
+cc-safety-net rule add project-rules
+cc-safety-net rule add acme/safety-rules
+cc-safety-net rule add acme/safety-rules --only aws gcloud
+cc-safety-net rule add acme/safety-rules --ref v2 --only aws
 ```
 
-Omitting the source is an error.
+Omitting the source is an error. `-g`/`--global` selects the user scope, as it does for every other subcommand.
+
+For a repository source, `rule add` resolves the ref to a commit and lists every `.cc-safety-net/rules/<name>/rulebook.json` the repository holds at that commit before it writes anything. Without `--only` it adds all of them in name order. With `--only` it adds the named ones in the order you listed them and ignores repeats. A name the repository does not carry fails the add.
+
+`--ref` and `--only` accept an `owner/repo` source only. Anything else prints `--ref can only select a ref for an owner/repo source: <source>` or `--only can only select rulebooks from an owner/repo source`. Without `--ref`, `rule add` uses the repository's default branch. A ref may contain `/` segments, so `--ref feature/rulebook-v2` is valid. The whole ref must match `^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$`, and one that does not prints `--ref must use valid path segments: <ref>`.
+
+`rule.json` stores the canonical `owner/repo#ref/<rulebook-name>` carrying the ref you gave. `rule add` reports the resolved commit but does not store it.
+
+A repository add prints, in order:
+
+- `Added <n> rulebooks from <source> at <ref>:` (`rulebook` when it is one), then one `  - <name>` line per rulebook
+- `Rulebooks already configured from <source> at <ref>: <names>` for the selected rulebooks `rule.json` already listed
+- `Vendored at <commit>.`, the resolved commit abbreviated to 7 characters, printed only when the add wrote at least one new source
+- one block per file written: `Vendored <spec> (<version>)` for a new file, or `Updated <spec> (<before> -> <after>)` followed by `  + <rule>`, `  - <rule>`, and `  ~ <rule>` lines for rules added, removed, and changed under an unchanged name
+- `Rule config synced.`, a blank line, then `Active rulebooks (<n>):` with `  - <name> <version> (<n> rules)` and `    Source: <spec>` for each
+
+A bare local name or a canonical `owner/repo#ref/<rulebook-name>` source drops the first three lines and closes with `Added rulebook source: <source>` where a repository add says `Rule config synced.`
 
 ### rule remove
 
@@ -345,25 +382,40 @@ Clean means the directory holds `rulebook.json` and nothing else. `--delete-sour
 
 ### rule update
 
-Refresh the lock and cache for the configured rulebook sources, or for a single source when one is given:
+Re-fetch and vendor the remote rulebooks for every configured source, or for a single source when one is given:
 
 ```bash
 npx -y cc-safety-net rule update
 npx -y cc-safety-net rule update project-rules
-npx -y cc-safety-net rule update --check
 ```
 
-`rule update` with no source argument is exactly `rule sync`.
+The run re-resolves branch and tag refs, so a source pinned to `main` or to a moving tag picks up the current commit. A local source has nothing to fetch. Every configured source appears in the report, but only the selected ones re-fetch; the rest come from the file already on disk. The command prints the same change block as [`rule add`](#rule-add), then `Rule config synced.` and the active rulebook summary.
+
+Each source updates independently. One that fails to fetch or validate keeps the copy it already vendored and is reported as `Failed to update <spec>: <message>`, while the sources that did update are written. The run exits `1` if any source failed and `0` otherwise.
+
+Resource-limit failures are the exception. A run that exhausts its GitHub fetch budget stops with `Rule synchronization exceeds CC Safety Net's safe resource limits.` and fails every source in it, not only the one that hit the ceiling.
 
 ### rule sync
 
-Rebuild the lock and cache for every configured rulebook source. Run it after editing `rule.json` by hand:
+<Warning>
+  `rule sync` is deprecated. Rulebooks are live files, so there is nothing to synchronize. The run migrates the `rule.lock` file and `cache` directory an earlier version wrote, offline, then removes both.
+</Warning>
 
 ```bash
 npx -y cc-safety-net rule sync
 ```
 
-With `--check`, both `update` and `sync` report `Rule config checked.` instead of `Rule config synced.` and leave lock and cache state alone.
+Every run starts with the deprecation notice:
+
+```text
+`cc-safety-net rule sync` is deprecated: rulebooks are live files that need no synchronization. This run only migrates the lock and cache an earlier version left behind.
+```
+
+Nothing is fetched. A cached copy that still matches its recorded digest is written to `<config-dir>/<name>/rulebook.json` and reported as `Vendored <spec> from the v2 cache.`, or as `Restored <spec> from the v2 cache over an invalid file.` when the destination file was there but unusable. A source the cache cannot supply prints ``Could not migrate <spec> from the v2 cache. Run `cc-safety-net rule update <spec>` to vendor it.``, with ` --global` appended to that command in the user scope. The last line is `Removed the v2 lock and cache under <dir>.`
+
+With no leftovers to migrate, the command prints `No v2 lock or cache leftovers found in <dir>; nothing to migrate.` and exits `0`. When leftovers remain but the scope's `rule.json` is missing or unreadable, it refuses rather than destroying the only record of the configured sources: `Cannot migrate: the rules config in <dir> is missing or unreadable while v2 leftovers remain. Restore rule.json, then re-run rule sync.` and exits `1`.
+
+`doctor` reports the leftovers as the info finding `config.v2-leftovers`.
 
 ### rule list
 
@@ -374,6 +426,8 @@ npx -y cc-safety-net rule list
 ```
 
 `rule list` reads both scopes at once, so `--global` is rejected. It exits `1` only on policy **errors**; warnings are printed but exit `0`.
+
+Under `Active rules`, every rule prints the same three rows: `  Command:`, `  Block args:`, and `  Reason:`. A version 1 rule puts `<command> <subcommand>` on the `Command:` row when it sets a subcommand, and its blocked arguments on `Block args:`. A `rulebook_version: 2` rule has neither, so its `Command:` row is the bare command and its `Block args:` row is empty. `rule list` prints nothing from the version 2 `match` contract. Read `match.command_path`, `match.any_args`, and `match.exclude_args` in the rulebook file itself, or run [`rule doc`](#rule-doc) for the authoring guide that describes them.
 
 ### rule wrapper
 
@@ -420,7 +474,7 @@ npx -y cc-safety-net rule migrate
 npx -y cc-safety-net rule migrate --cleanup
 ```
 
-`--cleanup` deletes the legacy files after the migrated rules verify. `migrate` rejects `--global`, `--check`, and any second positional argument.
+`--cleanup` deletes the legacy files after the migrated rules verify. `migrate` rejects `--global` and any second positional argument.
 
 ### rule doc
 
@@ -437,6 +491,79 @@ UPDATE_AVAILABLE: cc-safety-net v<latest> is available (running v<current>). Ask
 ```
 
 The guide itself goes to stdout, so piping stays clean, and the same version is not announced again for 7 days. Set `CC_SAFETY_NET_NO_UPDATE_CHECK` to disable the check entirely. A failed registry check is silent, and the exit code stays `0` either way.
+
+## policy
+
+`policy` checks and applies policy proposals. The fields a policy file carries, and what each one does, are documented in [Policy](/configuration/policy).
+
+| Subcommand | Description |
+| --- | --- |
+| `check <file>` | Validate a policy proposal and print its diff |
+| `apply <file>` | Apply a proposal after confirming in a terminal |
+
+**Options:**
+
+| Flag | Description |
+| --- | --- |
+| `-g`, `--global` | Use the user-scope policy instead of the project one |
+| `-h`, `--help` | Show this help |
+
+**Examples:**
+
+```bash
+cc-safety-net policy check proposal.json
+cc-safety-net policy apply proposal.json
+cc-safety-net policy apply proposal.json --global
+```
+
+The target is `.cc-safety-net/policy.json` in the project, or your user policy file under `--global`.
+
+### Output
+
+Both subcommands print the same report before `apply` writes anything:
+
+```text
+Scope: project (<path>)
+Proposal: <file>
+Effective policy (user + project merged):
+Changes (<n>):
+  <field>: <before> -> <after>
+```
+
+The first line reads `Scope: user (<path>)` under `--global`. In project scope the diff compares the effective merge of your user policy and the project file, before against after, under the `Effective policy (user + project merged):` heading. A sparse proposal still changes the level the session runs at, so the diff reports that change rather than the file's own contents: setting `safety.level` lowers or raises the effective level, and leaving it out restores the level inherited from the user policy. In user scope the diff compares the user policy file itself and prints no heading. A diff with nothing in it is the single line `No changes.` An absent side of a row reads `(unset)`.
+
+`check` stops after the diff and exits `0`.
+
+Errors go to stderr and exit `1` before any diff: `Unknown option for policy: <arg>`, `Unknown policy subcommand: <name>`, `policy <subcommand> requires a file`, and `Unexpected policy argument: <arg>`. A project proposal carrying an `audit` section is rejected the same way, because audit settings are user scope only:
+
+```text
+<file>: audit settings are user scope only; remove the audit section from a project proposal
+```
+
+### Applying
+
+`apply` requires a TTY on both stdin and stdout. Without one it prints the command for you to run and exits `1`:
+
+```text
+policy apply confirms interactively; run this yourself in a terminal:
+  cc-safety-net policy apply <file>
+```
+
+The printed command repeats `--global` when you passed it.
+
+In a terminal, `apply` asks `Apply this policy to <path>? [y/N] `. Only `y` or `yes`, in any case, confirms. Anything else declines, including EOF at the prompt, and prints `Cancelled; nothing was written.` before exiting `0`. A confirmed apply writes the file and prints `Policy applied: <path>`, also exiting `0`. A project apply writes only the fields the proposal sets; every field it leaves out keeps inheriting from your user policy.
+
+<Warning>
+  There is no `--yes` and no non-interactive mode. Answering the prompt in a terminal is the only way to apply a proposal.
+</Warning>
+
+The guard denies an agent that runs `policy apply`, with intent `hard_stop` and this reason:
+
+```text
+Only the user may apply a policy proposal, because it rewrites the configuration CC Safety Net enforces. Ask them to run `cc-safety-net policy apply <file>` themselves in a terminal; you can run `cc-safety-net policy check <file>` to show them what it would change.
+```
+
+`policy check` stays allowed, so an agent can still draft a proposal and show you the diff it would produce.
 
 ## install
 
