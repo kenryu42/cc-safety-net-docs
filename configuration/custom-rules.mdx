@@ -96,6 +96,21 @@ The `rules` array holds at most **64** sources per scope. A `rule.json` with mor
 
 Fetching from GitHub runs under fixed budgets. `rule add` and `rule update` process at most **4** sources concurrently, and one run makes at most **131** GitHub requests and reads at most **64 MiB** of response bytes across all sources. Exceeding a budget stops the run with `Rule synchronization exceeds CC Safety Net's safe resource limits.` and fails every source in it, not only the one that exceeded the budget.
 
+Rulebook files have their own limits, checked before the schema. A rulebook over any of them is rejected with the single error `Rulebook exceeds CC Safety Net's safe validation limits.` and no per-field detail:
+
+| Limit | Value |
+| --- | --- |
+| `allowed_commands` entries | 1,024 |
+| `rules` entries | 1,024 |
+| `tests` entries | 2,048 |
+| Tokens in one rule's `block_args`, `match.command_path`, `match.any_args`, or `match.exclude_args` | 1,024 |
+| Tokens across every one of those lists in the rulebook | 16,384 |
+| Any single string | 1,048,576 UTF-16 code units |
+| Every string in the rulebook combined | 4,194,304 UTF-16 code units |
+| A fixture's `command` string | 131,072 UTF-16 code units |
+
+A rulebook that clears those limits and then fails the schema reports at most 64 errors, followed by `Additional rulebook validation errors were omitted.`
+
 ### Rulebooks are live files
 
 There is no lockfile, no digest, and no cache. Every source loads from `<config-dir>/<rulebook-name>/rulebook.json`, and the runtime reads that file on every tool call. A local rulebook is authored there directly; a remote one is vendored there by `rule add` and `rule update`. A saved edit applies to the next command, so there is nothing to publish or rebuild afterwards.
@@ -106,27 +121,13 @@ See [Configuration recovery](/configuration/recovery) for the full state model, 
 
 ### `rule sync` is deprecated
 
-`rule sync` no longer synchronizes anything. It migrates the lock and cache an earlier version left behind, offline, and every run opens with:
+`rule sync` no longer synchronizes anything. All it does now is migrate, offline, the `rule.lock` file and `cache` directory an earlier version left behind: it vendors each cached rulebook that still matches its recorded digest into the live path its source loads from, then deletes both. Every run opens with:
 
 ```text
 `cc-safety-net rule sync` is deprecated: rulebooks are live files that need no synchronization. This run only migrates the lock and cache an earlier version left behind.
 ```
 
-For each configured GitHub source with no usable rulebook file, the migration looks in the old cache. A cached copy that still matches its recorded digest and validates under the source's own name is the content `rule add` would have vendored, so it is written to the live path and reported as `Vendored <source> from the v2 cache.`, or as `Restored <source> from the v2 cache over an invalid file.` when a broken file already sat there. A source it cannot migrate is reported like this, with `--global` appended in the user scope:
-
-```text
-Could not migrate <source> from the v2 cache. Run `cc-safety-net rule update <source>` to vendor it.
-```
-
-The run then deletes `rule.lock` and the cache directory and prints `Removed the v2 lock and cache under <dir>.`
-
-With leftovers present, the migration refuses to run while the scope's `rule.json` is missing or unreadable, because the lock is then the only remaining record of which sources were configured:
-
-```text
-Cannot migrate: the rules config in <dir> is missing or unreadable while v2 leftovers remain. Restore rule.json, then re-run rule sync.
-```
-
-With nothing to migrate it prints `No v2 lock or cache leftovers found in <dir>; nothing to migrate.` and exits 0. `doctor` reports any leftovers as the info finding `Rulebook lock and cache leftovers detected`.
+`doctor` reports any leftovers as the info finding `Rulebook lock and cache leftovers detected`. See [`rule sync`](/reference/cli-commands#rule-sync) for every message the migration prints and the case where it refuses to run.
 
 ## Transparent wrappers
 

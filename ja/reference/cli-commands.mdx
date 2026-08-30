@@ -361,9 +361,9 @@ cc-safety-net rule add acme/safety-rules --ref v2 --only aws
 - 選択した rulebook のうち `rule.json` にすでにあったものについて `Rulebooks already configured from <source> at <ref>: <names>`
 - `Vendored at <commit>.`。解決されたコミットを先頭 7 文字に短縮したもので、新しいソースを 1 つ以上書き込んだ場合にのみ出力される
 - 書き込んだファイルごとに 1 ブロック。新規ファイルは `Vendored <spec> (<version>)`、既存ファイルの更新は `Updated <spec> (<before> -> <after>)` に続けて、追加・削除・名前は同じで内容が変わったルールをそれぞれ `  + <rule>`、`  - <rule>`、`  ~ <rule>` の行で表示
-- `Rule config synced.`、空行、`Active rulebooks (<n>):`。各エントリは `  - <name> <version> (<n> rules)` と `    Source: <spec>`
+- `Rule config updated.`、空行、`Active rulebooks (<n>):`。各エントリは `  - <name> <version> (<n> rules)` と `    Source: <spec>`
 
-裸のローカル名または正規形式 `owner/repo#ref/<rulebook-name>` のソースでは、最初の 3 行は出力されません。リポジトリ追加で `Rule config synced.` が出る位置には、`Added rulebook source: <source>` が出力されます。
+裸のローカル名または正規形式 `owner/repo#ref/<rulebook-name>` のソースでは、最初の 3 行は出力されません。リポジトリ追加で `Rule config updated.` が出る位置には、`Added rulebook source: <source>` が出力されます。
 
 ### rule remove
 
@@ -389,7 +389,7 @@ npx -y cc-safety-net rule update
 npx -y cc-safety-net rule update project-rules
 ```
 
-実行のたびにブランチとタグの ref を解決し直すため、`main` や移動するタグを指しているソースは現在のコミットを取り込みます。ローカルソースには取得するものがありません。設定済みのソースはすべてレポートに現れますが、再取得されるのは選択したソースだけで、残りはディスク上のファイルから読み込まれます。出力される変更ブロックは [`rule add`](#rule-add) と同じで、その後に `Rule config synced.` とアクティブな rulebook の一覧が続きます。
+実行のたびにブランチとタグの ref を解決し直すため、`main` や移動するタグを指しているソースは現在のコミットを取り込みます。ローカルソースには取得するものがありません。設定済みのソースはすべてレポートに現れますが、再取得されるのは選択したソースだけで、残りはディスク上のファイルから読み込まれます。出力される変更ブロックは [`rule add`](#rule-add) と同じで、その後に `Rule config updated.` とアクティブな rulebook の一覧が続きます。
 
 各ソースは独立して更新されます。取得や検証に失敗したソースは、すでに取り込んである内容をそのまま保持し、`Failed to update <spec>: <message>` として報告されます。更新に成功した他のソースは書き込まれます。1 つでも失敗した場合は `1`、それ以外は `0` で終了します。
 
@@ -427,7 +427,16 @@ npx -y cc-safety-net rule list
 
 `rule list` は両方のスコープを一度に読み取るため、`--global` は拒否されます。ポリシーの**エラー**がある場合だけ `1` で終了します。警告は出力されますが、終了コードは `0` です。
 
-`Active rules` では、どのルールも `  Command:`、`  Block args:`、`  Reason:` の同じ 3 行を出力します。バージョン 1 のルールは、サブコマンドを設定していれば `Command:` の行に `<command> <subcommand>` を表示し、ブロック対象の引数を `Block args:` に表示します。`rulebook_version: 2` のルールにはどちらもないため、`Command:` の行はコマンド名だけになり、`Block args:` の行は空になります。バージョン 2 の `match` の内容は `rule list` には出力されません。`match.command_path`、`match.any_args`、`match.exclude_args` は rulebook ファイル自体を読むか、[`rule doc`](#rule-doc) で作成ガイドを表示して確認してください。
+`Active rules` では、どのルールも `  Command:` の行と `  Reason:` の行を出力します。その間の行は、ルール自身の rulebook のバージョンによって変わります。バージョン 1 のルールは、サブコマンドを設定していれば `Command:` に `<command> <subcommand>` を表示し、ブロック対象の引数を `  Block args:` に表示します。`rulebook_version: 2` のルールは、`Command:` にコマンド名と `match.command_path` の語を並べて表示し、設定されているものだけ `  Any args:` と `  Exclude args:` を出力します。`Block args:` の行は出力しません。
+
+```text
+Active rules (1):
+  - [project] infra/block-terraform-destroy
+      Command: terraform apply
+      Any args: -destroy, --destroy
+      Exclude args: --dry-run
+      Reason: Review a destroy plan first.
+```
 
 ### rule wrapper
 

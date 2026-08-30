@@ -98,6 +98,21 @@ npx -y cc-safety-net rule remove example-rules --delete-source
 
 GitHub からの取得は、決められた上限の中で動作します。`rule add` と `rule update` が同時に処理する参照先は最大 **4** 件、1 回の実行で発行する GitHub リクエストは最大 **131** 件、すべての参照先を合わせて読み取るレスポンスは最大 **64 MiB** です。いずれかの上限を超えると、`Rule synchronization exceeds CC Safety Net's safe resource limits.` を表示して処理を中止します。このとき失敗するのは上限を超えた参照先だけではなく、その実行に含まれるすべての参照先です。
 
+rulebook ファイル自体にも上限があり、スキーマより先に確認します。いずれかを超えた rulebook は、フィールドごとの内訳なしに `Rulebook exceeds CC Safety Net's safe validation limits.` の 1 行だけで拒否されます。
+
+| 上限 | 値 |
+| --- | --- |
+| `allowed_commands` の要素数 | 1,024 |
+| `rules` の要素数 | 1,024 |
+| `tests` の要素数 | 2,048 |
+| 1 つのルールの `block_args`、`match.command_path`、`match.any_args`、`match.exclude_args` それぞれのトークン数 | 1,024 |
+| rulebook 全体で、これらのリストが持つトークン数の合計 | 16,384 |
+| 1 つの文字列の長さ | 1,048,576 UTF-16 コードユニット |
+| rulebook 内のすべての文字列の合計 | 4,194,304 UTF-16 コードユニット |
+| フィクスチャの `command` 文字列 | 131,072 UTF-16 コードユニット |
+
+上限を満たしたうえでスキーマ検証に失敗した場合、報告するエラーは最大 64 件で、その後に `Additional rulebook validation errors were omitted.` が続きます。
+
 ### rulebook はライブファイル
 
 ロックファイルもダイジェストもキャッシュもありません。どの参照先も `<config-dir>/<rulebook-name>/rulebook.json` から読み込まれ、ランタイムはツール呼び出しのたびにそのファイルを読みます。ローカルの rulebook はその場所で直接編集し、リモートの rulebook は `rule add` と `rule update` がその場所に取り込みます。保存した編集は次のコマンドから有効になり、あとから反映させたり再構築したりする手順はありません。
@@ -108,27 +123,13 @@ GitHub からの取得は、決められた上限の中で動作します。`rul
 
 ### `rule sync` は非推奨
 
-`rule sync` はもう何も同期しません。以前のバージョンが残したロックとキャッシュをオフラインで移行するだけのコマンドで、実行するたびに次のメッセージを表示します。
+`rule sync` はもう何も同期しません。以前のバージョンが残した `rule.lock` と `cache` ディレクトリを、オフラインで移行するだけです。記録された digest と一致するキャッシュ済みの rulebook を、その参照先が読み込むライブのパスへ取り込み、両方を削除します。実行するたびに、次の 1 行から始まります。
 
 ```text
 `cc-safety-net rule sync` is deprecated: rulebooks are live files that need no synchronization. This run only migrates the lock and cache an earlier version left behind.
 ```
 
-移行処理は、使用可能な rulebook ファイルがない GitHub の参照先について、古いキャッシュを探します。記録されたダイジェストと一致し、その参照先の名前で検証も通るキャッシュは、`rule add` が取り込んだはずの内容そのものです。そのためライブのパスに書き出され、`Vendored <source> from the v2 cache.` として報告されます。壊れたファイルがすでに置かれていた場合は `Restored <source> from the v2 cache over an invalid file.` になります。移行できなかった参照先は次のように報告されます（ユーザースコープでは末尾に `--global` が付きます）。
-
-```text
-Could not migrate <source> from the v2 cache. Run `cc-safety-net rule update <source>` to vendor it.
-```
-
-その後、`rule.lock` とキャッシュディレクトリを削除し、`Removed the v2 lock and cache under <dir>.` を表示します。
-
-残存ファイルがある状態でそのスコープの `rule.json` が見つからない、または読み取れない場合、移行処理は実行を拒否します。どの参照先が設定されていたかを示す記録が、ロックしか残っていないためです。
-
-```text
-Cannot migrate: the rules config in <dir> is missing or unreadable while v2 leftovers remain. Restore rule.json, then re-run rule sync.
-```
-
-移行するものが何もなければ `No v2 lock or cache leftovers found in <dir>; nothing to migrate.` を表示して終了コード 0 で終わります。残存ファイルがある場合、`doctor` は `info` 重大度の finding `Rulebook lock and cache leftovers detected` として報告します。
+残存ファイルは、`doctor` が `info` 重大度の finding `Rulebook lock and cache leftovers detected` として報告します。移行が出力するメッセージの全体と、実行を拒否する条件は [`rule sync`](/ja/reference/cli-commands#rule-sync) を参照してください。
 
 <span id="transparent-wrappers"></span>
 

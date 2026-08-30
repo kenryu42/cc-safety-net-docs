@@ -96,6 +96,21 @@ npx -y cc-safety-net rule remove example-rules --delete-source
 
 从 GitHub 获取内容时有固定预算。`rule add` 和 `rule update` 最多并发处理 **4** 个源，单次运行最多发出 **131** 个 GitHub 请求，所有源合计最多读取 **64 MiB** 响应字节。超出任一预算都会中止本次运行，并报 `Rule synchronization exceeds CC Safety Net's safe resource limits.`，而且失败的不只是超限的那个源，而是本次运行中的全部源。
 
+rulebook 文件本身也有上限，且在 schema 校验之前检查。超出其中任何一项的 rulebook 只会得到一行 `Rulebook exceeds CC Safety Net's safe validation limits.`，不含逐字段的说明：
+
+| 上限 | 值 |
+| --- | --- |
+| `allowed_commands` 条目数 | 1,024 |
+| `rules` 条目数 | 1,024 |
+| `tests` 条目数 | 2,048 |
+| 单条规则的 `block_args`、`match.command_path`、`match.any_args` 或 `match.exclude_args` 的 token 数 | 1,024 |
+| 整个 rulebook 中这些列表的 token 总数 | 16,384 |
+| 单个字符串的长度 | 1,048,576 个 UTF-16 码元 |
+| rulebook 内所有字符串的长度合计 | 4,194,304 个 UTF-16 码元 |
+| 单个 fixture 的 `command` 字符串 | 131,072 个 UTF-16 码元 |
+
+通过上限检查、但未通过 schema 校验的 rulebook，最多报告 64 条错误，其后是 `Additional rulebook validation errors were omitted.`
+
 ### rulebook 是实时文件
 
 没有 lockfile，没有 digest，也没有缓存。每个源都从 `<config-dir>/<rulebook-name>/rulebook.json` 加载，运行时在每次工具调用时读取该文件。本地 rulebook 直接在该位置编写，远程 rulebook 由 `rule add` 和 `rule update` 落盘到同一位置。保存后的改动从下一条命令起生效，之后无需再做任何发布或重建。
@@ -106,27 +121,13 @@ npx -y cc-safety-net rule remove example-rules --delete-source
 
 ### `rule sync` 已弃用
 
-`rule sync` 不再同步任何东西。它只负责离线迁移旧版本遗留的 lock 和缓存，每次运行都会先打印：
+`rule sync` 不再做任何同步。它现在只做一件事：离线迁移早期版本遗留的 `rule.lock` 文件和 `cache` 目录。它会把仍与记录的 digest 一致的缓存 rulebook 落盘到其来源实际加载的路径，然后删除这两者。每次运行都以这一行开头：
 
 ```text
 `cc-safety-net rule sync` is deprecated: rulebooks are live files that need no synchronization. This run only migrates the lock and cache an earlier version left behind.
 ```
 
-对每个没有可用 rulebook 文件的已配置 GitHub 源，迁移会到旧缓存中查找。缓存副本只要仍与所记录的 digest 一致，并且能按该源自己的名称通过校验，就等于 `rule add` 当初会落盘的内容，因此会写入实时路径并报告 `Vendored <source> from the v2 cache.`；如果该位置原本已有一个损坏的文件，则报告 `Restored <source> from the v2 cache over an invalid file.`。无法迁移的源按下面的格式报告，用户范围下末尾会带上 `--global`：
-
-```text
-Could not migrate <source> from the v2 cache. Run `cc-safety-net rule update <source>` to vendor it.
-```
-
-随后本次运行会删除 `rule.lock` 和缓存目录，并打印 `Removed the v2 lock and cache under <dir>.`
-
-仍有遗留文件、而该范围的 `rule.json` 缺失或不可读时，迁移会拒绝执行，因为此时只有 lock 还记录着配置过哪些源：
-
-```text
-Cannot migrate: the rules config in <dir> is missing or unreadable while v2 leftovers remain. Restore rule.json, then re-run rule sync.
-```
-
-如果没有任何需要迁移的内容，它会打印 `No v2 lock or cache leftovers found in <dir>; nothing to migrate.` 并以 0 退出。存在遗留文件时，`doctor` 会以 `info` 级检查项 `Rulebook lock and cache leftovers detected` 报告它们。
+遗留文件由 `doctor` 报告为 `info` 级检查项 `Rulebook lock and cache leftovers detected`。迁移打印的全部消息，以及它拒绝运行的情形，见 [`rule sync`](/zh-Hans/reference/cli-commands#rule-sync)。
 
 ## 透明包装器
 

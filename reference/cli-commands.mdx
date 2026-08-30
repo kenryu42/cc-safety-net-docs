@@ -361,9 +361,9 @@ A repository add prints, in order:
 - `Rulebooks already configured from <source> at <ref>: <names>` for the selected rulebooks `rule.json` already listed
 - `Vendored at <commit>.`, the resolved commit abbreviated to 7 characters, printed only when the add wrote at least one new source
 - one block per file written: `Vendored <spec> (<version>)` for a new file, or `Updated <spec> (<before> -> <after>)` followed by `  + <rule>`, `  - <rule>`, and `  ~ <rule>` lines for rules added, removed, and changed under an unchanged name
-- `Rule config synced.`, a blank line, then `Active rulebooks (<n>):` with `  - <name> <version> (<n> rules)` and `    Source: <spec>` for each
+- `Rule config updated.`, a blank line, then `Active rulebooks (<n>):` with `  - <name> <version> (<n> rules)` and `    Source: <spec>` for each
 
-A bare local name or a canonical `owner/repo#ref/<rulebook-name>` source drops the first three lines and closes with `Added rulebook source: <source>` where a repository add says `Rule config synced.`
+A bare local name or a canonical `owner/repo#ref/<rulebook-name>` source drops the first three lines and closes with `Added rulebook source: <source>` where a repository add says `Rule config updated.`
 
 ### rule remove
 
@@ -389,7 +389,7 @@ npx -y cc-safety-net rule update
 npx -y cc-safety-net rule update project-rules
 ```
 
-The run re-resolves branch and tag refs, so a source pinned to `main` or to a moving tag picks up the current commit. A local source has nothing to fetch. Every configured source appears in the report, but only the selected ones re-fetch; the rest come from the file already on disk. The command prints the same change block as [`rule add`](#rule-add), then `Rule config synced.` and the active rulebook summary.
+The run re-resolves branch and tag refs, so a source pinned to `main` or to a moving tag picks up the current commit. A local source has nothing to fetch. Every configured source appears in the report, but only the selected ones re-fetch; the rest come from the file already on disk. The command prints the same change block as [`rule add`](#rule-add), then `Rule config updated.` and the active rulebook summary.
 
 Each source updates independently. One that fails to fetch or validate keeps the copy it already vendored and is reported as `Failed to update <spec>: <message>`, while the sources that did update are written. The run exits `1` if any source failed and `0` otherwise.
 
@@ -427,7 +427,16 @@ npx -y cc-safety-net rule list
 
 `rule list` reads both scopes at once, so `--global` is rejected. It exits `1` only on policy **errors**; warnings are printed but exit `0`.
 
-Under `Active rules`, every rule prints the same three rows: `  Command:`, `  Block args:`, and `  Reason:`. A version 1 rule puts `<command> <subcommand>` on the `Command:` row when it sets a subcommand, and its blocked arguments on `Block args:`. A `rulebook_version: 2` rule has neither, so its `Command:` row is the bare command and its `Block args:` row is empty. `rule list` prints nothing from the version 2 `match` contract. Read `match.command_path`, `match.any_args`, and `match.exclude_args` in the rulebook file itself, or run [`rule doc`](#rule-doc) for the authoring guide that describes them.
+Under `Active rules`, every rule prints a `  Command:` row and a `  Reason:` row. The rows between them follow the rule's own rulebook version. A version 1 rule puts `<command> <subcommand>` on `Command:` when it sets a subcommand, and its blocked arguments on `  Block args:`. A `rulebook_version: 2` rule puts `<command>` followed by its `match.command_path` words on `Command:`, then prints `  Any args:` and `  Exclude args:` for whichever of those it sets, and no `Block args:` row at all:
+
+```text
+Active rules (1):
+  - [project] infra/block-terraform-destroy
+      Command: terraform apply
+      Any args: -destroy, --destroy
+      Exclude args: --dry-run
+      Reason: Review a destroy plan first.
+```
 
 ### rule wrapper
 
