@@ -52,7 +52,7 @@ Standard 会阻止可识别的破坏性命令，但**不具备**对抗级保护�
 | `shell.dynamic-executable` | `$(printf r)m -rf /` | `manual_only` |
 | `shell.dynamic-structure` | `git reset $(printf --hard)` | `stop_and_explain` |
 
-单条 strict tier 规则可以关闭，但对于没有注册破坏性命令 rule id 的 fail-closed 结果，**strict 仍然保持 strict**，其中就包括解析器 fail-closed 和敏感路径结果。
+单条 strict tier 规则可以关闭，但对于没有已注册破坏性命令规则 ID 的 fail-closed 结果，**strict 仍然保持 strict**，其中就包括解析器 fail-closed 和敏感路径结果。
 
 ### Paranoid
 
@@ -146,7 +146,7 @@ Git 分析器提取子命令及其选项，匹配危险选项模式，并返回�
 | **localDiscard** | 只丢弃本地工作树状态，属于 worktree 放宽的候选 | `checkout --`、`restore`、`clean -f`、`reset --hard`（无 ref）、`switch --force`、`rebase --abort`、`merge --abort` |
 | **sharedState** | 影响共享、远程或用于恢复的状态，绝不放宽 | `push --force`、`branch -D`、`stash drop`/`clear`、`worktree remove --force`、`tag -d`、`reflog delete`、`reset --hard <ref>` |
 
-选项匹配会处理 git 的真实语法：长选项使用前缀匹配（因此 `--forc`、`--force` 和 `--force-with-lease` 都能正确解析），短选项会解绑（因此 `-Df` 读作 `-D` 加 `-f`），定位子命令时会跳过带值的全局选项（`-c`、`-C`、`--git-dir`、`--work-tree`）。被阻止的 git 模式完整列表见[被阻止的命令](/zh-Hans/reference/blocked-commands)。
+选项匹配会处理 git 的真实语法：长选项使用前缀匹配（因此 `--forc`、`--force` 和 `--force-with-lease` 都能正确解析），短选项会展开（因此 `-Df` 读作 `-D` 加 `-f`），定位子命令时会跳过带值的全局选项（`-c`、`-C`、`--git-dir`、`--work-tree`）。被阻止的 git 模式完整列表见[被阻止的命令](/zh-Hans/reference/blocked-commands)。
 
 <AccordionGroup>
 <Accordion title="Git SSH 环境覆盖">
@@ -248,7 +248,7 @@ linked worktree 会被正向验证，而不是简单假定。检查会确认 `.g
 
 ## 自定义规则
 
-没有内置分析器匹配时，自定义规则会作为 fallback 运行。它们严格只增不减：只能新增阻止，绝不会覆盖内置的阻止或放宽保护。规则以 `<rulebook-name>/<rule-name>` 作为命名空间，按命令 basename、可选的子命令和字面量 `block_args` 匹配（短选项会解绑，因此 `-Ap` 能匹配 `-A`）。
+没有内置分析器匹配时，自定义规则会作为 fallback 运行。它们严格只增不减：只能新增阻止，绝不会覆盖内置的阻止或放宽保护。规则以 `<rulebook-name>/<rule-name>` 作为命名空间，先按命令 basename 匹配，之后的匹配方式取决于各自 rulebook 的版本。版本 1 的规则匹配可选的子命令，以及按字面匹配的 `block_args`；短选项会展开，因此 `-Ap` 能匹配 `-A`。`rulebook_version: 2` 的规则改用 `match` 对象匹配：`match.command_path` 中的各个词必须按顺序对应最前面的几个非选项参数，`match.any_args` 要求参数中至少出现其中一个 token，而 `match.exclude_args` 中的 token 只要出现一个，匹配就取消。版本 2 按 token 精确比较，不展开短选项。见[版本 2 匹配](/zh-Hans/configuration/custom-rules#版本-2-匹配)。
 
 完整的编写指南和匹配语义见[自定义规则](/zh-Hans/configuration/custom-rules)。
 
