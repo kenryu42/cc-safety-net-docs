@@ -1,0 +1,104 @@
+---
+title: "团队配置：随仓库分发安全策略"
+sidebarTitle: "团队配置"
+description: "为团队配置 CC Safety Net：确保每位成员都安装了 hook，把安装并入项目已有的初始化步骤，并视需要提交项目策略和落盘的 rulebook，统一仓库的保护配置。"
+---
+
+CC Safety Net 分两层保护团队。第一层完全不需要仓库配置。成员安装 hook 之后，参与的每个仓库都由其用户策略保护，而用户策略默认使用 standard 预设。第二层是可选的。当团队想统一预设、添加自定义规则或保护额外路径时，把项目配置提交到 `.cc-safety-net/` 下，每个克隆都会自动读取，成员无需任何操作。
+
+所以最简的团队配置，就是确保每位成员都安装了 CC Safety Net。
+
+## 确保每位成员都已安装
+
+每位成员**在每台机器上、为每个智能体 CLI** 安装一次 hook。任何仓库都无需重复这一步：
+
+```bash
+npx -y cc-safety-net@latest install
+```
+
+交互式选择器会检测已安装的智能体 CLI。`--claude-code`、`--codex`、`--cursor` 等目标标志可非交互地安装单个目标；`npx -y cc-safety-net install --help` 列出全部标志。
+
+### 自动化安装
+
+把安装并入项目已有的初始化步骤。这一步取决于项目的语言和工具链：npm 项目的 `postinstall` 脚本、`Makefile` 或 `justfile` 的初始化目标、dev container 的 `postCreateCommand`、`mise` 任务。没有初始化步骤的项目，把一行命令写进上手文档即可。
+
+例如，在 npm 项目中：
+
+```json
+{
+  "scripts": {
+    "postinstall": "node -e \"process.env.CI || require('child_process').execSync('npx -y cc-safety-net install --claude-code', {stdio: 'inherit'})\""
+  }
+}
+```
+
+无论选择哪种机制，都有两点需要注意：
+
+- 初始化步骤往往也会在 CI 和容器里运行，而在那里安装智能体 hook 是无用功。上面的 `process.env.CI` 守卫会在这些环境里跳过安装。
+- 安装按机器、按智能体 CLI 进行，所以请选择团队实际使用的目标标志。混用多种 CLI 的团队更适合写明交互式一行命令。
+
+## 统一仓库配置（可选）
+
+成员自己的策略已经在 standard 预设下阻止破坏性命令和对机密的访问。只有团队想要的不止这些——某个特定预设、自定义阻止规则或额外的受保护路径——才需要把配置提交到 `.cc-safety-net/` 下。可提交的配置有两类：
+
+- **`.cc-safety-net/policy.json`**：稀疏的项目策略，叠加在每位成员的用户策略之上，涵盖安全预设、内置保护开关、单条规则覆盖和额外的受保护路径。合并契约见[项目策略](/zh-Hans/configuration/policy#项目策略)。
+- **`.cc-safety-net/rule.json` 与 `.cc-safety-net/rules/`**：项目自定义规则。落盘的 rulebook 文件是普通的已提交文件，队友无需运行任何命令即可获得。格式见[自定义规则](/zh-Hans/configuration/custom-rules)。
+
+<Steps>
+  <Step title="提交项目策略">
+    把团队要共享的策略字段写进提案文件，校验后应用：
+
+    ```bash
+    npx -y cc-safety-net policy check proposal.json
+    npx -y cc-safety-net policy apply proposal.json
+    ```
+
+    `policy check` 打印相对于合并后生效策略的差异。你在终端确认该差异后，`policy apply` 才会写入 `.cc-safety-net/policy.json`。`npx -y cc-safety-net gui` 的策略标签页也能起草项目策略。保持文件稀疏，只设置团队要统一的字段；其余字段继续从每位成员的用户策略继承。
+  </Step>
+  <Step title="添加项目规则">
+    把[官方 rulebook](/zh-Hans/configuration/rulebooks) 安装到项目范围，并编写项目专属规则：
+
+    ```bash
+    npx -y cc-safety-net rule add cc-safety-net/rulebooks --only terraform aws
+    ```
+
+    不加 `--global` 时，rulebook 文件会落盘到仓库的 `.cc-safety-net/rules/` 下。
+  </Step>
+  <Step title="提交并验证">
+    提交 `.cc-safety-net/` 目录。推送前确认当前检出受到的保护符合预期：
+
+    ```bash
+    npx -y cc-safety-net status
+    npx -y cc-safety-net rule verify
+    npx -y cc-safety-net explain "terraform destroy"
+    ```
+  </Step>
+</Steps>
+
+## 成员看到什么
+
+项目策略按原样生效，削弱是可见的，不会无声发生。项目文件相对成员用户策略放宽的每个字段都会在 `status`、`doctor`、状态行、`explain` 和 GUI 中产生一行报告，例如 `project policy lowers level: strict -> standard` 和 `project policy disables rule <id>`。完整列表见[项目策略](/zh-Hans/configuration/policy#项目策略)。
+
+成员保有的边界：
+
+- **成员的用户策略仍归成员所有。**项目文件只做叠加。未设置的字段继续继承，成员可以运行比项目基线更严格的用户策略。
+- **审计始终是用户范围。**项目策略中的 `audit` 部分会被忽略并报告。项目无法改变成员本地记录的内容。
+- **项目规则无法触及用户规则。**指向用户范围规则的项目覆盖会被忽略并给出警告。
+
+## 策略变更必须经过人
+
+`policy apply` 在没有可确认的终端时拒绝运行，智能体对它的调用会被直接阻止，无论经由直接执行的二进制、`npx`/`bunx`/`pnpx` 还是运行时入口。预期流程正如上文。智能体可以起草提案文件并用 `policy check` 校验，但由人来阅读差异并应用。再加上策略文件本身的防篡改守卫，提交到仓库的策略变更总会经过人手，通常是一个改动 `.cc-safety-net/` 的、经过评审的拉取请求。
+
+<Tip>
+在代码评审中把 `.cc-safety-net/` 当作 CI 配置对待。这个小目录决定每位队友的智能体能做什么，评审者应逐行阅读。如果仓库使用 `CODEOWNERS`，为它指定负责人。
+</Tip>
+
+## 持续验证
+
+`rule verify` 离线校验已提交的规则配置和每个 rulebook 目录，可以直接放进 CI：
+
+```yaml
+- run: npx -y cc-safety-net@latest rule verify
+```
+
+它能赶在损坏状态传到队友的克隆之前，发现手工编辑后不再通过校验的 rulebook，或规则不再能满足的 fixture。成员想随时查看本地摘要，可运行 `npx -y cc-safety-net status` 查看生效策略，`npx -y cc-safety-net doctor` 做完整的安装检查。

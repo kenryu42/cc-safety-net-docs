@@ -1,0 +1,89 @@
+---
+title: "官方 rulebook：面向基础设施 CLI 的现成规则"
+sidebarTitle: "官方 rulebook"
+description: "从官方 GitHub 仓库一条命令安装现成的 CC Safety Net rulebook，阻止破坏性的 AWS、Azure CLI、gcloud 和 Terraform 命令，如 terraform destroy、aws s3 rm、gcloud projects delete、az group delete。"
+---
+
+CC Safety Net 为编码智能体最常接触的基础设施 CLI 发布了精心整理的 rulebook。每个 rulebook 针对一个 CLI，阻止可识别的破坏性操作，一条命令即可安装：
+
+```bash
+npx -y cc-safety-net rule add cc-safety-net/rulebooks --only terraform --global
+```
+
+rulebook 是 JSON 数据。它们永远不会被执行，只会增加拒绝规则，也无法削弱 CC Safety Net 的内置保护。本页介绍官方目录。rulebook 文件格式和完整的 `rule` 命令参考见[自定义规则](/zh-Hans/configuration/custom-rules)。
+
+<Note>
+官方 rulebook 使用 `rulebook_version: 2`，需要 **CC Safety Net 2.3.0 或更高版本**。
+</Note>
+
+## 目录
+
+[`cc-safety-net/rulebooks`](https://github.com/cc-safety-net/rulebooks) 仓库为每个 CLI 提供一个 rulebook：
+
+| Rulebook | CLI | 阻止内容 |
+|---|---|---|
+| `terraform` | `terraform` | `destroy`、`apply -destroy`、`state rm`、`state push`、`workspace delete` |
+| `aws` | `aws` | S3 对象与存储桶删除、`ec2 terminate-instances`、`cloudformation delete-stack`、RDS 与 DynamoDB 删除、`eks delete-cluster`、`kms schedule-key-deletion` |
+| `gcloud` | `gcloud` | `projects delete`、`compute instances delete`、`storage rm`、Cloud SQL 与 GKE 删除、`kms keys versions destroy`，以及 alpha、beta、preview 发布渠道 |
+| `azure` | `az` | `group delete`、`resource delete`、VM、AKS、存储、SQL 与 Cosmos DB 删除、`keyvault purge` |
+
+每个 rulebook 都是**对可识别误操作的精选覆盖**，而非对提供商 API 的完整建模。`aws s3 rm --dryrun`、`terraform state rm -dry-run`、`aws ec2 terminate-instances --dry-run` 等安全预览仍然允许。每个 rulebook 在仓库中都有一份依据文档，记录每条规则存在的原因、安全预览、有意排除的范围和已知缺口：[terraform](https://github.com/cc-safety-net/rulebooks/blob/main/docs/terraform.md) · [aws](https://github.com/cc-safety-net/rulebooks/blob/main/docs/aws.md) · [gcloud](https://github.com/cc-safety-net/rulebooks/blob/main/docs/gcloud.md) · [azure](https://github.com/cc-safety-net/rulebooks/blob/main/docs/azure.md)。
+
+## 安装
+
+优先使用用户范围。`terraform` 和 `aws` 会跨项目使用，保护应当跟着你走，而不是跟着某个仓库：
+
+```bash
+# Everything the repository publishes
+npx -y cc-safety-net rule add cc-safety-net/rulebooks --global
+
+# A selection
+npx -y cc-safety-net rule add cc-safety-net/rulebooks --only terraform aws --global
+
+# Pin an immutable release tag instead of following the default branch
+npx -y cc-safety-net rule add cc-safety-net/rulebooks --ref v1.0.0 --only terraform --global
+```
+
+省略 `--global` 会安装到项目范围。文件落盘在仓库的 `.cc-safety-net/` 下，提交后每位队友克隆即得。见[团队配置](/zh-Hans/guides/team-setup)。
+
+也可以按源的规范形式安装单个 rulebook。`rule list` 显示的和 `rule remove` 接受的正是这种形式：
+
+```bash
+npx -y cc-safety-net rule add cc-safety-net/rulebooks#main/terraform --global
+```
+
+## 安装做了什么
+
+`rule add` 获取选定的每个 rulebook，校验其 schema 并运行随附的 fixture，然后把文件**落盘**（vendor）到你自己的范围内，路径为 `rules/<name>/rulebook.json`，并报告内容来自哪个提交。此后运行时在每次工具调用时读取这份落盘副本。没有后台拉取，也没有自动更新。
+
+只有在你运行以下命令时，副本才会变化：
+
+```bash
+# Re-resolve every followed branch or tag ref and report added/removed/modified rules
+npx -y cc-safety-net rule update
+
+# Refresh one source
+npx -y cc-safety-net rule update cc-safety-net/rulebooks#main/terraform
+```
+
+发布标签不可变，所以 `--ref v1.0.0` 安装的内容始终相同。在你切换 ref 之前，`rule update` 对它不会有任何改动。
+
+## 覆盖或移除
+
+要禁用单条规则或替换其阻止原因，可在 `rule.json` 中为该规则添加覆盖。rulebook 文件保持不变，因此 `rule update` 不会与你的覆盖冲突。语法见 [`rule.json` schema](/zh-Hans/configuration/custom-rules#rule-json-schema)。要整体移除一个 rulebook：
+
+```bash
+npx -y cc-safety-net rule remove cc-safety-net/rulebooks#main/terraform --global
+```
+
+## 从任意仓库安装
+
+官方仓库没有任何特殊之处。任何在 `.cc-safety-net/rules/<name>/rulebook.json` 下发布 rulebook 的 GitHub 仓库都可以用 `rule add owner/repo` 安装，团队或供应商可以用同样的方式发布自己的目录。
+
+<Warning>
+rulebook 只会增加拒绝规则且永远不会被执行，但命令被阻止时，规则内容会出现在发给智能体的消息中。添加第三方 rulebook 前请先审查内容，并优先用 `--ref` 固定到你检查过的标签或提交，而不是跟随不受你控制的分支。
+</Warning>
+
+## 当 rulebook 不生效时
+
+`npx -y cc-safety-net rule list` 显示每个活动 rulebook 及其规则数量，`npx -y cc-safety-net explain "terraform destroy"` 可以追踪某个决定出自哪条规则。如果某个源显示为未激活，修复步骤见 [rulebook 是实时文件](/zh-Hans/configuration/custom-rules#rulebook-是实时文件)。

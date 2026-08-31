@@ -1,0 +1,89 @@
+---
+title: "Official rulebooks: ready-made rules for infrastructure CLIs"
+sidebarTitle: "Official rulebooks"
+description: "Install ready-made CC Safety Net rulebooks that block destructive AWS, Azure CLI, gcloud, and Terraform commands such as terraform destroy, aws s3 rm, gcloud projects delete, and az group delete from the official GitHub repository with one command."
+---
+
+CC Safety Net publishes curated rulebooks for the infrastructure CLIs coding agents most often touch. Each rulebook blocks recognizable destructive operations for one CLI, and one command installs it:
+
+```bash
+npx -y cc-safety-net rule add cc-safety-net/rulebooks --only terraform --global
+```
+
+Rulebooks are JSON data. They are never executed, they only add denials, and they cannot weaken CC Safety Net's built-in protections. This page covers the official catalog. The [Custom rules](/configuration/custom-rules) page owns the rulebook file format and the full `rule` command reference.
+
+<Note>
+Official rulebooks use `rulebook_version: 2` and require **CC Safety Net 2.3.0 or later**.
+</Note>
+
+## The catalog
+
+The [`cc-safety-net/rulebooks`](https://github.com/cc-safety-net/rulebooks) repository ships one rulebook per CLI:
+
+| Rulebook | CLI | Blocks |
+|---|---|---|
+| `terraform` | `terraform` | `destroy`, `apply -destroy`, `state rm`, `state push`, `workspace delete` |
+| `aws` | `aws` | S3 object and bucket deletion, `ec2 terminate-instances`, `cloudformation delete-stack`, RDS and DynamoDB deletion, `eks delete-cluster`, `kms schedule-key-deletion` |
+| `gcloud` | `gcloud` | `projects delete`, `compute instances delete`, `storage rm`, Cloud SQL and GKE deletion, `kms keys versions destroy`, plus the alpha, beta, and preview release channels |
+| `azure` | `az` | `group delete`, `resource delete`, VM, AKS, storage, SQL, and Cosmos DB deletion, `keyvault purge` |
+
+Each rulebook is **curated coverage of recognizable accidental operations**, not a complete model of the provider API. Safe previews such as `aws s3 rm --dryrun`, `terraform state rm -dry-run`, and `aws ec2 terminate-instances --dry-run` stay allowed. Every rulebook has an evidence page in the repository recording why each rule exists, its safe previews, deliberate exclusions, and known gaps: [terraform](https://github.com/cc-safety-net/rulebooks/blob/main/docs/terraform.md) · [aws](https://github.com/cc-safety-net/rulebooks/blob/main/docs/aws.md) · [gcloud](https://github.com/cc-safety-net/rulebooks/blob/main/docs/gcloud.md) · [azure](https://github.com/cc-safety-net/rulebooks/blob/main/docs/azure.md).
+
+## Install
+
+Prefer user scope. You use `terraform` and `aws` across projects, so the protection should follow you rather than one repository:
+
+```bash
+# Everything the repository publishes
+npx -y cc-safety-net rule add cc-safety-net/rulebooks --global
+
+# A selection
+npx -y cc-safety-net rule add cc-safety-net/rulebooks --only terraform aws --global
+
+# Pin an immutable release tag instead of following the default branch
+npx -y cc-safety-net rule add cc-safety-net/rulebooks --ref v1.0.0 --only terraform --global
+```
+
+Omit `--global` to install into the project scope instead. The vendored files land under `.cc-safety-net/` in the repository, so committing them ships the rules to every teammate's clone. See [Team setup](/guides/team-setup).
+
+You can also add one rulebook by its canonical source spec, which is what `rule list` shows and `rule remove` takes:
+
+```bash
+npx -y cc-safety-net rule add cc-safety-net/rulebooks#main/terraform --global
+```
+
+## What installing does
+
+`rule add` fetches each selected rulebook, validates its schema and runs its bundled test fixtures, and **vendors** the file into your own scope at `rules/<name>/rulebook.json`. The command reports the commit the content came from. The runtime then reads your vendored copy on every tool call. There is no background fetching and no auto-update.
+
+Your copy changes only when you run:
+
+```bash
+# Re-resolve every followed branch or tag ref and report added/removed/modified rules
+npx -y cc-safety-net rule update
+
+# Refresh one source
+npx -y cc-safety-net rule update cc-safety-net/rulebooks#main/terraform
+```
+
+A release tag is immutable, so a `--ref v1.0.0` install always vendors the same content and `rule update` is a no-op for it until you switch refs.
+
+## Override or remove
+
+Disable an individual rule, or replace its block reason, with a per-rule override in `rule.json`. The rulebook file stays untouched, so `rule update` never conflicts with your override. See the [`rule.json` schema](/configuration/custom-rules#rule-json-schema) for the syntax. To drop a rulebook entirely:
+
+```bash
+npx -y cc-safety-net rule remove cc-safety-net/rulebooks#main/terraform --global
+```
+
+## Install from any repository
+
+Nothing about the official repository is special. `rule add owner/repo` works for any GitHub repository that publishes rulebooks under `.cc-safety-net/rules/<name>/rulebook.json`, so a team or vendor can publish its own catalog the same way.
+
+<Warning>
+A rulebook only adds denials and is never executed, but its rules become part of what your agent is told when a command is blocked. Review a third-party rulebook before adding it, and prefer `--ref` with a tag or commit you inspected over following a branch you do not control.
+</Warning>
+
+## When a rulebook does not fire
+
+`npx -y cc-safety-net rule list` shows every active rulebook with its rule count, and `npx -y cc-safety-net explain "terraform destroy"` traces a decision to the rule that made it. If a source shows as inactive, [Rulebooks are live files](/configuration/custom-rules#rulebooks-are-live-files) covers the repair steps.

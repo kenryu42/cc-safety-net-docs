@@ -1,0 +1,104 @@
+---
+title: "Team setup: ship a safety policy with your repository"
+sidebarTitle: "Team setup"
+description: "Set up CC Safety Net for a team: make sure every member has the hook installed, automate the install in your project's existing bootstrap step, and optionally commit a project policy and vendored rulebooks to standardize protection for the repository."
+---
+
+CC Safety Net protects a team in two layers. The first needs no repository configuration at all. Once a member installs the hook, every repository they work in is protected by their user policy, which starts at the standard preset. The second layer is optional. Commit project configuration under `.cc-safety-net/` when the team wants to standardize a preset, add custom rules, or protect extra paths, and every clone picks it up with no member action.
+
+So the minimum team setup is making sure every member installs CC Safety Net.
+
+## Make sure every member installs it
+
+Each member installs the hook **once per machine, per agent CLI**. Nothing repeats per repository:
+
+```bash
+npx -y cc-safety-net@latest install
+```
+
+The interactive selector detects installed agent CLIs. A target flag such as `--claude-code`, `--codex`, or `--cursor` installs one non-interactively; `npx -y cc-safety-net install --help` lists all of them.
+
+### Automate the install
+
+Attach the install to whatever setup step your project already runs. That step depends on your language and tooling: a `postinstall` script in an npm project, a `Makefile` or `justfile` bootstrap target, a dev container's `postCreateCommand`, a `mise` task. A project with no setup step puts the one-liner in its onboarding docs instead.
+
+For example, in an npm project:
+
+```json
+{
+  "scripts": {
+    "postinstall": "node -e \"process.env.CI || require('child_process').execSync('npx -y cc-safety-net install --claude-code', {stdio: 'inherit'})\""
+  }
+}
+```
+
+Two caveats carry over to whichever mechanism you pick:
+
+- Setup steps often also run in CI and inside containers, where installing an agent hook is wasted work. The `process.env.CI` guard above skips it there.
+- The install is per machine and per agent CLI, so pick the target flag your team actually uses. For mixed-CLI teams, documenting the interactive one-liner works better.
+
+## Standardize the repository (optional)
+
+Members' own policies already block destructive commands and secret access at the standard preset. Commit configuration under `.cc-safety-net/` only when the team wants more than that: a specific preset, custom blocking rules, or extra protected paths. Two pieces of committed configuration are available:
+
+- **`.cc-safety-net/policy.json`.** A sparse project policy that layers over each member's user policy: safety preset, built-in protection toggles, per-rule overrides, extra protected paths. [Policy](/configuration/policy#project-policy) owns the merge contract.
+- **`.cc-safety-net/rule.json` and `.cc-safety-net/rules/`.** Project custom rules. Vendored rulebook files are ordinary committed files, so teammates get them without running anything. [Custom rules](/configuration/custom-rules) owns the format.
+
+<Steps>
+  <Step title="Commit a project policy">
+    Write the policy fields the team should share into a proposal file, validate it, and apply it:
+
+    ```bash
+    npx -y cc-safety-net policy check proposal.json
+    npx -y cc-safety-net policy apply proposal.json
+    ```
+
+    `policy check` prints the diff against the effective merged policy. `policy apply` writes `.cc-safety-net/policy.json` after you confirm that diff in a terminal. The Policy tab of `npx -y cc-safety-net gui` can also draft a project policy. Keep the file sparse. Set only what the team standardizes on; every other field keeps inheriting from each member's user policy.
+  </Step>
+  <Step title="Add project rules">
+    Install [official rulebooks](/configuration/rulebooks) into the project scope and author any project-specific rules:
+
+    ```bash
+    npx -y cc-safety-net rule add cc-safety-net/rulebooks --only terraform aws
+    ```
+
+    Without `--global`, the vendored rulebook files land under `.cc-safety-net/rules/` in the repository.
+  </Step>
+  <Step title="Commit and verify">
+    Commit the `.cc-safety-net/` directory. Before you push, confirm this checkout is protected the way you expect:
+
+    ```bash
+    npx -y cc-safety-net status
+    npx -y cc-safety-net rule verify
+    npx -y cc-safety-net explain "terraform destroy"
+    ```
+  </Step>
+</Steps>
+
+## What members see
+
+The project policy is honored as written, and weakenings are visible rather than silent. Every field the project file relaxes relative to a member's user policy gets its own reported line in `status`, `doctor`, the status line, `explain`, and the GUI, such as `project policy lowers level: strict -> standard` and `project policy disables rule <id>`. [Project policy](/configuration/policy#project-policy) lists the full set.
+
+The boundaries members keep:
+
+- **A member's user policy stays theirs.** The project file only layers over it. Unset fields inherit, and members can run a stricter user policy than the project baseline.
+- **Audit stays user-scope.** An `audit` section in a project policy is ignored and reported. The project cannot change what members record locally.
+- **Project rules cannot touch user rules.** A project override naming a user-scoped rule is ignored with a warning.
+
+## Policy changes stay human
+
+`policy apply` refuses to run without a terminal to confirm in, and agent invocations of it are blocked outright, whether through direct binaries, `npx`/`bunx`/`pnpx`, or runtime entrypoints. The intended flow is the one above. An agent may draft a proposal file and validate it with `policy check`, but a person reads the diff and applies it. Combined with the mutation guard on the policy files themselves, a committed policy change always passes through a human, normally as a reviewed pull request touching `.cc-safety-net/`.
+
+<Tip>
+Treat `.cc-safety-net/` like CI configuration in code review. It is a small directory that changes what every teammate's agent may do, so reviewers read every line. If your repository uses `CODEOWNERS`, assign it an owner.
+</Tip>
+
+## Keep it verified
+
+`rule verify` validates the committed rule configuration and every rulebook directory offline, so it slots directly into CI:
+
+```yaml
+- run: npx -y cc-safety-net@latest rule verify
+```
+
+That catches a hand-edited rulebook that no longer validates, or a fixture its rules no longer satisfy, before the broken state reaches a teammate's clone. Members who want a local summary at any time run `npx -y cc-safety-net status` for the effective policy and `npx -y cc-safety-net doctor` for a full installation check.
