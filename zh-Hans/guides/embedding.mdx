@@ -1,0 +1,102 @@
+---
+title: "把 CC Safety Net 嵌入你自己的智能体或工具链"
+sidebarTitle: "嵌入指南"
+description: "面向工具链和工具作者：什么时候该在进程内调用 checkCommand 而不是安装 hook、嵌入模式下策略如何解析、跨小版本的稳定性契约，以及一个插件宿主的完整示例。"
+---
+
+这一页写给构建执行命令那一侧的人：智能体、任务运行器、CI 工具链、带 shell 工具的插件宿主。你不会往这些程序里安装 hook，而是自己发起检查。
+
+嵌入所需的只有一个函数：从 `cc-safety-net/api` 子路径导出的 `checkCommand`。类型、抛出的 `TypeError` 消息，以及一次调用会读取什么，都由[库 API](/zh-Hans/reference/library-api) 作为签名参考承载。这一页讲的是围绕它的决策。
+
+## 进程内检查还是安装 hook
+
+两条路径走的是同一个 guard，区别在于由谁持有这次调用。
+
+| | 已安装的集成 | 进程内的 `checkCommand` |
+| --- | --- | --- |
+| 由谁接入 | 每台机器执行一次 `cc-safety-net install <target>` | 你自己的代码，在每一处执行命令的位置 |
+| 判定发生在哪里 | hook 子进程，或智能体加载的插件 | 你的进程内，同步完成 |
+| 审计日志 | 每次判定都会记录，可用 `logs` 和 GUI 查看 | 没有。需要记录什么由你决定 |
+| 适用对象 | 受支持的十三个智能体 CLI | 任意 Node.js 宿主 |
+| 单次开销 | stdin hook 类智能体需要启动进程 | 一次函数调用 |
+
+判断依据可以从最后一行推出来，但本质是归属问题。如果你的用户运行的是受支持的智能体 CLI，把安装命令给他们，让集成去做这件事；各智能体的接入方式见[集成架构](/zh-Hans/guides/integration-architecture)。如果你本身就是执行命令的程序，那就调用这个函数。为自己的运行时再造一套 hook 配置生成器，等于重建一个已经存在的集成。
+
+<Note>
+  包的根导出是 OpenCode 插件对象，不是引擎。`checkCommand` 请从 `cc-safety-net/api` 导入。
+</Note>
+
+## 嵌入模式下的策略解析
+
+嵌入模式没有单独的配置。一次调用读取的文件和 hook 读取的完全相同，而读哪个项目的文件由 `cwd` 参数决定。
+
+- **用户范围。**`~/.cc-safety-net/policy.json` 和 `~/.cc-safety-net/rules/`；设置了 `CC_SAFETY_NET_HOME` 时改到该位置。这是运维者自己的基线，对每次调用都生效。
+- **项目范围。**`<cwd>/.cc-safety-net/policy.json` 和 `<cwd>/.cc-safety-net/rules/`，严格按你传入的路径解析，不会向上遍历父目录。跟踪会话子目录的宿主应当把仓库根目录作为 `cwd` 传入，否则提交到仓库的项目策略不会被加载。
+- **合并。**项目文件按字段叠加在用户文件之上。两个范围的受保护路径列表取并集，项目文件里的 `audit` 会被忽略，项目放宽的每个字段都会被报告而不是无声生效。合并契约由[策略](/zh-Hans/configuration/policy#project-policy)承载。
+- **环境变量。**`CC_SAFETY_NET_LEVEL` 和各能力开关在每次调用时从 `process.env` 读取，而且级别只能高于策略文件的设定。见[环境变量](/zh-Hans/configuration/environment)。
+
+按项目的差异就是按调用的差异，因为选择它的正是 `cwd`。同时管理多个检出的宿主，只要传对目录，每个检出就会拿到正确的策略，不需要额外 API。
+
+动手写调用点之前，有两个行为值得先知道。无法 stat 为可读、可搜索目录的 `cwd` 会返回 fail-closed 的 deny，而不是抛异常，所以路径写错会导致命令被阻止，而不是去解析另一个项目。另外，输入本身不合法时（比如缺少 `cwd`，或 command 不是字符串）会抛出 `TypeError`，那是调用方代码的缺陷，不是对命令的判定。
+
+## API 保证什么
+
+以下几点跨小版本保持不变，宿主可以据此构建：
+
+- 输入形状 `{ command, cwd }`（`cwd` 是绝对目录路径），以及两种结果 kind：`allow`，和带 `reason` 字符串与可选 `ruleId` 的 `deny`。
+- `deny` 表示不要执行该命令，抛异常同样如此。抛异常永远不等于 allow。
+- `cwd` 是策略解析的基准。命令里的相对路径目标和项目的 `.cc-safety-net/` 配置都按你传入的 `cwd` 解析，绝不会用 `process.cwd()`。
+- API 路径不写审计记录，也不发起网络请求。一次调用只读取策略文件和 `CC_SAFETY_NET_*` 环境设置，仅此而已。
+
+规则目录在任何小版本都可能变化。被阻止的命令会随每次发布增加，`reason` 的措辞也随之改变，所以一次升级可能把你测试夹具依赖的某条命令从 allow 变成 deny。请按 `kind` 分支。把 `reason` 和 `ruleId` 留给人和日志，而不是拿来做匹配；并像对待任何行为被你测试覆盖的依赖一样，在 lockfile 里锁定版本。
+
+## 完整示例：插件宿主
+
+采用插件架构的宿主通常会暴露一个执行前的 hook，可以在那里否决一次工具调用。集成点就只有这一处。插件把宿主的事件映射成 `{ command, cwd }`，调用 `checkCommand`，再把 deny 转换成宿主自己的否决形式：
+
+```ts
+import { checkCommand } from 'cc-safety-net/api';
+
+export function registerSafetyNet(host: PluginHost) {
+  host.beforeToolCall((call, ctx) => {
+    if (call.toolName !== 'shell') return undefined;
+
+    if (typeof call.input.command !== 'string' || call.input.command.trim() === '') {
+      return { block: true, reason: 'Malformed shell tool call.' };
+    }
+
+    try {
+      const result = checkCommand({ command: call.input.command, cwd: ctx.projectRoot });
+      if (result.kind === 'deny') return { block: true, reason: result.reason };
+      return undefined;
+    } catch (error) {
+      console.error('CC Safety Net could not check the command', error);
+      return { block: true, reason: 'Command check failed. The command was not executed.' };
+    }
+  });
+}
+```
+
+这个处理函数里有四个决定最关键：
+
+- **只检查命令类工具。**`checkCommand` 解析的是 shell 命令文本。宿主的 read、write、search 等工具不是命令类工具，所以只把 shell 工具路由过来，其余照常放行。
+- **`cwd` 是绝对路径的项目根目录。**无论宿主怎么称呼它，这个值都决定选用哪份项目策略，并作为命令中 `.env` 之类相对路径的基准。
+- **抛异常就阻止。**`catch` 是契约里 fail-closed 的那一半。让抛出的错误继续流向执行的宿主，等于把一次失败的检查变成了放行。
+- **事件不合法也要阻止。**随包发布的进程内集成正是这么做的：command 字段缺失或不是字符串的事件会被阻止，而不是跳过，因为没有任何可供分析的内容。
+
+如果宿主的否决方式是抛异常而不是返回对象，那就抛出这条拒绝消息而不是返回它。形式变了，判断没变。
+
+## 运维须知
+
+- **日志归你自己管。**这条路径不写审计记录，所以宿主不记录的拒绝就不会留下任何痕迹。`logs` 命令和 GUI 面板展示的是 hook 与插件的判定，不包含嵌入调用。
+- **运维者仍用常规工具配置你。**嵌入宿主读取的是同一批策略文件，因此 `status`、`doctor` 和 `explain` 描述的就是你的宿主会做什么，前提是它们运行在你作为 `cwd` 传入的同一个目录里。用户问某条命令为什么被阻止时，指给他们[Explain 跟踪](/zh-Hans/reference/explain-trace)。
+- **`ruleId` 仅用于诊断。**打印它、记录它、用它去查规则都可以，但不要拿它做分支条件。
+- **调用是同步的。**要批量处理就用循环。这里没有异步或批量入口，加一个也只是掩盖调用本就会做的文件读取。
+- **版本可以从包里读。**`cc-safety-net/package.json` 是导出的子路径，会报告自身依赖版本的宿主可以把它一并带上。
+
+## 相关页面
+
+- [库 API](/zh-Hans/reference/library-api)：`checkCommand` 的完整签名参考。
+- [集成架构](/zh-Hans/guides/integration-architecture)：宿主自己执行命令时，这个函数所替代的那些已安装集成。
+- [策略](/zh-Hans/configuration/policy)与[环境变量](/zh-Hans/configuration/environment)：一次调用读取的全部内容。
+- [被阻止的命令](/zh-Hans/reference/blocked-commands)：deny 可能是哪些情况。

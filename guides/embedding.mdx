@@ -1,0 +1,102 @@
+---
+title: "Embed CC Safety Net in your own agent or harness"
+sidebarTitle: "Embedding guide"
+description: "For harness and toolmaker authors: when to call checkCommand in process instead of installing a hook, how policy resolves in embedded mode, what the API guarantees across minor versions, and a worked plugin-host example."
+---
+
+This page is for people who build the thing that runs the command: an agent, a task runner, a CI harness, a plugin host with a shell tool. You do not install a hook into those. You call the check yourself.
+
+The whole embedding story is one function, `checkCommand`, exported from the `cc-safety-net/api` subpath. [Library API](/reference/library-api) is the signature reference: types, `TypeError` messages, and what one call reads. This page covers the decisions around it.
+
+## In-process check or installed hook
+
+Both paths run the same guard. They differ in who owns the call.
+
+| | Installed integration | `checkCommand` in process |
+| --- | --- | --- |
+| Who wires it | `cc-safety-net install <target>`, once per machine | Your code, at every command site |
+| Where the decision happens | A hook subprocess or an agent-loaded plugin | Your process, synchronously |
+| Audit trail | Written for every decision, readable with `logs` and the GUI | None. You log what you want |
+| Works for | The thirteen supported agent CLIs | Any Node.js host |
+| Cost per call | Process spawn for the stdin-hook agents | A function call |
+
+The rule of thumb follows from that last column but is really about ownership. If your users run one of the supported agent CLIs, ship them the install command and let the integration do the work; see [Integration architecture](/guides/integration-architecture) for how each agent is wired. If you are the program running the commands, call the function. Building a hook config generator for your own runtime is rebuilding an integration that already exists.
+
+<Note>
+  The package root export is the OpenCode plugin object, not the engine. Import from `cc-safety-net/api` for `checkCommand`.
+</Note>
+
+## Policy resolution in embedded mode
+
+There is no separate embedded configuration. A call reads the same files a hook reads, and the `cwd` argument decides which project's files those are.
+
+- **User scope.** `~/.cc-safety-net/policy.json` and `~/.cc-safety-net/rules/`, moved by `CC_SAFETY_NET_HOME` when it is set. This is the operator's own baseline, and it applies to every call.
+- **Project scope.** `<cwd>/.cc-safety-net/policy.json` and `<cwd>/.cc-safety-net/rules/`, resolved from the exact path you pass. There is no walk up through parent directories. A host that tracks a session subdirectory should pass the repository root as `cwd`, or the committed project policy will not load.
+- **Merge.** The project file layers over the user file field by field. Protected-path lists from both scopes are unioned, `audit` in a project file is ignored, and every field a project relaxes is reported rather than applied silently. [Policy](/configuration/policy#project-policy) owns the merge contract.
+- **Environment.** `CC_SAFETY_NET_LEVEL` and the capability switches are read from `process.env` on every call, and the level can only be raised above what the policy files set. See [Environment variables](/configuration/environment).
+
+Per-project variation is per-call variation, because the `cwd` selects it. A host that manages several checkouts at once gets the right policy for each one by passing the right directory, with no extra API.
+
+Two behaviors are worth knowing before you write the call site. A `cwd` that does not stat as a readable, searchable directory returns a fail-closed deny rather than throwing, so a mistyped path blocks commands instead of analyzing the wrong project. And a malformed input, such as a missing `cwd` or a non-string command, throws `TypeError`, which is a bug in the calling code rather than a verdict about the command.
+
+## What the API guarantees
+
+These hold across minor versions, so a host can build on them:
+
+- The input shape `{ command, cwd }`, with `cwd` an absolute directory path, and the two result kinds, `allow` and `deny` with a `reason` string and an optional `ruleId`.
+- A `deny` means do not execute the command, and a throw means the same. A throw is never an allow.
+- `cwd` anchors policy resolution. Relative command targets and the project's `.cc-safety-net/` configuration resolve against the `cwd` you pass, never `process.cwd()`.
+- The API path writes no audit record and makes no network request. One call reads policy files and `CC_SAFETY_NET_*` environment settings, nothing else.
+
+The rule catalog is free to change in any minor version. Which commands get denied grows with each release, and `reason` wording changes with it, so an upgrade can turn an allow into a deny for a command your test fixtures rely on. Branch on `kind`. Keep `reason` and `ruleId` for humans and logs rather than comparing against them, and pin the version in your lockfile the way you pin any other dependency whose behavior you test against.
+
+## A worked example: a plugin host
+
+Hosts with a plugin architecture usually expose a pre-execution hook that can veto a tool call. That is the whole integration point. The plugin maps the host's event to `{ command, cwd }`, calls `checkCommand`, and turns a deny into whatever the host's veto looks like:
+
+```ts
+import { checkCommand } from 'cc-safety-net/api';
+
+export function registerSafetyNet(host: PluginHost) {
+  host.beforeToolCall((call, ctx) => {
+    if (call.toolName !== 'shell') return undefined;
+
+    if (typeof call.input.command !== 'string' || call.input.command.trim() === '') {
+      return { block: true, reason: 'Malformed shell tool call.' };
+    }
+
+    try {
+      const result = checkCommand({ command: call.input.command, cwd: ctx.projectRoot });
+      if (result.kind === 'deny') return { block: true, reason: result.reason };
+      return undefined;
+    } catch (error) {
+      console.error('CC Safety Net could not check the command', error);
+      return { block: true, reason: 'Command check failed. The command was not executed.' };
+    }
+  });
+}
+```
+
+Four decisions in that handler carry the weight:
+
+- **Only command tools are checked.** `checkCommand` analyzes shell command text. A host's read, write, or search tools are not command tools, so route only the shell tool to it and let the others through.
+- **`cwd` is the project root, absolute.** Whatever your host calls it, that value selects the project policy and anchors relative paths such as `.env` in the command.
+- **A throw blocks.** The `catch` is the fail-closed half of the contract. A host that let a thrown error fall through to execution would turn a broken check into an allow.
+- **A malformed event blocks too.** The shipped in-process integrations do exactly this: an event whose command field is missing or not a string is blocked, not skipped, because there is nothing to analyze.
+
+If your host's veto is a thrown exception rather than a returned object, throw the denial message instead of returning it. The shape changes, the decisions do not.
+
+## Operational notes
+
+- **You own the log.** No audit record is written on this path, so a denial that is not logged by the host leaves no trace. The `logs` command and the GUI dashboard show hook and plugin decisions, not embedded ones.
+- **Operators configure you with the normal tools.** Because an embedded host reads the same policy files, `status`, `doctor`, and `explain` all describe what your host will do, as long as they run in the same directory you pass as `cwd`. Point users at [Explain trace](/reference/explain-trace) when they ask why a command was blocked.
+- **`ruleId` is diagnostic.** Print it, log it, use it to look up a rule. Do not branch on it.
+- **The call is synchronous.** For a batch, loop. There is no async or batched entry point, and adding one would only hide the file reads a call already makes.
+- **Read the version from the package.** `cc-safety-net/package.json` is an exported subpath, so a host that reports its own dependency versions can include this one.
+
+## Related pages
+
+- [Library API](/reference/library-api) is the full signature reference for `checkCommand`.
+- [Integration architecture](/guides/integration-architecture) describes the installed integrations this function replaces when your host runs its own commands.
+- [Policy](/configuration/policy) and [Environment variables](/configuration/environment) document everything a call reads.
+- [Blocked commands](/reference/blocked-commands) lists what a deny can be.
