@@ -1,10 +1,23 @@
 ---
-title: "CC Safety Net vs. OS-level sandboxing"
-sidebarTitle: "CC Safety Net vs. sandboxing"
-description: "Compare CC Safety Net with OS-level sandboxing. They defend against different threats and provide stronger defense-in-depth when used together."
+title: "Where CC Safety Net fits among your protection layers"
+sidebarTitle: "Protection layers"
+description: "Place CC Safety Net next to OS-level sandboxing, permission prompts and approval classifiers, and containers, VMs, and checkpoints. Each layer misses cases the others catch."
 ---
 
 Most coding agent CLIs now ship or support OS-level sandboxing that provides filesystem and network isolation. Sandboxing is **broad containment**: it limits what a process can touch without knowing what any command means. CC Safety Net is **semantic, bounded interception**: it reads the meaning of supported tool calls and denies destructive operations before they run. The two layers protect against different threats, so using both provides more complete protection.
+
+Sandboxing is not the only layer already in place. Permission prompts and their auto-approve classifiers sit in front of every action, and some setups put a container, a VM, or checkpoints around the session. This page places CC Safety Net next to each of them, with the most detail on sandboxing because it is the closest comparison.
+
+## What each layer covers and misses
+
+Each layer decides on different evidence, so each one misses cases the others catch.
+
+| Layer | What it covers | What it misses |
+|---|---|---|
+| **OS-level sandboxing** | Writes scoped to the working and temporary directories, network access restricted or off | Anything inside the boundary: `git reset --hard`, `rm -rf .`, and reads of the credential files it allows |
+| **Permission prompts and approval classifiers** | A prompt or a classifier model reviews an action before it runs, including destructive git commands | A published 17% false-negative rate, and a bypass mode that asks about nothing |
+| **Containers, VMs, and checkpoints** | A machine you can throw away, and a rewind of the file edits captured before each prompt | The mounted workspace holds real work, pushes reach the real remote, and rewind does not cover bash commands |
+| **CC Safety Net** | Deterministic analysis before execution: destructive git and filesystem operations and recognized credential reads, in supported tool calls | Network egress, credentials in files it does not recognize, behavior inside a binary; a denial is not filesystem enforcement |
 
 ## How operating-system sandboxes work
 
@@ -71,6 +84,20 @@ CC Safety Net interprets supported tool calls; it does not contain a process. Ea
 
 Sandboxing provides the containment that these cases need. The two tools are complementary, not alternatives. See [Known limitations](/guides/known-limitations) for the full residual list.
 
+## Permission prompts and approval classifiers
+
+The layer closest to you is the one that asks. Claude Code's [permission modes](https://code.claude.com/docs/en/permission-modes) describe it: in Manual mode, Claude Code "stops and asks you before most actions that edit files, run shell commands, or reach the network", while in auto mode "a second model, the classifier, reviews actions instead of you". The classifier blocks a list of actions by default, and the list includes "`git reset --hard`, `git checkout -- .`, `git restore .`, `git clean -fd`, `git stash drop`, or `git stash clear`, which the classifier presumes would discard uncommitted changes".
+
+That review is a judgment, and you can turn it off. Anthropic publishes a 17% false-negative rate for the [auto-mode](https://www.anthropic.com/engineering/claude-code-auto-mode) classifier on real overeager actions and calls it "not a drop-in replacement for careful human review". The permission-modes page lists what runs without asking under `bypassPermissions` as "Everything", and recommends that mode for "Isolated containers and VMs only".
+
+Deterministic checks survive the mode switch. The same page states that "Deny rules block in every mode, including `bypassPermissions`". A CC Safety Net denial behaves the same way: verified against Claude Code 2.1.251, a PreToolUse deny still fires in default, auto, and bypassPermissions modes (`tests/e2e-live/protection.test.ts` in the project repository). That is a per-version result, not a standing guarantee, so the suite runs again on every release and host upgrade. Deny rules cover the commands you thought to name, in the format each CLI accepts. CC Safety Net applies one policy and writes one audit trail across 13 CLIs.
+
+## Containers, VMs, and checkpoints
+
+A machine you can throw away is real containment, and it is where the permission-modes page points once the prompts are off: `bypassPermissions` is for "Isolated containers and VMs only". What a disposable machine does not change is the work inside it. A cloud session clones your repository at a real branch, commits, and pushes back to your real remote, so `git reset --hard` on uncommitted work costs the same work there that it costs locally, and `git push --force` lands on a branch your teammates pull. [Cloud environments](/guides/cloud-environments) covers the credential side of the same session. A local container that mounts your working tree works the same way. The mount is writable, and your uncommitted work sits inside it.
+
+Checkpoints narrow that gap without closing it. Claude Code's [checkpointing docs](https://code.claude.com/docs/en/checkpointing) say checkpointing "automatically captures the state of your code before each user prompt", then state the limit: "Checkpointing does not track files modified by bash commands." The examples given there are `rm file.txt`, `mv old.txt new.txt`, and `cp source.txt dest.txt`. Of those changes, the page says: "These file modifications cannot be undone through rewind. Only direct file edits made through Claude's file editing tools are tracked." A destructive git command runs as a bash command, so the work it discards is outside what a rewind restores. The same page positions checkpoints as "quick, session-level recovery" and says to "continue using version control, such as Git, for commits, branches, and long-term history".
+
 ## Use sandboxing with CC Safety Net
 
 <Tip>
@@ -82,4 +109,6 @@ Sandboxing provides the containment that these cases need. The two tools are com
 
 Sandboxing handles unknown threats by constraining what the agent *can* do at the OS level. CC Safety Net handles known destructive patterns by intercepting commands before they execute. Together, they cover the gaps that each leaves on its own.
 
-Sandboxes and allowlists also break. CVE-2026-25725 escaped Claude Code's bubblewrap sandbox through `settings.json`, and CVE-2026-22708 bypassed Cursor's command allowlist. Run both layers.
+The other layers stack the same way. A classifier weighs intent in cases no static check can settle. A disposable machine and its checkpoints limit and undo part of what still gets through. Neither one covers the case the deterministic check is there for.
+
+Sandboxes and allowlists also break. CVE-2026-25725 escaped Claude Code's bubblewrap sandbox through `settings.json`, and CVE-2026-22708 bypassed Cursor's command allowlist. Run every layer you have.
