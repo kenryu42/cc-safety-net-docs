@@ -1,0 +1,115 @@
+---
+title: "在云端智能体环境中保持防护生效"
+sidebarTitle: "云端环境"
+description: "如何把 CC Safety Net 带进没人登录的智能体会话：Claude Code 云端会话和自托管环境靠提交到仓库的项目策略与 settings 文件，Amp Orb 线程靠 personal plugin，devcontainer 和 Docker 镜像靠构建期预装。"
+---
+
+云端会话跑在一台没人登录的机器上。那里没有可以运行安装程序的终端，任务结束后机器就被回收，所以按会话安装意味着每次都要重来一遍。防护必须随仓库一起到达，或者由环境的 setup script 装上，或者已经烤进镜像里。
+
+三条路都可行，而且都不需要 CC Safety Net 现有能力之外的任何东西。
+
+## 云端 VM 改变了什么
+
+VM 是一次性的，它能触及的东西不是。云端会话会在真实分支上 clone 你的仓库、commit，然后 push 回真实的远端。在那里对未提交的工作执行 `git reset --hard`，损失的工作量和本地一模一样；`git push --force` 落在的也是队友会 pull 的分支。
+
+凭据就在这些工作旁边。Anthropic 关于 [Claude Code on the web](https://code.claude.com/docs/en/claude-code-on-the-web) 的文档这样描述 Anthropic 托管环境："git credentials and signing keys stay outside the sandbox, and a proxy authenticates on the session's behalf with scoped credentials"。你添加到云端环境的 API key 也按同样方式处理，"attached to matching requests after they leave the session"。这个设计让会话读不到密钥材料，切分是对的，但它并不阻止会话使用这份凭据。一个为基础设施工作准备的环境，可以带着有效身份执行 `terraform destroy`、`aws s3 rm`、`gcloud projects delete` 和 `az group delete`，而这正是[官方规则库](/zh-Hans/configuration/rulebooks)拦截的对象。
+
+平台侧的防护同样是逐版本的验证结果，而不是长期保证，我们这边也一样。2026 年 4 月有人报告，在没有开启 unrestricted branch pushes 的情况下，一个计划中的云端任务仍然直接 push 到了 `main`，记录在 [anthropics/claude-code#44949](https://github.com/anthropics/claude-code/issues/44949)。
+
+提交到仓库里的 deny 层会随着每一次 clone 进入会话，按项目策略设定的 preset 生效，不需要任何人在每个会话里额外做事。
+
+## Claude Code 云端会话与自托管环境
+
+云端会话从仓库里读配置。同一页写得很直接："To change settings for a cloud session, use environment variables or commit settings files to the repository"。hook 就配置在 settings 文件里，所以只要提交两样东西，云端会话就会执行你的策略。
+
+<Steps>
+  <Step title="提交项目策略">
+    `.cc-safety-net/policy.json` 以及 `.cc-safety-net/rules/` 下的项目 rulebook 都是普通的已提交文件。会话会连同仓库其余部分一起 clone 它们，运行时在下一次工具调用时读取。这与[团队接入](/zh-Hans/guides/team-setup)为开发者机器提交的配置相同，合并契约由[策略](/zh-Hans/configuration/policy#project-policy)承载。
+
+    云端会话没有属于自己的用户策略文件，所以项目文件没有指定的地方会落到内置默认值上。请显式设置你希望会话运行的 preset，而不是指望某位成员本地恰好在用的那个。
+  </Step>
+  <Step title="把 hook 装进会话">
+    做法取决于环境有没有 setup script。
+
+    在环境的 [setup script](https://code.claude.com/docs/en/cloud-environments) 里，或者在自托管环境所依赖的镜像里，直接跑常规安装：
+
+    ```bash
+    npx -y cc-safety-net@latest install --claude-code
+    ```
+
+    带上目标 flag 后安装是非交互的，不需要终端确认，可以在无 TTY 的情况下完成。
+
+    如果没有 setup script，就把 hook 条目本身作为 `.claude/settings.json` 提交：
+
+    ```json
+    {
+      "hooks": {
+        "PreToolUse": [
+          {
+            "matcher": "*",
+            "hooks": [
+              { "type": "command", "command": "npx -y cc-safety-net@latest hook --coding-cli" }
+            ]
+          }
+        ]
+      }
+    }
+    ```
+
+    `hook --coding-cli` 是规范的 hook 入口，已安装的插件调用的也是它。这种形式每次工具调用都要付出一次 `npx` 启动的开销，因此环境有 setup script 时优先用 setup script。
+  </Step>
+</Steps>
+
+两种形式在安装或调用时都要走网络。关闭了网络访问的环境需要改为把包放进镜像里。
+
+hook 在 VM 里跑起来之后，有两件事会变。[审计日志](/zh-Hans/reference/audit-log)写在会话自己的 home 目录里，随 VM 一起被回收，所以在云端会话里你拿到的是 deny 本身，日志只属于这次会话。另外，hook 没装上时会话不会主动告诉你，所以每个环境确认一次：让会话执行一条策略会拦截的命令，或者运行 `npx -y cc-safety-net@latest explain "git reset --hard"`，它不执行任何东西，只打印判定和给出判定的规则。输出的读法见 [explain 追踪](/zh-Hans/reference/explain-trace)。
+
+## Amp Orb 线程
+
+Amp 不需要按容器操作。在任何一台用 `amp login` 登录过的机器上安装一次即可：
+
+```bash
+npx -y cc-safety-net@latest install --amp
+```
+
+安装会把插件发布到你账号托管的 Amp Personal Plugins 仓库。personal plugin 跟随账号而不是机器，因此也覆盖在远端执行的线程，包括 Orb。安装还会把你的用户策略快照嵌入发布的 artifact，这份快照在没有自己策略文件的机器上生效，比如 Orb 那个空的 home 目录。机器上存在策略文件时，始终以文件为准。快照不携带哪些内容等完整行为见[安装](/zh-Hans/installation)。
+
+改过用户策略之后重新运行同一条命令。快照随 artifact 一起分发，artifact 更新时它才更新。
+
+## devcontainer 与容器镜像
+
+自己构建的容器，把安装放在构建期。下面这个 Dockerfile 是可用的形态：
+
+```dockerfile
+FROM node:22-slim
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+RUN npm install -g @anthropic-ai/claude-code
+RUN npx -y cc-safety-net install --claude-code
+```
+
+这个顺序带出两条构建期要求：
+
+- **必须有 `git` 和 `ca-certificates`。** Claude Code 的安装会添加插件 marketplace，这一步通过 HTTPS 执行 clone，而 slim 基础镜像两者都没有。
+- **先装智能体 CLI。** 安装程序调用的是智能体自己的插件命令，所以先装 CC Safety Net 再装智能体的构建会失败。
+
+在 devcontainer 里，同一条命令就是 `postCreateCommand`：
+
+```json
+{
+  "postCreateCommand": "npx -y cc-safety-net@latest install --claude-code"
+}
+```
+
+[团队接入](/zh-Hans/guides/team-setup)在 npm `postinstall` 外面加的 `process.env.CI` 判断在这里不该出现。那个判断是为了在 CI 和容器里跳过一次白做的安装；而这里容器就是智能体运行的机器，安装正是目的本身。
+
+## 仍然需要人批准的部分
+
+装上防护可以自动化，上面的做法都是自动化的；放松防护不行。`policy apply` 在没有终端确认 diff 时会拒绝运行，来自智能体的调用会被直接拦截。这一点在云端 VM 和笔记本上完全一致，所以会话读到的 `.cc-safety-net/policy.json` 一定是人写下、评审者看过的文件，通常经过一个 pull request。会话里的智能体最多只能起草提案文件并用 `policy check` 验证。
+
+## 相关页面
+
+- [团队接入](/zh-Hans/guides/team-setup)完整介绍要提交的项目策略和 rulebook。
+- [策略](/zh-Hans/configuration/policy)说明用户范围与项目范围之间的合并。
+- [官方规则库](/zh-Hans/configuration/rulebooks)是 AWS、Terraform、gcloud、Azure 的 deny，在云端凭据可用的地方值得提交。
+- [安装](/zh-Hans/installation)包含每个受支持 CLI 的安装细节。

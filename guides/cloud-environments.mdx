@@ -1,0 +1,115 @@
+---
+title: "Keep protection active in cloud agent environments"
+sidebarTitle: "Cloud environments"
+description: "How CC Safety Net reaches agent sessions you never log into: committed project policy and settings files for Claude Code cloud and self-hosted sessions, a personal plugin for Amp Orb threads, and a preinstall step for devcontainers and Docker images."
+---
+
+A cloud session runs on a machine nobody signs into. There is no terminal to run an installer in, and the machine is reclaimed when the task ends, so a per-session install would have to happen every time. Protection has to arrive with the repository, with the environment's setup script, or baked into the image.
+
+All three work, and none of them needs anything CC Safety Net does not already ship.
+
+## What a cloud VM changes
+
+The VM is disposable. Its reach is not. A cloud session clones your repository at a real branch, commits, and pushes back to your real remote, so `git reset --hard` on uncommitted work costs the same work there that it costs locally, and `git push --force` lands on a branch your teammates pull.
+
+Credentials sit next to that work. Anthropic's docs for [Claude Code on the web](https://code.claude.com/docs/en/claude-code-on-the-web) describe Anthropic-hosted environments this way: "git credentials and signing keys stay outside the sandbox, and a proxy authenticates on the session's behalf with scoped credentials". API keys you add to a cloud environment are handled the same way, "attached to matching requests after they leave the session". That design keeps the session from reading the key material, which is the right split. It does not keep the session from using the credential. An environment provisioned for infrastructure work can run `terraform destroy`, `aws s3 rm`, `gcloud projects delete`, or `az group delete` with a working identity, which is exactly what the [official rulebooks](/configuration/rulebooks) block.
+
+Platform-side guardrails are per-version results rather than standing guarantees, the same way ours are. A scheduled cloud task pushed straight to `main` with unrestricted branch pushes turned off, reported in April 2026 as [anthropics/claude-code#44949](https://github.com/anthropics/claude-code/issues/44949).
+
+A deny layer committed to the repository travels into every session that clones it, at the preset the project policy sets, with no per-session action from anyone.
+
+## Claude Code cloud and self-hosted sessions
+
+Cloud sessions read configuration out of the repository. The same page states it directly: "To change settings for a cloud session, use environment variables or commit settings files to the repository." Hooks are configured in settings files, so two committed pieces make a cloud session enforce your policy.
+
+<Steps>
+  <Step title="Commit the project policy">
+    `.cc-safety-net/policy.json`, plus any project rulebooks under `.cc-safety-net/rules/`, are ordinary committed files. The session clones them with the rest of the repository and the runtime reads them on the next tool call. This is the same configuration [team setup](/guides/team-setup) commits for developer machines, and [Policy](/configuration/policy#project-policy) owns the merge contract.
+
+    A cloud session starts with no user policy file of its own, so the built-in defaults apply wherever the project file is silent. Set the preset the session should run at explicitly instead of relying on the one a member happens to have locally.
+  </Step>
+  <Step title="Get the hook into the session">
+    Two ways, depending on whether the environment has a setup script.
+
+    An environment [setup script](https://code.claude.com/docs/en/cloud-environments), or the image behind a self-hosted environment, runs the ordinary install:
+
+    ```bash
+    npx -y cc-safety-net@latest install --claude-code
+    ```
+
+    A target flag makes the install non-interactive, so it needs no terminal to confirm in and runs headless.
+
+    Without a setup script, commit the hook entry itself as `.claude/settings.json`:
+
+    ```json
+    {
+      "hooks": {
+        "PreToolUse": [
+          {
+            "matcher": "*",
+            "hooks": [
+              { "type": "command", "command": "npx -y cc-safety-net@latest hook --coding-cli" }
+            ]
+          }
+        ]
+      }
+    }
+    ```
+
+    `hook --coding-cli` is the canonical hook entrypoint, the same one the installed plugin invokes. It costs an `npx` spawn on every tool call, so prefer the setup script when the environment has one.
+  </Step>
+</Steps>
+
+Both forms fetch from the network at install or invocation time. An environment configured with network access disabled needs the package present in its image instead.
+
+Two things change once the hook is running in a VM. The [audit log](/reference/audit-log) is written into the session's own home directory and is reclaimed along with it, so the deny is what you get in a cloud session and the log is session-local. And nothing about a session announces that the hook is missing, so confirm it once per environment by asking the session to run a command your policy denies, or `npx -y cc-safety-net@latest explain "git reset --hard"`, which prints the verdict and the rule that produced it without executing anything. [Explain trace](/reference/explain-trace) covers the output.
+
+## Amp Orb threads
+
+Amp needs no per-container step. Install once from any machine signed in with `amp login`:
+
+```bash
+npx -y cc-safety-net@latest install --amp
+```
+
+The install publishes the plugin to your account's hosted Amp Personal Plugins repository. A personal plugin follows the account rather than the machine, so it covers threads that execute remotely, including Orbs. Install also embeds a snapshot of your user policy into the published artifact, and that snapshot applies on a machine with no policy file of its own, which is what an Orb's empty home directory is. A policy file present on the machine always wins over the snapshot. [Installation](/installation) has the full behavior, including what the snapshot leaves out.
+
+Re-run the same command after editing your user policy. The snapshot ships with the artifact, so it updates when the artifact does.
+
+## Devcontainers and container images
+
+For a container you build yourself, run the install at build time. This Dockerfile is the shape that works:
+
+```dockerfile
+FROM node:22-slim
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+RUN npm install -g @anthropic-ai/claude-code
+RUN npx -y cc-safety-net install --claude-code
+```
+
+Two build-time requirements come out of that ordering:
+
+- **`git` and `ca-certificates` must be present.** The Claude Code install adds a plugin marketplace, which clones over HTTPS. Slim base images ship with neither.
+- **Install the agent CLI first.** The installer drives the agent's own plugin commands, so a build that installs CC Safety Net before the agent fails.
+
+For a devcontainer, the same command is a `postCreateCommand`:
+
+```json
+{
+  "postCreateCommand": "npx -y cc-safety-net@latest install --claude-code"
+}
+```
+
+The `process.env.CI` guard that [team setup](/guides/team-setup) puts around an npm `postinstall` hook does not belong here. That guard exists to skip the install in CI and containers, where it would be wasted work. Here the container is the machine the agent runs on, so the install is the point.
+
+## What stays human-approved
+
+Installing protection can be automated, and everything above does that. Relaxing it cannot. `policy apply` refuses to run without a terminal to confirm the diff in, and agent invocations of it are blocked outright. That holds in a cloud VM the same as on a laptop, so the committed `.cc-safety-net/policy.json` a session reads is a file a person wrote and a reviewer read, normally as a pull request. An agent in the session can draft a proposal and run `policy check` against it, and that is as far as it gets.
+
+## Related pages
+
+- [Team setup](/guides/team-setup) covers the committed project policy and rulebooks in full.
+- [Policy](/configuration/policy) documents the merge between user and project scope.
+- [Official rulebooks](/configuration/rulebooks) are the AWS, Terraform, gcloud, and Azure denials worth committing where cloud credentials are live.
+- [Installation](/installation) has the per-agent install details for every supported CLI.

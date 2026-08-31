@@ -1,0 +1,115 @@
+---
+title: "クラウドのエージェント環境で保護を有効に保つ"
+sidebarTitle: "クラウド環境"
+description: "誰もログインしないエージェントセッションに CC Safety Net を届ける方法。Claude Code のクラウドセッションとセルフホスト環境にはコミットしたプロジェクトポリシーと settings ファイル、Amp の Orb スレッドには personal plugin、devcontainer と Docker イメージにはビルド時のプリインストールを使います。"
+---
+
+クラウドセッションは、誰もサインインしないマシンの上で動きます。インストーラーを実行するターミナルはなく、タスクが終わればマシンは回収されるため、セッションごとのインストールは毎回やり直すことになります。保護は、リポジトリと一緒に届くか、環境の setup script で入るか、イメージに焼き込まれている必要があります。
+
+3 つとも機能します。そしてどれも、CC Safety Net がすでに提供しているもの以外を必要としません。
+
+## クラウド VM で変わること
+
+VM は使い捨てです。その到達範囲はそうではありません。クラウドセッションは実在のブランチでリポジトリを clone し、commit し、実在のリモートに push します。未コミットの作業に対する `git reset --hard` は、ローカルで失うのと同じ作業を失わせますし、`git push --force` はチームメイトが pull するブランチに着地します。
+
+その作業のすぐ隣にクレデンシャルがあります。Anthropic の [Claude Code on the web](https://code.claude.com/docs/en/claude-code-on-the-web) のドキュメントは、Anthropic ホスト環境についてこう説明しています。「git credentials and signing keys stay outside the sandbox, and a proxy authenticates on the session's behalf with scoped credentials」。クラウド環境に追加した API キーも同じ扱いで、「attached to matching requests after they leave the session」とされています。この設計はセッションから鍵そのものを読めなくするもので、切り分けとして正しいものです。ただし、セッションがそのクレデンシャルを使うことは止めません。インフラ作業のために用意された環境は、有効な権限のまま `terraform destroy`、`aws s3 rm`、`gcloud projects delete`、`az group delete` を実行できます。[公式ルールブック](/ja/configuration/rulebooks)がブロックするのは、まさにこれらです。
+
+プラットフォーム側のガードレールも、こちらと同じくバージョンごとの検証結果であって恒久的な保証ではありません。2026 年 4 月には、unrestricted branch pushes を有効にしていないにもかかわらず、スケジュールされたクラウドタスクが `main` へ直接 push した事例が [anthropics/claude-code#44949](https://github.com/anthropics/claude-code/issues/44949) として報告されています。
+
+リポジトリにコミットされた deny のレイヤーは、そのリポジトリを clone するすべてのセッションに、プロジェクトポリシーが定めたプリセットのまま届きます。誰かがセッションごとに何かをする必要はありません。
+
+## Claude Code のクラウドセッションとセルフホスト環境
+
+クラウドセッションは、リポジトリの中から設定を読みます。同じページにこう書かれています。「To change settings for a cloud session, use environment variables or commit settings files to the repository」。hook は settings ファイルで設定するものなので、コミットする 2 つのピースがあれば、クラウドセッションはあなたのポリシーを適用します。
+
+<Steps>
+  <Step title="プロジェクトポリシーをコミットする">
+    `.cc-safety-net/policy.json` と、`.cc-safety-net/rules/` 以下のプロジェクト rulebook は、ただのコミット済みファイルです。セッションはリポジトリの残りと一緒にそれらを clone し、ランタイムは次のツール呼び出しでそれを読みます。これは[チーム導入](/ja/guides/team-setup)が開発者のマシン向けにコミットするのと同じ設定で、マージの仕様は[ポリシー](/ja/configuration/policy#project-policy)が持っています。
+
+    クラウドセッションには自前のユーザーポリシーファイルがないため、プロジェクトファイルが指定していない箇所には組み込みの既定値が適用されます。メンバーがたまたまローカルで使っているプリセットを当てにせず、セッションに使わせたいプリセットを明示的に設定してください。
+  </Step>
+  <Step title="hook をセッションに入れる">
+    環境に setup script があるかどうかで、方法は 2 つに分かれます。
+
+    環境の [setup script](https://code.claude.com/docs/en/cloud-environments)、またはセルフホスト環境の元になるイメージでは、通常のインストールをそのまま実行します。
+
+    ```bash
+    npx -y cc-safety-net@latest install --claude-code
+    ```
+
+    ターゲットのフラグを付けるとインストールは非対話になるため、確認用のターミナルを必要とせず、ヘッドレスで実行できます。
+
+    setup script がない場合は、hook のエントリ自体を `.claude/settings.json` としてコミットします。
+
+    ```json
+    {
+      "hooks": {
+        "PreToolUse": [
+          {
+            "matcher": "*",
+            "hooks": [
+              { "type": "command", "command": "npx -y cc-safety-net@latest hook --coding-cli" }
+            ]
+          }
+        ]
+      }
+    }
+    ```
+
+    `hook --coding-cli` は正規の hook エントリポイントで、インストール済みのプラグインが呼ぶのと同じものです。この形式はツール呼び出しのたびに `npx` の起動コストがかかるため、setup script が使える環境ではそちらを選んでください。
+  </Step>
+</Steps>
+
+どちらの形式も、インストール時または呼び出し時にネットワークを使います。ネットワークアクセスを無効にした環境では、代わりにパッケージをイメージに含めておく必要があります。
+
+hook が VM で動き始めると、2 つのことが変わります。[監査ログ](/ja/reference/audit-log)はセッション自身のホームディレクトリに書かれ、VM と一緒に回収されます。クラウドセッションで手に入るのは deny そのものであり、ログはセッション限りのものだと考えてください。もう 1 つ、hook が入っていないことをセッションが知らせてくれることはありません。ポリシーがブロックするコマンドをセッションに実行させるか、`npx -y cc-safety-net@latest explain "git reset --hard"` を実行して、環境ごとに一度確認してください。`explain` は何も実行せずに、判定とそれを出したルールを表示します。出力の読み方は[explain トレース](/ja/reference/explain-trace)にあります。
+
+## Amp の Orb スレッド
+
+Amp にはコンテナごとの手順が要りません。`amp login` でサインイン済みのマシンから、一度だけインストールします。
+
+```bash
+npx -y cc-safety-net@latest install --amp
+```
+
+インストールは、アカウントのホスト型 Amp Personal Plugins リポジトリにプラグインを publish します。personal plugin はマシンではなくアカウントに付いてくるので、Orb を含むリモート実行のスレッドもカバーされます。インストールはユーザーポリシーのスナップショットも publish される artifact に埋め込みます。このスナップショットは、自前のポリシーファイルを持たないマシン、つまり Orb の空のホームディレクトリのような環境で適用されます。マシンにポリシーファイルがある場合は、常にそちらが優先されます。スナップショットが持ち込まないものを含む詳細は[インストール](/ja/installation)にあります。
+
+ユーザーポリシーを編集したら、同じコマンドを再実行してください。スナップショットは artifact と一緒に配られるため、artifact が更新されたときに更新されます。
+
+## devcontainer とコンテナイメージ
+
+自分でビルドするコンテナでは、インストールをビルド時に実行します。次の Dockerfile が動作する形です。
+
+```dockerfile
+FROM node:22-slim
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+RUN npm install -g @anthropic-ai/claude-code
+RUN npx -y cc-safety-net install --claude-code
+```
+
+この順序から、ビルド時の要件が 2 つ出てきます。
+
+- **`git` と `ca-certificates` が必要です。** Claude Code のインストールはプラグインの marketplace を追加し、その際に HTTPS で clone します。slim なベースイメージにはどちらも入っていません。
+- **エージェント CLI を先に入れます。** インストーラーはエージェント自身のプラグインコマンドを呼び出すため、エージェントより先に CC Safety Net をインストールするビルドは失敗します。
+
+devcontainer では、同じコマンドが `postCreateCommand` になります。
+
+```json
+{
+  "postCreateCommand": "npx -y cc-safety-net@latest install --claude-code"
+}
+```
+
+[チーム導入](/ja/guides/team-setup)が npm の `postinstall` に付けている `process.env.CI` のガードは、ここでは不要です。あのガードは、インストールが無駄になる CI やコンテナでスキップするためのものです。ここではコンテナこそがエージェントの動くマシンなので、インストールすることが目的です。
+
+## 人の承認が必要なまま残るもの
+
+保護を入れる作業は自動化できますし、ここまでの手順はすべてそれをしています。保護を緩める作業は自動化できません。`policy apply` は差分を確認するターミナルがなければ実行を拒否し、エージェントからの呼び出しは明確にブロックされます。これはノート PC でもクラウド VM でも同じです。したがってセッションが読む `.cc-safety-net/policy.json` は、人が書き、レビュアーが読んだファイル、通常はプルリクエストを通ったファイルです。セッション内のエージェントができるのは、提案ファイルを起草して `policy check` にかけるところまでです。
+
+## 関連ページ
+
+- [チーム導入](/ja/guides/team-setup)は、コミットするプロジェクトポリシーと rulebook を詳しく扱います。
+- [ポリシー](/ja/configuration/policy)は、ユーザースコープとプロジェクトスコープのマージを説明します。
+- [公式ルールブック](/ja/configuration/rulebooks)は、クラウドのクレデンシャルが生きている場所でコミットしておく価値のある AWS、Terraform、gcloud、Azure の deny です。
+- [インストール](/ja/installation)には、対応するすべての CLI についてのインストール手順があります。
