@@ -24,7 +24,7 @@ description: "比较 CC Safety Net 与操作系统级沙箱。两者防御不同
 
 ## 编码智能体沙箱的限制
 
-沙箱限制你可以向*何处*写入，但不理解边界*内*的操作是否具有破坏性。以下命令沙箱全都允许：它们在当前工作目录内写入、读取沙箱允许的文件，或访问允许的远程端点。
+沙箱限制你可以向*何处*写入，但不判断进程在该范围*内*做什么。Claude Code 的[沙箱文档](https://code.claude.com/docs/en/sandboxing)默认把写入限制在工作目录内，因此针对你项目的 `git reset --hard`、`git push --force` 和 `rm -rf .` 全都落在允许的路径上，操作系统看到的只是被允许的写入。以下命令沙箱全都允许：它们在当前工作目录内写入、读取沙箱允许的文件，或访问允许的远程端点。
 
 <Note>
   这些命令自动运行还是需要确认，取决于智能体的沙箱模式和审批策略。`git push --force` 等依赖网络的命令还取决于允许的域配置。
@@ -44,6 +44,8 @@ description: "比较 CC Safety Net 与操作系统级沙箱。两者防御不同
 </Note>
 
 从操作系统的角度看，这些命令完全合法：它们向允许的路径写入或读取沙箱允许的文件，不接触网络（push 除外），并且正常完成。沙箱不理解 Git 历史、未提交更改和 stash 条目，也不知道哪些文件存放着凭证。CC Safety Net 理解这些语义，并据此阻止命令。
+
+读取范围比多数人以为的更宽。Claude Code 的[沙箱文档](https://code.claude.com/docs/en/sandboxing)在描述默认读取行为时写明 "There is no built-in credential deny list"，并点名 `~/.aws/credentials` 和 `~/.ssh/` 是它仍允许读取的文件。CC Safety Net 无需任何配置即可阻止对这些路径的内容访问。
 
 同样的差异也适用于命令代理。代你运行命令的工具，在两个保护层看来都只是一个不透明的可执行文件；但在你用 `cc-safety-net rule wrapper add <command>` 声明它之后，CC Safety Net 会穿透它看到可见的子命令，并应用相同的规则。沙箱则完全不检查子命令，只限制整个进程树可以接触的对象。
 
@@ -81,3 +83,5 @@ CC Safety Net 解读受支持的工具调用，但不会隔离进程。以下每
 </Tip>
 
 沙箱在操作系统级限制智能体*能做*什么，以此应对未知威胁；CC Safety Net 在命令执行前拦截命令，以此应对已知的破坏性模式。两者结合，可以覆盖各自单独使用时留下的缺口。
+
+沙箱和允许列表本身也会被攻破。CVE-2026-25725 通过 `settings.json` 逃逸了 Claude Code 的 bubblewrap 沙箱，CVE-2026-22708 绕过了 Cursor 的命令允许列表。请同时运行两层防护。

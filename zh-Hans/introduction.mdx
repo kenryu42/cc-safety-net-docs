@@ -4,9 +4,17 @@ sidebarTitle: "简介"
 description: "CC Safety Net 是一个执行前防护层。它检查编码智能体将要运行的操作，并阻止会破坏未提交工作或暴露机密的操作。"
 ---
 
-`rm -rf ~/` 或 `git checkout -- .` 这样的一条命令，就可能清除数小时未提交的工作。[Reddit 上的一起事件](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/)中，Claude CLI 删除了用户的整个主目录。
+没有一家主流编码 CLI 会确定性地阻止你交给它的工作区内的破坏性 git 命令。`git reset --hard`、`git checkout -- .`、`git clean -f`、`git stash clear` 和 `git push --force` 作用的都是智能体本来就被允许写入的文件，因此把写入限制在项目目录内的沙箱看不出任何问题。OpenAI 的 [Codex 安全文档](https://learn.chatgpt.com/docs/security)称，workspace-write 下的命令 "can still mutate state and perform destructive operations"。一份[针对 Codex 权限的独立分析](https://codex.danielvaughan.com)（2026-04-20）说得很直接："No command-level semantic blocking: the system cannot prevent git reset --hard"。Claude Code 的[沙箱文档](https://code.claude.com/docs/en/sandboxing)把写入限制在工作目录内，而那里正是你未提交的工作所在之处。
 
-`CLAUDE.md` 或 `AGENTS.md` 中的指令会有帮助，但智能体可能误解或忽略这些指令。CC Safety Net 增加了一道强制的执行前检查。
+这一层还有另外三个值得运行的理由：
+
+- **在概率性检查之下再加一道确定性检查。** Anthropic 公布了 Claude Code [auto-mode](https://www.anthropic.com/engineering/claude-code-auto-mode) 分类器在真实过激操作上 17% 的漏报率，并称它 "not a drop-in replacement for careful human review"。deny rule 和 hook 是确定性的一层，而不是一次判断。经 Claude Code 2.1.251 验证，PreToolUse 拒绝在 default、auto 和 bypassPermissions 模式下都仍会触发（项目仓库中的 `tests/e2e-live/protection.test.ts`）。这是针对特定版本的结果，不是长期保证，因此该测试套件会在每次发布和宿主升级时重新运行。
+- **无需配置的机密保护。** Claude Code 的[沙箱文档](https://code.claude.com/docs/en/sandboxing)写明，默认读取行为 "still allows reading credential files such as ~/.aws/credentials and ~/.ssh/"，并且 "There is no built-in credential deny list"。其他 CLI 的原生等价能力需要你为每个 CLI 单独编写选择性启用的配置。CC Safety Net 从安装那一刻起就阻止对这些路径和项目 `.env` 文件的内容访问，覆盖 shell 命令以及 read、edit、write、search 工具。
+- **横跨 13 个 CLI 的同一份策略和同一份审计记录。** 五家厂商提供五套互不兼容的权限机制，而且没有事后可读的决策日志。
+
+这一层之下的防线在实际使用中已经失守过。[CC Safety Net 与沙箱的比较](/zh-Hans/guides/vs-sandboxing)介绍了沙箱和允许列表的 CVE；Adversa 的[事件追踪](https://adversa.ai/blog/ai-coding-agent-incidents)记录了 2025 和 2026 年的九起智能体破坏事件，其中约一半开启了防护措施。
+
+最初的那起事故依然成立，只是不再是最前沿的威胁。一个智能体用一条 `rm -rf ~/` [清除了数小时的工作](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/)，指令并没有拦住它。Claude Code 现已为这类关键路径内置了确定性断路器，这是正确的修复，也是这里不再把它当作头条的原因。而上面列出的 git 命令没有这样的断路器。`CLAUDE.md` 或 `AGENTS.md` 中的规则可以引导智能体，但无法强制实施技术限制。CC Safety Net 把这道限制变成一次执行前检查来强制实施。
 
 ## 它拦截什么
 

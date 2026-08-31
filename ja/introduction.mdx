@@ -4,9 +4,17 @@ sidebarTitle: "概要"
 description: "CC Safety Net は、コーディングエージェントが実行しようとしている処理を検査し、未コミットの作業を破壊する操作やシークレットを露出させる操作をブロックする実行前ガードです。"
 ---
 
-`rm -rf ~/` や `git checkout -- .` のような 1 つのコマンドで、数時間分の未コミット作業が消えることがあります。[Reddit で報告された事例](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/)では、Claude CLI がホームディレクトリ全体を削除しました。
+あなたが作業を任せたワークスペースの中で、破壊的な git コマンドを決定的にブロックする主要なコーディング CLI は 1 つもありません。`git reset --hard`、`git checkout -- .`、`git clean -f`、`git stash clear`、`git push --force` は、いずれもエージェントがすでに書き込みを許可されているファイルに作用します。そのため、書き込みをプロジェクトディレクトリに限定するサンドボックスからは、何も問題が見えません。OpenAI の [Codex セキュリティドキュメント](https://learn.chatgpt.com/docs/security)は、workspace-write 下のコマンドについて「can still mutate state and perform destructive operations」と述べています。[Codex の権限に関する独立した分析](https://codex.danielvaughan.com)（2026-04-20）は端的にこう記しています。「No command-level semantic blocking: the system cannot prevent git reset --hard」。Claude Code の[サンドボックスドキュメント](https://code.claude.com/docs/en/sandboxing)は書き込みを作業ディレクトリに限定しますが、そこはまさに未コミット作業が置かれている場所です。
 
-`CLAUDE.md` や `AGENTS.md` の指示は役に立ちますが、エージェントが誤解したり見落としたりすることがあります。CC Safety Net は、強制力のある実行前チェックを追加します。
+このレイヤーを動かす価値がある理由は、ほかに 3 つあります。
+
+- **確率的なチェックの下に置く、決定的なチェック。** Anthropic は、Claude Code の [auto-mode](https://www.anthropic.com/engineering/claude-code-auto-mode) 分類器について、実際の行き過ぎた操作に対する偽陰性率 17% を公表し、「not a drop-in replacement for careful human review」だとしています。deny ルールと hook は、判断任せにしない決定的なレイヤーです。Claude Code 2.1.251 に対して検証したところ、PreToolUse の deny は default、auto、bypassPermissions のいずれのモードでも発火しました（プロジェクトリポジトリの `tests/e2e-live/protection.test.ts`）。これはバージョンごとの結果であって恒久的な保証ではないため、このスイートはリリースとホストの更新のたびに再実行します。
+- **設定なしで使えるシークレット保護。** Claude Code の[サンドボックスドキュメント](https://code.claude.com/docs/en/sandboxing)は、既定の読み取り動作について「still allows reading credential files such as ~/.aws/credentials and ~/.ssh/」であり、「There is no built-in credential deny list」だと明記しています。他の CLI のネイティブ機能で同等の保護を得るには、CLI ごとにオプトインの設定を書く必要があります。CC Safety Net はインストールした時点から、これらのパスとプロジェクトの `.env` ファイルへのコンテンツアクセスを、シェルコマンドと read、edit、write、search の各ツールにわたってブロックします。
+- **13 の CLI にまたがる 1 つのポリシーと 1 つの監査証跡。** 5 つのベンダーは互換性のない 5 つの権限機構を提供しており、後から読める判断ログはありません。
+
+この層より下のレイヤーは、実際の現場で破られてきました。サンドボックスと許可リストの CVE は [CC Safety Net とサンドボックスの比較](/ja/guides/vs-sandboxing)で扱っています。また Adversa の[インシデントトラッカー](https://adversa.ai/blog/ai-coding-agent-incidents)には、2025 年と 2026 年のエージェントによる破壊事例が 9 件記録されており、その約半数ではガードレールが有効でした。
+
+きっかけとなった事例は今も有効です。ただ、もはや最前線ではありません。あるエージェントはたった 1 つの `rm -rf ~/` で[数時間分の作業を消し去り](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/)、指示はそれを止められませんでした。Claude Code は現在、そうしたクリティカルパスに対する決定的なサーキットブレーカーを備えています。これは正しい修正であり、この事例をここでの主役にしなくなった理由でもあります。しかし、上に挙げた git コマンドにはそのようなブレーカーがありません。`CLAUDE.md` や `AGENTS.md` のルールはエージェントを導けますが、技術的な制限を強制することはできません。CC Safety Net は、その制限を実行前のチェックとして強制します。
 
 ## インターセプトする操作
 

@@ -24,7 +24,7 @@ Sandboxing implementations vary by platform, but most use the same OS primitives
 
 ## Limits of sandboxing for coding agents
 
-Sandboxing restricts *where* you can write, but it doesn't understand whether an operation is destructive *within* those boundaries. The following commands are all permitted by the sandbox: they write inside the current working directory, read a file the sandbox allows, or reach an allowed remote.
+Sandboxing restricts *where* you can write, but it doesn't decide what the process may do inside that area. Claude Code's [sandboxing docs](https://code.claude.com/docs/en/sandboxing) scope writes to the working directory by default, so `git reset --hard`, `git push --force`, and `rm -rf .` on your project all land on allowed paths, and the operating system sees permitted writes. The following commands are all permitted by the sandbox: they write inside the current working directory, read a file the sandbox allows, or reach an allowed remote.
 
 <Note>
   Whether these commands run automatically or require confirmation depends on your agent's sandbox mode and approval policy. Network-dependent commands like `git push --force` also depend on your allowed-domain configuration.
@@ -44,6 +44,8 @@ Sandboxing restricts *where* you can write, but it doesn't understand whether an
 </Note>
 
 From the OS's perspective, these commands are entirely legitimate: they write to an allowed path or read a file the sandbox permits, don't touch the network (except push), and complete without error. The sandbox has no concept of git history, uncommitted changes, stash entries, or which files hold credentials. CC Safety Net understands these semantics and blocks them accordingly.
+
+Reads are wider than most people assume. Claude Code's [sandboxing docs](https://code.claude.com/docs/en/sandboxing) say of the default read behavior that "There is no built-in credential deny list", and name `~/.aws/credentials` and `~/.ssh/` as files it still allows reading. CC Safety Net blocks content access to those paths with no configuration.
 
 The same difference applies to command proxies. A tool that runs a command on your behalf looks like one opaque executable to both layers. After you declare it with `cc-safety-net rule wrapper add <command>`, CC Safety Net looks through it to the visible child command and applies the same rules. A sandbox does not inspect the child. It limits what the whole process tree can touch.
 
@@ -79,3 +81,5 @@ Sandboxing provides the containment that these cases need. The two tools are com
 </Tip>
 
 Sandboxing handles unknown threats by constraining what the agent *can* do at the OS level. CC Safety Net handles known destructive patterns by intercepting commands before they execute. Together, they cover the gaps that each leaves on its own.
+
+Sandboxes and allowlists also break. CVE-2026-25725 escaped Claude Code's bubblewrap sandbox through `settings.json`, and CVE-2026-22708 bypassed Cursor's command allowlist. Run both layers.
