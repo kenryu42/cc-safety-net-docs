@@ -42,7 +42,7 @@ CC Safety Net 位于编码智能体与受保护工具之间。每个受支持的
 
 第 3 和第 4 步有意在第 5 步**之前**运行。这两项保护始终启用，配置无法削弱它们，因为它们在读取配置前就已生效。第 6 步由策略控制，因此你可以禁用它或用自己的拒绝路径扩展它。
 
-同一序列的维护者视角，包括阶段名称和证据，见[架构](/zh-Hans/guides/architecture#有序防护阶段)；分类器的内部机制见[分析引擎](/zh-Hans/guides/analysis-engine)。
+同一序列的维护者视角，包括阶段名称和证据，见[架构](/zh-Hans/guides/architecture#the-ordered-guard-stages)；分类器的内部机制见[分析引擎](/zh-Hans/guides/analysis-engine)。
 
 ## 为什么分析意图，而不是匹配字符串
 
@@ -56,6 +56,8 @@ CC Safety Net 分析命令*做什么*，而不是它*长什么样*。它会解�
 两者都以 `git checkout` 开头。如果不重复实现 Git 的选项逻辑，简单的前缀规则无法区分这两种结果。结构化分析还能应对调换顺序的标志（`rm -r -f /`）、shell 包装器（`sh -c "rm -rf /"`）和解释器单行命令（`python -c 'import os; os.system("rm -rf /")'`）。CC Safety Net 最多会展开并重新分析 10 层嵌套命令。
 
 本页不会列出每一条规则。完整阻止行为矩阵见[被阻止的命令](/zh-Hans/reference/blocked-commands)，有意允许的内容见[被允许的命令](/zh-Hans/reference/allowed-commands)。
+
+<span id="what-a-block-looks-like"></span>
 
 ## 阻止消息的形式
 
@@ -83,7 +85,7 @@ If this operation is truly needed, ask the user for explicit permission and have
 | `manual_only` | 向用户请求明确许可，并由用户手动运行 |
 | `stop_and_explain` | 不要暴力尝试其他变体；简化或重组命令，或报告阻止 |
 
-这些消息为何这样写，以及为何指令只是建议、执行始终由防护负责，见[设计原则](/zh-Hans/guides/design-principles#让智能体继续任务的拒绝方式)。
+这些消息为何这样写，以及为何指令只是建议、执行始终由防护负责，见[设计原则](/zh-Hans/guides/design-principles#denials-that-keep-the-agent-on-task)。
 
 ## 审计记录
 
@@ -102,7 +104,7 @@ npx cc-safety-net logs
     `npx cc-safety-net explain "<command>"` 会对一条命令重放分析过程，显示命中了哪条规则以及原因。加上 `--json` 可获得结构化跟踪。
   </Step>
   <Step title="检查保护是否确实生效">
-    `npx cc-safety-net status` 会在一屏之内输出 `ready` 或 `degraded`，并把所有未生效的项列在 `Not active` 下，其中包括已禁用的 Claude Code 插件。`degraded` 表示某个配置源被拒绝，当前执行的是回退配置。哪些生效、哪些没有，以及如何修复，见[配置恢复](/zh-Hans/configuration/recovery)。`npx cc-safety-net doctor` 会给出完整报告。
+    `npx cc-safety-net status` 会在一屏之内输出 `ready` 或 `degraded`，并把所有未生效的项列在 `Not active` 下，其中包括已禁用的 Claude Code 插件。`degraded` 表示某个配置来源被拒绝，当前执行的是回退配置。哪些生效、哪些没有，以及如何修复，见[配置恢复](/zh-Hans/configuration/recovery)。`npx cc-safety-net doctor` 会给出完整报告。
   </Step>
   <Step title="调整或报告">
     如果阻止本身没错，只是对你的工作流过于严格，可以改用别的[安全模式](/zh-Hans/configuration/modes)，或为个别规则添加覆盖。如果安全的命令被阻止，或破坏性命令没被阻止，请参阅[故障排除](/zh-Hans/guides/troubleshooting)和[安全策略](/zh-Hans/security)，了解该向哪里报告。

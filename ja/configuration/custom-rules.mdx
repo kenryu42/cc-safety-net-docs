@@ -38,21 +38,23 @@ CC Safety Net は、2 つのスコープから rulebook を読み込んでマー
 ### スコープをマージするときの挙動
 
 - 両スコープの rulebook を、ユーザースコープを先にして結合します。
-- **有効な rulebook の名前が重複した場合は、先に読み込んだ側が優先されます。** ユーザースコープを先に読み込むため、同名のプロジェクト rulebook は読み込まれません。ルールの一部だけが隠れるわけではありません。この衝突は警告として報告され、ランタイムは `degraded` 状態になります。どちらかの名前を、rulebook ファイルとそれを参照する `rule.json` の両方で変更してください。この衝突は致命的エラーではなく、先に読み込んだ側を採用して解決されます。そのため、もう一方のスコープが同じ名前をすでに使っていても、参照先の追加や更新は成功します。
+- **有効な rulebook の名前が重複した場合は、先に読み込んだ側が優先されます。** ユーザースコープを先に読み込むため、同名のプロジェクト rulebook は読み込まれません。ルールの一部だけが隠れるわけではありません。この衝突は警告として報告され、ランタイムは `degraded` 状態になります。どちらかの名前を、rulebook ファイルとそれを参照する `rule.json` の両方で変更してください。この衝突は致命的エラーではなく、先に読み込んだ側を採用して解決されます。そのため、もう一方のスコープが同じ名前をすでに使っていても、設定元の追加や更新は成功します。
 - **各スコープの `overrides` は、そのスコープ自身のルールにのみ適用されます。** ユーザースコープのルールを指定したプロジェクト側の override は警告とともに無視され、そのルールはユーザー設定の状態を保ちます。プロジェクトの設定から、ユーザーのルールを無効にしたり書き換えたりすることはできません。
 - どの既知のルールにも一致しない override のキーは、警告とともに無視されます。他の override とルールは設定どおりのまま有効です。
 - `transparent_wrappers` は、両スコープの内容を統合します。
 
 どちらの場所にも設定が見つからない場合は、組み込みのルールだけが適用されます。
 
-## rulebook の参照先を管理する
+<span id="managing-rulebook-sources"></span>
 
-rulebook の参照先は、`rule.json` の `rules` 配列のエントリで指定します。指定できるのは次の 2 種類です。
+## rulebook の設定元を管理する
 
-- **ローカル**：`project-rules` のような単純な名前です。rulebook は `.cc-safety-net/rules/project-rules/rulebook.json`（プロジェクト）または `~/.cc-safety-net/rules/project-rules/rulebook.json`（ユーザー）に置きます。ローカルの参照先は、設定ディレクトリの外に出てはいけません。
+rulebook の設定元は、`rule.json` の `rules` 配列のエントリで指定します。指定できるのは次の 2 種類です。
+
+- **ローカル**：`project-rules` のような単純な名前です。rulebook は `.cc-safety-net/rules/project-rules/rulebook.json`（プロジェクト）または `~/.cc-safety-net/rules/project-rules/rulebook.json`（ユーザー）に置きます。ローカルの設定元は、設定ディレクトリの外に出てはいけません。
 - **GitHub**：`owner/repo#ref/<rulebook-name>` の形式で、そのリポジトリと ref にある `.cc-safety-net/rules/<rulebook-name>/rulebook.json` を指します。`rule add` と `rule update` は、取得したバイト列をそのまま自分のスコープの `.cc-safety-net/rules/<rulebook-name>/rulebook.json` に取り込むため、ローカルの rulebook とまったく同じように読み込まれます。
 
-参照先の追加・更新・削除には、`rule.json` を直接編集するのではなく `rule` コマンドを使ってください。
+設定元の追加・更新・削除には、`rule.json` を直接編集するのではなく `rule` コマンドを使ってください。
 
 ```bash
 # Add a local rulebook source
@@ -88,15 +90,15 @@ npx -y cc-safety-net rule remove example-rules --delete-source
 
 `rule.json` に保存されるのは正式な形式 `owner/repo#ref/<rulebook-name>` で、解決後のコミットではなく指定した ref がそのまま残ります。つまり、この ref は動く参照のままです。解決されたコミットは保存されず、実行結果として `Vendored at 1a2b3c4.` のように表示されるだけです。rulebook ファイルは書き込まれますが、コミットを固定するロックファイルはありません。
 
-`rule update` は、選択した参照先をすべて解決し直します。ブランチやタグの ref は現在の位置に追従し、取り込み済みのファイルはそこから書き直されます。参照先ごとの処理は独立しています。取得や検証に失敗した参照先は取り込み済みのファイルを保ったまま `Failed to update <spec>: <message>` として報告され、他の参照先は更新されます。例外はリソース上限の超過で、この場合は実行全体が中止されます。
+`rule update` は、選択した設定元をすべて解決し直します。ブランチやタグの ref は現在の位置に追従し、取り込み済みのファイルはそこから書き直されます。設定元ごとの処理は独立しています。取得や検証に失敗した設定元は取り込み済みのファイルを保ったまま `Failed to update <spec>: <message>` として報告され、他の設定元は更新されます。例外はリソース上限の超過で、この場合は実行全体が中止されます。
 
 <span id="resource-limits"></span>
 
 ### リソース制限
 
-`rules` 配列に指定できる参照先は、スコープごとに最大 **64** 件です。これを超えるエントリを持つ `rule.json` は、`Rule config exceeds CC Safety Net's safe source limit.` という 1 件のエラーで検証に失敗します。件数超過の配列はエントリごとに個別報告されず、他の無効な `rule.json` と同じように、そのスコープの設定全体が実行中のスナップショットから破棄されます。
+`rules` 配列に指定できる設定元は、スコープごとに最大 **64** 件です。これを超えるエントリを持つ `rule.json` は、`Rule config exceeds CC Safety Net's safe source limit.` という 1 件のエラーで検証に失敗します。件数超過の配列はエントリごとに個別報告されず、他の無効な `rule.json` と同じように、そのスコープの設定全体が実行中のスナップショットから破棄されます。
 
-GitHub からの取得は、決められた上限の中で動作します。`rule add` と `rule update` が同時に処理する参照先は最大 **4** 件、1 回の実行で発行する GitHub リクエストは最大 **131** 件、すべての参照先を合わせて読み取るレスポンスは最大 **64 MiB** です。いずれかの上限を超えると、`Rule synchronization exceeds CC Safety Net's safe resource limits.` を表示して処理を中止します。このとき失敗するのは上限を超えた参照先だけではなく、その実行に含まれるすべての参照先です。
+GitHub からの取得は、決められた上限の中で動作します。`rule add` と `rule update` が同時に処理する設定元は最大 **4** 件、1 回の実行で発行する GitHub リクエストは最大 **131** 件、すべての設定元を合わせて読み取るレスポンスは最大 **64 MiB** です。いずれかの上限を超えると、`Rule synchronization exceeds CC Safety Net's safe resource limits.` を表示して処理を中止します。このとき失敗するのは上限を超えた設定元だけではなく、その実行に含まれるすべての設定元です。
 
 rulebook ファイル自体にも上限があり、スキーマより先に確認します。いずれかを超えた rulebook は、フィールドごとの内訳なしに `Rulebook exceeds CC Safety Net's safe validation limits.` の 1 行だけで拒否されます。
 
@@ -113,17 +115,19 @@ rulebook ファイル自体にも上限があり、スキーマより先に確�
 
 上限を満たしたうえでスキーマ検証に失敗した場合、報告するエラーは最大 64 件で、その後に `Additional rulebook validation errors were omitted.` が続きます。
 
+<span id="rulebooks-are-live-files"></span>
+
 ### rulebook はライブファイル
 
-ロックファイルもダイジェストもキャッシュもありません。どの参照先も `<config-dir>/<rulebook-name>/rulebook.json` から読み込まれ、ランタイムはツール呼び出しのたびにそのファイルを読みます。ローカルの rulebook はその場所で直接編集し、リモートの rulebook は `rule add` と `rule update` がその場所に取り込みます。保存した編集は次のコマンドから有効になり、あとから反映させたり再構築したりする手順はありません。
+ロックファイルもダイジェストもキャッシュもありません。どの設定元も `<config-dir>/<rulebook-name>/rulebook.json` から読み込まれ、ランタイムはツール呼び出しのたびにそのファイルを読みます。ローカルの rulebook はその場所で直接編集し、リモートの rulebook は `rule add` と `rule update` がその場所に取り込みます。保存した編集は次のコマンドから有効になり、あとから反映させたり再構築したりする手順はありません。
 
-`rulebook.json` が見つからない、読み取れない、または無効な参照先は無効になります。その参照先はルールを提供しませんが、他のすべての参照先と組み込み保護は適用され続け、通常のコマンドも動き続けます。ランタイムはこの状態を `degraded` として報告します。`rule.json` が読み取れない、または無効な場合は、そのスコープのすべての参照先が無効になります。GitHub の参照先がまだ取り込まれていない場合は、`npx -y cc-safety-net rule update` を実行してください。
+`rulebook.json` が見つからない、読み取れない、または無効な設定元は無効になります。その設定元はルールを提供しませんが、他のすべての設定元と組み込み保護は適用され続け、通常のコマンドも動き続けます。ランタイムはこの状態を `degraded` として報告します。`rule.json` が読み取れない、または無効な場合は、そのスコープのすべての設定元が無効になります。GitHub の設定元がまだ取り込まれていない場合は、`npx -y cc-safety-net rule update` を実行してください。
 
 状態遷移の全体像、診断メッセージの正確な文言、修復手順については、[設定の復旧](/ja/configuration/recovery)を参照してください。
 
 ### `rule sync` は非推奨
 
-`rule sync` はもう何も同期しません。以前のバージョンが残した `rule.lock` と `cache` ディレクトリを、オフラインで移行するだけです。記録されたダイジェストと一致するキャッシュ済みの rulebook を、その参照先が読み込むライブのパスへ取り込み、両方を削除します。実行するたびに、次の 1 行から始まります。
+`rule sync` はもう何も同期しません。以前のバージョンが残した `rule.lock` と `cache` ディレクトリを、オフラインで移行するだけです。記録されたダイジェストと一致するキャッシュ済みの rulebook を、その設定元が読み込むライブのパスへ取り込み、両方を削除します。実行するたびに、次の 1 行から始まります。
 
 ```text
 `cc-safety-net rule sync` is deprecated: rulebooks are live files that need no synchronization. This run only migrates the lock and cache an earlier version left behind.
@@ -171,7 +175,7 @@ npx -y cc-safety-net rule wrapper add rtk --global
 npx -y cc-safety-net rule init
 ```
 
-これで `.cc-safety-net/rules/rule.json` が作成されます。この時点では、rulebook の参照先は設定されていません。
+これで `.cc-safety-net/rules/rule.json` が作成されます。この時点では、rulebook の設定元は設定されていません。
 
 ```json
 {
@@ -182,7 +186,7 @@ npx -y cc-safety-net rule init
 }
 ```
 
-`--example` を付けると、サンプルの rulebook も `.cc-safety-net/rules/example-rules/rulebook.json` に書き出されます（この時点ではまだ有効になりません）。書き出されるのはそのファイルがまだ存在しない場合だけで、`rule init` はそれを参照先として登録しないため、有効にするには自分で参照先として追加する必要があります。
+`--example` を付けると、サンプルの rulebook も `.cc-safety-net/rules/example-rules/rulebook.json` に書き出されます（この時点ではまだ有効になりません）。書き出されるのはそのファイルがまだ存在しない場合だけで、`rule init` はそれを設定元として登録しないため、有効にするには自分で設定元として追加する必要があります。
 
 ```bash
 npx -y cc-safety-net rule init --example
@@ -239,6 +243,8 @@ npx -y cc-safety-net rule add example-rules
 npx -y cc-safety-net rule verify
 ```
 
+<span id="rule-json-schema"></span>
+
 ## `rule.json` のスキーマ
 
 最上位の `rule.json` は、どの rulebook を有効にするかを選び、override を適用し、transparent wrapper を宣言します。安全レベル、組み込み保護、パスの許可と拒否、監査ログの保持期間を設定する `policy.json` とは別のファイルです。`policy.json` については[ポリシー](/ja/configuration/policy)を参照してください。
@@ -248,7 +254,7 @@ npx -y cc-safety-net rule verify
 </ParamField>
 
 <ParamField body="rules" type="array">
-rulebook の参照先を表す文字列のリストです。既定値は空の配列です。参照先の名前はファイル内で一意である必要があり、指定できるのは最大 64 件です。[リソース制限](#resource-limits)を参照してください。
+rulebook の設定元を表す文字列のリストです。既定値は空の配列です。設定元の名前はファイル内で一意である必要があり、指定できるのは最大 64 件です。[リソース制限](#resource-limits)を参照してください。
 </ParamField>
 
 <ParamField body="overrides" type="object">
@@ -301,7 +307,7 @@ rulebook のスキーマバージョン。`1` または `2` である必要が�
 </ParamField>
 
 <ParamField body="name" type="string" required>
-rulebook の名前。ローカルのディレクトリ名、または GitHub 参照先の名前と一致している必要があります。
+rulebook の名前。ローカルのディレクトリ名、または GitHub の設定元の名前と一致している必要があります。
 </ParamField>
 
 <ParamField body="version" type="string" required>
@@ -445,7 +451,7 @@ rulebook 内で一意である必要があります。先頭は英字で、以�
 そのコマンドをブロックすると想定されるルール。`blocked` のフィクスチャでは必須です。
 </ParamField>
 
-バージョン 1 のフィクスチャは形式のみを検証します。バージョン 2 のフィクスチャは、`rule add` や `rule update` が参照先を取得したときと、`rule verify` が rulebook のディレクトリを読んだときに、rulebook 自身のルールに対して評価されます。`blocked` のフィクスチャは、指定したルールが最初に一致した場合にだけ通ります。`allowed` のフィクスチャは、どのルールも一致しなかった場合にだけ通ります。フィクスチャが失敗した参照先はファイルが書き込まれる前に拒否されるため、自身のフィクスチャと矛盾する rulebook が有効になることはありません。rulebook の読み込み時に、フィクスチャが再評価されることはありません。
+バージョン 1 のフィクスチャは形式のみを検証します。バージョン 2 のフィクスチャは、`rule add` や `rule update` が設定元を取得したときと、`rule verify` が rulebook のディレクトリを読んだときに、rulebook 自身のルールに対して評価されます。`blocked` のフィクスチャは、指定したルールが最初に一致した場合にだけ通ります。`allowed` のフィクスチャは、どのルールも一致しなかった場合にだけ通ります。フィクスチャが失敗した設定元はファイルが書き込まれる前に拒否されるため、自身のフィクスチャと矛盾する rulebook が有効になることはありません。rulebook の読み込み時に、フィクスチャが再評価されることはありません。
 
 失敗は、`tests` 内のインデックスとともに報告されます。
 
@@ -585,7 +591,7 @@ tests[<index>]: could not parse fixture command: <command>
 
 ## ブロックメッセージの形式
 
-ブロックメッセージ全体の構成は、[ブロック結果の形式](/ja/guides/how-it-works#ブロック結果の形式)で説明しています。カスタムルールの場合は rulebook 名とルール名がプレフィックスとして付くため、どの rulebook によるブロックかがわかります。
+ブロックメッセージ全体の構成は、[ブロック結果の形式](/ja/guides/how-it-works#what-a-block-looks-like)で説明しています。カスタムルールの場合は rulebook 名とルール名がプレフィックスとして付くため、どの rulebook によるブロックかがわかります。
 
 ```text
 BLOCKED by CC Safety Net
@@ -605,7 +611,7 @@ rulebook を作成または編集したら、次のコマンドで検証しま�
 npx -y cc-safety-net rule verify
 ```
 
-`rule verify` は、両方のスコープの `rule.json` を検査し、設定された各参照先をガードと同じ方法で読み込み、カレントリポジトリの `.cc-safety-net/rules/` 配下にあるすべての rulebook ディレクトリを、バージョン 2 のフィクスチャも含めて検証します。リモートのコンテンツを取得することはありません。
+`rule verify` は、両方のスコープの `rule.json` を検査し、設定された各設定元をガードと同じ方法で読み込み、カレントリポジトリの `.cc-safety-net/rules/` 配下にあるすべての rulebook ディレクトリを、バージョン 2 のフィクスチャも含めて検証します。リモートのコンテンツを取得することはありません。
 
 <span id="migrate-legacy-configuration"></span>
 
@@ -650,9 +656,9 @@ npx -y cc-safety-net rule verify
 
 ## カスタムルールの設定が無効な場合
 
-読み込みに失敗したカスタムルールの設定は、**破棄され、強制されません。その設定自体が拒否に変わることもありません**。通常のコマンドは動き続けます。有効な他の参照先と組み込みの保護も引き続き適用されます。ランタイムは、この状態を `degraded` として報告します。
+読み込みに失敗したカスタムルールの設定は、**破棄され、強制されません。その設定自体が拒否に変わることもありません**。通常のコマンドは動き続けます。有効な他の設定元と組み込みの保護も引き続き適用されます。ランタイムは、この状態を `degraded` として報告します。
 
-参照先が破棄されると、それまでの拒否が**なくなります**。拒否が増えるわけではないため、この失敗だけで作業が止まることはありません。日常の確認には `npx cc-safety-net status` を使ってください。失敗とフォールバックの対応表、診断メッセージ、表示箇所、修復手順は、[設定の復旧](/ja/configuration/recovery)を参照してください。
+設定元が破棄されると、それまでの拒否が**なくなります**。拒否が増えるわけではないため、この失敗だけで作業が止まることはありません。日常の確認には `npx cc-safety-net status` を使ってください。失敗とフォールバックの対応表、診断メッセージ、表示箇所、修復手順は、[設定の復旧](/ja/configuration/recovery)を参照してください。
 
 <Warning>
 カスタムルールの設定に**改ざん耐性はありません**。`rule.json` と rulebook のファイルはいずれもベストエフォートで、保護対象パスとして扱われるのは `policy.json` だけです。カスタムルールを手作業で追加・変更した場合は、必ず `npx -y cc-safety-net rule verify` で検証してください。

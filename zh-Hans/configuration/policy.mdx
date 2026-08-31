@@ -24,6 +24,8 @@ description: "CC Safety Net policy.json 的完整参考：用户范围与项目�
 
 仪表板写入用户文件时，会以 `0700` 创建目录、以 `0600` 创建文件。
 
+<span id="project-policy"></span>
+
 ## 项目策略
 
 把 `.cc-safety-net/policy.json` 提交上去，团队就能通过仓库分发一份安全策略。成员无需运行任何命令，运行时会在下一次工具调用时读取该文件，仓库的每一份检出都是如此。
@@ -41,6 +43,8 @@ description: "CC Safety Net policy.json 的完整参考：用户范围与项目�
 | `audit` | 仅用户范围 |
 
 项目文件中的 `audit` 部分会被忽略，加载时报告 `project policy audit settings are ignored; audit is user scope only`。
+
+<span id="reported-weakenings"></span>
 
 ### 报告的削弱
 
@@ -278,6 +282,8 @@ Schema 版本。必须为 `1`。这是唯一的必填字段；值缺失或错误
 
 **灾难性规则始终强制执行，用户不可配置。** 它们忽略 `enabled: false`，也忽略 `"off"` 覆盖。这些规则涵盖删除 `/` 或主目录、删除 Git 元数据，以及它们在 PowerShell 和 `find` 下的等价形式。各规则强制执行的具体行为参见[被阻止的命令](/zh-Hans/reference/blocked-commands)。
 
+<span id="allow-paths"></span>
+
 ### 允许路径
 
 `destructive_command_protection.allow_paths` 将特定位置排除在破坏性命令规则之外。验证比拒绝路径更严格：
@@ -289,6 +295,8 @@ Schema 版本。必须为 `1`。这是唯一的必填字段；值缺失或错误
 | 恰好就是主目录 | 无效：`cannot be the home directory` |
 | 包含主目录的路径，例如 `/` | 无效：`cannot contain the home directory` |
 | 其他任何绝对路径或以 `~/` 开头的路径 | 有效 |
+
+<span id="secret-protection"></span>
 
 ## 机密保护
 
@@ -312,11 +320,15 @@ Schema 版本。必须为 `1`。这是唯一的必填字段；值缺失或错误
 
 未注册的 ID 会被拒绝，报 `unknown secret protection rule id "<id>"`；其他任何值都会被拒绝，报 `secret_protection.overrides.<id> must be "on" or "off"`。
 
+<span id="rules-that-are-off-by-default"></span>
+
 ### 默认情况下关闭的规则
 
 只要启用了机密保护，大多数内置机密规则都处于开启状态。有一层例外：**编码 CLI 配置**规则，它涵盖受支持的编码智能体的设置文件和 MCP 配置文件。这些文件可能内嵌凭证，但智能体也会把编辑它们当作日常工作，因此该层默认关闭，需要你逐条用显式的 `"on"` 覆盖来选择启用。启用某条配置规则后，它会保护该智能体的用户级配置文件，同时也会保护任意仓库根目录下按名称匹配的项目级文件，例如任何 `.mcp.json`。
 
-十个默认关闭的 id、它们默认开启的 **编码 CLI 凭证** 对应规则，以及每条规则保护的确切路径，都列在[机密保护参考](/zh-Hans/reference/secret-protection#编码-cli-配置层（默认关闭）)中。
+十个默认关闭的 id、它们默认开启的 **编码 CLI 凭证** 对应规则，以及每条规则保护的确切路径，都列在[机密保护参考](/zh-Hans/reference/secret-protection#coding-cli-config-tier-off-by-default)中。
+
+<span id="deny-paths"></span>
 
 ### 拒绝路径
 
@@ -343,6 +355,8 @@ Schema 版本。必须为 `1`。这是唯一的必填字段；值缺失或错误
 - 拒绝路径仅在 `secret_protection.enabled` 为 `true` 时生效。设为 `false` 会连同机密阶段的其他一切一起关闭它们。
 - `secret.deny-path` 不是已注册的机密规则 ID，因此 `secret_protection.overrides` 无法禁用它。只有 `secret_protection.enabled: false` 可以。
 
+<span id="secret-allow-paths"></span>
+
 ### 机密允许路径
 
 `secret_protection.allow_paths` 把精确的文件或目录及其所有后代从内置的 basename、主目录、密钥变体和扩展名规则中豁免出来。它适用于你有意管理的文件，例如仓库中的 `.env.test`，或包含形似凭证但并非机密的文件名的 fixture 目录。
@@ -367,6 +381,8 @@ Schema 版本。必须为 `1`。这是唯一的必填字段；值缺失或错误
 条目是字面路径，而不是 glob 模式。目标按执行工作目录解析，相对的允许条目按配置工作目录解析。在进行相同或后代比较前，两边都会跟随现有符号链接，因此允许根目录也涵盖通过符号链接到达的目标。
 
 运行时会在解析后再次检查安全边界。解析结果为主目录或主目录上级的条目会被忽略。位于生效的防护配置根目录之下的目标永远不会被豁免，包括 `CC_SAFETY_NET_HOME` 改变了该根目录时，以及主目录或 `~/.cc-safety-net` 是符号链接时。
+
+<span id="audit-retention"></span>
 
 ## 审计保留
 

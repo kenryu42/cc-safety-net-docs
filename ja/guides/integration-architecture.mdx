@@ -60,7 +60,7 @@ CC Safety Net は 13 のコーディングエージェントに対応し、接�
 | Claude Code | プラグイン `cc-safety-net@cc-marketplace`。有効・無効の状態は `~/.claude/settings.json` の `enabledPlugins` に保存される |
 | Cursor | 直接書き込み。`npx -y cc-safety-net hook --cursor` を実行する管理対象の `preToolUse` エントリを、`timeout: 30` と `failClosed: true` を付けて `~/.cursor/hooks.json` に追加する。この設定はグローバルで、すべてのプロジェクトの Cursor IDE と Cursor CLI が対象になる |
 | Gemini CLI | `gemini-safety-net` リポジトリから読み込む拡張機能 `gemini-safety-net`。`cc-marketplace` のプラグインではない |
-| GitHub Copilot CLI | プラグイン `cc-safety-net@cc-marketplace`、または `~/.copilot/hooks` 配下の hook ファイルや Copilot の設定内のインライン hook。hook 対応にはバージョン条件があるため、使える取得元は Copilot CLI のバージョンによって異なる（[インストール](/ja/installation#github-copilot-cli)を参照）。`disableAllHooks: true` はすべての hook を無効にする |
+| GitHub Copilot CLI | プラグイン `cc-safety-net@cc-marketplace`、または `~/.copilot/hooks` 配下の hook ファイルや Copilot の設定内のインライン hook。hook 対応にはバージョン条件があるため、使える取得元は Copilot CLI のバージョンによって異なる（[インストール](/ja/installation#github-copilot-cli-installation)を参照）。`disableAllHooks: true` はすべての hook を無効にする |
 | Grok Build | 直接書き込み。`npx -y cc-safety-net hook --grok-build` を実行する管理対象の `PreToolUse` エントリを、`timeout: 30` を付けて `~/.grok/hooks/cc-safety-net.json`（または `$GROK_HOME/hooks/cc-safety-net.json`）に追加する。このエントリにマッチャーはないため、`run_terminal_command` だけでなくファイル系ツールやパッチ系ツールも hook に届く。インストールもアンインストールも管理対象のハンドラーだけを操作するため、同じファイル内の管理対象外のエントリや、同じエントリ内の管理対象外のハンドラーはそのまま残る |
 | Hermes Agent | 直接書き込み。`~/.hermes/plugins/cc-safety-net/` に管理対象の Python プラグイン（`__init__.py` と `plugin.yaml`。設定時の Hermes ホームは `$HERMES_HOME`）を追加し、`hermes plugins enable cc-safety-net --no-allow-tool-override` で有効化する。有効化の状態は Hermes 自身の `config.yaml` の `plugins.enabled` に記録される |
 | Kimi Code | 直接書き込み。`npx -y cc-safety-net hook --kimi-code` を実行する `[[hooks]]` ブロックを `~/.kimi-code/config.toml`（または `$KIMI_CODE_HOME/config.toml`）に追加する。もう 1 つの方法として、Kimi Code 内で `/plugins install https://github.com/kenryu42/cc-safety-net` を実行し、ネイティブのプラグインをインストールすることもできる。そのマニフェストは同じ hook エントリ（`node ./dist/bin/cc-safety-net.js hook --kimi-code`、`PreToolUse` イベント、タイムアウト 30 秒）をマッチャーなしで実行するため、ファイル系ツールも hook に届く |
@@ -79,7 +79,7 @@ Hermes は例外を投げたプラグインのコールバックを無視する�
 
 ここでは、ディレクトリに関する 2 点が重要です。`terminal` の呼び出しでは、プラグインはまず Hermes がセッションごとに保持する作業ディレクトリの記録を読み取ります。この記録には、そのセッションでの `cd` の状態が反映されています。最初のコマンドでまだ記録がない場合は、`TERMINAL_CWD`、次に Hermes のプロセスのディレクトリを使います。使用できない `workdir` を持つ `terminal` の呼び出しは fail closed になります。また、アナライザーの subprocess は Hermes の作業ディレクトリではなくホームディレクトリから起動します。これにより、`npx` が正規のパッケージではなくリポジトリ内の `cc-safety-net` を解決してしまうことを防ぎます。
 
-管理対象のファイルはいずれも、CC Safety Net のファイルであることを示すヘッダー行で始まります。インストーラーは、このヘッダーがないファイルを上書きしません。Hermes はディスク上に存在しないプラグインを解決しないため、アンインストールではファイルを削除する前に `hermes plugins disable cc-safety-net` を実行します。インストール・アンインストールのいずれの場合も、Hermes を再起動するまでプラグインの変更は反映されません。設定と削除のコマンドは[インストール](/ja/installation#hermes-agent)を参照してください。
+管理対象のファイルはいずれも、CC Safety Net のファイルであることを示すヘッダー行で始まります。インストーラーは、このヘッダーがないファイルを上書きしません。Hermes はディスク上に存在しないプラグインを解決しないため、アンインストールではファイルを削除する前に `hermes plugins disable cc-safety-net` を実行します。インストール・アンインストールのいずれの場合も、Hermes を再起動するまでプラグインの変更は反映されません。設定と削除のコマンドは[インストール](/ja/installation#hermes-agent-installation)を参照してください。
 
 Pi の場合と違い、`doctor` は管理対象プラグインのディレクトリと Hermes の `config.yaml` の `plugins.enabled` の一覧だけを見て、ディスク上から Hermes Agent を検出します。実行時のプローブは使いません。
 
@@ -89,7 +89,7 @@ Pi の場合と違い、`doctor` は管理対象プラグインのディレク�
 
 Codex は、`cc-marketplace` マーケットプレイスのプラグイン `cc-safety-net@cc-marketplace` として CC Safety Net を読み込みます。このプラグインは、共通の `hook --coding-cli` エントリーポイントを実行する `PreToolUse` hook を登録するため、Codex 専用の `hook` フラグはありません。
 
-Codex は信頼されていない hook を実行しないため、Codex 内で信頼済みにするまでプラグインの hook は動作しません。手順は[インストール](/ja/installation#codex)を参照してください。
+Codex は信頼されていない hook を実行しないため、Codex 内で信頼済みにするまでプラグインの hook は動作しません。手順は[インストール](/ja/installation#codex-installation)を参照してください。
 
 ### OpenClaw
 
@@ -103,7 +103,7 @@ OpenClaw は、ネイティブの OpenClaw プラグインとして CC Safety Ne
 
 インストールされたファイルは `<state dir>/extensions/cc-safety-net/` にあります。state dir は、設定されていれば `OPENCLAW_STATE_DIR`、次に `OPENCLAW_CONFIG_PATH` があるディレクトリ、いずれもなければ `~/.openclaw` です。有効・無効の状態は OpenClaw 自身の設定（state dir の `openclaw.json`、または `OPENCLAW_CONFIG_PATH`）にあります。全体の `plugins.enabled` スイッチ、`plugins.allow` / `plugins.deny` の一覧、プラグインごとの `plugins.entries.cc-safety-net.enabled` の項目が、いずれも影響します。`plugins.allow` を設定している場合は、そこに `cc-safety-net` も記載する必要があります。
 
-インストールまたはアンインストールの後は、OpenClaw Gateway を再起動してください。マニフェストは起動時にプラグインを有効化する設定（`activation: { onStartup: true }`）になっているため、実行中の Gateway には変更が反映されません。設定と削除のコマンドは[インストール](/ja/installation#openclaw)を参照してください。
+インストールまたはアンインストールの後は、OpenClaw Gateway を再起動してください。マニフェストは起動時にプラグインを有効化する設定（`activation: { onStartup: true }`）になっているため、実行中の Gateway には変更が反映されません。設定と削除のコマンドは[インストール](/ja/installation#openclaw-installation)を参照してください。
 
 ### OpenCode
 
@@ -114,7 +114,7 @@ OpenCode は、`~/.config/opencode/opencode.json`（または `.jsonc`）の `pl
 
 `bash` ツールでは、プラグインは OpenCode の `shell` の設定からアナライザーの方言を選びます。この設定が文字列でない場合、Windows では PowerShell を既定とし、それ以外では `SHELL` を参照します。認識できる `powershell` と `pwsh` の実行ファイルなら PowerShell を、認識できる POSIX シェルなら POSIX を選びます。それ以外の値の場合は自動判定に任せます。指定された `workdir` は、読み取りと検索ができるディレクトリとして解決できた場合にかぎり、実行ディレクトリになります。Windows では、`/C:`、`/C`、`/cygdrive/C`、`/mnt/C` という文書化された形式を正規化し、それ以外のスラッシュ始まりのパスは OpenCode 側で解決できるようそのまま渡します。
 
-OpenCode が古いキャッシュのプラグインを使い続けることがあるため、キャッシュを消去するまで設定変更が反映されない場合があります。[インストール](/ja/installation#opencode)を参照してください。
+OpenCode が古いキャッシュのプラグインを使い続けることがあるため、キャッシュを消去するまで設定変更が反映されない場合があります。[インストール](/ja/installation#opencode-installation)を参照してください。
 
 ## Pi の拡張機能
 
@@ -139,13 +139,13 @@ Pi でコマンド用ツールとして扱われるのは、組み込みの **`b
 
 Amp Code は CC Safety Net を **personal plugin** として読み込みます。実体は、Amp アカウントがホストする Personal Plugins リポジトリ内の `cc-safety-net` ディレクトリで、自己完結したエントリファイル `index.ts` を収めています。このプラグインは `@ampcode/plugin` の API を使って Amp の `tool.call` イベントを購読し、`allow` か、メッセージを添えた `reject-and-continue` を返します。Pi、OpenClaw、OpenCode と同様、プロセス内で動作します。personal plugin は 1 台のマシンではなくアカウントに紐づくため、Amp Orb のようなリモート環境で実行されるスレッドも保護できます。
 
-Amp のワークスペースルート（`amp.system.workspaceRoot`）が設定ディレクトリになります。シェルのツール呼び出しに文字列の `dir` が含まれる場合は、その値が実行ディレクトリになります。相対パスはワークスペースルートを基準に解決し、その結果を `realpath` で正規化します。実在するディレクトリであることも必要です。Windows の名前空間パスは拒否します。解決できない `dir` は fail closed になり、このときコマンドが破壊的かどうかは解析しません。この拒否は、アナライザーの想定外の失敗としては報告しなくなりました。作業ディレクトリが原因であることを示し、すでに存在してアクセスできるディレクトリを使うか、存在しないディレクトリであれば先に作成するよう、エージェントに伝えます。OpenClaw の `workdir` とは異なり、解決後のディレクトリがワークスペースの内側に収まっている必要はありません。Amp は自身のスキルのキャッシュや隣接するリポジトリを指定することがあり、これは正当な使い方です。同じ作業を `cd <dir> && …` と書いた場合も、もともとそこで実行されます。設定ディレクトリはワークスペースルートのままなので、プロジェクト自身のルール設定は引き続き適用されます。さらに、Git メタデータのガードは実行ディレクトリと設定ディレクトリの両方を起点とするため、コマンドを別の場所で実行しても、ワークスペース自身の `.git` は保護されたままです。[Git メタデータ](/ja/reference/blocked-commands#git-メタデータ)を参照してください。
+Amp のワークスペースルート（`amp.system.workspaceRoot`）が設定ディレクトリになります。シェルのツール呼び出しに文字列の `dir` が含まれる場合は、その値が実行ディレクトリになります。相対パスはワークスペースルートを基準に解決し、その結果を `realpath` で正規化します。実在するディレクトリであることも必要です。Windows の名前空間パスは拒否します。解決できない `dir` は fail closed になり、このときコマンドが破壊的かどうかは解析しません。この拒否は、アナライザーの想定外の失敗としては報告しなくなりました。作業ディレクトリが原因であることを示し、すでに存在してアクセスできるディレクトリを使うか、存在しないディレクトリであれば先に作成するよう、エージェントに伝えます。OpenClaw の `workdir` とは異なり、解決後のディレクトリがワークスペースの内側に収まっている必要はありません。Amp は自身のスキルのキャッシュや隣接するリポジトリを指定することがあり、これは正当な使い方です。同じ作業を `cd <dir> && …` と書いた場合も、もともとそこで実行されます。設定ディレクトリはワークスペースルートのままなので、プロジェクト自身のルール設定は引き続き適用されます。さらに、Git メタデータのガードは実行ディレクトリと設定ディレクトリの両方を起点とするため、コマンドを別の場所で実行しても、ワークスペース自身の `.git` は保護されたままです。[Git メタデータ](/ja/reference/blocked-commands#git-metadata)を参照してください。
 
 `install --amp` は、このプラグインをリポジトリに公開します。まずアカウントに書き込み可能な Personal Plugins リポジトリがあることを確認し（`amp plugins repositories --json`）、使い捨てのディレクトリにクローンして（`amp clone user-plugins`）、`cc-safety-net/index.ts` を書き込み、コミットしてプッシュします。ステージングにはディレクトリではなく明示的なパス指定（`git add -- cc-safety-net/index.ts`）を使います。そのため、プラグインのパスが gitignore されている場合は、何もステージしないまま進むのではなく、インストールが停止します。インストールもアンインストールも、書き込みや `git rm` の対象はこのエントリ 1 つだけなので、同じディレクトリに置いた他のファイルに触れることはありません。
 
 エントリには、CC Safety Net の管理対象であり安全に置き換えてよいことを示す管理用ヘッダーが付きます。インストールもアンインストールも、`cc-safety-net` がシンボリックリンクである場合やディレクトリでない場合、また `index.ts` がシンボリックリンク、通常ファイル以外、管理対象外のいずれかである場合は、そのプラグインを拒否します。ディレクトリ構成になる前のリリースは、リポジトリのルートに `cc-safety-net.ts` を公開していました。これが管理対象であれば同じコミットで削除し、管理対象外であればインストールは失敗します。
 
-ローカルのプラグインは personal plugin を覆い隠すため、インストールは `~/.config/amp/plugins/` 以下も片付けます。削除するのは、管理対象の旧ファイル `cc-safety-net.ts` と、管理対象の `index.ts` だけを含む手作業でコピーされた `cc-safety-net/` ディレクトリです。この 2 つのパスにそれ以外のローカルエントリがある場合、インストールは失敗します。設定と削除のコマンドは[インストール](/ja/installation#amp-code)を参照してください。
+ローカルのプラグインは personal plugin を覆い隠すため、インストールは `~/.config/amp/plugins/` 以下も片付けます。削除するのは、管理対象の旧ファイル `cc-safety-net.ts` と、管理対象の `index.ts` だけを含む手作業でコピーされた `cc-safety-net/` ディレクトリです。この 2 つのパスにそれ以外のローカルエントリがある場合、インストールは失敗します。設定と削除のコマンドは[インストール](/ja/installation#amp-code-installation)を参照してください。
 
 ### 埋め込まれるポリシーのスナップショット
 

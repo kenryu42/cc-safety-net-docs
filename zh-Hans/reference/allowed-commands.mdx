@@ -39,6 +39,8 @@ CC Safety Net 通过语义分析区分允许的命令形式和破坏性的命令
 | `git rm --cached`、`git rm --dry-run` / `-n` | 仅取消暂存或预览，工作树中的文件不受影响。`git rm -r --cached .` 是安全的取消暂存操作 |
 | `git push --force-with-lease` | 改写历史之前先检查远程状态是否符合预期 |
 
+<span id="filesystem-commands"></span>
+
 ## 文件系统命令
 
 | 命令模式 | 安全原因 | 级别 |
@@ -56,6 +58,8 @@ CC Safety Net 通过语义分析区分允许的命令形式和破坏性的命令
 
 - 动态目标（`rm -rf "$target"`、反引号、替换）在 `standard` 中允许，一旦启用 fail-closed 能力就会被阻止。`standard` 对对抗性或动态生成的命令文本只提供尽力保护。
 - 启用 `CC_SAFETY_NET_PARANOID_RM=1` 后，*即使在当前工作目录内*，非临时的递归强制删除也会被阻止，因此 `rm -rf ./cache` 不再通过。临时目标和配置的允许路径仍然可以通过。
+
+<span id="configured-allow-paths"></span>
 
 ### 配置的允许路径
 
@@ -75,7 +79,9 @@ CC Safety Net 通过语义分析区分允许的命令形式和破坏性的命令
 | `git commit -F - <<'EOF'` | 正文会成为提交信息，即使其中用文字描述了破坏性命令 |
 | `gh pr create --body-file - <<'EOF'`、`gh issue create -F - <<'EOF'` | 正文作为 PR 或 issue 文本发布 |
 
-heredoc 必须是不展开的：分隔符带引号（`<<'EOF'`），或者分隔符不带引号且正文中不含 `$`、反引号或反斜杠，这样 shell 就没有需要展开或转义处理的内容。不带引号且含有这三个字符之一的正文会经过 shell 展开或转义处理，因此在 `standard` 中仍会被扫描，启用 fail-closed 后则直接被拒绝。heredoc 之外的命令仍会分析。`cat <<'EOF' && rm -rf ~` 会因 `rm` 被阻止。对于 `cat`、`tee`、`git commit`、`gh pr create` 和 `gh issue create`，分隔符带引号的正文在提取敏感路径前还会被遮蔽，因此正文里提到机密文件名不会阻止提交。不带引号的正文即使通过关卡也不会被遮蔽，其中形似文件名的 token 仍会被提取。`git apply` 的正文仍对路径提取可见，因为 patch 会列出它写入的文件。完整关卡以及 `standard` 如何处理未通过关卡的 heredoc，见 [Heredoc 分析](/zh-Hans/guides/analysis-engine#heredoc-分析)。
+heredoc 必须是不展开的：分隔符带引号（`<<'EOF'`），或者分隔符不带引号且正文中不含 `$`、反引号或反斜杠，这样 shell 就没有需要展开或转义处理的内容。不带引号且含有这三个字符之一的正文会经过 shell 展开或转义处理，因此在 `standard` 中仍会被扫描，启用 fail-closed 后则直接被拒绝。heredoc 之外的命令仍会分析。`cat <<'EOF' && rm -rf ~` 会因 `rm` 被阻止。对于 `cat`、`tee`、`git commit`、`gh pr create` 和 `gh issue create`，分隔符带引号的正文在提取敏感路径前还会被遮蔽，因此正文里提到机密文件名不会阻止提交。不带引号的正文即使通过关卡也不会被遮蔽，其中形似文件名的 token 仍会被提取。`git apply` 的正文仍对路径提取可见，因为 patch 会列出它写入的文件。完整关卡以及 `standard` 如何处理未通过关卡的 heredoc，见 [Heredoc 分析](/zh-Hans/guides/analysis-engine#heredoc-analysis)。
+
+<span id="standard-only-allowances"></span>
 
 ## 仅标准允许
 
@@ -102,7 +108,7 @@ heredoc 必须是不展开的：分隔符带引号（`<<'EOF'`），或者分隔
 - 所有词都是字面量，开头没有环境赋值；
 - 头部 basename 既不是远程抓取命令（`curl`、`wget`、`fetch`、`aria2c`、`http`、`https`、`xh`、`xhs`、`nc`、`ncat`、`netcat`），也不是 shell 或 `sudo`、`env` 这类标准命令包装器。
 
-分析器仍会分析 `CMD` 本身，因此 `eval "$(rm -rf /)"` 会被阻止。*不*检查的是 `CMD` 打印出来的那段 shell：`standard` 由此把信任扩展到了每一条字面本地命令的输出，包括 `eval "$(cat somefile)"` 这样的形态。仍被阻止的形态见[生成命令的 eval 与 source](/zh-Hans/reference/blocked-commands#生成命令的-eval-与-source)。
+分析器仍会分析 `CMD` 本身，因此 `eval "$(rm -rf /)"` 会被阻止。*不*检查的是 `CMD` 打印出来的那段 shell：`standard` 由此把信任扩展到了每一条字面本地命令的输出，包括 `eval "$(cat somefile)"` 这样的形态。仍被阻止的形态见[生成命令的 eval 与 source](/zh-Hans/reference/blocked-commands#eval-and-source-of-a-generated-command)。
 
 <Note>
   资源耗尽限制不属于此项权衡。超出解析器递归或结构校验上限的命令在**每个**级别都会被拒绝，`standard` 也不例外。

@@ -14,7 +14,7 @@ CC Safety Net 源于一次真实事故：一个 AI 编码智能体删除了整�
 
 CC Safety Net 会解析每条命令，再交给理解 `git`、`rm`、`Remove-Item`、`find`、`xargs` 和 `parallel` 实际选项语法的分析器。因此，判定基于命令的*作用*，而不是命令的*外观*。
 
-代价是复杂性：解析器必须正确处理 shell 语法，每个受支持的命令都需要自己的分析器。收益是对最要紧的那些命令具备抗绕过能力。管线本身见<a href="/zh-Hans/guides/architecture#命令分析内部流程">架构</a>，每个分析器的具体行为见<a href="/zh-Hans/guides/analysis-engine">分析引擎</a>。
+代价是复杂性：解析器必须正确处理 shell 语法，每个受支持的命令都需要自己的分析器。收益是对最要紧的那些命令具备抗绕过能力。管线本身见<a href="/zh-Hans/guides/architecture#inside-command-analysis">架构</a>，每个分析器的具体行为见<a href="/zh-Hans/guides/analysis-engine">分析引擎</a>。
 
 ## 固定顺序，并先执行始终启用的保护
 
@@ -24,7 +24,9 @@ CC Safety Net 会解析每条命令，再交给理解 `git`、`rm`、`Remove-Ite
 
 敏感路径保护则位于这条线的另一侧，在快照之后执行。它*确实*受策略控制，因为哪些路径算敏感本就该由本地决定，而且拒绝路径只有在你能添加自己的路径时才有意义。
 
-具体阶段表见<a href="/zh-Hans/guides/architecture#有序防护阶段">架构</a>。
+具体阶段表见<a href="/zh-Hans/guides/architecture#the-ordered-guard-stages">架构</a>。
+
+<span id="fail-closed-when-analysis-cannot-complete"></span>
 
 ## 无法完成分析时 fail closed
 
@@ -36,9 +38,11 @@ CC Safety Net 无法完成分析时会阻止，而不是允许：
 
 道理很简单：fail-open 的安全网比没有安全网更糟，因为它会制造虚假的安全感。意外错误造成的阻止固然烦人，但还能补救；让破坏性命令通过则无从挽回。
 
-**无效配置刻意不在此列。** 被拒绝的配置源会被丢弃，不会转为一次拒绝。如果 rulebook 中的一个拼写错误就能阻止所有工作，那等同于对用户发起拒绝服务，只会促使人们卸载工具，而不是修复文件。这项约定和修复路径由<a href="/zh-Hans/configuration/recovery">配置恢复</a>负责说明。
+**无效配置刻意不在此列。** 被拒绝的配置来源会被丢弃，不会转为一次拒绝。如果 rulebook 中的一个拼写错误就能阻止所有工作，那等同于对用户发起拒绝服务，只会促使人们卸载工具，而不是修复文件。这项约定和修复路径由<a href="/zh-Hans/configuration/recovery">配置恢复</a>负责说明。
 
 这些属性在每个信任边界的执行方式见<a href="/zh-Hans/guides/security-model">安全模型</a>。
+
+<span id="denials-that-keep-the-agent-on-task"></span>
 
 ## 让智能体继续任务的拒绝方式
 
@@ -48,7 +52,7 @@ CC Safety Net 无法完成分析时会阻止，而不是允许：
 
 因此，每条消息都力求给智能体一个有效的后续动作。原因会用平实的语言说明这条命令本会做什么，并在存在更安全的替代方案时点明该方案。每条规则还带有一个 **intent**，由它选择结尾指令：报告阻止并继续任务的其余部分、改用指定的替代方案、用更窄的明确目标重试、把操作交给用户，或者重构命令而不是穷举变体。即使内部错误触发 fail-closed 拒绝，intent 也会要求重构命令，不要重试。这样，工具意外失败时仍能引导智能体采取有用的应对措施。
 
-这条指令刻意只是建议性的。没有任何机制强制智能体遵守；执行由防护完成，不服从的重试同样会被阻止。消息的意义在于让合规路径成为最省事的一条，从而在常见情况下，会话吸收一次阻止后就能继续前进。消息结构和完整的 intent 表见<a href="/zh-Hans/guides/how-it-works#阻止消息的形式">工作原理</a>。
+这条指令刻意只是建议性的。没有任何机制强制智能体遵守；执行由防护完成，不服从的重试同样会被阻止。消息的意义在于让合规路径成为最省事的一条，从而在常见情况下，会话吸收一次阻止后就能继续前进。消息结构和完整的 intent 表见<a href="/zh-Hans/guides/how-it-works#what-a-block-looks-like">工作原理</a>。
 
 ## 最小依赖面
 
@@ -59,7 +63,7 @@ CC Safety Net 运行时只依赖一个延迟加载的软件包。命令段拆分
 - 解析器预算可以是固定常量而不是配置项，于是资源耗尽成为一种有界、可测试的失败模式，而不是开放式的失败。
 - 对于把 CC Safety Net 作为 hook 子进程运行的智能体，它在每次 shell 工具调用时都是全新启动，因此启动时间很重要，依赖越少冷启动越快。
 
-解析器预算和各依赖项的用途见<a href="/zh-Hans/guides/architecture#解析器和运行时依赖面">架构</a>。
+解析器预算和各依赖项的用途见<a href="/zh-Hans/guides/architecture#parsers-and-the-runtime-dependency-surface">架构</a>。
 
 ## Rulebook 系统
 
@@ -80,7 +84,7 @@ Standard 针对有人监督的会话做了优化：它阻止可识别的破坏�
 
 Strict 和 paranoid 用额外限制换取确定性。Strict 阻止无法验证的内容；paranoid 还会阻止通常安全但偶尔会造成灾难的类别。设计上不会通过增加 standard 模式的解析启发式来填补缺口。静态分析无法确定的目标，不会因为增加猜测就变得安全。发现新缺口时，应为 strict 或 paranoid 添加 fail-closed fixture，并记录 standard 模式的残余风险。
 
-各项能力仍可单独设置，任何 per-rule override 都能在 standard 下强制启用 strict tier 的规则。而任何 override 都做不到的，是削弱灾难性规则或始终启用的保护。级别见<a href="/zh-Hans/configuration/modes">模式</a>，各条边界的准确位置见<a href="/zh-Hans/guides/analysis-engine#安全级别边界">分析引擎</a>。
+各项能力仍可单独设置，任何 per-rule override 都能在 standard 下强制启用 strict tier 的规则。而任何 override 都做不到的，是削弱灾难性规则或始终启用的保护。级别见<a href="/zh-Hans/configuration/modes">模式</a>，各条边界的准确位置见<a href="/zh-Hans/guides/analysis-engine#safety-level-boundaries">分析引擎</a>。
 
 ## 纵深防御，而不是替代方案
 
@@ -97,7 +101,7 @@ Linked Git worktree 会产生可用性问题：在 worktree 中工作的开发�
 
 <a href="/zh-Hans/configuration/modes#worktree-mode">Worktree 模式</a>只放宽 local discard，不会全面关闭这条规则。目录必须通过验证，确实属于 linked worktree，而且没有任何设置重定向 Git 上下文。仅仅看起来像 worktree 并不够。验证无法完成时，命令仍会被阻止。
 
-这项放宽刻意保持狭窄：所有影响远程的操作（force push、删除分支、丢弃 stash）仍被阻止，可能波及这个可丢弃 worktree 之外的 local discard 同样仍被阻止。具体条件和不可放宽的情况见<a href="/zh-Hans/guides/analysis-engine#worktree-放宽">分析引擎</a>，启用方法见<a href="/zh-Hans/configuration/modes">模式</a>。
+这项放宽刻意保持狭窄：所有影响远程的操作（force push、删除分支、丢弃 stash）仍被阻止，可能波及这个可丢弃 worktree 之外的 local discard 同样仍被阻止。具体条件和不可放宽的情况见<a href="/zh-Hans/guides/analysis-engine#worktree-relaxation">分析引擎</a>，启用方法见<a href="/zh-Hans/configuration/modes">模式</a>。
 
 ## 后续阅读
 

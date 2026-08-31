@@ -56,7 +56,7 @@ CC Safety Net 支持十三种编码智能体，它们通过四种模型接入。
 | Claude Code | 插件 `cc-safety-net@cc-marketplace`；插件状态位于 `~/.claude/settings.json` 的 `enabledPlugins` |
 | Cursor | 直接写入：`~/.cursor/hooks.json` 中运行 `npx -y cc-safety-net hook --cursor` 的托管 `preToolUse` 条目，含 `timeout: 30` 和 `failClosed: true`。配置全局有效，覆盖所有项目中的 Cursor IDE 和 Cursor CLI |
 | Gemini CLI | 从 `gemini-safety-net` 仓库加载的扩展 `gemini-safety-net`，不是 `cc-marketplace` 插件 |
-| GitHub Copilot CLI | 插件 `cc-safety-net@cc-marketplace`，或 `~/.copilot/hooks` 下的 hook 文件/ Copilot 配置中的内联 hook。Hook 支持受版本限制，因此哪一种来源可用取决于 Copilot CLI 版本，详见<a href="/zh-Hans/installation#github-copilot-cli-安装">安装</a>。`disableAllHooks: true` 会禁用所有 hook |
+| GitHub Copilot CLI | 插件 `cc-safety-net@cc-marketplace`，或 `~/.copilot/hooks` 下的 hook 文件/ Copilot 配置中的内联 hook。Hook 支持受版本限制，因此哪一种来源可用取决于 Copilot CLI 版本，详见<a href="/zh-Hans/installation#github-copilot-cli-installation">安装</a>。`disableAllHooks: true` 会禁用所有 hook |
 | Grok Build | 直接写入：`~/.grok/hooks/cc-safety-net.json`（或 `$GROK_HOME/hooks/cc-safety-net.json`）中运行 `npx -y cc-safety-net hook --grok-build` 的托管 `PreToolUse` 条目，含 `timeout: 30`。该条目不设 matcher，因此除 `run_terminal_command` 外，文件工具和 patch 工具也会到达 hook。安装和卸载只改动托管 handler，文件中的其他条目以及同一条目内的其他 handler 都会保留 |
 | Hermes Agent | 直接写入：`~/.hermes/plugins/cc-safety-net/` 下的托管 Python 插件（`__init__.py` 加 `plugin.yaml`；设置了 `$HERMES_HOME` 时以它作为 Hermes home），再运行 `hermes plugins enable cc-safety-net --no-allow-tool-override` 启用。启用状态记录在 Hermes 自身 `config.yaml` 的 `plugins.enabled` 中 |
 | Kimi Code | 直接写入：`~/.kimi-code/config.toml`（或 `$KIMI_CODE_HOME/config.toml`）中的 `[[hooks]]` 块，运行 `npx -y cc-safety-net hook --kimi-code`。另一种方式是在 Kimi Code 内运行 `/plugins install https://github.com/kenryu42/cc-safety-net` 安装原生 Kimi Code 插件；manifest 运行相同的 hook 入口（`node ./dist/bin/cc-safety-net.js hook --kimi-code`、`PreToolUse` 事件、30 秒超时），不设 matcher，因此文件工具也会到达 hook |
@@ -75,7 +75,7 @@ Hermes 会忽略抛出异常的插件 callback，因此插件自己把每种失�
 
 两个目录细节很重要。对 `terminal` 调用，插件先读取 Hermes 的每会话 cwd 记录，其中保存会话的 `cd` 状态。第一个命令执行时，如果该记录尚不存在，则依次使用 `TERMINAL_CWD` 和 Hermes 进程目录。`terminal` 调用带有不可用的 `workdir` 时会 fail closed。分析器子进程从主目录启动，而不是 Hermes 的工作目录，因此 `npx` 无法解析到仓库本地的 `cc-safety-net` 来顶替真正的那个。
 
-每个托管文件首行都有标明其属于 CC Safety Net 的 header，安装程序拒绝覆盖没有该标记的文件。卸载会先运行 `hermes plugins disable cc-safety-net` 再删除文件，因为 Hermes 只能解析仍在磁盘上的插件。安装和卸载都要重启 Hermes 后才生效。设置和删除命令见<a href="/zh-Hans/installation#hermes-agent-安装">安装</a>。
+每个托管文件首行都有标明其属于 CC Safety Net 的 header，安装程序拒绝覆盖没有该标记的文件。卸载会先运行 `hermes plugins disable cc-safety-net` 再删除文件，因为 Hermes 只能解析仍在磁盘上的插件。安装和卸载都要重启 Hermes 后才生效。设置和删除命令见<a href="/zh-Hans/installation#hermes-agent-installation">安装</a>。
 
 与 Pi 不同，`doctor` 完全从磁盘检测 Hermes Agent：检查托管插件目录和 Hermes `config.yaml` 中的 `plugins.enabled` 列表，不做 runtime probe。
 
@@ -85,7 +85,7 @@ Hermes 会忽略抛出异常的插件 callback，因此插件自己把每种失�
 
 Codex 从 `cc-marketplace` marketplace 加载 `cc-safety-net@cc-marketplace` 插件。插件注册一个 `PreToolUse` hook，由它运行共享的 `hook --coding-cli` 入口点，因此 Codex 没有自己的 `hook` 标志。
 
-Codex 不会运行未受信任的 hook，因此在 Codex 内把它标记为受信任之前，插件的 hook 一直不生效。该步骤见<a href="/zh-Hans/installation#codex-安装">安装</a>。
+Codex 不会运行未受信任的 hook，因此在 Codex 内把它标记为受信任之前，插件的 hook 一直不生效。该步骤见<a href="/zh-Hans/installation#codex-installation">安装</a>。
 
 ### OpenClaw
 
@@ -99,7 +99,7 @@ OpenClaw 把 CC Safety Net 作为原生插件**进程内**加载。插件以包�
 
 安装副本位于 `<state dir>/extensions/cc-safety-net/`。其中 state dir 为 `OPENCLAW_STATE_DIR`（若已设置）；否则为 `OPENCLAW_CONFIG_PATH` 所指文件的所在目录；两者都未设置时为 `~/.openclaw`。启用状态位于 OpenClaw 自身的配置中（state dir 中的 `openclaw.json`，或 `OPENCLAW_CONFIG_PATH` 指向的文件）：全局 `plugins.enabled` 开关、`plugins.allow` 和 `plugins.deny` 列表，以及针对单个插件的 `plugins.entries.cc-safety-net.enabled` 条目都会起作用。设置了 `plugins.allow` 时，其中必须也列出 `cc-safety-net`。
 
-安装或卸载后要重启 OpenClaw Gateway。Manifest 在启动时激活插件（`activation: { onStartup: true }`），因此正在运行的 Gateway 不会应用该更改。设置和删除命令见<a href="/zh-Hans/installation#openclaw-安装">安装</a>。
+安装或卸载后要重启 OpenClaw Gateway。Manifest 在启动时激活插件（`activation: { onStartup: true }`），因此正在运行的 Gateway 不会应用该更改。设置和删除命令见<a href="/zh-Hans/installation#openclaw-installation">安装</a>。
 
 ### OpenCode
 
@@ -110,7 +110,7 @@ OpenCode 把 CC Safety Net 作为实现自身 `@opencode-ai/plugin` 约定的插
 
 对于 `bash` 工具，插件根据 OpenCode 的 `shell` 设置选择分析方言。如果该设置不是字符串，Windows 上默认使用 PowerShell，其他系统使用 `SHELL`。识别到的 `powershell` 和 `pwsh` 可执行文件选择 PowerShell；识别到的 POSIX shell 选择 POSIX；其他值使用自动检测。只有在给定的 `workdir` 解析为可读、可搜索的目录时，它才会成为执行目录。在 Windows 上，会归一化文档化的 `/C:`、`/C`、`/cygdrive/C` 和 `/mnt/C` 形式，其他以斜线开头的路径保持不变，交由 OpenCode 解析。
 
-OpenCode 可能提供插件的过期缓存副本，因此更改接入方式后，可能要清除缓存才会生效，见<a href="/zh-Hans/installation#opencode-安装">安装</a>。
+OpenCode 可能提供插件的过期缓存副本，因此更改接入方式后，可能要清除缓存才会生效，见<a href="/zh-Hans/installation#opencode-installation">安装</a>。
 
 ## Pi 扩展
 
@@ -135,13 +135,13 @@ Pi 的命令工具适配器只有内置的 **`bash`** 工具。它的 `command` 
 
 Amp Code 把 CC Safety Net 作为**个人插件**加载：Amp 账户托管的 Personal Plugins 仓库中一个名为 `cc-safety-net` 的目录，里面是自包含的入口文件 `index.ts`。插件通过 `@ampcode/plugin` API 订阅 Amp 的 `tool.call` 事件，返回 `allow` 或带消息的 `reject-and-continue`。它和 Pi、OpenClaw、OpenCode 一样在进程内运行。个人插件跟随账户而不是单台机器，因此也覆盖在 Amp Orb 等远程执行器上运行的线程。
 
-Amp 的 workspace 根目录（`amp.system.workspaceRoot`）就是配置目录。shell 工具调用带有字符串 `dir` 时，该值成为执行目录：相对路径基于 workspace 根目录解析，结果再经过 `realpath`，并且必须是已存在的目录。Windows 命名空间路径会被拒绝。无法解析的 `dir` 会 fail closed，也不会再对该调用做破坏性命令分析。拒绝原因不再报告分析器的意外失败，而是指明起因是工作目录，并让智能体改用已存在且可访问的目录，或先创建缺失的目录。与 OpenClaw 的 `workdir` 不同，解析结果不要求留在 workspace 内：Amp 把它指向自己的技能缓存或同级仓库都是正当用法，而同样的操作写成 `cd <dir> && …` 本来就在那里执行。配置目录仍是 workspace 根目录，因此项目自身的规则配置照常生效。Git 元数据防护同时以执行目录和配置目录为锚点，所以命令在别处执行时，workspace 自身的 `.git` 仍受保护。见<a href="/zh-Hans/reference/blocked-commands#git-元数据">Git 元数据</a>。
+Amp 的 workspace 根目录（`amp.system.workspaceRoot`）就是配置目录。shell 工具调用带有字符串 `dir` 时，该值成为执行目录：相对路径基于 workspace 根目录解析，结果再经过 `realpath`，并且必须是已存在的目录。Windows 命名空间路径会被拒绝。无法解析的 `dir` 会 fail closed，也不会再对该调用做破坏性命令分析。拒绝原因不再报告分析器的意外失败，而是指明起因是工作目录，并让智能体改用已存在且可访问的目录，或先创建缺失的目录。与 OpenClaw 的 `workdir` 不同，解析结果不要求留在 workspace 内：Amp 把它指向自己的技能缓存或同级仓库都是正当用法，而同样的操作写成 `cd <dir> && …` 本来就在那里执行。配置目录仍是 workspace 根目录，因此项目自身的规则配置照常生效。Git 元数据防护同时以执行目录和配置目录为锚点，所以命令在别处执行时，workspace 自身的 `.git` 仍受保护。见<a href="/zh-Hans/reference/blocked-commands#git-metadata">Git 元数据</a>。
 
 `install --amp` 把 artifact 发布到该仓库：确认账户有可写的 Personal Plugins 仓库（`amp plugins repositories --json`），把仓库克隆到一次性 checkout（`amp clone user-plugins`），写入 `cc-safety-net/index.ts`，然后提交并推送。暂存使用明确的 pathspec（`git add -- cc-safety-net/index.ts`）而不是整个目录，这样插件路径被 gitignore 时会中止安装，而不是什么都不暂存。安装和卸载写入或 `git rm` 的始终只有这一个入口文件，因此你放在同一目录里的其他文件不会被改动。
 
 该入口带有托管 header，标明它属于 CC Safety Net，可以安全替换。安装和卸载都会拒绝符号链接或非目录的 `cc-safety-net` 条目，也会拒绝符号链接、非普通文件或不带托管 header 的 `index.ts`。在改用目录结构之前，插件以 `cc-safety-net.ts` 的形式发布在仓库根目录：托管的旧文件会在同一次提交中删除，非托管的旧文件会使安装失败。
 
-本地插件会遮蔽个人插件，因此安装还会清理 `~/.config/amp/plugins/` 下的残留：托管的旧文件 `cc-safety-net.ts`，以及手动复制过来、其中只有一个托管 `index.ts` 的 `cc-safety-net/` 目录。这两个路径上的其他任何本地条目都会使安装失败。设置和删除命令见<a href="/zh-Hans/installation#amp-code-安装">安装</a>。
+本地插件会遮蔽个人插件，因此安装还会清理 `~/.config/amp/plugins/` 下的残留：托管的旧文件 `cc-safety-net.ts`，以及手动复制过来、其中只有一个托管 `index.ts` 的 `cc-safety-net/` 目录。这两个路径上的其他任何本地条目都会使安装失败。设置和删除命令见<a href="/zh-Hans/installation#amp-code-installation">安装</a>。
 
 ### 嵌入的策略快照
 

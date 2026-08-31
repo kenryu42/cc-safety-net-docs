@@ -39,10 +39,10 @@ keywords:
 | **ポリシー** | 設定ドキュメント `policy.json`。既定では `~/.cc-safety-net/policy.json`。安全 preset、機能 override、worktree モード、破壊的コマンド保護、シークレット保護、監査保持を格納します。カスタムルールを格納する場所ではありません。[ポリシー](/ja/configuration/policy)を参照してください。 |
 | **プロジェクトポリシー** | プロジェクトルートに置ける `.cc-safety-net/policy.json`。設定したフィールドだけを持つファイルで、省略したフィールドはユーザーポリシーの値をそのまま引き継ぎます。`audit` セクションは持ちません。監査設定はユーザースコープ専用です。書き込みはユーザーポリシーファイルと同じく拒否されます。[ポリシー](/ja/configuration/policy)を参照してください。 |
 | **実効ポリシー** | ユーザーポリシーの上にプロジェクトポリシーを重ねた結果。`safety.level`、`workflow.worktree_mode`、およびプロジェクトが設定した各 `enabled` フラグは、プロジェクト側の値が優先されます。ルールごとの override はルール ID 単位でマージされ、`allow_paths` と `deny_paths` は両スコープの和集合になります。プロジェクトが緩和したフィールドは、1 行ずつ報告されます。[ポリシー](/ja/configuration/policy)を参照してください。 |
-| **ポリシースナップショット** | 各ツール呼び出しで、ユーザーとプロジェクトのポリシーファイル、各スコープの `rule.json`、および設定した各ソースの rulebook ファイルから構成される有効なランタイムポリシー。読み込み時に書き込み、ネットワーク要求、キャッシュを実行しません。状態は `ready` と `degraded` の 2 つだけです。[設定の復旧](/ja/configuration/recovery)を参照してください。 |
+| **ポリシースナップショット** | 各ツール呼び出しで、ユーザーとプロジェクトのポリシーファイル、各スコープの `rule.json`、および設定した各設定元の rulebook ファイルから構成される有効なランタイムポリシー。読み込み時に書き込み、ネットワーク要求、キャッシュを実行しません。状態は `ready` と `degraded` の 2 つだけです。[設定の復旧](/ja/configuration/recovery)を参照してください。 |
 | **preset** | 継承する機能の既定値を提供する `safety.level` の値。`standard`、`strict`、`paranoid` のいずれかです。override によってどの preset にも一致しない組み合わせになると、報告される有効レベルは `custom` です。[モード](/ja/configuration/modes)を参照してください。 |
 | **機能** | preset から継承され、個別に設定できる保護動作。`fail_closed`、`paranoid_rm`、`paranoid_interpreters` のいずれかです。ポリシーファイルの `safety.overrides` は機能を上げ下げします。レガシーの環境変数フラグは上げることしかできません。[モード](/ja/configuration/modes)を参照してください。 |
-| **Degraded** | 設定ソースが拒否されたときのポリシースナップショット状態。検証できないソースは削除されるか、保護的な既定値へフォールバックします。通常の作業は継続し、すべての診断表示で状態が報告されます。もう 1 つの状態は `ready` です。[設定の復旧](/ja/configuration/recovery)を参照してください。 |
+| **Degraded** | 設定元が拒否されたときのポリシースナップショット状態。検証できない設定元は削除されるか、保護的な既定値へフォールバックします。通常の作業は継続し、すべての診断表示で状態が報告されます。もう 1 つの状態は `ready` です。[設定の復旧](/ja/configuration/recovery)を参照してください。 |
 
 ## シェルコマンドの形式
 
@@ -56,9 +56,9 @@ keywords:
 
 | 用語 | 定義 |
 | --- | --- |
-| **カレントディレクトリ自体を指す対象** | `rm -rf .` のように、カレントディレクトリそのものに解決される `rm -rf` の対象。すべての安全レベルでブロックされます。[ブロックされるコマンド](/ja/reference/blocked-commands#ファイルシステムコマンド)を参照してください。 |
+| **カレントディレクトリ自体を指す対象** | `rm -rf .` のように、カレントディレクトリそのものに解決される `rm -rf` の対象。すべての安全レベルでブロックされます。[ブロックされるコマンド](/ja/reference/blocked-commands#filesystem-commands)を参照してください。 |
 | **実効カレントディレクトリ** | 複合コマンド内の `cd` や `pushd` をまたいで追跡される作業ディレクトリ。`rm -rf` の対象分類と worktree の検出に使います。[解析エンジン](/ja/guides/analysis-engine)を参照してください。 |
-| **カレントディレクトリ配下の対象** | カレントディレクトリ内に解決される、再帰的な強制削除の対象。既定では許可され、paranoid の `rm` モードではブロックされます。[許可されるコマンド](/ja/reference/allowed-commands#ファイルシステムコマンド)を参照してください。 |
+| **カレントディレクトリ配下の対象** | カレントディレクトリ内に解決される、再帰的な強制削除の対象。既定では許可され、paranoid の `rm` モードではブロックされます。[許可されるコマンド](/ja/reference/allowed-commands#filesystem-commands)を参照してください。 |
 
 ## モード
 
@@ -72,7 +72,7 @@ keywords:
 
 | 用語 | 定義 |
 | --- | --- |
-| **rulebook** | カスタムのブロックルール、メタデータ、任意のフィクスチャを収めた JSON ファイル。`rule.json` で参照先として設定し、そのスコープの `.cc-safety-net` ディレクトリ配下の `rules/<name>/rulebook.json` に置きます。ランタイムがツール呼び出しのたびに読み取るため、保存した編集は次のコマンドから反映されます。`name` は、その rulebook を参照するソースと一致していなければなりません。rulebook の名前は、ユーザースコープとプロジェクトスコープをまたいで一意に確保されます。[カスタムルール](/ja/configuration/custom-rules)を参照してください。 |
+| **rulebook** | カスタムのブロックルール、メタデータ、任意のフィクスチャを収めた JSON ファイル。`rule.json` で設定元として登録し、そのスコープの `.cc-safety-net` ディレクトリ配下の `rules/<name>/rulebook.json` に置きます。ランタイムがツール呼び出しのたびに読み取るため、保存した編集は次のコマンドから反映されます。`name` は、その rulebook を参照する設定元と一致していなければなりません。rulebook の名前は、ユーザースコープとプロジェクトスコープをまたいで一意に確保されます。[カスタムルール](/ja/configuration/custom-rules)を参照してください。 |
 | **transparent wrapper** | `rule.json` の `transparent_wrappers` で宣言するコマンド。解析はラッパーを通して、ラッパーが実行する保護対象コマンドに到達します。ラッパーは rulebook ではなく `rule.json` にあります。そのため、rulebook が削除されてもラッパーは残りますが、`rule.json` を読み取れないと、そのスコープのラッパーは失われます。[カスタムルール](/ja/configuration/custom-rules)を参照してください。 |
 | **取り込まれた rulebook** | リモートの rulebook を検証したうえで、`rule add` と `rule update` が利用側自身の `rules/<name>/rulebook.json` に書き込むコピー。リポジトリ内の通常のファイルなので、人間がそのまま読めますし、更新の差分もそのまま確認できます。ネットワークに接続するのは `rule add` と `rule update` だけで、ランタイムはこのファイルを読むだけです。[カスタムルール](/ja/configuration/custom-rules)を参照してください。 |
 

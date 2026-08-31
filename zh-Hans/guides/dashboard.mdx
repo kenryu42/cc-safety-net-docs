@@ -76,9 +76,13 @@ cc-safety-net gui --no-open
 
 **防护错误。** 窗口内如果有拒绝来自评估失败而非策略，就会出现一个按钮，文案为 <code>{'N guard error(s) in the last N days \u2014 commands blocked because evaluation failed, not by policy. Click to view.'}</code>。点击后会打开活动视图，并过滤为错误判定。这些拒绝属于 fail-closed：CC Safety Net 无法完成分析，因此拒绝了命令。如果反复出现，请参阅[故障排除](/zh-Hans/guides/troubleshooting)。
 
+<span id="activity"></span>
+
 ## 活动
 
-活动视图按时间倒序列出本地审计日志中的命令。命令在写入时就已脱敏，在任何内容进入日志之前完成；脱敏只覆盖已识别的凭证形式，因此条目中仍可能包含路径、主机名和名称。分享此视图中的内容前，请先参阅[审计日志](/zh-Hans/reference/audit-log#机密脱敏)，了解记录 schema 和准确的脱敏范围。
+活动视图按时间倒序列出本地审计日志中的命令。命令在写入时就已脱敏，在任何内容进入日志之前完成；脱敏只覆盖已识别的凭证形式，因此条目中仍可能包含路径、主机名和名称。分享此视图中的内容前，请先参阅[审计日志](/zh-Hans/reference/audit-log#secret-redaction)，了解记录 schema 和准确的脱敏范围。
+
+<span id="windows-are-derived-from-retention"></span>
 
 ### 时间窗口由保留期决定
 
@@ -92,7 +96,7 @@ cc-safety-net gui --no-open
 | 90 天 | 7、30、90 |
 | 365 天 | 7、30、90、180、365 |
 
-窗口按完整的本地日历日计算，即今天加之前的若干天，因此概览中按天分桶的迷你图之和与总数完全一致。请求超过保留期的窗口会被拒绝；缩短保留期后，当前选择会自动收窄。保留期本身如何配置和执行，见[审计日志](/zh-Hans/reference/audit-log#保留)。
+窗口按完整的本地日历日计算，即今天加之前的若干天，因此概览中按天分桶的迷你图之和与总数完全一致。请求超过保留期的窗口会被拒绝；缩短保留期后，当前选择会自动收窄。保留期本身如何配置和执行，见[审计日志](/zh-Hans/reference/audit-log#retention)。
 
 ### 过滤器
 
@@ -122,7 +126,7 @@ cc-safety-net gui --no-open
 
 ### 每个条目的操作
 
-每个条目都显示判定 badge（`Blocked`、`Allowed` 或 `Error`）、智能体 badge、rule ID chip、相对时间戳，以及把原始日志条目复制为 JSON 的按钮。过长的命令会被折叠，并提供 Show more 开关。复制出来的是原始审计记录，字段说明见[审计日志](/zh-Hans/reference/audit-log#记录模式)。
+每个条目都显示判定 badge（`Blocked`、`Allowed` 或 `Error`）、智能体 badge、rule ID chip、相对时间戳，以及把原始日志条目复制为 JSON 的按钮。过长的命令会被折叠，并提供 Show more 开关。复制出来的是原始审计记录，字段说明见[审计日志](/zh-Hans/reference/audit-log#record-schema)。
 
 被拒绝的条目提供**报告误报**，点击会打开一个对话框，准备一份预填好的**公开** GitHub issue。继续之前，命令和日志条目都可以编辑；项目路径会被替换为 `<project>`，主目录被替换为 `~`；在你自己到 GitHub 上提交之前，不会提交任何内容。
 
@@ -151,13 +155,13 @@ cc-safety-net gui --no-open
 
 **标记与继承。** 每个控件都会带上一个 chip，说明它显示的值来自哪里。`Inherited` 表示该字段不写入项目文件，每位成员继续使用自己的值。`Set by project` 表示草稿会写入该字段，点击这个 chip 即可退回继承。编辑控件就会标记它对应的字段。被标记的路径列表只显示项目自己的条目，因此刚标记时是空的，不会把你的个人路径发布到仓库里。
 
-**复核并应用。** **Save** 变成 **Review & apply**。点击后向服务器请求差异，并打开 `Apply this project policy?` 对话框，其中给出写入路径，以及一张按 `Setting` / `Now` / `After` 排列的生效策略前后对照表；某一侧没有该字段时显示 `(unset)`。没有差异时，表格位置显示 `No change to the effective policy.`。表格下方逐条列出草稿相对用户策略削弱的字段，措辞与[策略](/zh-Hans/configuration/policy#报告的削弱)中记载的一致；磁盘上已有的文件无法读取时，还会加上 `The existing project policy file is invalid and will be replaced.`。默认获得焦点的是 Cancel。
+**复核并应用。** **Save** 变成 **Review & apply**。点击后向服务器请求差异，并打开 `Apply this project policy?` 对话框，其中给出写入路径，以及一张按 `Setting` / `Now` / `After` 排列的生效策略前后对照表；某一侧没有该字段时显示 `(unset)`。没有差异时，表格位置显示 `No change to the effective policy.`。表格下方逐条列出草稿相对用户策略削弱的字段，措辞与[策略](/zh-Hans/configuration/policy#reported-weakenings)中记载的一致；磁盘上已有的文件无法读取时，还会加上 `The existing project policy file is invalid and will be replaced.`。默认获得焦点的是 Cancel。
 
 差异加载期间修改表单，应用会被拒绝并提示 `Error: the draft changed while the review was loading. Review it again.`，需要重新复核一次。如果另一个标签页改动了项目目录，草稿会按新目标重新加载，并要求你在应用前再复核一遍。
 
 **草稿无法启动的情况。** 用户策略有错误时，运行时会退回到保护性默认值；以这些值为基础起草，会让默认值看起来像团队继承的基线。因此仪表板拒绝起草，并连同诊断信息提示 `Error: repair your user policy before drafting a project policy.`。项目文件存在但读不出来则是另一回事：草稿从空白开始，并把该文件的诊断信息显示在表单上方。
 
-**与 CLI 相同的保证。** 这份草稿就是表单形式的 `cc-safety-net policy check` 和 `cc-safety-net policy apply`。它写入同样稀疏的文件，针对同一份运行时用户基线计算差异，在你确认之前不写入任何内容。文件约定和两个范围的合并规则见[策略](/zh-Hans/configuration/policy#项目策略)。
+**与 CLI 相同的保证。** 这份草稿就是表单形式的 `cc-safety-net policy check` 和 `cc-safety-net policy apply`。它写入同样稀疏的文件，针对同一份运行时用户基线计算差异，在你确认之前不写入任何内容。文件约定和两个范围的合并规则见[策略](/zh-Hans/configuration/policy#project-policy)。
 
 有一处差别值得留意。智能体执行的 `cc-safety-net policy apply` 会被防护以 intent `hard_stop` 拒绝，因为改写 CC Safety Net 所执行的配置必须由你本人来做。仪表板的应用同样是人的操作：你在页面上亲手点击，而这个页面只有持有会话令牌的人才能打开。但正如[本地环回范围](#本地环回范围)所述，启动仪表板的智能体也持有这个令牌。
 
@@ -196,7 +200,9 @@ master switch 开启时，面板摘要显示 `N active, N disabled`。关闭后�
 
 切换规则会存储显式 `on` 或 `off` override。把规则恢复为继承值时会**删除** override，而不是存储冗余值。每条规则还提供 `Use inherited setting` 直接完成此操作。面板标题中的 `Restore defaults` 会一次清除所有 override。
 
-**允许路径**也在此面板中。指向列表内路径的递归删除不会被阻止，这正是 `/tmp` 可用的原因。条目必须是绝对路径或以 `~/` 开头的目录，主目录会被拒绝。完整的校验表见[允许路径](/zh-Hans/configuration/policy#允许路径)。允许路径放宽和保留的规则见[允许的命令](/zh-Hans/reference/allowed-commands#配置的允许路径)。
+**允许路径**也在此面板中。指向列表内路径的递归删除不会被阻止，这正是 `/tmp` 可用的原因。条目必须是绝对路径或以 `~/` 开头的目录，主目录会被拒绝。完整的校验表见[允许路径](/zh-Hans/configuration/policy#allow-paths)。允许路径放宽和保留的规则见[允许的命令](/zh-Hans/reference/allowed-commands#configured-allow-paths)。
+
+<span id="secret-protection"></span>
 
 ### 机密保护
 
@@ -208,9 +214,9 @@ master switch 开启时，面板摘要显示 `N active, N disabled`。关闭后�
 
 master switch 开启时，面板摘要显示 `N active, N disabled`。关闭时显示 `Protection disabled. Saved rule settings and deny paths are preserved.` 已保存的机密允许路径同样保留在草稿中。
 
-**拒绝路径**也在此面板中。机密保护开启时，配置的路径及其下的所有内容都会被阻止。拒绝路径依赖 master switch。关闭机密保护后，系统不再执行这些拒绝路径。可接受的条目形式见[拒绝路径](/zh-Hans/configuration/policy#拒绝路径)。
+**拒绝路径**也在此面板中。机密保护开启时，配置的路径及其下的所有内容都会被阻止。拒绝路径依赖 master switch。关闭机密保护后，系统不再执行这些拒绝路径。可接受的条目形式见[拒绝路径](/zh-Hans/configuration/policy#deny-paths)。
 
-**允许路径**同样在此面板中。可以让某个具体文件或目录树免于内置的模式规则，但拒绝路径和 Coding CLI 保护仍然适用。每个新增条目在进入草稿前都会经过仪表板校验：glob 模式、覆盖主目录的路径以及防护自身的配置都会被拒绝。完整的优先级和校验规则见[机密允许路径](/zh-Hans/configuration/policy#机密允许路径)。
+**允许路径**同样在此面板中。可以让某个具体文件或目录树免于内置的模式规则，但拒绝路径和 Coding CLI 保护仍然适用。每个新增条目在进入草稿前都会经过仪表板校验：glob 模式、覆盖主目录的路径以及防护自身的配置都会被拒绝。完整的优先级和校验规则见[机密允许路径](/zh-Hans/configuration/policy#secret-allow-paths)。
 
 ### 策略 JSON
 
@@ -316,7 +322,7 @@ Composer 为编码智能体构建 prompt。唯一操作是**复制 prompt**。�
 
 **文件。** 只读信息行，显示 CC Safety Net 在本机上的读写位置：策略文件和审计日志目录。有项目策略生效时，两行之间会出现 **Project policy** 行；信息行下方还有一条以 `Merged on top of this file:` 开头的提示，列出这个文件改了哪些设置。
 
-**审计日志保留期。** 可接受的天数、记录内容和清理方式见[审计日志](/zh-Hans/reference/audit-log#保留)。与策略视图不同，保留期**一改动就立即保存**，没有保存栏。策略视图存在未保存的更改时，无法保存保留期。你需要先保存或丢弃这些更改。保留期只属于用户范围，因此项目草稿打开期间同样无法保存。磁盘上的策略有错误时，策略保存按钮不可用，但保留期控件仍能保存。此时表单中只有默认值，修改保留期会写入一份除新保留期外全部使用默认值的文档。因此，修改保留期前请先修复策略。
+**审计日志保留期。** 可接受的天数、记录内容和清理方式见[审计日志](/zh-Hans/reference/audit-log#retention)。与策略视图不同，保留期**一改动就立即保存**，没有保存栏。策略视图存在未保存的更改时，无法保存保留期。你需要先保存或丢弃这些更改。保留期只属于用户范围，因此项目草稿打开期间同样无法保存。磁盘上的策略有错误时，策略保存按钮不可用，但保留期控件仍能保存。此时表单中只有默认值，修改保留期会写入一份除新保留期外全部使用默认值的文档。因此，修改保留期前请先修复策略。
 
 <Warning>
 缩短保留期不可逆。早于新窗口的审计条目会在下次清理时删除，且无法恢复。活动视图之后只能回溯到新的保留期。仪表板会在缩短保留期前要求确认，并列出要清理的日志目录。请先导出需要的内容。活动列表中的每个条目都可以复制为 JSON。

@@ -38,26 +38,26 @@ keywords:
 | **策略（Policy）** | 设置文档 `policy.json`，默认路径为 `~/.cc-safety-net/policy.json`。它包含安全预设、能力覆盖、worktree 模式、破坏性命令保护、机密保护和审计保留期。自定义规则不存放在此文件中。请参阅[策略](/zh-Hans/configuration/policy)。 |
 | **项目策略（Project policy）** | 项目根目录中可选的 `.cc-safety-net/policy.json`。它是稀疏文件：只设置自己列出的字段，省略的字段沿用用户策略的值。它没有 `audit` 部分，审计设置仅属于用户范围。写入它与写入用户策略文件一样会被拒绝。请参阅[策略](/zh-Hans/configuration/policy)。 |
 | **生效策略（Effective policy）** | 用户策略叠加项目策略后的结果。`safety.level`、`workflow.worktree_mode` 以及项目设定的每个 `enabled` 标志都以项目值为准；按规则 ID 合并各条 override；`allow_paths` 和 `deny_paths` 取两个范围的并集。项目削弱的每个字段各占一行报告。请参阅[策略](/zh-Hans/configuration/policy)。 |
-| **策略快照（Policy snapshot）** | 每次工具调用时，由用户和项目策略文件、各范围的 `rule.json`，以及每个已配置源的 rulebook 文件组合成的有效运行时策略。加载过程不写入、不发起网络请求，也不缓存。它仅解析为 `ready` 或 `degraded` 两种状态之一。请参阅[配置恢复](/zh-Hans/configuration/recovery)。 |
+| **策略快照（Policy snapshot）** | 每次工具调用时，由用户和项目策略文件、各范围的 `rule.json`，以及每个已配置来源的 rulebook 文件组合成的有效运行时策略。加载过程不写入、不发起网络请求，也不缓存。它仅解析为 `ready` 或 `degraded` 两种状态之一。请参阅[配置恢复](/zh-Hans/configuration/recovery)。 |
 | **预设（Preset）** | `safety.level` 值，即 `standard`、`strict` 或 `paranoid`，它提供继承的能力默认值。当覆盖产生不匹配任何预设的组合时，报告的有效级别为 `custom`。请参阅[模式](/zh-Hans/configuration/modes)。 |
 | **能力（Capability）** | 从预设继承且可单独设置的保护行为：`fail_closed`、`paranoid_rm` 或 `paranoid_interpreters`。策略文件中的 `safety.overrides` 可以提高或降低能力；旧版环境变量只能提高能力。请参阅[模式](/zh-Hans/configuration/modes)。 |
-| **降级（Degraded）** | 配置源被拒绝时进入的策略快照状态。无法验证的源会被丢弃或回退到保护性默认值，普通工作继续，所有诊断界面都会报告该状态。另一个状态是 `ready`。请参阅[配置恢复](/zh-Hans/configuration/recovery)。 |
+| **降级（Degraded）** | 配置来源被拒绝时进入的策略快照状态。无法验证的来源会被丢弃或回退到保护性默认值，普通工作继续，所有诊断界面都会报告该状态。另一个状态是 `ready`。请参阅[配置恢复](/zh-Hans/configuration/recovery)。 |
 
 ## Shell 命令形式
 
 | 术语 | 定义 |
 | --- | --- |
-| **Shell 包装器（Shell wrapper）** | 包装另一个命令的 shell 命令，例如 `bash -c 'git reset --hard'`。CC Safety Net 递归分析包装的命令，最多 10 层。请参阅[被阻止的命令](/zh-Hans/reference/blocked-commands#shell-包装器和解释器单行命令)。 |
-| **解释器单行命令（Interpreter one-liner）** | 类似 `python -c 'import os; os.system("rm -rf /")'` 的命令，它内联执行代码。默认会检测这类命令并分析其中的危险模式。请参阅[被阻止的命令](/zh-Hans/reference/blocked-commands#shell-包装器和解释器单行命令)。 |
+| **Shell 包装器（Shell wrapper）** | 包装另一个命令的 shell 命令，例如 `bash -c 'git reset --hard'`。CC Safety Net 递归分析包装的命令，最多 10 层。请参阅[被阻止的命令](/zh-Hans/reference/blocked-commands#shell-wrappers-and-interpreter-one-liners)。 |
+| **解释器单行命令（Interpreter one-liner）** | 类似 `python -c 'import os; os.system("rm -rf /")'` 的命令，它内联执行代码。默认会检测这类命令并分析其中的危险模式。请参阅[被阻止的命令](/zh-Hans/reference/blocked-commands#shell-wrappers-and-interpreter-one-liners)。 |
 | **动态替换（Dynamic substitution）** | 依赖运行时展开的命令值或结构，例如 `$(...)`、`<(...)` 或 `$VAR`。CC Safety Net 根据命令类型和安全级别处理动态替换。某些形式在 standard 模式下允许，但启用 fail-closed 行为后会被阻止。请参阅[分析引擎](/zh-Hans/guides/analysis-engine)。 |
 
 ## 递归删除和路径
 
 | 术语 | 定义 |
 | --- | --- |
-| **CWD 自身目标（CWD self-target）** | 解析为当前工作目录本身的 `rm -rf` 目标，例如 `rm -rf .`。在每个安全级别都会被阻止。请参阅[被阻止的命令](/zh-Hans/reference/blocked-commands#文件系统命令)。 |
+| **CWD 自身目标（CWD self-target）** | 解析为当前工作目录本身的 `rm -rf` 目标，例如 `rm -rf .`。在每个安全级别都会被阻止。请参阅[被阻止的命令](/zh-Hans/reference/blocked-commands#filesystem-commands)。 |
 | **有效 cwd（Effective cwd）** | 在复合命令中跨 `cd` 和 `pushd` 命令持续跟踪的工作目录。用于 `rm -rf` 目标分类和 worktree 检测。请参阅[分析引擎](/zh-Hans/guides/analysis-engine)。 |
-| **cwd 内目标（Within-cwd target）** | 解析到当前工作目录内的递归强制删除目标。默认允许，在 paranoid `rm` 模式下会被阻止。请参阅[允许的命令](/zh-Hans/reference/allowed-commands#文件系统命令)。 |
+| **cwd 内目标（Within-cwd target）** | 解析到当前工作目录内的递归强制删除目标。默认允许，在 paranoid `rm` 模式下会被阻止。请参阅[允许的命令](/zh-Hans/reference/allowed-commands#filesystem-commands)。 |
 
 ## 模式
 
@@ -71,7 +71,7 @@ keywords:
 
 | 术语 | 定义 |
 | --- | --- |
-| **Rulebook** | 包含自定义阻止规则、元数据和可选 fixture 的 JSON 文件。它在 `rule.json` 中配置为源，位于该范围 `.cc-safety-net` 目录下的 `rules/<name>/rulebook.json`。运行时每次工具调用都读取它，因此保存后的编辑从下一条命令起生效。它的 `name` 必须与列出它的源一致。rulebook 名称在用户和项目两个范围内全局占用。请参阅[自定义规则](/zh-Hans/configuration/custom-rules)。 |
+| **Rulebook** | 包含自定义阻止规则、元数据和可选 fixture 的 JSON 文件。它在 `rule.json` 中配置为来源，位于该范围 `.cc-safety-net` 目录下的 `rules/<name>/rulebook.json`。运行时每次工具调用都读取它，因此保存后的编辑从下一条命令起生效。它的 `name` 必须与列出它的来源一致。rulebook 名称在用户和项目两个范围内全局占用。请参阅[自定义规则](/zh-Hans/configuration/custom-rules)。 |
 | **透明包装器（Transparent wrapper）** | 在 `rule.json` 的 `transparent_wrappers` 中声明的命令。分析会穿透它，以到达它执行的受保护命令。包装器位于 `rule.json` 而不是 rulebook 中，因此 rulebook 被丢弃后包装器依然保留，但 `rule.json` 无法读取时会丢失该范围的包装器。请参阅[自定义规则](/zh-Hans/configuration/custom-rules)。 |
 | **落盘 rulebook（Vendored rulebook）** | `rule add` 和 `rule update` 验证远程 rulebook 后写入使用方自己 `rules/<name>/rulebook.json` 的那份副本。它是仓库中的普通文件，人可以直接阅读，更新改了什么也能从 diff 看出来。只有 `rule add` 和 `rule update` 会访问网络，运行时只读取这个文件。请参阅[自定义规则](/zh-Hans/configuration/custom-rules)。 |
 

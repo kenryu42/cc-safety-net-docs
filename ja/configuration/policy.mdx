@@ -20,9 +20,11 @@ description: "CC Safety Net の policy.json の完全なリファレンスです
 
 `CC_SAFETY_NET_HOME` が効くのはユーザーファイルだけです。プロジェクトファイルは常にプロジェクトルート直下の `.cc-safety-net/policy.json` で、ルールのスコープが解決するディレクトリと同じです。
 
-ランタイムはツール呼び出しごとに両方のファイルを読み取ります。ユーザーファイルが基準となり、その上にプロジェクトファイルが重なります。[プロジェクトポリシー](#プロジェクトポリシー)を参照してください。
+ランタイムはツール呼び出しごとに両方のファイルを読み取ります。ユーザーファイルが基準となり、その上にプロジェクトファイルが重なります。[プロジェクトポリシー](#project-policy)を参照してください。
 
 ダッシュボードがユーザーファイルを書き込むときは、ディレクトリを `0700`、ファイルを `0600` で作成します。
+
+<span id="project-policy"></span>
 
 ## プロジェクトポリシー
 
@@ -41,6 +43,8 @@ description: "CC Safety Net の policy.json の完全なリファレンスです
 | `audit` | ユーザースコープのみ |
 
 プロジェクトファイルの `audit` セクションは無視され、読み込み時に `project policy audit settings are ignored; audit is user scope only` が報告されます。
+
+<span id="reported-weakenings"></span>
 
 ### 報告される緩和
 
@@ -87,7 +91,7 @@ description: "CC Safety Net の policy.json の完全なリファレンスです
 
 - **ダッシュボードを使う。** `cc-safety-net gui` を実行します。ダッシュボードは適切なパーミッションでファイルを書き込み、検証に通らないファイルを修復できます。ファイルにエラーがある間は、フォームにファイル内の有効な値ではなく既定値一式が表示され、ファイルを修復するまで保存できません。修復では、認識できる有効な設定は残し、無効なフィールドを破棄します。この修復動作を使いたくない場合は、ファイルを手動で編集して `status` で確認してください。
 - **JSON を直接編集する。** エディターでファイルを開いて手作業で変更します。ランタイムは次のツール呼び出しで変更を読み込むため、再起動は必要ありません。
-- **提案を適用する。** `cc-safety-net policy apply <file>` を実行すると、ターミナルで差分を確認したうえで、提案ファイルの内容をどちらかのスコープに書き込みます。[提案の確認と適用](#提案の確認と適用)を参照してください。
+- **提案を適用する。** `cc-safety-net policy apply <file>` を実行すると、ターミナルで差分を確認したうえで、提案ファイルの内容をどちらかのスコープに書き込みます。[提案の確認と適用](#check-and-apply-a-proposal)を参照してください。
 
 手作業で編集したら、結果を確認します。
 
@@ -96,6 +100,8 @@ npx cc-safety-net status
 ```
 
 判定が `degraded` になった場合は、ファイルの一部が拒否されています。`npx cc-safety-net doctor` を実行すると、該当するフィールドが分かります。ランタイムが `policy.json` を自動で書き換えることは**ありません**。無効なファイルは、手作業またはダッシュボードの修復機能で直すまで残ります。
+
+<span id="check-and-apply-a-proposal"></span>
 
 ## 提案の確認と適用
 
@@ -221,15 +227,15 @@ Only the user may apply a policy proposal, because it rewrites the configuration
 </ParamField>
 
 <ParamField body="secret_protection.overrides" type="object" default="{}">
-  登録済みのシークレット保護ルール ID をキーとする、ルール単位の状態です。値は `"on"` または `"off"` です。ほとんどのシークレットルールはシークレット保護が有効なかぎり有効なので、通常使うのは `"off"` の方向です。一方、[Coding CLI 設定階層](#既定で無効なルール)は既定で無効なので、これらのルールを使う場合は明示的に `"on"` を指定します。
+  登録済みのシークレット保護ルール ID をキーとする、ルール単位の状態です。値は `"on"` または `"off"` です。ほとんどのシークレットルールはシークレット保護が有効なかぎり有効なので、通常使うのは `"off"` の方向です。一方、[Coding CLI 設定階層](#rules-that-are-off-by-default)は既定で無効なので、これらのルールを使う場合は明示的に `"on"` を指定します。
 </ParamField>
 
 <ParamField body="secret_protection.deny_paths" type="string[]" default="[]">
-  組み込みの機密パスに加えて、シークレットとして保護するパスです。検証ルールは [Deny path](#deny-path) を参照してください。
+  組み込みの機密パスに加えて、シークレットとして保護するパスです。検証ルールは [Deny path](#deny-paths) を参照してください。
 </ParamField>
 
 <ParamField body="secret_protection.allow_paths" type="string[]" default="[]">
-  組み込みのシークレットパターンルールから除外する、特定のファイルまたはディレクトリツリーです。設定済みの deny path と Coding CLI の保護は引き続き適用されます。検証ルールと優先順位は、[Secret allow path](#secret-allow-path)を参照してください。
+  組み込みのシークレットパターンルールから除外する、特定のファイルまたはディレクトリツリーです。設定済みの deny path と Coding CLI の保護は引き続き適用されます。検証ルールと優先順位は、[Secret allow path](#secret-allow-paths)を参照してください。
 </ParamField>
 
 <ParamField body="audit.retention_days" type="integer" default="30">
@@ -278,6 +284,8 @@ Only the user may apply a policy proposal, because it rewrites the configuration
 
 **致命的な操作に対するルールは常に強制され、ユーザーが設定を変えることはできません。** これらは `enabled: false` も `"off"` の override も無視します。対象となるのは、`/` やホームディレクトリの削除、Git メタデータの削除、およびそれらに相当する PowerShell と `find` の操作です。各ルールが何を強制するかは、[ブロックされるコマンド](/ja/reference/blocked-commands)を参照してください。
 
+<span id="allow-paths"></span>
+
 ### Allow path
 
 `destructive_command_protection.allow_paths` は、特定の場所を破壊的コマンドのルールから除外します。検証は deny path より厳格です。
@@ -289,6 +297,8 @@ Only the user may apply a policy proposal, because it rewrites the configuration
 | ホームディレクトリそのもの | 無効：`cannot be the home directory` |
 | `/` など、ホームディレクトリを内側に含むパス | 無効：`cannot contain the home directory` |
 | 上記以外の絶対パス、または `~/` から始まるパス | 有効 |
+
+<span id="secret-protection"></span>
 
 ## シークレット保護
 
@@ -312,11 +322,15 @@ Only the user may apply a policy proposal, because it rewrites the configuration
 
 登録されていない ID は `unknown secret protection rule id "<id>"` で、それ以外の値は `secret_protection.overrides.<id> must be "on" or "off"` で拒否されます。
 
+<span id="rules-that-are-off-by-default"></span>
+
 ### 既定で無効なルール
 
 組み込みのシークレットルールは、ほとんどがシークレット保護と同時に有効になります。唯一の例外は、対応するコーディングエージェントの設定ファイルと MCP 設定ファイルを対象にする **Coding CLI config** ルールです。これらのファイルは資格情報を直接含むことがありますが、エージェントが通常の作業で編集することもあります。このため、Coding CLI config は既定で無効です。使うルールごとに `"on"` の override を指定してください。有効にした config ルールは、エージェントのユーザーレベル設定に加え、任意のリポジトリルートにある同名のプロジェクトレベルファイル（`.mcp.json` など）も保護します。
 
-既定で無効な 10 個の ID、それぞれに対応する既定で有効な **Coding CLI credential** ルール、各ルールが保護する正確なパスは、[シークレット保護リファレンス](/ja/reference/secret-protection#コーディング-cli-設定階層（既定では-off）)に記載しています。
+既定で無効な 10 個の ID、それぞれに対応する既定で有効な **Coding CLI credential** ルール、各ルールが保護する正確なパスは、[シークレット保護リファレンス](/ja/reference/secret-protection#coding-cli-config-tier-off-by-default)に記載しています。
+
+<span id="deny-paths"></span>
 
 ### Deny path
 
@@ -343,6 +357,8 @@ Only the user may apply a policy proposal, because it rewrites the configuration
 - deny path が適用されるのは、`secret_protection.enabled` が `true` の間だけです。`false` にすると、シークレット判定ステージの他の保護もろとも無効になります。
 - `secret.deny-path` は登録済みのシークレットルール ID ではないため、`secret_protection.overrides` では無効にできません。無効にできるのは `secret_protection.enabled: false` だけです。
 
+<span id="secret-allow-paths"></span>
+
 ### Secret allow path
 
 `secret_protection.allow_paths` は、特定のファイル、またはディレクトリとその配下すべてを、組み込みのベース名ルール、ホームディレクトリルール、鍵ファイルの派生形ルール、拡張子ルールから除外します。リポジトリ内の `.env.test` や、シークレットではないものの資格情報らしいファイル名を含むフィクスチャ用ディレクトリなど、意図して管理しているファイルに使います。
@@ -367,6 +383,8 @@ Only the user may apply a policy proposal, because it rewrites the configuration
 各項目はリテラルなパスであり、glob パターンではありません。対象は実行時の作業ディレクトリから、相対指定の allow path は設定時の作業ディレクトリから解決されます。一致判定（同一または配下かどうか）の前に、両側とも既存のシンボリックリンクをたどるため、allow path の起点はシンボリックリンク経由で到達する対象も含みます。
 
 ランタイムは、パスを解決した後にも安全性の境界を確認します。ホームディレクトリやその上位に解決される項目は無視します。実際に使われるガード設定ルート配下の対象も除外しません。`CC_SAFETY_NET_HOME` でルートを移した場合や、ホームディレクトリまたは `~/.cc-safety-net` がシンボリックリンクの場合も同じです。
+
+<span id="audit-retention"></span>
 
 ## 監査ログの保持期間
 

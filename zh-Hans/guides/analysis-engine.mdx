@@ -6,9 +6,11 @@ description: "分析引擎详解：安全级别边界、包装器和解释器递
 
 这是技术指南的第四页，也是范围最窄的一页。它以[架构](/zh-Hans/guides/architecture)中的防护管线为基础，只讲破坏性命令分类器的具体行为和边界。阅读 `explain` 输出或编写精确的[自定义规则](/zh-Hans/configuration/custom-rules)时，可查阅这些细节。
 
-分类器是防护的**最后**一个阶段。在此之前，有界工具输入提取、解析器预算、策略文件和 Git 元数据保护、策略快照加载以及敏感路径保护都已运行。这些阶段在[有序防护阶段](/zh-Hans/guides/architecture#有序防护阶段)中定义。有界解析以及始终启用的策略文件和 Git 元数据防护，在每个安全级别下都会 fail closed。无效的策略快照使用保护性回退，敏感路径保护则遵循解析后的策略。破坏性命令分类器不能放宽更早阶段已经作出的判定。
+分类器是防护的**最后**一个阶段。在此之前，有界工具输入提取、解析器预算、策略文件和 Git 元数据保护、策略快照加载以及敏感路径保护都已运行。这些阶段在[有序防护阶段](/zh-Hans/guides/architecture#the-ordered-guard-stages)中定义。有界解析以及始终启用的策略文件和 Git 元数据防护，在每个安全级别下都会 fail closed。无效的策略快照使用保护性回退，敏感路径保护则遵循解析后的策略。破坏性命令分类器不能放宽更早阶段已经作出的判定。
 
-其分派流程包括拆分命令段、剥离环境变量赋值和包装器、识别主命令，再交给对应分析器。该流程图见[架构](/zh-Hans/guides/architecture#命令分析内部流程)。本页继续说明每个分析器如何处理收到的命令段，以及安全级别在哪些位置改变边界。
+其分派流程包括拆分命令段、剥离环境变量赋值和包装器、识别主命令，再交给对应分析器。该流程图见[架构](/zh-Hans/guides/architecture#inside-command-analysis)。本页继续说明每个分析器如何处理收到的命令段，以及安全级别在哪些位置改变边界。
+
+<span id="safety-level-boundaries"></span>
 
 ## 安全级别边界
 
@@ -28,10 +30,10 @@ Standard 会阻止可识别的破坏性命令，但**不具备**对抗级保护�
 
 - **允许看似安全但无法解析的文本。** `echo 'unterminated` 会被允许。
 - **即使无法解析，可识别的破坏性文本仍然会被阻止。** `git reset --hard 'unterminated` 会被原始文本启发式扫描阻止，该扫描可识别 `rm -rf`、`git reset --hard`/`--merge`、`git clean -f`、`git checkout --force`、`git push --force`/`--delete`、`git branch -D`、`git tag -d`、`git stash drop`/`clear`、`git checkout --`、`git restore`、`find -delete`、`dd of=/dev/`、`mkfs /dev/` 和 `shred <arg>`。
-- **带引号的字面量赋值中的危险文本延后到使用时判定。** `W='rm -rf ~'; echo "$W"` 会被允许：赋值本身不执行操作，而且参数位置中带引号的展开仍是一个 argv word，不能拆成命令和标志。任何风险更高的引用方式（未加引号、位于命令位置、位于替换中或位于未加引号的 heredoc body 中）仍会在赋值时触发阻止。把值交给 shell（`eval "$W"`、`bash -c "$W"`、`echo "$W" | sh`）也会拒绝，因为无法验证 shell 执行来源。Strict 从不延后判定。见[仅标准允许](/zh-Hans/reference/allowed-commands#仅标准允许)。
+- **带引号的字面量赋值中的危险文本延后到使用时判定。** `W='rm -rf ~'; echo "$W"` 会被允许：赋值本身不执行操作，而且参数位置中带引号的展开仍是一个 argv word，不能拆成命令和标志。任何风险更高的引用方式（未加引号、位于命令位置、位于替换中或位于未加引号的 heredoc body 中）仍会在赋值时触发阻止。把值交给 shell（`eval "$W"`、`bash -c "$W"`、`echo "$W" | sh`）也会拒绝，因为无法验证 shell 执行来源。Strict 从不延后判定。见[仅标准允许](/zh-Hans/reference/allowed-commands#standard-only-allowances)。
 - **不会一律阻止动态 `rm -rf` 目标。** Standard 允许 `rm -rf "$target"`；只有启用 fail-closed 能力后才会阻止。
 - Standard 还会允许动态可执行文件名、通过替换拼接的受防护命令结构、其他无法验证的递归删除目标，以及只检查内置敏感路径元数据的独立命令。
-- **对可验证的本地生成命令执行 `eval` 和 `source` 是允许的。** `eval "$(ssh-agent -s)"` 和 `source <(kubectl completion bash)` 在 standard 下放行，前提是替换主体为单条完全字面的简单命令，且不是远程抓取命令、shell 或命令包装器。主体仍会照常分析，它打印出来的那段 shell 则不会。Strict 和 paranoid 拒绝所有动态 shell 执行来源。见[仅标准允许](/zh-Hans/reference/allowed-commands#仅标准允许)。
+- **对可验证的本地生成命令执行 `eval` 和 `source` 是允许的。** `eval "$(ssh-agent -s)"` 和 `source <(kubectl completion bash)` 在 standard 下放行，前提是替换主体为单条完全字面的简单命令，且不是远程抓取命令、shell 或命令包装器。主体仍会照常分析，它打印出来的那段 shell 则不会。Strict 和 paranoid 拒绝所有动态 shell 执行来源。见[仅标准允许](/zh-Hans/reference/allowed-commands#standard-only-allowances)。
 - Standard 绝不放宽**敏感内容访问**和**配置的拒绝路径**，也绝不放宽灾难性保护。
 
 ### Strict
@@ -82,7 +84,7 @@ Standard 会阻止可识别的破坏性命令，但**不具备**对抗级保护�
 
 ### 透明包装器
 
-标准包装器（`sudo`、`env`、`command`、`builtin`）始终会被剥离。你声明为**透明包装器**的代理命令也会被剥离。声明和约束方式见[自定义规则](/zh-Hans/configuration/custom-rules#透明包装器)；对分类而言，重要的是引擎如何展开它们。
+标准包装器（`sudo`、`env`、`command`、`builtin`）始终会被剥离。你声明为**透明包装器**的代理命令也会被剥离。声明和约束方式见[自定义规则](/zh-Hans/configuration/custom-rules#transparent-wrappers)；对分类而言，重要的是引擎如何展开它们。
 
 展开过程会查找包装器标志和环境变量赋值后的第一个*可保护*子命令，或显式 `--` 后的 token。展开后，内置分析和**自定义规则**都会应用于子命令：`rtk git reset --hard` 会命中内置规则，`rtk docker system prune` 会命中匹配的自定义规则。没有任何保护适用的子命令不会被展开。
 
@@ -91,8 +93,10 @@ Standard 会阻止可识别的破坏性命令，但**不具备**对抗级保护�
 cwd 会在同一命令的各个命令段之间跟踪。目标为字面量的 `cd` 或 `pushd` 会更新后续 `rm` 和 `find` 分析使用的有效 cwd；`cd` 到动态目标（包含 `$` 或反引号）会把 cwd 置为未知，`rm` 分析会将其视为没有 cwd 锚点。
 
 <Note>
-一项已知限制：解释器的**长格式标志**（`--eval`、`--execute`、`--require` 以及附带 `=value` 的形式）并非在所有代码路径中都能识别，因此代码参数不一定总能被提取。见[已知限制](/zh-Hans/guides/known-limitations#解释器长格式标志)。
+一项已知限制：解释器的**长格式标志**（`--eval`、`--execute`、`--require` 以及附带 `=value` 的形式）并非在所有代码路径中都能识别，因此代码参数不一定总能被提取。见[已知限制](/zh-Hans/guides/known-limitations#interpreter-long-form-flags)。
 </Note>
+
+<span id="posix-shell-functions"></span>
 
 ## POSIX shell 函数
 
@@ -113,6 +117,8 @@ POSIX 函数定义（例如 `name() { ... }`）会被解析为定义，而不是
 分析前的防护阶段同样能看穿函数调用：策略文件保护和敏感路径提取会在每个调用点评估被执行的花括号组和被调用的函数体。
 
 有两个结构边界在每个级别（包括 standard）都会 fail closed。自递归（`loop() { loop; }; loop`）会因递归深度限制而被拒绝。分支调用链会因派生命令工作预算或投影的 256 个内联调用点上限而被拒绝。函数体内附带的 heredoc 不在安全支持范围内，会使命令无法解析。因此，standard 使用启发式扫描处理，strict 则直接拒绝。
+
+<span id="heredoc-analysis"></span>
 
 ## Heredoc 分析
 
@@ -159,6 +165,8 @@ Git 支持用 `GIT_SSH_COMMAND`、`GIT_SSH` 和 `GIT_SSH_VARIANT` 在网络操�
 当 `--` 之前出现 ref 时，`reset --hard`/`--merge` 归类为 `sharedState`（因为它会移动分支指针），否则归类为 `localDiscard`（它只丢弃工作树更改）。
 </Accordion>
 </AccordionGroup>
+
+<span id="recursive-delete-target-classification"></span>
 
 ## 递归删除目标分类
 
@@ -227,6 +235,8 @@ Git 支持用 `GIT_SSH_COMMAND`、`GIT_SSH` 和 `GIT_SSH_VARIANT` 在网络操�
 
 对于 `xargs` 和 `parallel`，问题在于目标来自动态输入（管道 stdin 或占位符展开），因此无法相对 cwd 验证。`parallel` 的 SSH 远程模式（`-S`/`--sshlogin`）也会禁用 worktree 放宽。
 
+<span id="worktree-relaxation"></span>
+
 ## Worktree 放宽
 
 启用 [worktree 模式](/zh-Hans/configuration/modes#worktree-mode)后，已确认的 linked worktree 内允许本地丢弃类的 git 命令。放宽需要同时满足以下条件：
@@ -248,7 +258,7 @@ linked worktree 会被正向验证，而不是简单假定。检查会确认 `.g
 
 ## 自定义规则
 
-没有内置分析器匹配时，自定义规则会作为 fallback 运行。它们严格只增不减：只能新增阻止，绝不会覆盖内置的阻止或放宽保护。规则以 `<rulebook-name>/<rule-name>` 作为命名空间，先按命令 basename 匹配，之后的匹配方式取决于各自 rulebook 的版本。版本 1 的规则匹配可选的子命令，以及按字面匹配的 `block_args`；短选项会展开，因此 `-Ap` 能匹配 `-A`。`rulebook_version: 2` 的规则改用 `match` 对象匹配：`match.command_path` 中的各个词必须按顺序对应最前面的几个非选项参数，`match.any_args` 要求参数中至少出现其中一个 token，而 `match.exclude_args` 中的 token 只要出现一个，匹配就取消。版本 2 按 token 精确比较，不展开短选项。见[版本 2 匹配](/zh-Hans/configuration/custom-rules#版本-2-匹配)。
+没有内置分析器匹配时，自定义规则会作为 fallback 运行。它们严格只增不减：只能新增阻止，绝不会覆盖内置的阻止或放宽保护。规则以 `<rulebook-name>/<rule-name>` 作为命名空间，先按命令 basename 匹配，之后的匹配方式取决于各自 rulebook 的版本。版本 1 的规则匹配可选的子命令，以及按字面匹配的 `block_args`；短选项会展开，因此 `-Ap` 能匹配 `-A`。`rulebook_version: 2` 的规则改用 `match` 对象匹配：`match.command_path` 中的各个词必须按顺序对应最前面的几个非选项参数，`match.any_args` 要求参数中至少出现其中一个 token，而 `match.exclude_args` 中的 token 只要出现一个，匹配就取消。版本 2 按 token 精确比较，不展开短选项。见[版本 2 匹配](/zh-Hans/configuration/custom-rules#version-2-matching)。
 
 完整的编写指南和匹配语义见[自定义规则](/zh-Hans/configuration/custom-rules)。
 

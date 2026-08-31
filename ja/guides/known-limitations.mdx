@@ -48,6 +48,8 @@ CC Safety Net は、`bash -c` やインタープリターのコード引数を�
 
 ## パーサーの制限
 
+<span id="interpreter-long-form-flags"></span>
+
 ### インタープリターの長形式フラグ
 
 CC Safety Net は、インタープリター（`python`、`python2`、`python3`、`node`、`ruby`、`perl`）の `-c` や `-e` フラグに渡されたコードを取り出し、埋め込まれた破壊的操作をスキャンします。ただし、**同等の長形式フラグ**（`--eval`、`--execute`、`--print`、`--require`）や `=value` を付けた形式（`--eval='code'`）は、すべての処理経路で認識されるわけではありません。長形式を使われると、再帰解析のためのコード引数を取り出せない場合があります。
@@ -70,13 +72,13 @@ CC Safety Net は、インタープリター（`python`、`python2`、`python3`�
 
 ## 保護の対象外
 
-ここでは、CC Safety Net が扱わない領域を示します。その多くは、意味解析ではなく別のレイヤーによる**封じ込め**を必要とします。それぞれに対応するサンドボックス側の説明は、[CC Safety Net が対処できない範囲](/ja/guides/vs-sandboxing#cc-safety-net-が対処できない範囲)を参照してください。
+ここでは、CC Safety Net が扱わない領域を示します。その多くは、意味解析ではなく別のレイヤーによる**封じ込め**を必要とします。それぞれに対応するサンドボックス側の説明は、[CC Safety Net が対処できない範囲](/ja/guides/vs-sandboxing#where-cc-safety-net-cannot-help)を参照してください。
 
 ### 機密パスの対象は限定され、一般的な読み取り境界ではない
 
 CC Safety Net は機密パスを保護し、[組み込みの機密情報の一覧](/ja/reference/secret-protection)（`.env` とその派生形、`~/.ssh/id_*`、`~/.aws`、`~/.kube/config`、コーディング CLI の資格情報ストアなど）の読み取りをブロックします。ユーザーが設定した deny path とその配下すべても同様です。この保護は、未知のツールに対するフォールバック検査を含め、対応するコマンド、パス、検索、patch の各形式に適用されます。
 
-コーディング CLI の対象は 2 つの階層に分かれます。**credential** の階層（認証トークンと資格情報ストア）は既定で有効です。**config** の階層（エージェントが通常の作業で編集する設定ファイルと MCP 設定ファイル）は既定で無効で、使うには `secret_protection.overrides` に明示的な `"on"` の override が必要です。ここで 1 つ注意点があります。Antigravity に用意されている唯一のルール（`secret.cli.antigravity`）はこの任意の config 階層にあるため、Antigravity には既定で有効な credential ルールが存在しません。各ルールが保護するパスを含む階層の全一覧は、[シークレット保護リファレンス](/ja/reference/secret-protection#コーディング-cli-資格情報階層（既定では-on）)を参照してください。
+コーディング CLI の対象は 2 つの階層に分かれます。**credential** の階層（認証トークンと資格情報ストア）は既定で有効です。**config** の階層（エージェントが通常の作業で編集する設定ファイルと MCP 設定ファイル）は既定で無効で、使うには `secret_protection.overrides` に明示的な `"on"` の override が必要です。ここで 1 つ注意点があります。Antigravity に用意されている唯一のルール（`secret.cli.antigravity`）はこの任意の config 階層にあるため、Antigravity には既定で有効な credential ルールが存在しません。各ルールが保護するパスを含む階層の全一覧は、[シークレット保護リファレンス](/ja/reference/secret-protection#coding-cli-credential-tier-on-by-default)を参照してください。
 
 残る制限は、これが汎用の読み取り境界ではなく、**対応する形式に対する、範囲の限られたパターン群**にすぎないという点です。
 
@@ -84,7 +86,7 @@ CC Safety Net は機密パスを保護し、[組み込みの機密情報の一�
 - standard モードでは、組み込みの機密パスに対するメタデータのみの単独チェック（`test -f ~/.ssh/id_rsa`、`find ~/.ssh -type f`、`ls -la ~/.ssh`、`stat .env` など）が許可されます。[strict と paranoid](/ja/configuration/modes#strict-mode) では、こうした探索もブロックされます。なお、設定した deny path はどのモードでも緩和されません。
 - `policy.json` の `secret_protection.enabled` を `false` にすると、deny path も含めてこのステージ全体が無効になります。
 
-認識対象だけでなく*すべて*の読み取りを制限したい場合は、[サンドボックス](/ja/guides/vs-sandboxing#cc-safety-net-が対処できない範囲)を使ってください。
+認識対象だけでなく*すべて*の読み取りを制限したい場合は、[サンドボックス](/ja/guides/vs-sandboxing#where-cc-safety-net-cannot-help)を使ってください。
 
 ### 完全なファイルシステムの封じ込めはできない
 
@@ -105,6 +107,8 @@ CC Safety Net はツール呼び出しを実行前に拒否しますが、ファ
 何にも検出されない変更は、`rule.json` から設定元の項目を削除する操作だけではなくなりました。取り込み済みの `rulebook.json` に `rule update` が何を書き込んだかは、どこにも記録されていません。そのため、ファイル内のルールの `match` や `reason` を書き換えても、その痕跡は残りません。ランタイムは読み込み時に、スキーマとの整合性と `name` が設定元と一致することだけを確認し、そこにある内容をそのまま適用します。書き換えた内容は、次に `rule update` がファイルを上書きするまで有効です。`rule.json` を保護するかどうかは、今後の検討課題です。
 
 プロジェクトの `policy.json` には、意図的な制限が 1 つあります。保護対象のディレクトリの連鎖は、自身の `.cc-safety-net` ディレクトリで止まります。ユーザーポリシーのファイルでは、そのディレクトリとファイルシステムのルートまでのすべての上位ディレクトリが対象になるのとは対照的です。プロジェクト側でさらに上まで辿ると、プロジェクトディレクトリとその上位すべてを保護対象として抱え込むことになります。そこは破壊的コマンドのルールがまさに対象とするパスであり、ポリシー保護のほうが先に動くため、`rm -rf .` や `find . -delete` が本来の理由ではなく、このガードの一般的な理由を返すようになってしまいます。
+
+<span id="hermes-agent-and-openclaw-coverage-boundaries"></span>
 
 ## Hermes Agent と OpenClaw の対象境界
 
@@ -152,7 +156,7 @@ Grok Build の hook は設計上 fail open であり、ホスト側に `failClos
 
 ### OpenCode のキャッシュが古い場合
 
-新しいリリースを公開した後も、OpenCode のプラグインインストーラーが古いキャッシュ版の `cc-safety-net` を使い続けることがあります。更新が反映されない場合は、キャッシュを消去してから再インストールしてください。手順は [OpenCode のインストール](/ja/installation#opencode)にあります。検出されたプラグインのバージョンは、`npx cc-safety-net doctor` で確認できます。
+新しいリリースを公開した後も、OpenCode のプラグインインストーラーが古いキャッシュ版の `cc-safety-net` を使い続けることがあります。更新が反映されない場合は、キャッシュを消去してから再インストールしてください。手順は [OpenCode のインストール](/ja/installation#opencode-installation)にあります。検出されたプラグインのバージョンは、`npx cc-safety-net doctor` で確認できます。
 
 ### npx のキャッシュが古い場合（Antigravity CLI、Cursor、Grok Build、Hermes Agent、Kimi Code）
 

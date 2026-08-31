@@ -46,6 +46,8 @@ CC Safety Net 会递归扫描 `bash -c` 和解释器的代码参数，但如果�
 
 ## 解析器限制
 
+<span id="interpreter-long-form-flags"></span>
+
 ### 解释器长格式标志
 
 CC Safety Net 提取传给解释器 `-c` 或 `-e` 标志的代码（适用于 `python`、`python2`、`python3`、`node`、`ruby`、`perl`），并扫描其中是否有内嵌的破坏性操作。**对应的长格式**（`--eval`、`--execute`、`--print`、`--require`）和附加的 `=value` 形式（`--eval='code'`）并非在所有代码路径中都能识别。使用长格式时，代码参数可能不会被提取出来做递归分析。
@@ -58,6 +60,8 @@ CC Safety Net 提取传给解释器 `-c` 或 `-e` 标志的代码（适用于 `p
 
 这一点在编写精确的<a href="/zh-Hans/configuration/custom-rules">自定义规则</a>时最需要注意。如有疑问，请使用 <a href="/zh-Hans/configuration/modes#strict-mode">strict</a> 或 <a href="/zh-Hans/configuration/modes#paranoid-mode">paranoid</a> 模式以获得更强的保护。
 
+<span id="symlink-toctou-risk"></span>
+
 ### 符号链接 TOCTOU 风险
 
 `rm -rf` 目标分类会先把符号链接解析到规范目标，再判定路径是否危险。分析器解析路径与 shell 实际执行 `rm` 之间存在不可避免的**检查时间到使用时间（TOCTOU）**窗口。符号链接可能在此窗口内重新指向其他位置。
@@ -66,7 +70,7 @@ CC Safety Net 提取传给解释器 `-c` 或 `-e` 标志的代码（适用于 `p
 
 ## 范围外保护
 
-下列边界不属于 CC Safety Net 的覆盖目标。它们大多需要**隔离**而不是语义分析，属于另一个保护层。每一项对应的沙箱能力见 <a href="/zh-Hans/guides/vs-sandboxing#cc-safety-net-无法提供帮助的范围">CC Safety Net 无法提供帮助的范围</a>。
+下列边界不属于 CC Safety Net 的覆盖目标。它们大多需要**隔离**而不是语义分析，属于另一个保护层。每一项对应的沙箱能力见 <a href="/zh-Hans/guides/vs-sandboxing#where-cc-safety-net-cannot-help">CC Safety Net 无法提供帮助的范围</a>。
 
 ### 敏感路径覆盖有界，不是通用读取边界
 
@@ -80,7 +84,7 @@ CC Safety Net **确实**保护敏感路径。对<a href="/zh-Hans/reference/secr
 - Standard 模式允许对内置敏感路径做独立的仅元数据检查，例如 `test -f ~/.ssh/id_rsa`、`find ~/.ssh -type f`、`ls -la ~/.ssh` 或 `stat .env`。<a href="/zh-Hans/configuration/modes#strict-mode">Strict 和 paranoid</a> 会阻止这类探查。任何模式都不会放宽配置的拒绝路径。
 - 在 `policy.json` 中把 `secret_protection.enabled` 设置为 `false` 会关闭整个阶段，包括拒绝路径。
 
-如果需要限制*所有*读取而不是已识别集合，请使用<a href="/zh-Hans/guides/vs-sandboxing#cc-safety-net-无法提供帮助的范围">沙箱</a>。
+如果需要限制*所有*读取而不是已识别集合，请使用<a href="/zh-Hans/guides/vs-sandboxing#where-cc-safety-net-cannot-help">沙箱</a>。
 
 ### 不提供完整文件系统隔离
 
@@ -101,6 +105,8 @@ CC Safety Net 在工具调用运行前拒绝它，但不会强制执行文件系
 从 `rule.json` 中删除来源条目不再是唯一无人拦截的改动。`rule update` 往已落盘的 `rulebook.json` 里写了什么，没有任何地方记录，因此改写该文件中某条规则的 `match` 或 `reason`，不会留下改动痕迹。加载时，运行时只校验文件是否符合 schema，以及 `name` 是否与来源一致，然后照单执行。这处改动会一直生效，直到下一次 `rule update` 覆盖该文件。是否保护 `rule.json` 是一项推迟的产品决策。
 
 项目的 `policy.json` 有一处有意设下的边界。它受保护的目录链止于自身的 `.cc-safety-net` 目录，而用户策略文件的目录链覆盖其所在目录以及直到文件系统根目录的每一级上级目录。项目这一侧若继续向上，就会把项目目录及其所有上级目录都纳入保护。那些正是破坏性命令规则针对的路径，而策略保护先于它们运行，于是 `rm -rf .` 和 `find . -delete` 会返回这道防护的通用原因，而不是它们本来的原因。
+
+<span id="hermes-agent-and-openclaw-coverage-boundaries"></span>
 
 ## Hermes Agent 和 OpenClaw 覆盖边界
 
@@ -148,7 +154,7 @@ Grok Build hook 在设计上就是 fail open，宿主也没有提供 `failClosed
 
 ### OpenCode 过期缓存
 
-新版本发布后，OpenCode 的插件安装程序可能仍然提供缓存中过期的 `cc-safety-net`。如果更新未生效，请清除缓存并重新安装，见 <a href="/zh-Hans/installation#opencode-安装">OpenCode 安装步骤</a>。运行 `npx cc-safety-net doctor` 可确认检测到的插件版本。
+新版本发布后，OpenCode 的插件安装程序可能仍然提供缓存中过期的 `cc-safety-net`。如果更新未生效，请清除缓存并重新安装，见 <a href="/zh-Hans/installation#opencode-installation">OpenCode 安装步骤</a>。运行 `npx cc-safety-net doctor` 可确认检测到的插件版本。
 
 ### 过期 npx 缓存（Antigravity CLI、Cursor、Grok Build、Hermes Agent、Kimi Code）
 

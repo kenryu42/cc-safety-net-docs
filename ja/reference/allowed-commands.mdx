@@ -39,6 +39,8 @@ CC Safety Net はコマンドの意味を解析し、許可できる形式と破
 | `git rm --cached`、`git rm --dry-run` / `-n` | ステージングの解除かプレビューだけで、作業ツリーのファイルは残る。`git rm -r --cached .` は安全なステージング解除 |
 | `git push --force-with-lease` | 履歴を書き換える前に、想定したリモート状態を確認する |
 
+<span id="filesystem-commands"></span>
+
 ## ファイルシステムコマンド
 
 | コマンドパターン | 安全な理由 | レベル |
@@ -56,6 +58,8 @@ CC Safety Net はコマンドの意味を解析し、許可できる形式と破
 
 - 動的な対象（`rm -rf "$target"`、バッククォート、コマンド置換）は standard では許可され、fail closed の機能が有効になるとブロックされます。standard は、敵対的な入力や動的に生成されたコマンド文字列に対してはベストエフォートです。
 - `CC_SAFETY_NET_PARANOID_RM=1` を設定すると、一時パス以外への再帰的な強制削除は、カレントディレクトリ配下であってもブロックされます。そのため `rm -rf ./cache` は許可されなくなります。一時パスの対象と、設定済みの allow path は引き続き許可されます。
+
+<span id="configured-allow-paths"></span>
 
 ### 設定済みの allow path
 
@@ -76,6 +80,8 @@ allow path が他の範囲を広げることはありません。機密パス保
 | `gh pr create --body-file - <<'EOF'`、`gh issue create -F - <<'EOF'` | 本文をプルリクエストや Issue の本文として登録する |
 
 対象になるのは、展開されない heredoc だけです。デリミタが引用符で囲まれているもの（`<<'EOF'`）か、引用符がなくても本文に `$`、バッククォート、バックスラッシュが含まれないものが該当し、どちらもシェルが展開やエスケープ処理を行う余地はありません。引用符がなく、この 3 つの文字のいずれかが本文に含まれる場合は、シェルの展開やエスケープ処理を受けるため、standard では引き続きスキャンの対象になり、fail closed が有効な場合は拒否されます。heredoc の外にあるコマンドは、これまでどおり解析されます。`cat <<'EOF' && rm -rf ~` は `rm` によってブロックされます。`cat`、`tee`、`git commit`、`gh pr create`、`gh issue create` では、デリミタが引用符で囲まれた本文を、機密パスの抽出前にマスクします。そのため、シークレットのファイル名を文章の中で触れただけでコミットがブロックされることはありません。引用符のない本文は、条件を通過する場合でもマスクの対象にはならないため、その中にファイル名らしいトークンがあれば抽出されます。`git apply` の本文は、patch が書き込むファイル名を含むため、パス抽出からは見える状態のままにします。条件の全体と、条件を満たさない heredoc を standard がどう扱うかについては、[heredoc の解析](/ja/guides/analysis-engine#heredoc-analysis)を参照してください。
+
+<span id="standard-only-allowances"></span>
 
 ## standard のみの許可
 
@@ -102,7 +108,7 @@ allow path が他の範囲を広げることはありません。機密パス保
 - 語がすべてリテラルで、先頭に環境変数代入がない
 - 先頭のベース名が、リモート取得コマンド（`curl`、`wget`、`fetch`、`aria2c`、`http`、`https`、`xh`、`xhs`、`nc`、`ncat`、`netcat`）でも、シェルでも、`sudo` や `env` のような標準的なコマンドラッパーでもない
 
-`CMD` 自体は引き続き解析するため、`eval "$(rm -rf /)"` はブロックします。検証*しない*のは `CMD` が出力するシェルです。つまり standard は、リテラルなローカルコマンドでありさえすれば、その出力を信頼します。`eval "$(cat somefile)"` のような形も含まれます。ブロックされたままの形については、[生成されたコマンドの eval と source](/ja/reference/blocked-commands#生成されたコマンドの-eval-と-source)を参照してください。
+`CMD` 自体は引き続き解析するため、`eval "$(rm -rf /)"` はブロックします。検証*しない*のは `CMD` が出力するシェルです。つまり standard は、リテラルなローカルコマンドでありさえすれば、その出力を信頼します。`eval "$(cat somefile)"` のような形も含まれます。ブロックされたままの形については、[生成されたコマンドの eval と source](/ja/reference/blocked-commands#eval-and-source-of-a-generated-command)を参照してください。
 
 <Note>
   リソース枯渇を防ぐための上限は、このトレードオフには含まれません。パーサーの再帰上限や構造的な検証の上限を超えるコマンドは、standard を含む**すべて**のレベルで拒否されます。

@@ -34,7 +34,7 @@ bunx cc-safety-net doctor
     **解决步骤：**
 
     1. 运行 `npx cc-safety-net doctor`。它会检查每个受支持智能体的 hook 集成，并在发现配置错误时指出确切的配置路径。
-    2. 重新运行对应智能体的安装命令。对于有效的托管安装，此操作是幂等的，并会修复缺失或禁用的托管项。如果安装程序报告配置或文件无法识别、是符号链接，或由其他程序管理，请按它给出的手动恢复提示处理，不要覆盖它。各智能体的完整命令表见[安装](/zh-Hans/installation#安装指定智能体)。
+    2. 重新运行对应智能体的安装命令。对于有效的托管安装，此操作是幂等的，并会修复缺失或禁用的托管项。如果安装程序报告配置或文件无法识别、是符号链接，或由其他程序管理，请按它给出的手动恢复提示处理，不要覆盖它。各智能体的完整命令表见[安装](/zh-Hans/installation#install-a-specific-agent)。
     3. **Amp Code**：运行 `amp plugins list`，确认有 `cc-safety-net (User Plugins)` 行且状态为 `active`。状态不是 `active` 时，在 Amp 中运行 `plugins: reload`，或用 `install --amp` 重新安装。遗留在 `~/.config/amp/plugins/cc-safety-net.ts` 的本地文件会遮蔽个人插件。`install --amp` 会删除托管副本，遇到非托管文件则失败并给出可操作的错误提示。Amp 在启动时读取插件，因此更改后请重启 Amp 或运行 `plugins: reload`。
     4. **Antigravity CLI**：检查 `~/.gemini/config/hooks.json` 中是否有执行 `npx -y cc-safety-net hook --agy-cli` 的托管 `PreToolUse` 项。
     5. **Claude Code**：在 `/plugin` 中确认 `cc-safety-net` 已安装并启用。若不存在，运行 `/plugin install cc-safety-net@cc-marketplace`，再运行 `/reload-plugins`。
@@ -46,7 +46,7 @@ bunx cc-safety-net doctor
     11. **Hermes Agent**：确认托管插件文件位于 `$HERMES_HOME/plugins/cc-safety-net`（未设置 `HERMES_HOME` 时为 `~/.hermes/plugins/cc-safety-net`），并已用 `hermes plugins enable cc-safety-net --no-allow-tool-override` 启用插件。Hermes 只有在 `config.yaml` 中列出某个用户插件时才会加载它。然后重启 Hermes 让插件加载。`doctor` 只读取插件文件和 Hermes 配置，不会向运行中的 Hermes 查询插件是否真的已加载，因此任何更改之后都要重启并重新测试。
     12. **Kimi Code**：检查 `~/.kimi-code/config.toml`（或 `$KIMI_CODE_HOME/config.toml`）中是否有在 `PreToolUse` `Bash` 上运行 `npx -y cc-safety-net hook --kimi-code` 的 `[[hooks]]` 块。如果缺失，请重新运行 `npx -y cc-safety-net@latest install --kimi-code`。
     13. **OpenClaw**：插件通过 OpenClaw 自己的 CLI 安装和启用。重新运行 `npx -y cc-safety-net@latest install --openclaw` 会运行 `openclaw plugins install <plugin dir> --force` 和 `openclaw plugins enable cc-safety-net`，然后确认插件已加载（详情由 `openclaw plugins inspect cc-safety-net --runtime` 显示）。随后重启 OpenClaw Gateway。若 `openclaw.json` 设置了 `plugins.allow`，其中也必须包含 `cc-safety-net`。`doctor` 只读取插件目录和 `openclaw.json`，不会向运行中的 Gateway 查询插件是否已加载，因此已停止的 Gateway 不会被报告为失败。
-    14. **OpenCode**：如果已设置 `XDG_CONFIG_HOME`，请检查 `$XDG_CONFIG_HOME/opencode/opencode.json`（或 `.jsonc`）；否则检查 `~/.config/opencode/opencode.json`（或 `.jsonc`）。确认 `plugin[]` 数组中包含 `cc-safety-net`。OpenCode 可能缓存旧版本。清除缓存的步骤见[安装](/zh-Hans/installation#opencode-安装)。
+    14. **OpenCode**：如果已设置 `XDG_CONFIG_HOME`，请检查 `$XDG_CONFIG_HOME/opencode/opencode.json`（或 `.jsonc`）；否则检查 `~/.config/opencode/opencode.json`（或 `.jsonc`）。确认 `plugin[]` 数组中包含 `cc-safety-net`。OpenCode 可能缓存旧版本。清除缓存的步骤见[安装](/zh-Hans/installation#opencode-installation)。
     15. **Pi**：确认 `pi install npm:cc-safety-net` 已完成，并已重启 Pi 让扩展加载。运行 `npx cc-safety-net doctor` 可直接探测 Pi。
     16. 做出任何更改后，都要重新加载或重启智能体会话。
 
@@ -63,7 +63,7 @@ bunx cc-safety-net doctor
          真实跟踪不会自动变得可以安全分享。脱敏只覆盖可识别的凭证形式；命令文本、解析后的 token、包括主目录在内的绝对路径，以及策略文件路径都会原样保留。请用**占位凭证**复现，并在粘贴到任何地方之前先检查输出。
        </Warning>
 
-    2. 确认输出中的有效级别。[`standard` 模式](/zh-Hans/configuration/modes#默认模式)只提供尽力保护：它有意允许动态可执行文件名、通过替换拼接的命令结构、`rm -rf "$target"` 这类无法验证的递归删除目标，以及对内置敏感路径仅做元数据检查。如果命令可能来自提示注入或其他对抗性环境，请把级别提高到 [`strict`](/zh-Hans/configuration/modes#strict-mode) 或 [`paranoid`](/zh-Hans/configuration/modes#paranoid-mode)，它们对上述所有形式都会 fail closed。
+    2. 确认输出中的有效级别。[`standard` 模式](/zh-Hans/configuration/modes#default-mode)只提供尽力保护：它有意允许动态可执行文件名、通过替换拼接的命令结构、`rm -rf "$target"` 这类无法验证的递归删除目标，以及对内置敏感路径仅做元数据检查。如果命令可能来自提示注入或其他对抗性环境，请把级别提高到 [`strict`](/zh-Hans/configuration/modes#strict-mode) 或 [`paranoid`](/zh-Hans/configuration/modes#paranoid-mode)，它们对上述所有形式都会 fail closed。
     3. 检查命令是否属于明确允许的形式，例如当前工作目录内的 `rm -rf` 因为限定在项目范围内而默认允许。完整列表见[被允许的命令](/zh-Hans/reference/allowed-commands)。
     4. 运行 `npx cc-safety-net status`。`degraded` 判定表示某个规则来源已被丢弃，因此该来源贡献的拒绝规则不再生效。详情见[配置恢复](/zh-Hans/configuration/recovery)。
     5. 在同一份 `status` 输出中查找 `Project policy` 区块。项目的 `.cc-safety-net/policy.json` 削弱了用户策略时才会出现该区块，每个被削弱的字段占一行，例如 `project policy lowers level: strict -> standard`、`project policy disables rule <id>` 或 `project policy adds destructive allow path: <path>`。某条规则只在这个项目里不再触发、在别处照常触发，任何一行都可能是原因。状态行用 `🔻` 表示同一情况，`doctor` 则在 `Project policy deltas:` 下打印同样的行。
@@ -98,7 +98,7 @@ bunx cc-safety-net doctor
   </Accordion>
 
   <Accordion title="自定义规则未生效">
-    无法验证的规则源会被**丢弃**。命令会继续运行，但该来源的规则不再生效，运行时报告 `degraded`。在一切正常的会话里，这种失败可能悄无声息，因此每次更改规则配置和升级之后都应检查。其他所有已验证的范围和所有内置保护都会继续生效。每项失败及其回退见[配置恢复](/zh-Hans/configuration/recovery)。
+    无法验证的规则来源会被**丢弃**。命令会继续运行，但该来源的规则不再生效，运行时报告 `degraded`。在一切正常的会话里，这种失败可能悄无声息，因此每次更改规则配置和升级之后都应检查。其他所有已验证的范围和所有内置保护都会继续生效。每项失败及其回退见[配置恢复](/zh-Hans/configuration/recovery)。
 
     **解决步骤：**
 

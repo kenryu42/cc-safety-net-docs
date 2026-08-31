@@ -35,7 +35,7 @@ CLI は 12 個のコマンドを登録します。次の順序は、`cc-safety-n
 | [`doctor`](#doctor) | `doctor [options]` | インストールと設定に対する診断検査を実行する |
 | [`logs`](#logs) | `logs [options]` | hook が記録した監査ログエントリを表示する |
 | [`explain`](#explain) | `explain [options] <command>` | コマンドの解析方法をトレースする |
-| [`rule`](#rule) | `rule <subcommand>` | ルール設定、rulebook ソース、transparent wrapper を管理する |
+| [`rule`](#rule) | `rule <subcommand>` | ルール設定、rulebook の設定元、transparent wrapper を管理する |
 | [`policy`](#policy) | `policy <subcommand>` | プロジェクトまたはユーザーのポリシー提案を検査して適用する |
 | [`install`](#install) | `install [TARGET_FLAG]` | CC Safety Net をコーディングエージェント CLI にインストールする |
 | [`update`](#update) | `update` | インストール済みのすべての連携を更新する |
@@ -233,7 +233,7 @@ npx cc-safety-net logs --id 3fa9c2d1a70e8b42
 
 `--dry-run` では何も削除しません。コマンドは `Would remove <n> legacy audit log files (<size>).`、または `No legacy audit log files found.` を出力し、次に `Nested v2 audit logs are not included.` を出力します。削除対象がある場合は、`Run the same command without --dry-run to delete them.` も出力します。常に `0` で終了します。`--json` と一緒に使うと、代わりに 1 つのコンパクトオブジェクト `{"dryRun":true,"files":n,"bytes":n}` を出力します。
 
-レガシー配置と現在の配置の違いについては、[監査ログ](/ja/reference/audit-log#ログの配置)を参照してください。
+レガシー配置と現在の配置の違いについては、[監査ログ](/ja/reference/audit-log#log-layout)を参照してください。
 
 ## explain
 
@@ -281,14 +281,14 @@ npx cc-safety-net explain --json 'loop() { loop; }; loop'
 最上位パーサーも同じ方法で `--` を処理します。最初の `--` で `--help` と `--version` の検索を停止します。そのため、`explain -- --help` はヘルプを出力せず、リテラルコマンド `--help` を explain します。
 
 <Warning>
-  explain の出力は、そのまま安全に共有できるとは限りません。入力したコマンド、解析後のトークン、ホームディレクトリを含む絶対パスがそのまま表示されます。Issue やチャットにトレースを貼り付ける前に、[explain トレース](/ja/reference/explain-trace#トレースを共有する前に)を確認してください。
+  explain の出力は、そのまま安全に共有できるとは限りません。入力したコマンド、解析後のトークン、ホームディレクトリを含む絶対パスがそのまま表示されます。Issue やチャットにトレースを貼り付ける前に、[explain トレース](/ja/reference/explain-trace#before-you-share-a-trace)を確認してください。
 </Warning>
 
 `--json` が返す JSON のスキーマ、つまり `ExplainResult` のフィールドと `TraceStep` の全種類については、[explain トレースリファレンス](/ja/reference/explain-trace)を参照してください。
 
 ## rule
 
-`rule` は、ルール設定、rulebook ソース、transparent wrapper を管理します。このセクションではコマンドインターフェースを説明します。rulebook のスキーマ、ライフサイクル、override の意味については、[カスタムルール](/ja/configuration/custom-rules)を参照してください。
+`rule` は、ルール設定、rulebook の設定元、transparent wrapper を管理します。このセクションではコマンドインターフェースを説明します。rulebook のスキーマ、ライフサイクル、override の意味については、[カスタムルール](/ja/configuration/custom-rules)を参照してください。
 
 サブコマンドなしで `rule` を実行すると、ヘルプを出力して `1` で終了します。`rule --help` は同じヘルプを出力して `0` で終了します。
 
@@ -298,7 +298,7 @@ npx cc-safety-net explain --json 'loop() { loop; }; loop'
 | --- | --- | --- |
 | `-g`, `--global` | プロジェクトスコープではなくユーザースコープのルール設定を使う | `list` と `migrate` 以外のすべてのサブコマンド |
 | `--cleanup` | `rule migrate` が検証した後にレガシーファイルを削除する | `migrate` のみ |
-| `--delete-source` | 削除時に、中身が `rulebook.json` だけのローカルソースディレクトリも削除する | `remove` のみ |
+| `--delete-source` | 削除時に、中身が `rulebook.json` だけのローカルの設定元ディレクトリも削除する | `remove` のみ |
 | `--example` | 非アクティブなサンプル rulebook を作成する | `init` のみ |
 | `--ref <ref>` | ブランチ、タグ、コミットを指定する | `add` のみ |
 | `--only <rulebook...>` | リポジトリ内の指定した rulebook だけを追加する | `add` のみ |
@@ -327,7 +327,7 @@ npx -y cc-safety-net rule init --example
 
 ### rule add
 
-使用方法は `rule add [source] [--ref <ref>] [--only <rulebook...>]` です。ソースには 3 つの形式があります。`project-rules` のような裸のローカル名、`acme/safety-rules` のようなリポジトリ全体、`owner/repo#ref/<rulebook-name>` という正規形式で指定する単一の rulebook です。
+使用方法は `rule add [source] [--ref <ref>] [--only <rulebook...>]` です。設定元には 3 つの形式があります。`project-rules` のような裸のローカル名、`acme/safety-rules` のようなリポジトリ全体、`owner/repo#ref/<rulebook-name>` という正規形式で指定する単一の rulebook です。
 
 **オプション：**
 
@@ -348,13 +348,13 @@ cc-safety-net rule add acme/safety-rules --ref v2 --only aws
 cc-safety-net rule add --only terraform aws
 ```
 
-ソースを指定せずに `--ref` または `--only` を渡すと、公式カタログの `cc-safety-net/rulebooks` がソースになります。どちらのフラグもない `rule add` は `rule add requires a source (pass --only <rulebook...> to select from cc-safety-net/rulebooks)` を出力して `1` で終了します。そのため、公式 rulebook をすべて追加する場合は、これまでどおり `rule add cc-safety-net/rulebooks` と明示する必要があります。
+設定元を指定せずに `--ref` または `--only` を渡すと、公式カタログの `cc-safety-net/rulebooks` が設定元になります。どちらのフラグもない `rule add` は `rule add requires a source (pass --only <rulebook...> to select from cc-safety-net/rulebooks)` を出力して `1` で終了します。そのため、公式 rulebook をすべて追加する場合は、これまでどおり `rule add cc-safety-net/rulebooks` と明示する必要があります。
 
 他のサブコマンドと同様に、`-g` / `--global` でユーザースコープを選択します。
 
-リポジトリをソースに指定した場合、`rule add` は書き込みの前に ref をコミットへ解決し、そのコミット時点のリポジトリにある `.cc-safety-net/rules/<name>/rulebook.json` をすべて列挙します。`--only` がなければ、それらを名前順ですべて追加します。`--only` を指定すると、指定した順序で該当する rulebook だけを追加し、重複は無視します。リポジトリに存在しない名前を指定すると、追加は失敗します。
+リポジトリを設定元に指定した場合、`rule add` は書き込みの前に ref をコミットへ解決し、そのコミット時点のリポジトリにある `.cc-safety-net/rules/<name>/rulebook.json` をすべて列挙します。`--only` がなければ、それらを名前順ですべて追加します。`--only` を指定すると、指定した順序で該当する rulebook だけを追加し、重複は無視します。リポジトリに存在しない名前を指定すると、追加は失敗します。
 
-`--ref` と `--only` は `owner/repo` 形式のソースにのみ指定できます。それ以外では `--ref can only select a ref for an owner/repo source: <source>` または `--only can only select rulebooks from an owner/repo source` を出力します。`--ref` を省略した場合、`rule add` はリポジトリの既定ブランチを使います。ref には `/` を含むセグメントを指定できるため、`--ref feature/rulebook-v2` は有効です。ref 全体が `^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$` に一致する必要があり、一致しない場合は `--ref must use valid path segments: <ref>` を出力します。
+`--ref` と `--only` は `owner/repo` 形式の設定元にのみ指定できます。それ以外では `--ref can only select a ref for an owner/repo source: <source>` または `--only can only select rulebooks from an owner/repo source` を出力します。`--ref` を省略した場合、`rule add` はリポジトリの既定ブランチを使います。ref には `/` を含むセグメントを指定できるため、`--ref feature/rulebook-v2` は有効です。ref 全体が `^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$` に一致する必要があり、一致しない場合は `--ref must use valid path segments: <ref>` を出力します。
 
 `rule.json` には、指定した ref を含む正規形式 `owner/repo#ref/<rulebook-name>` が保存されます。`rule add` は解決されたコミットを出力しますが、保存はしません。
 
@@ -364,15 +364,15 @@ cc-safety-net rule add --only terraform aws
 
 - `Added <n> rulebooks from <source> at <ref>:`（1 件の場合は `rulebook`）に続けて、rulebook ごとに `  - <name>` の行
 - 選択した rulebook のうち `rule.json` にすでにあったものについて `Rulebooks already configured from <source> at <ref>: <names>`
-- `Vendored at <commit>.`。解決されたコミットを先頭 7 文字に短縮したもので、新しいソースを 1 つ以上書き込んだ場合にのみ出力される
+- `Vendored at <commit>.`。解決されたコミットを先頭 7 文字に短縮したもので、新しい設定元を 1 つ以上書き込んだ場合にのみ出力される
 - 書き込んだファイルごとに 1 ブロック。新規ファイルは `Vendored <spec> (<version>)`、既存ファイルの更新は `Updated <spec> (<before> -> <after>)` に続けて、追加・削除・名前は同じで内容が変わったルールをそれぞれ `  + <rule>`、`  - <rule>`、`  ~ <rule>` の行で表示
 - `Rule config updated.`、空行、`Active rulebooks (<n>):`。各エントリは `  - <name> <version> (<n> rules)` と `    Source: <spec>`
 
-裸のローカル名または正規形式 `owner/repo#ref/<rulebook-name>` のソースでは、スコープの行はそのまま出力され、上記の最初の 3 項目は省かれます。リポジトリ追加で `Rule config updated.` が出る位置には、`Added rulebook source: <source>` が出力されます。
+裸のローカル名または正規形式 `owner/repo#ref/<rulebook-name>` の設定元では、スコープの行はそのまま出力され、上記の最初の 3 項目は省かれます。リポジトリ追加で `Rule config updated.` が出る位置には、`Added rulebook source: <source>` が出力されます。
 
 ### rule remove
 
-rulebook ソースを削除して同期します。ローカルソースディレクトリの中身が `rulebook.json` だけの場合に、そのディレクトリも削除するには `--delete-source` を追加します。
+rulebook の設定元を削除して同期します。ローカルの設定元ディレクトリの中身が `rulebook.json` だけの場合に、そのディレクトリも削除するには `--delete-source` を追加します。
 
 ```bash
 npx -y cc-safety-net rule remove project-rules
@@ -381,24 +381,24 @@ npx -y cc-safety-net rule remove project-rules --delete-source
 
 `--delete-source` は、ディレクトリの中身が `rulebook.json` だけであることを 2 回確認します。1 回目は同期の前、2 回目は削除の直前です。その間の同期で、GitHub からの取得を待つことがあるためです。
 
-- その間に別のプロセスがファイルを追加した場合、2 回目の確認が削除を拒否し、`Local rulebook source directory contains extra files: <dir>. delete manually if you really want to remove the directory.` を出力します。設定の変更はロールバックされて再同期されるため、削除しようとしたソースは元に戻ります。
+- その間に別のプロセスがファイルを追加した場合、2 回目の確認が削除を拒否し、`Local rulebook source directory contains extra files: <dir>. delete manually if you really want to remove the directory.` を出力します。設定の変更はロールバックされて再同期されるため、削除しようとした設定元は元に戻ります。
 - 削除は再帰的ではありません。検証済みの `rulebook.json` を削除してから、非再帰の `rmdir` でディレクトリ自体を削除します。unlink の後にファイルが追加されると `rmdir` が失敗し、そのファイルはそのまま残ります。削除されるのは rulebook ファイルだけです。
 - 削除の時点でディレクトリがすでにない場合は、削除をスキップして成功として報告します。求められた最終状態に達しているためです。
 
 ### rule update
 
-設定済みのすべてのソースについて、リモート rulebook を再取得して取り込みます。ソースを 1 つ指定した場合は、そのソースだけを対象にします。
+すべての設定元について、リモート rulebook を再取得して取り込みます。設定元を 1 つ指定した場合は、その設定元だけを対象にします。
 
 ```bash
 npx -y cc-safety-net rule update
 npx -y cc-safety-net rule update project-rules
 ```
 
-実行のたびにブランチとタグの ref を解決し直すため、`main` や移動するタグを指しているソースは現在のコミットを取り込みます。ローカルソースには取得するものがありません。設定済みのソースはすべてレポートに現れますが、再取得されるのは選択したソースだけで、残りはディスク上のファイルから読み込まれます。出力される変更ブロックは [`rule add`](#rule-add) と同じで、その後に `Rule config updated.` とアクティブな rulebook の一覧が続きます。
+実行のたびにブランチとタグの ref を解決し直すため、`main` や移動するタグを指している設定元は現在のコミットを取り込みます。ローカルの設定元には取得するものがありません。設定元はすべてレポートに現れますが、再取得されるのは選択した設定元だけで、残りはディスク上のファイルから読み込まれます。出力される変更ブロックは [`rule add`](#rule-add) と同じで、その後に `Rule config updated.` とアクティブな rulebook の一覧が続きます。
 
-各ソースは独立して更新されます。取得や検証に失敗したソースは、すでに取り込んである内容をそのまま保持し、`Failed to update <spec>: <message>` として報告されます。更新に成功した他のソースは書き込まれます。1 つでも失敗した場合は `1`、それ以外は `0` で終了します。
+各設定元は独立して更新されます。取得や検証に失敗した設定元は、すでに取り込んである内容をそのまま保持し、`Failed to update <spec>: <message>` として報告されます。更新に成功した他の設定元は書き込まれます。1 つでも失敗した場合は `1`、それ以外は `0` で終了します。
 
-例外はリソース制限による失敗です。GitHub の取得予算を使い切った実行は `Rule synchronization exceeds CC Safety Net's safe resource limits.` を出力して停止し、上限に達したソースだけでなく、その実行に含まれるすべてのソースが失敗します。
+例外はリソース制限による失敗です。GitHub の取得予算を使い切った実行は `Rule synchronization exceeds CC Safety Net's safe resource limits.` を出力して停止し、上限に達した設定元だけでなく、その実行に含まれるすべての設定元が失敗します。
 
 ### rule sync
 
@@ -416,15 +416,15 @@ npx -y cc-safety-net rule sync
 `cc-safety-net rule sync` is deprecated: rulebooks are live files that need no synchronization. This run only migrates the lock and cache an earlier version left behind.
 ```
 
-ネットワークからは何も取得しません。記録されたダイジェストと一致するキャッシュのコピーは `<config-dir>/<name>/rulebook.json` に書き込まれ、`Vendored <spec> from the v2 cache.` として報告されます。書き込み先のファイルは存在するものの使用できない場合は、`Restored <spec> from the v2 cache over an invalid file.` になります。キャッシュから復元できないソースについては ``Could not migrate <spec> from the v2 cache. Run `cc-safety-net rule update <spec>` to vendor it.`` を出力します。ユーザースコープでは、このコマンドに ` --global` が付きます。最後の行は `Removed the v2 lock and cache under <dir>.` です。
+ネットワークからは何も取得しません。記録されたダイジェストと一致するキャッシュのコピーは `<config-dir>/<name>/rulebook.json` に書き込まれ、`Vendored <spec> from the v2 cache.` として報告されます。書き込み先のファイルは存在するものの使用できない場合は、`Restored <spec> from the v2 cache over an invalid file.` になります。キャッシュから復元できない設定元については ``Could not migrate <spec> from the v2 cache. Run `cc-safety-net rule update <spec>` to vendor it.`` を出力します。ユーザースコープでは、このコマンドに ` --global` が付きます。最後の行は `Removed the v2 lock and cache under <dir>.` です。
 
-移行するものがない場合は、`No v2 lock or cache leftovers found in <dir>; nothing to migrate.` を出力して `0` で終了します。これらのファイルが残っているのにスコープの `rule.json` が存在しないか読み取れない場合は、設定済みソースの唯一の記録を失わないように移行を拒否し、`Cannot migrate: the rules config in <dir> is missing or unreadable while v2 leftovers remain. Restore rule.json, then re-run rule sync.` を出力して `1` で終了します。
+移行するものがない場合は、`No v2 lock or cache leftovers found in <dir>; nothing to migrate.` を出力して `0` で終了します。これらのファイルが残っているのにスコープの `rule.json` が存在しないか読み取れない場合は、設定元の唯一の記録を失わないように移行を拒否し、`Cannot migrate: the rules config in <dir> is missing or unreadable while v2 leftovers remain. Restore rule.json, then re-run rule sync.` を出力して `1` で終了します。
 
 `doctor` は、残っているこれらのファイルを `info` 重大度の finding `config.v2-leftovers` として報告します。
 
 ### rule list
 
-ユーザースコープとプロジェクトスコープの両方について、有効な rulebook と解決済みソースを一覧表示します。
+ユーザースコープとプロジェクトスコープの両方について、有効な rulebook と解決済みの設定元を一覧表示します。
 
 ```bash
 npx -y cc-safety-net rule list

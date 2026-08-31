@@ -35,7 +35,7 @@ CLI 注册了十二个命令。这是它们在 `cc-safety-net --help` 中出现�
 | [`doctor`](#doctor) | `doctor [options]` | 对安装和配置运行诊断检查 |
 | [`logs`](#logs) | `logs [options]` | 浏览 hook 记录的审计日志条目 |
 | [`explain`](#explain) | `explain [options] <command>` | 跟踪命令的分析过程 |
-| [`rule`](#rule) | `rule <subcommand>` | 管理规则配置、rulebook 源和透明包装器 |
+| [`rule`](#rule) | `rule <subcommand>` | 管理规则配置、rulebook 来源和透明包装器 |
 | [`policy`](#policy) | `policy <subcommand>` | 检查并应用项目或用户的策略提案 |
 | [`install`](#install) | `install [TARGET_FLAG]` | 将 CC Safety Net 安装到编码智能体 CLI 中 |
 | [`update`](#update) | `update` | 就地更新所有已安装的集成 |
@@ -233,7 +233,7 @@ npx cc-safety-net logs --id 3fa9c2d1a70e8b42
 
 使用 `--dry-run` 时，不会删除任何内容。命令打印 `Would remove <n> legacy audit log files (<size>).`（或 `No legacy audit log files found.`），然后是 `Nested v2 audit logs are not included.`，并且当有东西要删除时，会打印 `Run the same command without --dry-run to delete them.`。它始终退出 `0`。加上 `--json` 时，它改为打印单个紧凑对象 `{"dryRun":true,"files":n,"bytes":n}`。
 
-有关旧版布局和当前布局的区别，请参阅[审计日志](/zh-Hans/reference/audit-log#日志布局)。
+有关旧版布局和当前布局的区别，请参阅[审计日志](/zh-Hans/reference/audit-log#log-layout)。
 
 ## explain
 
@@ -288,7 +288,7 @@ npx cc-safety-net explain --json 'loop() { loop; }; loop'
 
 ## rule
 
-`rule` 管理规则配置、rulebook 源和透明命令包装器。本节说明命令接口；rulebook 的 schema、生命周期和覆盖语义见[自定义规则](/zh-Hans/configuration/custom-rules)。
+`rule` 管理规则配置、rulebook 来源和透明命令包装器。本节说明命令接口；rulebook 的 schema、生命周期和覆盖语义见[自定义规则](/zh-Hans/configuration/custom-rules)。
 
 不带子命令运行 `rule` 会打印帮助并退出 `1`。`rule --help` 打印相同的帮助并退出 `0`。
 
@@ -298,7 +298,7 @@ npx cc-safety-net explain --json 'loop() { loop; }; loop'
 | --- | --- | --- |
 | `-g`, `--global` | 使用用户范围而不是项目范围的规则配置 | 除 `list` 和 `migrate` 之外的所有子命令 |
 | `--cleanup` | 在 `rule migrate` 验证通过后删除旧版文件 | 仅 `migrate` |
-| `--delete-source` | 移除源时，若本地源目录是干净的，则一并删除 | 仅 `remove` |
+| `--delete-source` | 移除来源时，若本地来源目录是干净的，则一并删除 | 仅 `remove` |
 | `--example` | 创建一个非活动的示例 rulebook | 仅 `init` |
 | `--ref <ref>` | 指定分支、标签或提交 | 仅 `add` |
 | `--only <rulebook...>` | 只添加仓库中这些 rulebook | 仅 `add` |
@@ -327,7 +327,7 @@ npx -y cc-safety-net rule init --example
 
 ### rule add
 
-用法是 `rule add [source] [--ref <ref>] [--only <rulebook...>]`。源有三种形式：`project-rules` 这样的纯本地名称、`acme/safety-rules` 这样的整个仓库，或 `owner/repo#ref/<rulebook-name>` 规范形式指定的单个 rulebook。
+用法是 `rule add [source] [--ref <ref>] [--only <rulebook...>]`。来源有三种形式：`project-rules` 这样的纯本地名称、`acme/safety-rules` 这样的整个仓库，或 `owner/repo#ref/<rulebook-name>` 规范形式指定的单个 rulebook。
 
 **选项：**
 
@@ -348,31 +348,31 @@ cc-safety-net rule add acme/safety-rules --ref v2 --only aws
 cc-safety-net rule add --only terraform aws
 ```
 
-省略源时，只要带上 `--ref` 或 `--only`，源就解析为官方目录 `cc-safety-net/rulebooks`。两个选项都不带的 `rule add` 会打印 `rule add requires a source (pass --only <rulebook...> to select from cc-safety-net/rulebooks)` 并以 `1` 退出。要添加官方的全部 rulebook，仍需显式写出 `rule add cc-safety-net/rulebooks`。
+省略来源时，只要带上 `--ref` 或 `--only`，来源就解析为官方目录 `cc-safety-net/rulebooks`。两个选项都不带的 `rule add` 会打印 `rule add requires a source (pass --only <rulebook...> to select from cc-safety-net/rulebooks)` 并以 `1` 退出。要添加官方的全部 rulebook，仍需显式写出 `rule add cc-safety-net/rulebooks`。
 
 和其他子命令一样，`-g` / `--global` 选择用户范围。
 
-源是仓库时，`rule add` 会先把 ref 解析成提交，列出该提交下仓库里所有 `.cc-safety-net/rules/<name>/rulebook.json`，然后才写入。不带 `--only` 时按名称顺序全部添加；带 `--only` 时按你列出的顺序添加指定的 rulebook，重复项忽略。指定仓库中不存在的名称会让本次添加失败。
+来源是仓库时，`rule add` 会先把 ref 解析成提交，列出该提交下仓库里所有 `.cc-safety-net/rules/<name>/rulebook.json`，然后才写入。不带 `--only` 时按名称顺序全部添加；带 `--only` 时按你列出的顺序添加指定的 rulebook，重复项忽略。指定仓库中不存在的名称会让本次添加失败。
 
-`--ref` 和 `--only` 只能用于 `owner/repo` 形式的源，用于其他形式会打印 `--ref can only select a ref for an owner/repo source: <source>` 或 `--only can only select rulebooks from an owner/repo source`。不带 `--ref` 时，`rule add` 使用仓库的默认分支。ref 可以包含 `/` 分段，因此 `--ref feature/rulebook-v2` 有效。整个 ref 必须匹配 `^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$`，不匹配则打印 `--ref must use valid path segments: <ref>`。
+`--ref` 和 `--only` 只能用于 `owner/repo` 形式的来源，用于其他形式会打印 `--ref can only select a ref for an owner/repo source: <source>` 或 `--only can only select rulebooks from an owner/repo source`。不带 `--ref` 时，`rule add` 使用仓库的默认分支。ref 可以包含 `/` 分段，因此 `--ref feature/rulebook-v2` 有效。整个 ref 必须匹配 `^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$`，不匹配则打印 `--ref must use valid path segments: <ref>`。
 
 `rule.json` 中保存的是带你所给 ref 的规范形式 `owner/repo#ref/<rulebook-name>`。解析出的提交只在输出中报告，不会保存。
 
 添加成功时，第一行是 `Scope: project (<config dir>)`，加上 `--global` 则是 `Scope: user (<config dir>)`，指出写入的 `rule.json` 所在的目录。没有这一行，在错误目录下执行的添加看上去也像成功。添加失败时什么都不会写入，也不会打印这一行。
 
-源是仓库时，接着按以下顺序打印：
+来源是仓库时，接着按以下顺序打印：
 
 - `Added <n> rulebooks from <source> at <ref>:`（只有一个时为 `rulebook`），随后每个 rulebook 一行 `  - <name>`
 - 对所选 rulebook 中 `rule.json` 已经列出的那些，打印 `Rulebooks already configured from <source> at <ref>: <names>`
-- `Vendored at <commit>.`，即解析出的提交，缩短为 7 个字符，仅在本次添加至少写入了一个新源时才打印
+- `Vendored at <commit>.`，即解析出的提交，缩短为 7 个字符，仅在本次添加至少写入了一个新来源时才打印
 - 每个写入的文件一段：新文件为 `Vendored <spec> (<version>)`；更新已有文件为 `Updated <spec> (<before> -> <after>)`，随后用 `  + <rule>`、`  - <rule>`、`  ~ <rule>` 分别列出新增、删除，以及名称未变但内容有改动的规则
 - `Rule config updated.`、一个空行，然后是 `Active rulebooks (<n>):`，每条为 `  - <name> <version> (<n> rules)` 和 `    Source: <spec>`
 
-纯本地名称或规范形式 `owner/repo#ref/<rulebook-name>` 的源保留 Scope 这一行，但不打印上面的前三项，结尾也不是 `Rule config updated.`，而是 `Added rulebook source: <source>`。
+纯本地名称或规范形式 `owner/repo#ref/<rulebook-name>` 的来源保留 Scope 这一行，但不打印上面的前三项，结尾也不是 `Rule config updated.`，而是 `Added rulebook source: <source>`。
 
 ### rule remove
 
-移除一个 rulebook 源并同步。加上 `--delete-source`，可在本地源目录干净时把该目录一并删除：
+移除一个 rulebook 来源并同步。加上 `--delete-source`，可在本地来源目录干净时把该目录一并删除：
 
 ```bash
 npx -y cc-safety-net rule remove project-rules
@@ -381,24 +381,24 @@ npx -y cc-safety-net rule remove project-rules --delete-source
 
 干净指目录里只有 `rulebook.json`，没有其他文件。`--delete-source` 会检查两次：一次在同步之前，一次在删除之时，因为中间的同步可能要等待 GitHub 拉取。
 
-- 若并发进程在这段间隙里新增了文件，第二次检查会拒绝删除并报错：`Local rulebook source directory contains extra files: <dir>. delete manually if you really want to remove the directory.` 随后配置改动会回滚并重新同步，你要求移除的源又会回来。
+- 若并发进程在这段间隙里新增了文件，第二次检查会拒绝删除并报错：`Local rulebook source directory contains extra files: <dir>. delete manually if you really want to remove the directory.` 随后配置改动会回滚并重新同步，你要求移除的来源又会回来。
 - 删除不是递归的：先删掉通过校验的 `rulebook.json`，再用非递归的 `rmdir` 删除目录本身。unlink 之后才落地的文件会让 `rmdir` 失败，该文件原样保留。被删除的始终只有 rulebook 文件。
 - 如果删除时目录已经不存在，就跳过删除并报告成功：请求的最终状态已达成。
 
 ### rule update
 
-为所有已配置的源重新拉取并落盘远程 rulebook；给出单个源时，只处理该源：
+为所有已配置的来源重新拉取并落盘远程 rulebook；给出单个来源时，只处理该来源：
 
 ```bash
 npx -y cc-safety-net rule update
 npx -y cc-safety-net rule update project-rules
 ```
 
-每次运行都会重新解析分支和标签 ref，因此指向 `main` 或某个会移动的标签的源会取到当前提交。本地源没有要拉取的内容。所有已配置的源都会出现在报告里，但只有选中的源会重新拉取，其余的从磁盘上已有的文件读取。打印的变更块与 [`rule add`](#rule-add) 相同，随后是 `Rule config updated.` 和活动 rulebook 列表。
+每次运行都会重新解析分支和标签 ref，因此指向 `main` 或某个会移动的标签的来源会取到当前提交。本地来源没有要拉取的内容。所有已配置的来源都会出现在报告里，但只有选中的来源会重新拉取，其余的从磁盘上已有的文件读取。打印的变更块与 [`rule add`](#rule-add) 相同，随后是 `Rule config updated.` 和活动 rulebook 列表。
 
-各个源独立更新。拉取或校验失败的源保留它已落盘的副本，并报告 `Failed to update <spec>: <message>`；成功更新的源照常写入。只要有源失败就退出 `1`，否则退出 `0`。
+各个来源独立更新。拉取或校验失败的来源保留它已落盘的副本，并报告 `Failed to update <spec>: <message>`；成功更新的来源照常写入。只要有来源失败就退出 `1`，否则退出 `0`。
 
-资源限制失败是例外。用尽 GitHub 拉取预算的运行会打印 `Rule synchronization exceeds CC Safety Net's safe resource limits.` 并停止，本次运行中的所有源都失败，而不只是触到上限的那一个。
+资源限制失败是例外。用尽 GitHub 拉取预算的运行会打印 `Rule synchronization exceeds CC Safety Net's safe resource limits.` 并停止，本次运行中的所有来源都失败，而不只是触到上限的那一个。
 
 ### rule sync
 
@@ -416,15 +416,15 @@ npx -y cc-safety-net rule sync
 `cc-safety-net rule sync` is deprecated: rulebooks are live files that need no synchronization. This run only migrates the lock and cache an earlier version left behind.
 ```
 
-全程不联网。缓存中仍与所记录摘要一致的副本会写入 `<config-dir>/<name>/rulebook.json`，并报告 `Vendored <spec> from the v2 cache.`；如果目标文件存在但不可用，则报告 `Restored <spec> from the v2 cache over an invalid file.`。缓存无法提供的源会打印 ``Could not migrate <spec> from the v2 cache. Run `cc-safety-net rule update <spec>` to vendor it.``，在用户范围下该命令还会带上 ` --global`。最后一行是 `Removed the v2 lock and cache under <dir>.`。
+全程不联网。缓存中仍与所记录摘要一致的副本会写入 `<config-dir>/<name>/rulebook.json`，并报告 `Vendored <spec> from the v2 cache.`；如果目标文件存在但不可用，则报告 `Restored <spec> from the v2 cache over an invalid file.`。缓存无法提供的来源会打印 ``Could not migrate <spec> from the v2 cache. Run `cc-safety-net rule update <spec>` to vendor it.``，在用户范围下该命令还会带上 ` --global`。最后一行是 `Removed the v2 lock and cache under <dir>.`。
 
-没有可迁移的残留时，命令打印 `No v2 lock or cache leftovers found in <dir>; nothing to migrate.` 并退出 `0`。若残留仍在，而该范围的 `rule.json` 缺失或无法读取，命令会拒绝迁移，以免毁掉已配置源的唯一记录：打印 `Cannot migrate: the rules config in <dir> is missing or unreadable while v2 leftovers remain. Restore rule.json, then re-run rule sync.` 并退出 `1`。
+没有可迁移的残留时，命令打印 `No v2 lock or cache leftovers found in <dir>; nothing to migrate.` 并退出 `0`。若残留仍在，而该范围的 `rule.json` 缺失或无法读取，命令会拒绝迁移，以免毁掉已配置来源的唯一记录：打印 `Cannot migrate: the rules config in <dir> is missing or unreadable while v2 leftovers remain. Restore rule.json, then re-run rule sync.` 并退出 `1`。
 
 `doctor` 会把这些残留报告为 `info` 严重程度的条目 `config.v2-leftovers`。
 
 ### rule list
 
-列出用户范围和项目范围内活动的 rulebook 及其解析出的源：
+列出用户范围和项目范围内活动的 rulebook 及其解析出的来源：
 
 ```bash
 npx -y cc-safety-net rule list

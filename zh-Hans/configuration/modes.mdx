@@ -18,6 +18,8 @@ CC Safety Net 有三个**安全级别**：`standard`、`strict` 和 `paranoid`�
   模式和调试标志使用 `CC_SAFETY_NET_*` 环境变量。旧的 `SAFETY_NET_*` 名称（没有 `CC_` 前缀）也可用于 strict、paranoid、paranoid-rm、paranoid-interpreters 和 worktree 开关。完整列表以及策略与环境之间的准确优先级见[环境](/zh-Hans/configuration/environment)，`safety.level` 和 `safety.overrides` 见[策略](/zh-Hans/configuration/policy)。
 </Note>
 
+<span id="default-mode"></span>
+
 ## 默认模式
 
 默认模式是 `standard`。无需设置环境变量，CC Safety Net 就会阻止内置规则识别出的破坏性 Git 和文件系统操作。大多数用户应从此级别开始。
@@ -44,7 +46,7 @@ CC Safety Net 有三个**安全级别**：`standard`、`strict` 和 `paranoid`�
 Strict 模式开启 `fail_closed` 能力。它会收紧以下五类检查，不只影响无法解析的命令：
 
 - **阻止无法解析的命令。** 解析器无法拆分成 token 的任何命令都会被拒绝，即使后备文本扫描没有发现危险模式，原因也为 `Command could not be safely analyzed (strict mode)`。`echo 'unterminated` 在 `standard` 中允许，在此级别中阻止。
-- **Heredoc 会 fail closed。** 含有 heredoc 的命令只有在以下条件全部满足时才会被允许：仅有一个不展开的 heredoc、用于标准输入、没有其他输入重定向，并且消费者是字面量 `cat`、`tee`、`git apply`、`git commit`、`gh pr create` 或 `gh issue create`。所谓不展开，指分隔符带引号（`<<'EOF'`），或者分隔符不带引号且正文中不含 `$`、反引号或反斜杠。因此，`python3 - <<'PY'` 和正文中出现 `$HOME` 的 `cat <<EOF` 都会在此级别被拒绝，而 `git commit -F - <<'EOF'` 和正文为纯文本的 `cat <<EOF` 仍可通过。准确的判定条件见 [Heredoc 分析](/zh-Hans/guides/analysis-engine#heredoc-分析)。
+- **Heredoc 会 fail closed。** 含有 heredoc 的命令只有在以下条件全部满足时才会被允许：仅有一个不展开的 heredoc、用于标准输入、没有其他输入重定向，并且消费者是字面量 `cat`、`tee`、`git apply`、`git commit`、`gh pr create` 或 `gh issue create`。所谓不展开，指分隔符带引号（`<<'EOF'`），或者分隔符不带引号且正文中不含 `$`、反引号或反斜杠。因此，`python3 - <<'PY'` 和正文中出现 `$HOME` 的 `cat <<EOF` 都会在此级别被拒绝，而 `git commit -F - <<'EOF'` 和正文为纯文本的 `cat <<EOF` 仍可通过。准确的判定条件见 [Heredoc 分析](/zh-Hans/guides/analysis-engine#heredoc-analysis)。
 - **阻止无法验证的破坏性目标**，由下面列出的五条规则负责。
 - **阻止仅元数据的敏感路径发现。** `test -f ~/.ssh/id_rsa` 和 `find ~/.ssh -type f` 在 `standard` 中允许，在 `strict` 中拒绝。
 - **禁用仅限 `standard` 的内联数据放宽。** 在 `standard` 中，如果有界词法扫描没有发现文件系统或命令执行标记，Node 或 Bun 内联求值中的敏感路径字面量会被视为无害的诊断数据。Strict 会移除这一放宽。

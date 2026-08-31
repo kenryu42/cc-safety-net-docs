@@ -29,7 +29,7 @@ CC Safety Net 阻止这些命令，因为它们可能永久破坏数据，包括
 
 | 级别 | 增加的阻止 |
 | --- | --- |
-| [`standard`](/zh-Hans/configuration/modes#默认模式) | 阻止所有未标记项。`echo 'unterminated` 这类看似安全的无法解析文本可以通过；含有可识别破坏性模式的无法解析文本仍会被启发式扫描阻止。动态 `rm -rf` 目标**不会**一律阻止。 |
+| [`standard`](/zh-Hans/configuration/modes#default-mode) | 阻止所有未标记项。`echo 'unterminated` 这类看似安全的无法解析文本可以通过；含有可识别破坏性模式的无法解析文本仍会被启发式扫描阻止。动态 `rm -rf` 目标**不会**一律阻止。 |
 | [`strict`](/zh-Hans/configuration/modes#strict-mode) | `standard` 阻止的全部内容，再加上无法解析的命令、无法验证的破坏性目标、[受支持范围之外的 heredoc](#strict-和-paranoid-中的-heredoc)，以及对内置敏感路径的纯元数据发现。 |
 | [`paranoid`](/zh-Hans/configuration/modes#paranoid-mode) | `strict` 阻止的全部内容，再加上即使位于当前工作目录内的非临时递归强制删除，以及所有解释器单行命令，无论其内容。 |
 
@@ -74,6 +74,8 @@ Git 接受 `GIT_SSH_COMMAND`、`GIT_SSH` 和 `GIT_SSH_VARIANT`，以在网络操
 | `GIT_SSH=... git fetch` / `pull` / `push` | 同上，适用于 fetch、pull 和 push |
 | `GIT_SSH_VARIANT=... git ls-remote` / `submodule` | 同上，适用于 ls-remote 和 submodule |
 
+<span id="filesystem-commands"></span>
+
 ## 文件系统命令
 
 | 命令模式 | 阻止原因 | 级别 |
@@ -96,7 +98,7 @@ Git 接受 `GIT_SSH_COMMAND`、`GIT_SSH` 和 `GIT_SSH_VARIANT`，以在网络操
 
 `rm -rf` 目标使用以下首个匹配分类顺序：不受支持的 Windows UNC 或设备目标、根目录或主目录、受保护的 Git 元数据、临时路径、动态目标、配置的允许路径、主目录作为工作目录、工作目录本身、工作目录内部、工作目录外部。临时路径在所有级别都允许。当前工作目录内的其他路径在 paranoid `rm` 未启用时允许。安全变体见[被允许的命令](/zh-Hans/reference/allowed-commands)。
 
-把破坏性命令藏在 POSIX 函数中不会绕过这些规则。函数正文会在调用处按调用者的 cwd 分析；调用也可通过引号（`'cleanup'`）、`time`/`!` 前缀和 `eval` 解析。只定义但从未调用的函数，其正文不会运行。调用解析和作用域见 [POSIX shell 函数](/zh-Hans/guides/analysis-engine#posix-shell-函数)。
+把破坏性命令藏在 POSIX 函数中不会绕过这些规则。函数正文会在调用处按调用者的 cwd 分析；调用也可通过引号（`'cleanup'`）、`time`/`!` 前缀和 `eval` 解析。只定义但从未调用的函数，其正文不会运行。调用解析和作用域见 [POSIX shell 函数](/zh-Hans/guides/analysis-engine#posix-shell-functions)。
 
 <Warning>
   `standard` 不会一律阻止动态 `rm -rf` 目标。`rm -rf "$target"` 在 `standard` 中允许，只有启用 `fail_closed` 能力后，也就是在 [`strict`](/zh-Hans/configuration/modes#strict-mode) 或 [`paranoid`](/zh-Hans/configuration/modes#paranoid-mode) 中，才会被阻止。`standard` 对对抗性或动态生成的命令文本只提供尽力保护；命令可能来自提示注入或其他不可信来源时，请使用 `strict` 或 `paranoid`。
@@ -117,6 +119,8 @@ CC Safety Net 在每个安全级别分析 `dd`、`mkfs` 和 `shred`。这些规�
 | `shred <target>` | `shred` 会永久破坏交给它的任何目标，因此 `shred --help` 和 `shred --version` 也会被阻止 |
 
 只有对设备的*写入*会触发 `dd` 规则。从设备读取到文件（`dd if=/dev/sda of=./backup.img`）是允许的，对文件镜像运行 `mkfs.ext4 disk.img` 同样允许。三条规则也适用于包装器和载体：`bash -c "dd if=/dev/zero of=/dev/sda"`、`sudo mkfs.ext4 /dev/sda`、`env dd of=/dev/sda if=/dev/zero` 和 `eval "shred secret"` 都会被阻止。
+
+<span id="git-metadata"></span>
 
 ## Git 元数据
 
@@ -188,6 +192,8 @@ PowerShell 支持是以 `Remove-Item` 及其别名和现有跨 shell 规则为�
 
 <Note>`-WhatIf` 会解除阻止，因为 PowerShell 并不会真正删除任何内容：`-WhatIf`、`-WhatIf:$true` 和 `-wi` 缩写都会允许原本被阻止的 `Remove-Item . -Recurse -Force`；显式 `-WhatIf:$false` 则重新阻止。上面仅 strict 的那些行有一个例外：`Remove-Item $HOME -Recurse -Force` 在 `standard` 中也会阻止，因为它分类为根目录/主目录目标，而不是动态目标。</Note>
 
+<span id="sensitive-paths"></span>
+
 ## 敏感路径
 
 敏感路径保护是独立的防护阶段，在命令分析前运行。它涵盖受支持的 **command**、**path**、**search**（grep/glob）和 **patch** 形式，也会检查未知工具，但绝不会将未知工具的任意文本视为 shell 命令。
@@ -196,7 +202,9 @@ PowerShell 支持是以 `Remove-Item` 及其别名和现有跨 shell 规则为�
 
 command 形式的提取是有界且结构化的：触及结构性 shell 语法限制时按 fail closed 处理，解析无效时抛出错误。配置的拒绝路径在内置规则之前匹配，且不受 `standard` 模式下任何放宽的影响。
 
-完整目录（每个规则 ID 和系列、受保护路径、两个 Coding CLI 层级、匹配顺序和豁免）见[机密保护参考](/zh-Hans/reference/secret-protection)。可用 `secret_protection.enabled: false` 禁用整个功能，也可通过 `secret_protection.overrides` 逐条开启或关闭规则，详情见[策略](/zh-Hans/configuration/policy#机密保护)。
+完整目录（每个规则 ID 和系列、受保护路径、两个 Coding CLI 层级、匹配顺序和豁免）见[机密保护参考](/zh-Hans/reference/secret-protection)。可用 `secret_protection.enabled: false` 禁用整个功能，也可通过 `secret_protection.overrides` 逐条开启或关闭规则，详情见[策略](/zh-Hans/configuration/policy#secret-protection)。
+
+<span id="shell-wrappers-and-interpreter-one-liners"></span>
 
 ## Shell 包装器和解释器单行命令
 
@@ -216,9 +224,11 @@ command 形式的提取是有界且结构化的：触及结构性 shell 语法�
 
 分析的解释器是 `python`、`python2`、`python3`、`node`、`ruby` 和 `perl`。触发阻止的是嵌入的破坏性命令，默认情况下不会只因单行命令形式而阻止。
 
+<span id="eval-and-source-of-a-generated-command"></span>
+
 ### 生成命令的 eval 与 source
 
-`eval "$(CMD)"`、`source <(CMD)` 和 `. <(CMD)` 会把 `CMD` 运行时打印的内容直接交给 shell。`strict` 和 `paranoid` 会拒绝所有这类动态 shell 执行来源。`standard` 只允许一种很窄的形态：[仅标准允许](/zh-Hans/reference/allowed-commands#仅标准允许)中描述的完全字面的本地生成命令；其余一律阻止。
+`eval "$(CMD)"`、`source <(CMD)` 和 `. <(CMD)` 会把 `CMD` 运行时打印的内容直接交给 shell。`strict` 和 `paranoid` 会拒绝所有这类动态 shell 执行来源。`standard` 只允许一种很窄的形态：[仅标准允许](/zh-Hans/reference/allowed-commands#standard-only-allowances)中描述的完全字面的本地生成命令；其余一律阻止。
 
 | 示例 | 结果 |
 | --- | --- |
