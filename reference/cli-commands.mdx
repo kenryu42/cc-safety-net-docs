@@ -327,7 +327,7 @@ After writing, `rule init` loads the scope the way the guard loads it. Any error
 
 ### rule add
 
-Usage is `rule add <source> [--ref <ref>] [--only <rulebook...>]`. `<source>` takes three forms: a bare local name such as `project-rules`, a whole repository such as `acme/safety-rules`, or one rulebook in the canonical form `owner/repo#ref/<rulebook-name>`.
+Usage is `rule add [source] [--ref <ref>] [--only <rulebook...>]`. The source takes three forms: a bare local name such as `project-rules`, a whole repository such as `acme/safety-rules`, or one rulebook in the canonical form `owner/repo#ref/<rulebook-name>`.
 
 **Options:**
 
@@ -345,9 +345,12 @@ cc-safety-net rule add project-rules
 cc-safety-net rule add acme/safety-rules
 cc-safety-net rule add acme/safety-rules --only aws gcloud
 cc-safety-net rule add acme/safety-rules --ref v2 --only aws
+cc-safety-net rule add --only terraform aws
 ```
 
-Omitting the source is an error. `-g`/`--global` selects the user scope, as it does for every other subcommand.
+Passing `--ref` or `--only` without a source resolves the source to `cc-safety-net/rulebooks`, the official catalog. A bare `rule add` with neither flag exits `1` with `rule add requires a source (pass --only <rulebook...> to select from cc-safety-net/rulebooks)`. Taking every official rulebook therefore stays an explicit `rule add cc-safety-net/rulebooks`.
+
+`-g`/`--global` selects the user scope, as it does for every other subcommand.
 
 For a repository source, `rule add` resolves the ref to a commit and lists every `.cc-safety-net/rules/<name>/rulebook.json` the repository holds at that commit before it writes anything. Without `--only` it adds all of them in name order. With `--only` it adds the named ones in the order you listed them and ignores repeats. A name the repository does not carry fails the add.
 
@@ -355,7 +358,9 @@ For a repository source, `rule add` resolves the ref to a commit and lists every
 
 `rule.json` stores the canonical `owner/repo#ref/<rulebook-name>` carrying the ref you gave. `rule add` reports the resolved commit but does not store it.
 
-A repository add prints, in order:
+A successful add opens with `Scope: project (<config dir>)`, or `Scope: user (<config dir>)` under `--global`, naming the directory holding the `rule.json` it wrote. Without that line, an add run from the wrong directory reads as success. A failed add wrote nothing and prints no scope line.
+
+A repository add then prints, in order:
 
 - `Added <n> rulebooks from <source> at <ref>:` (`rulebook` when it is one), then one `  - <name>` line per rulebook
 - `Rulebooks already configured from <source> at <ref>: <names>` for the selected rulebooks `rule.json` already listed
@@ -363,7 +368,7 @@ A repository add prints, in order:
 - one block per file written: `Vendored <spec> (<version>)` for a new file, or `Updated <spec> (<before> -> <after>)` followed by `  + <rule>`, `  - <rule>`, and `  ~ <rule>` lines for rules added, removed, and changed under an unchanged name
 - `Rule config updated.`, a blank line, then `Active rulebooks (<n>):` with `  - <name> <version> (<n> rules)` and `    Source: <spec>` for each
 
-A bare local name or a canonical `owner/repo#ref/<rulebook-name>` source drops the first three lines and closes with `Added rulebook source: <source>` where a repository add says `Rule config updated.`
+A bare local name or a canonical `owner/repo#ref/<rulebook-name>` source keeps the scope line, drops the first three entries above, and closes with `Added rulebook source: <source>` where a repository add says `Rule config updated.`
 
 ### rule remove
 

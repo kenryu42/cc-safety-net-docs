@@ -49,11 +49,11 @@ Antigravity CLI 和 Kimi Code 需要单独添加：`npx skill add kenryu42/cc-sa
 
 **解释判定。** 先拿到被阻止的原始命令，你手上没有时就从 `logs` 里找。它把命令作为一个字面参数传给 `explain`，再从跟踪中读出命中的规则，报告原因以及原因中给出的更安全的替代做法。`explain` 对允许和阻止两种判定都返回退出码 0，因此技能从输出读判定，而不看退出码。见 [Explain 跟踪](/zh-Hans/reference/explain-trace)。
 
-**排查误报。** 用 `logs --suspect --since 7` 列出近期可疑的拒绝，用 `explain` 复现判定，确认是哪条规则触发。如果是自定义规则，就修改该 rulebook，或用 override 禁用它，然后重新运行 `explain` 确认新判定。如果是内置规则，任何规则改动都放宽不了它，技能便去找原因中写明的例外做法：linked worktree 中的本地 git 丢弃可以用 `CC_SAFETY_NET_WORKTREE=1`，可信透明包装器遮住真实命令时可以用 `rule wrapper add`。都不适用时，它会说明该规则防范的风险，并告诉你去哪里提交 issue。
+**排查误报。** 用 `logs --suspect --since 7` 列出近期可疑的拒绝，用 `explain` 复现判定，确认是哪条规则触发。如果是自定义规则，就修改该 rulebook，或用 override 禁用它，然后重新运行 `explain` 确认新判定。如果是内置规则，任何规则改动都放宽不了它，技能便去找原因中写明的例外做法：linked worktree 中的本地 git 丢弃可以用 `CC_SAFETY_NET_WORKTREE=1`，可信透明包装器遮住真实命令时可以用 `rule wrapper add`。如果你明确要求关掉那条内置规则，它会从 `explain --json` 读出规则 ID，提出针对单条规则的策略 override，交给你来应用。都不适用时，它会说明该规则防范的风险，并告诉你去哪里提交 issue。
 
-**配置规则。** 先确定范围：用户、项目，或当前仓库中可共享的 rulebook。再用 `rule verify` 和 `rule list` 查看现状，以 `rule doc` 的输出为 schema 依据写出 JSON，最后校验结果。保存后的 rulebook 是实时文件，不需要再做任何激活操作。见[自定义规则](/zh-Hans/configuration/custom-rules)。
+**配置规则。** 先确定范围：用户、项目，或当前仓库中可共享的 rulebook。再用 `rule verify` 和 `rule list` 查看现状，以 `rule doc` 的输出为 schema 依据写出 JSON，最后校验结果。保存后的 rulebook 是实时文件，不需要再做任何激活操作。你要的规则如果官方 rulebook 已经覆盖，它就不自己写，而是用 `rule add --only <rulebook...>` 安装。见[自定义规则](/zh-Hans/configuration/custom-rules)和[官方 rulebook](/zh-Hans/configuration/rulebooks)。
 
-**配置策略。** 两个 `policy.json` 都是受保护路径，所以技能只负责提议，由你来应用。它把提案写到未受保护的路径，运行 `policy check` 并把差异展示给你，然后把 `policy apply` 命令原样交给你，由你在自己的终端里运行。见[策略](/zh-Hans/configuration/policy)。
+**配置策略。** 两个 `policy.json` 都是受保护路径，所以技能只负责提议，由你来应用。它把提案写到未受保护的路径，运行 `policy check` 并把差异展示给你，然后把 `policy apply` 命令原样交给你，由你在自己的终端里运行。它内置了 `policy.json` 的字段参考，因此提案可以设置安全级别、在级别之外单独覆盖某项能力、开关任一项内置保护、开启或关闭单条内置规则、修改允许路径和拒绝路径列表，以及在用户范围设置审计保留期。见[策略](/zh-Hans/configuration/policy)。
 
 **管理集成。** 先运行 `doctor`，看清检测、配置和验证状态。安装时显式带上目标选项，例如 `install --claude-code`，完成后再运行一次 `doctor`，确认对应平台那一行显示为 verified。不带选项的 `install` 会打开交互式选择器，技能会把它留给你自己的终端。
 

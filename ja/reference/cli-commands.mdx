@@ -327,7 +327,7 @@ npx -y cc-safety-net rule init --example
 
 ### rule add
 
-使用方法は `rule add <source> [--ref <ref>] [--only <rulebook...>]` です。`<source>` には 3 つの形式があります。`project-rules` のような裸のローカル名、`acme/safety-rules` のようなリポジトリ全体、`owner/repo#ref/<rulebook-name>` という正規形式で指定する単一の rulebook です。
+使用方法は `rule add [source] [--ref <ref>] [--only <rulebook...>]` です。ソースには 3 つの形式があります。`project-rules` のような裸のローカル名、`acme/safety-rules` のようなリポジトリ全体、`owner/repo#ref/<rulebook-name>` という正規形式で指定する単一の rulebook です。
 
 **オプション：**
 
@@ -345,9 +345,12 @@ cc-safety-net rule add project-rules
 cc-safety-net rule add acme/safety-rules
 cc-safety-net rule add acme/safety-rules --only aws gcloud
 cc-safety-net rule add acme/safety-rules --ref v2 --only aws
+cc-safety-net rule add --only terraform aws
 ```
 
-ソースを省略するとエラーになります。他のサブコマンドと同様に、`-g` / `--global` でユーザースコープを選択します。
+ソースを指定せずに `--ref` または `--only` を渡すと、公式カタログの `cc-safety-net/rulebooks` に解決されます。どちらのフラグもない `rule add` は `rule add requires a source (pass --only <rulebook...> to select from cc-safety-net/rulebooks)` を出力して `1` で終了します。そのため、公式 rulebook をすべて追加する場合は、これまでどおり `rule add cc-safety-net/rulebooks` と明示する必要があります。
+
+他のサブコマンドと同様に、`-g` / `--global` でユーザースコープを選択します。
 
 リポジトリをソースに指定した場合、`rule add` は書き込みの前に ref をコミットへ解決し、そのコミット時点のリポジトリにある `.cc-safety-net/rules/<name>/rulebook.json` をすべて列挙します。`--only` がなければ、それらを名前順ですべて追加します。`--only` を指定すると、指定した順序で該当する rulebook だけを追加し、重複は無視します。リポジトリに存在しない名前を指定すると、追加は失敗します。
 
@@ -355,7 +358,9 @@ cc-safety-net rule add acme/safety-rules --ref v2 --only aws
 
 `rule.json` には、指定した ref を含む正規形式 `owner/repo#ref/<rulebook-name>` が保存されます。解決されたコミットは出力されるだけで、保存はされません。
 
-リポジトリを追加したときの出力は、次の順序です。
+追加に成功すると、まず `Scope: project (<config dir>)` を出力します。`--global` を付けた場合は `Scope: user (<config dir>)` で、いずれも書き込んだ `rule.json` があるディレクトリを示します。この行がなければ、誤ったディレクトリで実行した追加も成功に見えてしまいます。失敗した追加は何も書き込んでおらず、スコープの行も出力しません。
+
+リポジトリを追加した場合は、続けて次の順序で出力します。
 
 - `Added <n> rulebooks from <source> at <ref>:`（1 件の場合は `rulebook`）に続けて、rulebook ごとに `  - <name>` の行
 - 選択した rulebook のうち `rule.json` にすでにあったものについて `Rulebooks already configured from <source> at <ref>: <names>`
@@ -363,7 +368,7 @@ cc-safety-net rule add acme/safety-rules --ref v2 --only aws
 - 書き込んだファイルごとに 1 ブロック。新規ファイルは `Vendored <spec> (<version>)`、既存ファイルの更新は `Updated <spec> (<before> -> <after>)` に続けて、追加・削除・名前は同じで内容が変わったルールをそれぞれ `  + <rule>`、`  - <rule>`、`  ~ <rule>` の行で表示
 - `Rule config updated.`、空行、`Active rulebooks (<n>):`。各エントリは `  - <name> <version> (<n> rules)` と `    Source: <spec>`
 
-裸のローカル名または正規形式 `owner/repo#ref/<rulebook-name>` のソースでは、最初の 3 行は出力されません。リポジトリ追加で `Rule config updated.` が出る位置には、`Added rulebook source: <source>` が出力されます。
+裸のローカル名または正規形式 `owner/repo#ref/<rulebook-name>` のソースでは、スコープの行はそのまま出力され、上記の最初の 3 項目は省かれます。リポジトリ追加で `Rule config updated.` が出る位置には、`Added rulebook source: <source>` が出力されます。
 
 ### rule remove
 

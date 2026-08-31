@@ -327,7 +327,7 @@ npx -y cc-safety-net rule init --example
 
 ### rule add
 
-用法是 `rule add <source> [--ref <ref>] [--only <rulebook...>]`。`<source>` 有三种形式：`project-rules` 这样的纯本地名称、`acme/safety-rules` 这样的整个仓库，或 `owner/repo#ref/<rulebook-name>` 规范形式指定的单个 rulebook。
+用法是 `rule add [source] [--ref <ref>] [--only <rulebook...>]`。源有三种形式：`project-rules` 这样的纯本地名称、`acme/safety-rules` 这样的整个仓库，或 `owner/repo#ref/<rulebook-name>` 规范形式指定的单个 rulebook。
 
 **选项：**
 
@@ -345,9 +345,12 @@ cc-safety-net rule add project-rules
 cc-safety-net rule add acme/safety-rules
 cc-safety-net rule add acme/safety-rules --only aws gcloud
 cc-safety-net rule add acme/safety-rules --ref v2 --only aws
+cc-safety-net rule add --only terraform aws
 ```
 
-省略源参数会报错。和其他子命令一样，`-g` / `--global` 选择用户范围。
+省略源时，只要带上 `--ref` 或 `--only`，源就解析为官方目录 `cc-safety-net/rulebooks`。两个选项都不带的 `rule add` 会打印 `rule add requires a source (pass --only <rulebook...> to select from cc-safety-net/rulebooks)` 并以 `1` 退出。要添加官方的全部 rulebook，仍需显式写出 `rule add cc-safety-net/rulebooks`。
+
+和其他子命令一样，`-g` / `--global` 选择用户范围。
 
 源是仓库时，`rule add` 会先把 ref 解析成提交，列出该提交下仓库里所有 `.cc-safety-net/rules/<name>/rulebook.json`，然后才写入。不带 `--only` 时按名称顺序全部添加；带 `--only` 时按你列出的顺序添加指定的 rulebook，重复项忽略。指定仓库中不存在的名称会让本次添加失败。
 
@@ -355,7 +358,9 @@ cc-safety-net rule add acme/safety-rules --ref v2 --only aws
 
 `rule.json` 中保存的是带你所给 ref 的规范形式 `owner/repo#ref/<rulebook-name>`。解析出的提交只在输出中报告，不会保存。
 
-添加仓库时按以下顺序打印：
+添加成功时，第一行是 `Scope: project (<config dir>)`，加上 `--global` 则是 `Scope: user (<config dir>)`，指出写入的 `rule.json` 所在的目录。没有这一行，在错误目录下执行的添加看上去也像成功。添加失败时什么都不会写入，也不会打印这一行。
+
+源是仓库时，接着按以下顺序打印：
 
 - `Added <n> rulebooks from <source> at <ref>:`（只有一个时为 `rulebook`），随后每个 rulebook 一行 `  - <name>`
 - 对所选 rulebook 中 `rule.json` 已经列出的那些，打印 `Rulebooks already configured from <source> at <ref>: <names>`
@@ -363,7 +368,7 @@ cc-safety-net rule add acme/safety-rules --ref v2 --only aws
 - 每个写入的文件一段：新文件为 `Vendored <spec> (<version>)`；更新已有文件为 `Updated <spec> (<before> -> <after>)`，随后用 `  + <rule>`、`  - <rule>`、`  ~ <rule>` 分别列出新增、删除，以及名称未变但内容有改动的规则
 - `Rule config updated.`、一个空行，然后是 `Active rulebooks (<n>):`，每条为 `  - <name> <version> (<n> rules)` 和 `    Source: <spec>`
 
-纯本地名称或规范形式 `owner/repo#ref/<rulebook-name>` 的源不打印前三行，结尾也不是 `Rule config updated.`，而是 `Added rulebook source: <source>`。
+纯本地名称或规范形式 `owner/repo#ref/<rulebook-name>` 的源保留 Scope 这一行，但不打印上面的前三项，结尾也不是 `Rule config updated.`，而是 `Added rulebook source: <source>`。
 
 ### rule remove
 
