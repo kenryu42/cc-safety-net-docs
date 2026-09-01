@@ -1,7 +1,7 @@
 ---
 title: "インストールと動作のトラブルシューティング"
 sidebarTitle: "トラブルシューティング"
-description: "hook が動作しない、コマンドがブロックされない、誤検知が起きる、カスタムルールが効かない、設定が degraded になる、ステータスラインが表示されないなど、CC Safety Net でよくある問題への対処方法です。"
+description: "hook が動作しない、hook が遅い、コマンドがブロックされない、誤検知が起きる、カスタムルールが効かない、設定が degraded になる、ステータスラインが表示されないなど、CC Safety Net でよくある問題への対処方法です。"
 ---
 
 このガイドは、CC Safety Net のインストールと動作に関する主な問題を扱います。まず `status` で判定を確認し、次に `doctor` で詳しいレポートを取得してください。
@@ -53,6 +53,37 @@ bunx cc-safety-net doctor
     16. 変更が終わったら、エージェントのセッションを再読み込みするか再起動します。
 
     使っているエージェントがどの方式かが分からない場合は、[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
+  </Accordion>
+
+  <Accordion title="hook が遅く、コマンドの実行前に毎回待たされる">
+    正常なチェックは 1 秒未満で終わります。すべてのコマンドが数秒待たされる場合、遅いのは解析ではなく `cc-safety-net` パッケージの解決です。
+
+    **対処手順：**
+
+    1. エージェントが hook をどう実行しているかを確認します。Claude Code のプラグインは同梱されたコピーを直接実行するため、パッケージの解決が原因になることはありません。Antigravity CLI、Cursor、Grok Build、Hermes Agent、Kimi Code の hook はコマンドのたびに `npx -y cc-safety-net` を実行するため、npm のキャッシュが正常でも数百ミリ秒が加わります。
+    2. エージェントの外で、解決にかかる時間を計測します。
+
+       ```bash
+       time npx -y cc-safety-net --version
+       ```
+
+       2〜3 回続けて実行してください。リリース後の初回はパッケージをダウンロードするため、一度だけ遅くなります。2 回目以降は数百ミリ秒に収まるはずです。
+    3. レジストリの遅延かどうかを切り分けます。
+
+       ```bash
+       time npx -y --prefer-offline cc-safety-net --version
+       ```
+
+       `--prefer-offline` では速いのに通常の実行が遅いままなら、npx は npm レジストリの応答を待っています。これはネットワークまたはプロキシの問題で、CC Safety Net の問題ではありません。
+    4. npm のキャッシュを修復します。
+
+       ```bash
+       npm cache verify
+       ```
+
+       肥大化または破損したキャッシュは、2 回目以降の実行を含むすべての npx の解決を遅くします。`npm cache verify` はキャッシュをガベージコレクションして修復します。このセクションのきっかけになった報告（[issue #16](https://github.com/kenryu42/cc-safety-net/issues/16)）では、5 GB 以上を回収して hook を 1 秒未満に戻しました。
+
+    対処が終わったら、手順 2 の計測コマンドを再実行してください。2 回目以降が数百ミリ秒に収まっていれば、npx を経由する連携としては最速の状態です。
   </Accordion>
 
   <Accordion title="破壊的なコマンドがブロックされなかった">

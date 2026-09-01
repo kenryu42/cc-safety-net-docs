@@ -1,7 +1,7 @@
 ---
 title: "Troubleshooting installation and behavior"
 sidebarTitle: "Troubleshooting"
-description: "Fix common CC Safety Net issues: hook not firing, commands not blocked, false positives, custom rules not enforced, degraded configuration, and status line not showing."
+description: "Fix common CC Safety Net issues: hook not firing, slow hooks, commands not blocked, false positives, custom rules not enforced, degraded configuration, and status line not showing."
 ---
 
 Use this guide to fix common CC Safety Net installation and behavior problems. Run `status` for the quick verdict. Then run `doctor` for the full report.
@@ -53,6 +53,37 @@ Review the output before you work through the individual issues below. Most prob
     16. After making any changes, reload or restart your agent session.
 
     If you are unsure which mechanism your agent uses, see [Integration architecture](/guides/integration-architecture).
+  </Accordion>
+
+  <Accordion title="Hooks are slow: every command waits before it runs">
+    A healthy check finishes in well under a second. If every command waits for seconds, the delay is in resolving the `cc-safety-net` package, not in the analysis itself.
+
+    **Steps to resolve:**
+
+    1. Check how your agent runs the hook. The Claude Code plugin runs its bundled copy directly, so package resolution cannot be the cause there. The Antigravity CLI, Cursor, Grok Build, Hermes Agent, and Kimi Code hooks run `npx -y cc-safety-net` on every command, which adds a few hundred milliseconds even with a healthy npm cache.
+    2. Measure the resolution cost outside the agent:
+
+       ```bash
+       time npx -y cc-safety-net --version
+       ```
+
+       Run it two or three times. The first run after a release downloads the package and is slow once; warm runs should settle in the low hundreds of milliseconds.
+    3. Rule out registry latency:
+
+       ```bash
+       time npx -y --prefer-offline cc-safety-net --version
+       ```
+
+       If the `--prefer-offline` run is fast while the plain run stays slow, npx is waiting on the npm registry. That is a network or proxy problem, not a CC Safety Net one.
+    4. Repair the npm cache:
+
+       ```bash
+       npm cache verify
+       ```
+
+       A bloated or corrupted cache slows every npx resolution, warm runs included. `npm cache verify` garbage-collects and repairs it. In the report that led to this section ([issue #16](https://github.com/kenryu42/cc-safety-net/issues/16)), it reclaimed over 5 GB and brought hooks back under a second.
+
+    After a fix, re-run the timing command from step 2. Warm runs in the low hundreds of milliseconds are as fast as the npx-based integrations get.
   </Accordion>
 
   <Accordion title="A destructive command slipped through">

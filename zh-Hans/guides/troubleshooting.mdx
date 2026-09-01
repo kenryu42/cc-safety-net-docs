@@ -1,7 +1,7 @@
 ---
 title: "安装和行为故障排除"
 sidebarTitle: "故障排除"
-description: "修复 hook 未运行、危险命令未被阻止、误报、自定义规则未生效、配置降级和状态行不显示等常见问题。"
+description: "修复 hook 未运行、hook 运行缓慢、危险命令未被阻止、误报、自定义规则未生效、配置降级和状态行不显示等常见问题。"
 ---
 
 使用本指南修复常见的 CC Safety Net 安装和行为问题。先运行 `status` 查看快速判定，再运行 `doctor` 查看完整报告。
@@ -51,6 +51,37 @@ bunx cc-safety-net doctor
     16. 做出任何更改后，都要重新加载或重启智能体会话。
 
     如果不确定智能体使用哪种机制，请参阅[集成架构](/zh-Hans/guides/integration-architecture)。
+  </Accordion>
+
+  <Accordion title="Hook 很慢，每条命令执行前都要等待">
+    正常的检查在 1 秒内完成。如果每条命令都要等上几秒，慢的是 `cc-safety-net` 包的解析，而不是分析本身。
+
+    **解决步骤：**
+
+    1. 确认你的智能体如何运行 hook。Claude Code 插件直接运行捆绑的副本，因此包解析不可能是原因。Antigravity CLI、Cursor、Grok Build、Hermes Agent 和 Kimi Code 的 hook 每条命令都运行 `npx -y cc-safety-net`，即使 npm 缓存健康，也会增加几百毫秒。
+    2. 在智能体之外测量解析耗时：
+
+       ```bash
+       time npx -y cc-safety-net --version
+       ```
+
+       连续运行两三次。每次发布后的首次运行需要下载包，只会慢这一次；之后的运行应稳定在几百毫秒。
+    3. 排除注册表延迟：
+
+       ```bash
+       time npx -y --prefer-offline cc-safety-net --version
+       ```
+
+       如果加 `--prefer-offline` 很快而普通运行仍然很慢，说明 npx 在等待 npm 注册表响应。这是网络或代理问题，不是 CC Safety Net 的问题。
+    4. 修复 npm 缓存：
+
+       ```bash
+       npm cache verify
+       ```
+
+       膨胀或损坏的缓存会拖慢每一次 npx 解析，包括已缓存的运行。`npm cache verify` 会对缓存做垃圾回收并修复。在促成本节的报告（[issue #16](https://github.com/kenryu42/cc-safety-net/issues/16)）中，它回收了 5 GB 以上的空间，让 hook 恢复到 1 秒以内。
+
+    修复后重跑第 2 步的计时命令。之后的运行稳定在几百毫秒，就是经由 npx 的集成能达到的最快状态。
   </Accordion>
 
   <Accordion title="破坏性命令未被阻止">
