@@ -1,10 +1,23 @@
 ---
-title: "CC Safety Net と OS レベルのサンドボックス"
-sidebarTitle: "CC Safety Net とサンドボックス"
-description: "CC Safety Net と OS レベルのサンドボックスの違いです。両者は別の脅威を防ぐため、併用すると保護範囲が広がります。"
+title: "保護レイヤーの中での CC Safety Net の位置づけ"
+sidebarTitle: "保護レイヤー"
+description: "CC Safety Net を、OS レベルのサンドボックス、許可プロンプトと自動承認の分類器、コンテナ・VM・チェックポイントと並べて位置づけます。どのレイヤーにも、ほかのレイヤーが拾う見落としがあります。"
 ---
 
 現在、多くのコーディングエージェントの CLI が、ファイルシステムとネットワークを分離する OS レベルのサンドボックスを同梱するか、利用できるようにしています。サンドボックスは、個々のコマンドの意味を問わず、プロセスがアクセスできる範囲を制限します。一方、CC Safety Net は対応するツール呼び出しの意味を解析し、対象の場所にかかわらず、破壊的な操作を実行前に拒否します。両者は別の脅威を防ぐため、併用すると保護範囲が最も広くなります。
+
+すでに動いているレイヤーは、サンドボックスだけではありません。許可プロンプトと、その自動承認を担う分類器はすべての操作の手前にあり、セッションをコンテナや VM で囲んだり、チェックポイントを併用したりする構成もあります。このページでは、CC Safety Net をそれぞれの隣に置いて比較します。最も詳しく扱うのはサンドボックスです。比較対象として最も近いためです。
+
+## 各レイヤーが守る範囲と守れない範囲
+
+レイヤーごとに判断の根拠が違うため、どのレイヤーにも、ほかのレイヤーが拾う見落としがあります。
+
+| レイヤー | 守る範囲 | 守れない範囲 |
+|---|---|---|
+| **OS レベルのサンドボックス** | 書き込みを作業ディレクトリと一時ディレクトリに限定し、ネットワークアクセスを制限または無効にする | 境界の内側で起きること。`git reset --hard`、`rm -rf .`、そしてサンドボックスが許可している資格情報ファイルの読み取り |
+| **許可プロンプトと自動承認の分類器** | 実行前に、ユーザーへの確認か分類器モデルによる審査が入る。破壊的な git コマンドも対象 | 公表されている偽陰性率 17%。そして、何も確認しないバイパスモード |
+| **コンテナ・VM・チェックポイント** | 捨てられるマシンと、プロンプトごとに記録されたファイル編集の rewind | マウントされたワークスペースには実際の作業があり、push は実在のリモートに届き、rewind は bash コマンドを対象にしない |
+| **CC Safety Net** | 実行前の決定的な解析。対応するツール呼び出しの中の、破壊的な git 操作とファイルシステム操作、および認識できる資格情報の読み取り | ネットワークへの送信、認識しないファイル内の資格情報、バイナリ内部の動作。拒否はファイルシステムの権限強制ではない |
 
 ## OS サンドボックスの仕組み
 
@@ -24,7 +37,7 @@ description: "CC Safety Net と OS レベルのサンドボックスの違いで
 
 ## コーディングエージェントにとってのサンドボックスの限界
 
-サンドボックスが制限するのは書き込める*場所*であって、その境界*内*での操作が破壊的かどうかまでは理解しません。次のコマンドはいずれもサンドボックスでは許可されます。カレントディレクトリ内に書き込むか、サンドボックスが許可したファイルを読み取るか、許可されたリモートに接続するだけだからです。
+サンドボックスが制限するのは書き込める*場所*であって、その範囲*内*でプロセスが何をするかまでは判断しません。Claude Code の[サンドボックスドキュメント](https://code.claude.com/docs/en/sandboxing)は、既定で書き込みを作業ディレクトリに限定します。そのため、プロジェクトに対する `git reset --hard`、`git push --force`、`rm -rf .` はすべて許可されたパスへの操作となり、OS からは正当な書き込みに見えます。次のコマンドはいずれもサンドボックスでは許可されます。カレントディレクトリ内に書き込むか、サンドボックスが許可したファイルを読み取るか、許可されたリモートに接続するだけだからです。
 
 <Note>
   これらのコマンドが自動的に実行されるか確認を求められるかは、エージェントのサンドボックスモードと承認ポリシーによって決まります。`git push --force` のようなネットワークを使うコマンドは、許可ドメインの設定にも左右されます。
@@ -44,6 +57,8 @@ description: "CC Safety Net と OS レベルのサンドボックスの違いで
 </Note>
 
 OS の視点では、これらのコマンドはまったく正当です。許可されたパスに書き込むか、サンドボックスが許可したファイルを読み取るだけで、push 以外はネットワークにも触れず、エラーもなく完了します。サンドボックスには、git の履歴、未コミットの変更、stash の内容、どのファイルが資格情報を持つかといった概念がありません。CC Safety Net はこうした意味を理解したうえで、該当する操作をブロックします。
+
+読み取りの範囲は、多くの人が想定するより広く許可されています。Claude Code の[サンドボックスドキュメント](https://code.claude.com/docs/en/sandboxing)は、既定の読み取り動作について「There is no built-in credential deny list」と述べ、`~/.aws/credentials` と `~/.ssh/` を今も読み取りを許可するファイルとして名指ししています。CC Safety Net は、設定なしでこれらのパスへのコンテンツアクセスをブロックします。
 
 同じ違いは、コマンドプロキシにも当てはまります。ユーザーの代わりにコマンドを実行するツールは、どちらのレイヤーから見ても 1 つの不透明な実行ファイルにすぎません。しかし `cc-safety-net rule wrapper add <command>` で宣言しておけば、CC Safety Net はそのプロキシを透過して子コマンドを見て、同じルールを適用します。サンドボックスは子コマンドをまったく検査せず、プロセスツリー全体が何に触れられるかを制限するだけです。
 
@@ -71,6 +86,20 @@ CC Safety Net が行うのは、対応するツール呼び出しの解釈であ
 
 これらはまさに、サンドボックスの封じ込めが担う領域です。だからこそ、この 2 つは択一ではなく相互補完の関係にあります。残る制限の全一覧は[既知の制限](/ja/guides/known-limitations)を参照してください。
 
+## 許可プロンプトと自動承認の分類器
+
+ユーザーにいちばん近いのは、確認を求めるレイヤーです。Claude Code の[許可モードのドキュメント](https://code.claude.com/docs/en/permission-modes)はこう説明しています。Manual モードでは、Claude Code は「stops and asks you before most actions that edit files, run shell commands, or reach the network」。auto モードでは「a second model, the classifier, reviews actions instead of you」。分類器が既定でブロックする操作の一覧には、「`git reset --hard`, `git checkout -- .`, `git restore .`, `git clean -fd`, `git stash drop`, or `git stash clear`, which the classifier presumes would discard uncommitted changes」が含まれます。
+
+この審査は判断であり、切ることもできます。Anthropic は、Claude Code の [auto-mode](https://www.anthropic.com/engineering/claude-code-auto-mode) 分類器について、実際の行き過ぎた操作に対する偽陰性率 17% を公表し、「not a drop-in replacement for careful human review」だとしています。同じ許可モードのドキュメントは、`bypassPermissions` で確認なしに実行される範囲を「Everything」と記載し、このモードを「Isolated containers and VMs only」に勧めています。
+
+決定的なチェックは、モードを切り替えても残ります。同じページには「Deny rules block in every mode, including `bypassPermissions`」とあります。CC Safety Net の拒否も同じように振る舞います。Claude Code 2.1.251 に対して検証したところ、PreToolUse の deny は default、auto、bypassPermissions のいずれのモードでも発火しました（プロジェクトリポジトリの `tests/e2e-live/protection.test.ts`）。これはバージョンごとの結果であって恒久的な保証ではないため、このスイートはリリースとホストの更新のたびに再実行します。deny ルールが守れるのは、あらかじめ書き出せた操作を、CLI ごとの書式で指定した分だけです。CC Safety Net は 13 の CLI にまたがって 1 つのポリシーを適用し、1 つの監査証跡を残します。
+
+## コンテナ・VM・チェックポイント
+
+捨てられるマシンは、本物の封じ込めです。プロンプトを切ったときに、許可モードのドキュメントが指し示す先でもあります。`bypassPermissions` は「Isolated containers and VMs only」向けだとされています。ただし、マシンが使い捨てでも、その中の作業は変わりません。クラウドセッションは実在のブランチでリポジトリを clone し、commit し、実在のリモートに push します。未コミットの作業に対する `git reset --hard` は、ローカルで失うのと同じ作業を失わせますし、`git push --force` はチームメイトが pull するブランチに着地します。同じセッションのクレデンシャル側は[クラウド環境](/ja/guides/cloud-environments)で扱っています。作業ツリーをマウントするローカルのコンテナも同じです。そのマウントは書き込み可能で、未コミットの作業はそこにあります。
+
+チェックポイントは、この隙間を狭めますが、塞ぎはしません。Claude Code の[チェックポイントのドキュメント](https://code.claude.com/docs/en/checkpointing)は、チェックポイントが「automatically captures the state of your code before each user prompt」と述べたうえで、限界をこう記しています。「Checkpointing does not track files modified by bash commands.」。そこで例に挙がっているのは `rm file.txt`、`mv old.txt new.txt`、`cp source.txt dest.txt` です。これらの変更について、同じページは「These file modifications cannot be undone through rewind. Only direct file edits made through Claude's file editing tools are tracked.」としています。破壊的な git コマンドは bash コマンドとして実行されるため、それが捨てた作業は rewind で戻せる範囲の外にあります。同じページは、チェックポイントを「quick, session-level recovery」と位置づけ、「continue using version control, such as Git, for commits, branches, and long-term history」と述べています。
+
 ## サンドボックスと CC Safety Net を併用する
 
 <Tip>
@@ -81,3 +110,7 @@ CC Safety Net が行うのは、対応するツール呼び出しの解釈であ
 </Tip>
 
 サンドボックスは、エージェントが OS レベルで*できる*ことを制限することで、未知の脅威に対処します。CC Safety Net は、既知の破壊的パターンを実行前にインターセプトします。併用すれば、片方だけでは残ってしまう隙間を互いに埋められます。
+
+ほかのレイヤーも、同じように積み重なります。分類器は、静的なチェックでは決められない場面で意図を判断します。使い捨てのマシンとチェックポイントは、そこをすり抜けたものの一部を、影響範囲の限定と rewind で和らげます。どちらも、決定的なチェックが受け持つ場面では効きません。
+
+サンドボックスと許可リスト自体も破られることがあります。CVE-2026-25725 は `settings.json` を介して Claude Code の bubblewrap サンドボックスを脱出し、CVE-2026-22708 は Cursor のコマンド許可リストを回避しました。手元にあるレイヤーは、すべて動かしてください。
