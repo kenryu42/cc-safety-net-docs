@@ -98,7 +98,7 @@ Git 接受 `GIT_SSH_COMMAND`、`GIT_SSH` 和 `GIT_SSH_VARIANT`，以在网络操
 
 `rm -rf` 目标使用以下首个匹配分类顺序：不受支持的 Windows UNC 或设备目标、根目录或主目录、受保护的 Git 元数据、临时路径、动态目标、配置的允许路径、主目录作为工作目录、工作目录本身、工作目录内部、工作目录外部。临时路径在所有级别都允许。当前工作目录内的其他路径在 paranoid `rm` 未启用时允许。安全变体见[被允许的命令](/zh-Hans/reference/allowed-commands)。
 
-把破坏性命令藏在 POSIX 函数中不会绕过这些规则。函数正文会在调用处按调用者的 cwd 分析；调用也可通过引号（`'cleanup'`）、`time`/`!` 前缀和 `eval` 解析。只定义但从未调用的函数，其正文不会运行。调用解析和作用域见 [POSIX shell 函数](/zh-Hans/guides/analysis-engine#posix-shell-functions)。
+把破坏性命令藏在 shell 函数中不会绕过这些规则。函数正文会在调用处按调用者的 cwd 分析；调用也可通过引号（`'cleanup'`）、`time`/`!` 前缀和 `eval` 解析。bash 关键字写法 `function cleanup { ... }` 和 `function cleanup() { ... }` 同样会解读为定义，因此行为与 `cleanup() { ... }` 相同。只定义但从未调用的函数，其正文不会运行。调用解析和作用域见 [POSIX shell 函数](/zh-Hans/guides/analysis-engine#posix-shell-functions)。
 
 <Warning>
   `standard` 不会一律阻止动态 `rm -rf` 目标。`rm -rf "$target"` 在 `standard` 中允许，只有启用 `fail_closed` 能力后，也就是在 [`strict`](/zh-Hans/configuration/modes#strict-mode) 或 [`paranoid`](/zh-Hans/configuration/modes#paranoid-mode) 中，才会被阻止。`standard` 对对抗性或动态生成的命令文本只提供尽力保护；命令可能来自提示注入或其他不可信来源时，请使用 `strict` 或 `paranoid`。
@@ -284,6 +284,8 @@ shell 解析器无法对命令分词时（例如引号未闭合），行为取�
 | `dd if=/dev/zero of=/dev/sda 'oops` | 被启发式扫描**阻止** | 阻止 |
 
 启发式扫描会查找 `rm -rf`、`git reset --hard`、`git reset --merge`、`git clean -f`、`git checkout --force`、`git checkout --`、`git push --force`、`git push --delete`、`git branch -D`、`git tag -d`、`git stash drop`、`git stash clear`、不带 `--staged` 的 `git restore`、`find -delete`、`dd of=/dev/`、`mkfs /dev/` 和 `shred <arg>`。匹配会以规则 `raw-text.dangerous-command` 拒绝。文本以 `echo ` 或 `rg ` 开头时会跳过 `find`、`dd`、`mkfs` 和 `shred` 模式，因此把这些字符串引用进 echo 或 ripgrep 调用不会触发扫描。
+
+扫描还会查找把下载内容经管道交给 shell 的写法，也就是远程安装的一行命令。远程抓取命令（`curl`、`wget`、`fetch`、`aria2c`、`http`、`https`、`xh`、`xhs`、`nc`、`ncat`、`netcat`）经管道接到 `sh`、`bash`、`zsh`、`dash` 或 `ksh` 时，会以 `raw-text.dangerous-command` 拒绝。shell 名带路径前缀（`| /bin/sh`），或中间夹着 `sudo`、`env`、`command`、`builtin` 包装器（`| sudo sh`、`| env VAR=1 sh`），结果都一样。在命令内部或管道前后加反斜杠续行同样藏不住。文本以 `echo ` 或 `rg ` 开头时也会跳过这条模式，因此用 echo 打印的安装行仍是数据。同一条管道能被解析为真正的命令时，改为按结构拒绝，理由是 "shell execution source cannot be verified safely"。文本扫描负责在 heredoc 正文等解析器不会深入之处拦下它。
 
 <Warning>资源耗尽限制独立于级别系统，并在包括 `standard` 在内的**每个**模式中拒绝：超出声明命令递归限制或结构命令校验限制一律拒绝，绝不放行。</Warning>
 

