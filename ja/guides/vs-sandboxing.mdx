@@ -16,7 +16,7 @@ description: "CC Safety Net を、OS レベルのサンドボックス、許可�
 |---|---|---|
 | **OS レベルのサンドボックス** | 書き込みを作業ディレクトリと一時ディレクトリに限定し、ネットワークアクセスを制限または無効にする | 境界の内側で起きること。`git reset --hard`、`rm -rf .`、そしてサンドボックスが許可している資格情報ファイルの読み取り |
 | **許可プロンプトと自動承認の分類器** | 実行前に、ユーザーへの確認か分類器モデルによる審査が入る。破壊的な git コマンドも対象 | 公表されている偽陰性率 17%。そして、何も確認しないバイパスモード |
-| **コンテナ・VM・チェックポイント** | 捨てられるマシンと、プロンプトごとに記録されたファイル編集の rewind | マウントされたワークスペースには実際の作業があり、push は実在のリモートに届き、rewind は bash コマンドを対象にしない |
+| **コンテナ・VM・チェックポイント** | 使い捨てのマシンと、プロンプトごとに記録されたファイル編集の rewind | マウントされたワークスペースには実際の作業があり、push は実在のリモートに届き、rewind は bash コマンドを対象にしない |
 | **CC Safety Net** | 実行前の決定的な解析。対応するツール呼び出しの中の、破壊的な git 操作とファイルシステム操作、および認識できる資格情報の読み取り | ネットワークへの送信、認識しないファイル内の資格情報、バイナリ内部の動作。拒否はファイルシステムの権限強制ではない |
 
 ## OS サンドボックスの仕組み
@@ -96,7 +96,7 @@ CC Safety Net が行うのは、対応するツール呼び出しの解釈であ
 
 ## コンテナ・VM・チェックポイント
 
-捨てられるマシンは、本物の封じ込めです。プロンプトを切ったときに、許可モードのドキュメントが指し示す先でもあります。`bypassPermissions` は「Isolated containers and VMs only」向けだとされています。ただし、マシンが使い捨てでも、その中の作業は変わりません。クラウドセッションは実在のブランチでリポジトリを clone し、commit し、実在のリモートに push します。未コミットの作業に対する `git reset --hard` は、ローカルで失うのと同じ作業を失わせますし、`git push --force` はチームメイトが pull するブランチに着地します。同じセッションのクレデンシャル側は[クラウド環境](/ja/guides/cloud-environments)で扱っています。作業ツリーをマウントするローカルのコンテナも同じです。そのマウントは書き込み可能で、未コミットの作業はそこにあります。
+使い捨てのマシンは、本物の封じ込めです。プロンプトを切ったときに、許可モードのドキュメントが指し示す先でもあります。`bypassPermissions` は「Isolated containers and VMs only」向けだとされています。ただし、マシンが使い捨てでも、その中の作業は変わりません。クラウドセッションは実在のブランチでリポジトリを clone し、commit し、実在のリモートに push します。未コミットの作業に対する `git reset --hard` は、ローカルで失うのと同じ作業を失わせますし、`git push --force` はチームメイトが pull するブランチに着地します。同じセッションのクレデンシャル側は[クラウド環境](/ja/guides/cloud-environments)で扱っています。作業ツリーをマウントするローカルのコンテナも同じです。そのマウントは書き込み可能で、未コミットの作業はそこにあります。
 
 チェックポイントは、この隙間を狭めますが、塞ぎはしません。Claude Code の[チェックポイントのドキュメント](https://code.claude.com/docs/en/checkpointing)は、チェックポイントが「automatically captures the state of your code before each user prompt」と述べたうえで、限界をこう記しています。「Checkpointing does not track files modified by bash commands.」。そこで例に挙がっているのは `rm file.txt`、`mv old.txt new.txt`、`cp source.txt dest.txt` です。これらの変更について、同じページは「These file modifications cannot be undone through rewind. Only direct file edits made through Claude's file editing tools are tracked.」としています。破壊的な git コマンドは bash コマンドとして実行されるため、それが捨てた作業は rewind で戻せる範囲の外にあります。同じページは、チェックポイントを「quick, session-level recovery」と位置づけ、「continue using version control, such as Git, for commits, branches, and long-term history」と述べています。
 

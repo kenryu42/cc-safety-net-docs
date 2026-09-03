@@ -163,7 +163,13 @@ git のアナライザーは、サブコマンドとオプションを取り出�
 Git は、ネットワーク操作の際に任意のプログラムを実行するために `GIT_SSH_COMMAND`、`GIT_SSH`、`GIT_SSH_VARIANT` を受け付けます。CC Safety Net は、これらの上書きをネットワーク系のサブコマンド（`clone`、`fetch`、`pull`、`push`、`ls-remote`、`submodule`）と組み合わせた場合にブロックします。ネットワーク操作に紛れて任意のコマンドを実行できてしまうためです。
 </Accordion>
 <Accordion title="checkout の詳細">
-`checkout` は次の順に確認します。強制指定（`--force`／`-f`）、新規ブランチ作成による除外（`-b`／`-B`／`--orphan` はブロックしません）、`--pathspec-from-file`、`--` を伴う pathspec（`git checkout --` は未コミットの変更を破棄し、`git checkout <ref> -- <path>` は作業ツリーをその ref の内容で上書きします）、位置引数が複数あって判別しにくい形式（位置引数が 2 個以上ある場合は `switch`／`restore` の使用を提案します）の順です。
+`checkout` は次の順に確認します。
+
+1. 強制指定（`--force`／`-f`）
+2. 新規ブランチ作成による除外（`-b`／`-B`／`--orphan` はブロックしません）
+3. `--pathspec-from-file`
+4. `--` を伴う pathspec（`git checkout --` は未コミットの変更を破棄し、`git checkout <ref> -- <path>` は作業ツリーをその ref の内容で上書きします）
+5. 位置引数が複数あって判別しにくい形式（位置引数が 2 個以上ある場合は `switch`／`restore` の使用を提案します）
 </Accordion>
 <Accordion title="reset の分類">
 `reset --hard`／`--merge` は、`--` より前に ref がある場合（ブランチのポインターを動かすため）は `sharedState`、それ以外の場合（作業ツリーの変更だけを破棄するため）は `localDiscard` に分類します。
@@ -249,7 +255,14 @@ Windows では、Git Bash などの MSYS シェルが `/c/Users/...` 形式の�
 2. worktree モードが有効であること。`policy.json` の `workflow.worktree_mode` と `CC_SAFETY_NET_WORKTREE=1` を論理 OR で組み合わせて判断します。
 3. git のコンテキストを上書きする環境変数（`GIT_DIR`、`GIT_WORK_TREE`、`GIT_COMMON_DIR`、`GIT_INDEX_FILE`）がなく、コマンドラインにも `--git-dir`／`--work-tree` がないこと。
 
-linked worktree かどうかは推測せず、明示的に検証します。`.git` エントリが*ファイル*であること（ディレクトリでもシンボリックリンクでもないこと）、`gitdir:` のポインターが `commondir` ファイルを持つディレクトリに解決されること、その逆参照がこの worktree を指していること、`config.worktree` が一致することを確認します。メインの worktree、bare リポジトリ、submodule は緩和の対象外です。検証に失敗した場合は、理由にかかわらずコマンドをブロックしたままにします（fail closed）。
+linked worktree かどうかは推測せず、明示的に検証します。確認するのは次の 4 点です。
+
+- `.git` エントリが*ファイル*であること（ディレクトリでもシンボリックリンクでもないこと）
+- `gitdir:` のポインターが `commondir` ファイルを持つディレクトリに解決されること
+- その逆参照がこの worktree を指していること
+- `config.worktree` が一致すること
+
+メインの worktree、bare リポジトリ、submodule は緩和の対象外です。検証に失敗した場合は、理由にかかわらずコマンドをブロックしたままにします（fail closed）。
 
 <AccordionGroup>
 <Accordion title="緩和できない local discard">
@@ -262,7 +275,7 @@ linked worktree かどうかは推測せず、明示的に検証します。`.gi
 
 ## カスタムルール
 
-対応する組み込みのアナライザーがない場合は、フォールバックとしてカスタムルールを実行します。カスタムルールは厳密に「追加のみ」です。ブロックを追加することはできますが、組み込みのブロックを上書きしたり保護を緩めたりすることはできません。ルールは `<rulebook-name>/<rule-name>` という名前空間を持ち、まずコマンドのベース名で照合します。その先の照合の形式は、ルールが属する rulebook のバージョンによって決まります。バージョン 1 のルールは、任意のサブコマンドとリテラルの `block_args` で照合します。短形式のオプションはまとめ書きを展開するため、`-Ap` は `-A` に一致します。`rulebook_version: 2` のルールは、代わりに `match` オブジェクトで照合します。`match.command_path` のコマンドワードは、オプションを除いた先頭の引数と順序どおりに一致する必要があります。`match.any_args` は、そのトークンのうち少なくとも 1 つが引数に現れることを求め、`match.exclude_args` は、そのトークンのいずれかが現れた時点で一致を取り消します。バージョン 2 はトークンを厳密に比較し、短形式のオプションのまとめ書きは展開しません。[バージョン 2 の照合](/ja/configuration/custom-rules#version-2-matching)を参照してください。
+対応する組み込みのアナライザーがない場合は、フォールバックとしてカスタムルールを実行します。カスタムルールは厳密に「追加のみ」です。ブロックは追加できますが、組み込みのブロックを上書きしたり保護を緩めたりはできません。ルールは `<rulebook-name>/<rule-name>` という名前空間を持ち、まずコマンドのベース名で照合します。その先の照合の形式は、ルールが属する rulebook のバージョンによって決まります。バージョン 1 のルールは、任意のサブコマンドとリテラルの `block_args` で照合します。短形式のオプションはまとめ書きを展開するため、`-Ap` は `-A` に一致します。`rulebook_version: 2` のルールは、代わりに `match` オブジェクトで照合します。`match.command_path` のコマンドワードは、オプションを除いた先頭の引数と順序どおりに一致する必要があります。`match.any_args` は、そのトークンのうち少なくとも 1 つが引数に現れることを求め、`match.exclude_args` は、そのトークンのいずれかが現れた時点で一致を取り消します。バージョン 2 はトークンを厳密に比較し、短形式のオプションのまとめ書きは展開しません。[バージョン 2 の照合](/ja/configuration/custom-rules#version-2-matching)を参照してください。
 
 書き方の詳細と照合の仕様は、[カスタムルール](/ja/configuration/custom-rules)を参照してください。
 
