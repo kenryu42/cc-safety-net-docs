@@ -14,19 +14,20 @@ See [Installation](/installation) for the commands that install or remove each i
 
 | Model | Agents | How it works |
 | --- | --- | --- |
-| **Stdin hook subprocess** | Antigravity CLI, Claude Code, Cursor, Gemini CLI, GitHub Copilot CLI, Grok Build, Hermes Agent, Kimi Code | The agent runs `cc-safety-net hook <flag>` as a short-lived process for each tool call, writing the call as JSON to its stdin. CC Safety Net analyzes it and prints an agent-specific deny object on stdout, exiting 0. |
-| **Agent-loaded plugin** | Codex, OpenClaw, OpenCode | The agent loads CC Safety Net as a plugin of its own package format. There is no `hook` flag for these agents. |
+| **Stdin hook subprocess** | Antigravity CLI, Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot CLI, Grok Build, Hermes Agent, Kimi Code | The agent runs `cc-safety-net hook <flag>` as a short-lived process for each tool call, writing the call as JSON to its stdin. CC Safety Net analyzes it and prints an agent-specific deny object on stdout, exiting 0. |
+| **Agent-loaded plugin** | OpenClaw, OpenCode | The agent loads CC Safety Net as a plugin of its own package format. There is no `hook` flag for these agents. |
 | **In-process extension** | Pi | Pi loads CC Safety Net's extension directly into the Pi process and calls it in memory. It uses no subprocess, stdin, or stdout. |
 | **Event plugin** | Amp Code | Amp loads a managed personal plugin from the account's Personal Plugins repository and delivers each `tool.call` event to it, in process. |
 
 ## Stdin hook subprocess agents
 
-For these eight agents, the protection is the runtime `hook <flag>` command, which reads JSON from stdin. Each agent names its pre-execution event and its command tool differently, and each expects a different deny shape on stdout:
+For these nine agents, the protection is the runtime `hook <flag>` command, which reads JSON from stdin. Each agent names its pre-execution event and its command tool differently, and each expects a different deny shape on stdout:
 
 | Agent | Runtime flag | Hook event | Command tool | Deny output shape |
 | --- | --- | --- | --- | --- |
 | Antigravity CLI | `-ac` / `--agy-cli` | `PreToolUse` | `run_command` | `{ "decision": "deny", "reason": … }` |
 | Claude Code | `-cc` / `--coding-cli` | `PreToolUse` | `Bash`, `PowerShell` | `hookSpecificOutput.permissionDecision: "deny"` |
+| Codex | `-cx` / `--codex` | `PreToolUse` | `Bash` | `hookSpecificOutput.permissionDecision: "deny"` |
 | Cursor | `-cu` / `--cursor` | `preToolUse` | `Shell` | `{ "permission": "deny", "user_message": …, "agent_message": … }` |
 | Gemini CLI | `-gc` / `--gemini-cli` | `BeforeTool` | `run_shell_command` | `{ "decision": "deny", "reason": …, "systemMessage": … }` |
 | GitHub Copilot CLI | `-cp` / `--copilot-cli` | `PreToolUse` | `bash`, `Bash`, `powershell`, `PowerShell` | `{ "permissionDecision": "deny", "permissionDecisionReason": … }` |
@@ -40,7 +41,7 @@ For these eight agents, the protection is the runtime `hook <flag>` command, whi
 
 ### Use the shared Coding CLI hook
 
-`hook --coding-cli` (short flag `-cc`) is the canonical name of the Claude-shaped hook. It is called "Coding CLI" rather than "Claude Code" because both the Claude Code plugin and the Codex plugin invoke this same binary entry point.
+`hook --coding-cli` (short flag `-cc`) is the canonical name of the Claude-shaped hook. It is called "Coding CLI" rather than "Claude Code" because the entry point accepts that payload shape from any agent that sends it.
 
 `hook --claude-code` is accepted as a legacy alias and is not advertised in `hook --help`. Do not use it in new configuration.
 
@@ -52,12 +53,13 @@ Separately, three agents keep legacy **top-level** forms that skip the `hook` wo
 
 ### Hook configuration locations
 
-CC Safety Net writes files directly for five of the eight agents. Four use hook configuration entries, and Hermes Agent uses a managed plugin. The other three use their own plugin or extension distribution channel, which then invokes the stdin hook:
+CC Safety Net writes files directly for five of the nine agents. Four use hook configuration entries, and Hermes Agent uses a managed plugin. The other four use their own plugin or extension distribution channel, which then invokes the stdin hook:
 
 | Agent | Config location and load mechanism |
 | --- | --- |
 | Antigravity CLI | Written directly: a managed `PreToolUse` entry in `~/.gemini/config/hooks.json` running `npx -y cc-safety-net hook --agy-cli` |
 | Claude Code | Plugin `cc-safety-net@cc-marketplace`; plugin state in `~/.claude/settings.json` under `enabledPlugins` |
+| Codex | Plugin `cc-safety-net@cc-marketplace`; the plugin's own `hooks/codex.json` registers the `PreToolUse` entry that runs `node "${PLUGIN_ROOT}/dist/bin/cc-safety-net.js" hook --codex` |
 | Cursor | Written directly: a managed `preToolUse` entry in `~/.cursor/hooks.json` running `npx -y cc-safety-net hook --cursor` with `timeout: 30` and `failClosed: true`. The config is global, so it covers Cursor IDE and Cursor CLI across all projects |
 | Gemini CLI | Extension `gemini-safety-net`, loaded from the `gemini-safety-net` repository, not a `cc-marketplace` plugin |
 | GitHub Copilot CLI | Plugin `cc-safety-net@cc-marketplace`, or hook files under `~/.copilot/hooks` / inline hooks in Copilot config. Hook support is version-gated, so which of those sources works depends on your Copilot CLI version. See [Installation](/installation#github-copilot-cli-installation). `disableAllHooks: true` disables all hooks |
@@ -68,6 +70,12 @@ CC Safety Net writes files directly for five of the eight agents. Four use hook 
 For a Kimi Code `Bash` call, `tool_input.cwd` becomes the execution directory when it is present. It must be a non-empty string that resolves inside the session `cwd`; an invalid or escaping value fails closed. GitHub Copilot CLI routes `powershell` and `PowerShell` calls to the PowerShell analyzer.
 
 For a Grok Build call, the trusted root is `workspaceRoot`, or `cwd` when `workspaceRoot` is absent. `cwd` must canonicalize to a directory inside that root, and an absent or empty `cwd` is treated as `.`. A root that cannot be canonicalized, or a `cwd` outside it, fails closed. A `toolInputTruncated: true` envelope also fails closed, because Grok Build truncates tool input at 128 KB and the truncated command cannot be analyzed.
+
+### How Codex reaches the hook
+
+Codex loads CC Safety Net as the `cc-safety-net@cc-marketplace` plugin from the `cc-marketplace` marketplace. The plugin is packaged in Codex's own format, and its manifest points at `hooks/codex.json`, which registers the `PreToolUse` hook. The same plugin carries the `cc-safety-net` skill.
+
+Codex will not run an untrusted hook, so the hook stays inert until it is marked trusted inside Codex. See [Installation](/installation#codex-installation) for that step.
 
 ### How Hermes Agent reaches the hook
 
@@ -84,12 +92,6 @@ Every managed file starts with a header line marking it as CC Safety Net's; the 
 Unlike Pi, `doctor` detects Hermes Agent entirely from disk: the managed plugin directory plus the `plugins.enabled` list in Hermes' `config.yaml`. No runtime probe is involved.
 
 ## Agent-loaded plugins
-
-### Codex
-
-Codex loads CC Safety Net as the `cc-safety-net@cc-marketplace` plugin from the `cc-marketplace` marketplace. The plugin registers a `PreToolUse` hook that runs the shared `hook --coding-cli` entry point, so Codex has no `hook` flag of its own.
-
-Codex will not run an untrusted hook, so the plugin's hook stays inert until it is marked trusted inside Codex. See [Installation](/installation#codex-installation) for that step.
 
 ### OpenClaw
 

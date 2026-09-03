@@ -14,19 +14,20 @@ CC Safety Net 支持十三种编码智能体，它们通过四种模型接入。
 
 | 模型 | 智能体 | 工作方式 |
 | --- | --- | --- |
-| **Stdin hook 子进程** | Antigravity CLI、Claude Code、Cursor、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code | 每次工具调用时，智能体都会以短生命周期进程运行 `cc-safety-net hook <flag>`，并把该调用作为 JSON 写入其 stdin。CC Safety Net 分析调用，在 stdout 打印智能体专用 deny 对象，并以 0 退出。 |
-| **智能体加载的插件** | Codex、OpenClaw、OpenCode | 智能体按自己的软件包格式加载 CC Safety Net 插件。这些智能体没有 `hook` 标志。 |
+| **Stdin hook 子进程** | Antigravity CLI、Claude Code、Codex、Cursor、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code | 每次工具调用时，智能体都会以短生命周期进程运行 `cc-safety-net hook <flag>`，并把该调用作为 JSON 写入其 stdin。CC Safety Net 分析调用，在 stdout 打印智能体专用 deny 对象，并以 0 退出。 |
+| **智能体加载的插件** | OpenClaw、OpenCode | 智能体按自己的软件包格式加载 CC Safety Net 插件。这些智能体没有 `hook` 标志。 |
 | **进程内扩展** | Pi | Pi 直接在 Pi 进程中加载 CC Safety Net 扩展并在内存中调用，无子进程、stdin 或 stdout。 |
 | **事件插件** | Amp Code | Amp 从账户的 Personal Plugins 仓库加载托管的个人插件，并在进程内向其发送每个 `tool.call` 事件。 |
 
 ## Stdin hook 子进程智能体
 
-对这八种智能体来说，保护由运行时 `hook <flag>` 命令提供，该命令从 stdin 读取 JSON。各智能体对执行前事件和命令工具的命名各不相同，要求的 stdout deny 形式也不同：
+对这九种智能体来说，保护由运行时 `hook <flag>` 命令提供，该命令从 stdin 读取 JSON。各智能体对执行前事件和命令工具的命名各不相同，要求的 stdout deny 形式也不同：
 
 | 智能体 | 运行时标志 | Hook 事件 | 命令工具 | Deny 输出形式 |
 | --- | --- | --- | --- | --- |
 | Antigravity CLI | `-ac` / `--agy-cli` | `PreToolUse` | `run_command` | `{ "decision": "deny", "reason": … }` |
 | Claude Code | `-cc` / `--coding-cli` | `PreToolUse` | `Bash`, `PowerShell` | `hookSpecificOutput.permissionDecision: "deny"` |
+| Codex | `-cx` / `--codex` | `PreToolUse` | `Bash` | `hookSpecificOutput.permissionDecision: "deny"` |
 | Cursor | `-cu` / `--cursor` | `preToolUse` | `Shell` | `{ "permission": "deny", "user_message": …, "agent_message": … }` |
 | Gemini CLI | `-gc` / `--gemini-cli` | `BeforeTool` | `run_shell_command` | `{ "decision": "deny", "reason": …, "systemMessage": … }` |
 | GitHub Copilot CLI | `-cp` / `--copilot-cli` | `PreToolUse` | `bash`, `Bash`, `powershell`, `PowerShell` | `{ "permissionDecision": "deny", "permissionDecisionReason": … }` |
@@ -38,7 +39,7 @@ CC Safety Net 支持十三种编码智能体，它们通过四种模型接入。
 
 ### 使用共享 Coding CLI hook
 
-`hook --coding-cli`（短标志 `-cc`）是 Claude 形式 hook 的规范名称。名称使用 `Coding CLI`，不使用 `Claude Code`，因为 Claude Code 插件和 Codex 插件调用的是同一个二进制入口点。
+`hook --coding-cli`（短标志 `-cc`）是 Claude 形式 hook 的规范名称。名称使用 `Coding CLI`，不使用 `Claude Code`，因为该入口点接受任何智能体发来的这种形式的 payload。
 
 `hook --claude-code` 作为旧别名仍被接受，但不会在 `hook --help` 中列出。不要在新配置中使用。
 
@@ -48,12 +49,13 @@ CC Safety Net 支持十三种编码智能体，它们通过四种模型接入。
 
 ### Hook 配置位置
 
-八种智能体中有五种由 CC Safety Net 直接写入文件：其中四种写为 hook 配置条目，Hermes Agent 写为托管插件。另外三种通过各自的插件或扩展分发渠道接入，再由其调用 stdin hook：
+九种智能体中有五种由 CC Safety Net 直接写入文件：其中四种写为 hook 配置条目，Hermes Agent 写为托管插件。另外四种通过各自的插件或扩展分发渠道接入，再由其调用 stdin hook：
 
 | 智能体 | 配置位置和加载机制 |
 | --- | --- |
 | Antigravity CLI | 直接写入：`~/.gemini/config/hooks.json` 中运行 `npx -y cc-safety-net hook --agy-cli` 的托管 `PreToolUse` 条目 |
 | Claude Code | 插件 `cc-safety-net@cc-marketplace`；插件状态位于 `~/.claude/settings.json` 的 `enabledPlugins` |
+| Codex | 插件 `cc-safety-net@cc-marketplace`；`PreToolUse` 条目由插件自带的 `hooks/codex.json` 注册，运行 `node "${PLUGIN_ROOT}/dist/bin/cc-safety-net.js" hook --codex` |
 | Cursor | 直接写入：`~/.cursor/hooks.json` 中运行 `npx -y cc-safety-net hook --cursor` 的托管 `preToolUse` 条目，含 `timeout: 30` 和 `failClosed: true`。配置全局有效，覆盖所有项目中的 Cursor IDE 和 Cursor CLI |
 | Gemini CLI | 从 `gemini-safety-net` 仓库加载的扩展 `gemini-safety-net`，不是 `cc-marketplace` 插件 |
 | GitHub Copilot CLI | 插件 `cc-safety-net@cc-marketplace`，或 `~/.copilot/hooks` 下的 hook 文件/ Copilot 配置中的内联 hook。Hook 支持受版本限制，因此哪一种来源可用取决于 Copilot CLI 版本，详见<a href="/zh-Hans/installation#github-copilot-cli-installation">安装</a>。`disableAllHooks: true` 会禁用所有 hook |
@@ -64,6 +66,12 @@ CC Safety Net 支持十三种编码智能体，它们通过四种模型接入。
 对于 Kimi Code `Bash` 调用，如果存在 `tool_input.cwd`，它会成为执行目录。该值必须是非空字符串，且解析结果必须位于会话 `cwd` 内；无效或越出该目录的值会 fail closed。GitHub Copilot CLI 会把 `powershell` 和 `PowerShell` 调用路由到 PowerShell 分析器。
 
 对于 Grok Build 调用，受信任的根目录是 `workspaceRoot`；没有 `workspaceRoot` 时用 `cwd` 作为根目录。`cwd` 必须规范化为该根目录内的某个目录，`cwd` 缺失或为空时按 `.` 处理。根目录无法规范化，或 `cwd` 位于根目录之外，都会 fail closed。`toolInputTruncated: true` 同样 fail closed：Grok Build 在 128 KB 处截断工具输入，被截断的命令无法分析。
+
+### Codex 如何到达 hook
+
+Codex 从 `cc-marketplace` marketplace 加载 `cc-safety-net@cc-marketplace` 插件。该插件按 Codex 自己的格式打包，其 manifest 指向 `hooks/codex.json`，由后者注册 `PreToolUse` hook。同一个插件还附带 `cc-safety-net` 技能。
+
+Codex 不会运行未受信任的 hook，因此在 Codex 内把它标记为受信任之前，hook 一直不生效。该步骤见<a href="/zh-Hans/installation#codex-installation">安装</a>。
 
 ### Hermes Agent 如何到达 hook
 
@@ -80,12 +88,6 @@ Hermes 会忽略抛出异常的插件 callback，因此插件自己把每种失�
 与 Pi 不同，`doctor` 完全从磁盘检测 Hermes Agent：检查托管插件目录和 Hermes `config.yaml` 中的 `plugins.enabled` 列表，不做 runtime probe。
 
 ## 智能体加载的插件
-
-### Codex
-
-Codex 从 `cc-marketplace` marketplace 加载 `cc-safety-net@cc-marketplace` 插件。插件注册一个 `PreToolUse` hook，由它运行共享的 `hook --coding-cli` 入口点，因此 Codex 没有自己的 `hook` 标志。
-
-Codex 不会运行未受信任的 hook，因此在 Codex 内把它标记为受信任之前，插件的 hook 一直不生效。该步骤见<a href="/zh-Hans/installation#codex-installation">安装</a>。
 
 ### OpenClaw
 

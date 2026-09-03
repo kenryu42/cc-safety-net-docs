@@ -14,19 +14,20 @@ CC Safety Net は 13 のコーディングエージェントに対応し、接�
 
 | 方式 | エージェント | 仕組み |
 | --- | --- | --- |
-| **標準入力の hook subprocess** | Antigravity CLI、Claude Code、Cursor、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code | エージェントはツール呼び出しのたびに `cc-safety-net hook <flag>` を短命のプロセスとして実行し、呼び出し内容を JSON で標準入力に書き込みます。CC Safety Net は解析結果として、エージェントごとの拒否オブジェクトを標準出力に返し、終了コード 0 で終了します。 |
-| **エージェントが読み込むプラグイン** | Codex、OpenClaw、OpenCode | エージェントが、自身のパッケージ形式のプラグインとして CC Safety Net を読み込みます。これらのエージェントに `hook` フラグはありません。 |
+| **標準入力の hook subprocess** | Antigravity CLI、Claude Code、Codex、Cursor、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code | エージェントはツール呼び出しのたびに `cc-safety-net hook <flag>` を短命のプロセスとして実行し、呼び出し内容を JSON で標準入力に書き込みます。CC Safety Net は解析結果として、エージェントごとの拒否オブジェクトを標準出力に返し、終了コード 0 で終了します。 |
+| **エージェントが読み込むプラグイン** | OpenClaw、OpenCode | エージェントが、自身のパッケージ形式のプラグインとして CC Safety Net を読み込みます。これらのエージェントに `hook` フラグはありません。 |
 | **プロセス内の拡張機能** | Pi | Pi は CC Safety Net の拡張機能を自身のプロセスに直接読み込み、メモリ内で呼び出します。subprocess も標準入出力も使いません。 |
 | **イベントプラグイン** | Amp Code | Amp は、アカウントの Personal Plugins リポジトリから管理対象の personal plugin を読み込み、`tool.call` の各イベントをプロセス内で渡します。 |
 
 ## 標準入力の hook subprocess を使うエージェント
 
-この 8 つのエージェントでは、標準入力から JSON を読み取る `hook <flag>` コマンドが保護を担います。実行前イベントの名前もコマンド用ツールの名前もエージェントごとに異なり、標準出力に求められる拒否の形式も異なります。
+この 9 つのエージェントでは、標準入力から JSON を読み取る `hook <flag>` コマンドが保護を担います。実行前イベントの名前もコマンド用ツールの名前もエージェントごとに異なり、標準出力に求められる拒否の形式も異なります。
 
 | エージェント | 実行時フラグ | hook イベント | コマンド用ツール | 拒否時の出力形式 |
 | --- | --- | --- | --- | --- |
 | Antigravity CLI | `-ac` / `--agy-cli` | `PreToolUse` | `run_command` | `{ "decision": "deny", "reason": … }` |
 | Claude Code | `-cc` / `--coding-cli` | `PreToolUse` | `Bash`, `PowerShell` | `hookSpecificOutput.permissionDecision: "deny"` |
+| Codex | `-cx` / `--codex` | `PreToolUse` | `Bash` | `hookSpecificOutput.permissionDecision: "deny"` |
 | Cursor | `-cu` / `--cursor` | `preToolUse` | `Shell` | `{ "permission": "deny", "user_message": …, "agent_message": … }` |
 | Gemini CLI | `-gc` / `--gemini-cli` | `BeforeTool` | `run_shell_command` | `{ "decision": "deny", "reason": …, "systemMessage": … }` |
 | GitHub Copilot CLI | `-cp` / `--copilot-cli` | `PreToolUse` | `bash`, `Bash`, `powershell`, `PowerShell` | `{ "permissionDecision": "deny", "permissionDecisionReason": … }` |
@@ -40,7 +41,7 @@ CC Safety Net は 13 のコーディングエージェントに対応し、接�
 
 ### 共通の Coding CLI hook を使う
 
-`hook --coding-cli`（短いフラグは `-cc`）が、Claude 形式の hook の正式な名前です。Claude Code のプラグインと Codex のプラグインが同じ実行エントリーポイントを呼び出すため、「Claude Code」ではなく「Coding CLI」という名前にしています。
+`hook --coding-cli`（短いフラグは `-cc`）が、Claude 形式の hook の正式な名前です。このエントリーポイントは、その形式のペイロードを送ってくるエージェントであればどれでも受け付けます。そのため「Claude Code」ではなく「Coding CLI」という名前にしています。
 
 `hook --claude-code` は以前からのエイリアスとして受け付けますが、`hook --help` には表示されません。新しい設定では使わないでください。
 
@@ -52,12 +53,13 @@ CC Safety Net は 13 のコーディングエージェントに対応し、接�
 
 ### hook 設定の場所
 
-8 つのうち 5 つは、CC Safety Net がファイルを直接書き込みます。4 つは hook の設定エントリとして、Hermes Agent は管理対象プラグインとして書き込みます。残りの 3 つは、それぞれのプラグインや拡張機能の配布経路を通して接続し、そのうえで標準入力の hook を呼び出します。
+9 つのうち 5 つは、CC Safety Net がファイルを直接書き込みます。4 つは hook の設定エントリとして、Hermes Agent は管理対象プラグインとして書き込みます。残りの 4 つは、それぞれのプラグインや拡張機能の配布経路を通して接続し、そのうえで標準入力の hook を呼び出します。
 
 | エージェント | 設定の場所と読み込まれ方 |
 | --- | --- |
 | Antigravity CLI | 直接書き込み。`npx -y cc-safety-net hook --agy-cli` を実行する管理対象の `PreToolUse` エントリを `~/.gemini/config/hooks.json` に追加する |
 | Claude Code | プラグイン `cc-safety-net@cc-marketplace`。有効・無効の状態は `~/.claude/settings.json` の `enabledPlugins` に保存される |
+| Codex | プラグイン `cc-safety-net@cc-marketplace`。プラグイン自身の `hooks/codex.json` が、`node "${PLUGIN_ROOT}/dist/bin/cc-safety-net.js" hook --codex` を実行する `PreToolUse` エントリを登録する |
 | Cursor | 直接書き込み。`npx -y cc-safety-net hook --cursor` を実行する管理対象の `preToolUse` エントリを、`timeout: 30` と `failClosed: true` を付けて `~/.cursor/hooks.json` に追加する。この設定はグローバルで、すべてのプロジェクトの Cursor IDE と Cursor CLI が対象になる |
 | Gemini CLI | `gemini-safety-net` リポジトリから読み込む拡張機能 `gemini-safety-net`。`cc-marketplace` のプラグインではない |
 | GitHub Copilot CLI | プラグイン `cc-safety-net@cc-marketplace`、または `~/.copilot/hooks` 配下の hook ファイルや Copilot の設定内のインライン hook。hook 対応にはバージョン条件があるため、使える取得元は Copilot CLI のバージョンによって異なる（[インストール](/ja/installation#github-copilot-cli-installation)を参照）。`disableAllHooks: true` はすべての hook を無効にする |
@@ -68,6 +70,12 @@ CC Safety Net は 13 のコーディングエージェントに対応し、接�
 Kimi Code の `Bash` 呼び出しでは、`tool_input.cwd` があればその値を実行ディレクトリとして使います。値は空でない文字列で、セッションの `cwd` の内側に解決できる必要があります。無効な値や外側を指す値は fail closed になります。GitHub Copilot CLI では、`powershell` と `PowerShell` の呼び出しを PowerShell のアナライザーに振り分けます。
 
 Grok Build の呼び出しでは、信頼するルートは `workspaceRoot` で、`workspaceRoot` がない場合は `cwd` をルートとします。`cwd` はそのルートの内側のディレクトリとして正規化できる必要があり、`cwd` がないか空の場合は `.` として扱います。ルートを正規化できない場合や、`cwd` がルートの外を指す場合は fail closed になります。`toolInputTruncated: true` も fail closed になります。Grok Build はツール入力を 128 KB で切り詰めるため、途中で切れたコマンドは解析できません。
+
+### Codex が hook に到達する仕組み
+
+Codex は、`cc-marketplace` マーケットプレイスのプラグイン `cc-safety-net@cc-marketplace` として CC Safety Net を読み込みます。このプラグインは Codex 独自の形式でパッケージ化されており、マニフェストが指す `hooks/codex.json` が `PreToolUse` hook を登録します。`cc-safety-net` スキルも同じプラグインに同梱されています。
+
+Codex は信頼されていない hook を実行しないため、Codex 内で信頼済みにするまで hook は動作しません。手順は[インストール](/ja/installation#codex-installation)を参照してください。
 
 ### Hermes Agent が hook に到達する仕組み
 
@@ -84,12 +92,6 @@ Hermes は例外を投げたプラグインのコールバックを無視する�
 Pi の場合と違い、`doctor` は管理対象プラグインのディレクトリと Hermes の `config.yaml` の `plugins.enabled` の一覧だけを見て、ディスク上から Hermes Agent を検出します。実行時のプローブは使いません。
 
 ## エージェントが読み込むプラグイン
-
-### Codex
-
-Codex は、`cc-marketplace` マーケットプレイスのプラグイン `cc-safety-net@cc-marketplace` として CC Safety Net を読み込みます。このプラグインは、共通の `hook --coding-cli` エントリーポイントを実行する `PreToolUse` hook を登録するため、Codex 専用の `hook` フラグはありません。
-
-Codex は信頼されていない hook を実行しないため、Codex 内で信頼済みにするまでプラグインの hook は動作しません。手順は[インストール](/ja/installation#codex-installation)を参照してください。
 
 ### OpenClaw
 
