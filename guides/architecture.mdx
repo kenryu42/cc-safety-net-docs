@@ -151,9 +151,9 @@ PowerShell support is a **conservative subset**: `Remove-Item` and its aliases, 
 
 ### Dependencies
 
-CC Safety Net has **one runtime package dependency, `zod`**, used only for configuration validation. The source loads it lazily through `createRequire`. The split Node bundles, including Pi, keep that behavior and direct the lazy load to the shipped `dist/vendor/zod.cjs`; the standalone Amp and OpenClaw artifacts inline `zod` instead. Exactly one source module imports it.
+CC Safety Net has **no runtime package dependencies**. `package.json` declares no `dependencies` block, so installing the package pulls in nothing else. CC Safety Net validates configuration with its own hand-written checks instead of a schema library. `bun run verify:package` installs the packed tarball and fails if a `dependencies` field reappears.
 
-Published bundles embed **no third-party shell parser**. `projectShellSyntax` projects the flat entry stream that the path scanners read from the parsed IR. The internal POSIX and PowerShell parsers are therefore the sole source of shell structure. A second tokenization of the raw command text cannot drift from them.
+Published bundles embed **no third-party shell parser**. Every pre-analysis guard, secret protection included, reads shell structure through one function, `walkGuardSyntax`, which replays the parsed tree through a word, segment, and redirection visitor. Destructive-command analysis keeps its own control-flow walk by design. The internal POSIX and PowerShell parsers are therefore the sole source of shell structure. A second tokenization of the raw command text cannot drift from them.
 
 The published runtime target is Node.js 18 or newer.
 

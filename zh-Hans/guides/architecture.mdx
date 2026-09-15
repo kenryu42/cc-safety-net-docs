@@ -152,9 +152,9 @@ PowerShell 支持是一个**保守子集**：`Remove-Item` 及其别名、文件
 
 ### 依赖项
 
-CC Safety Net 只有**一个运行时软件包依赖：`zod`**，仅用于配置验证。源代码通过 `createRequire` 延迟加载它。拆分的 Node bundle（包括 Pi）保留此行为，并把该延迟加载指向随附的 `dist/vendor/zod.cjs`；独立的 Amp 和 OpenClaw artifact 则内联 `zod`。只有一个源模块导入它。
+CC Safety Net **没有任何运行时软件包依赖**。`package.json` 中没有 `dependencies` 块，安装该包不会带入其他包。CC Safety Net 用自己手写的校验逻辑检查配置，而不是依赖 schema 库。`bun run verify:package` 会安装打包后的 tarball，一旦 `dependencies` 字段重新出现就判定为失败。
 
-已发布 bundle **不包含第三方 shell 解析器**。`projectShellSyntax` 从解析后的 IR 生成路径扫描器读取的 flat entry stream。因此，shell 结构只来自上述内部 POSIX 和 PowerShell 解析器。系统不会再次对原始命令文本分词，也就不会产生两套解析结果的偏差。
+已发布 bundle **不包含第三方 shell 解析器**。所有分析前的防护阶段（包括机密保护）都通过同一个函数 `walkGuardSyntax` 读取 shell 结构，由它把解析后的语法树回放给 word、segment、redirection 三类 visitor。破坏性命令分析按设计保留自己的控制流遍历。因此，shell 结构只来自上述内部 POSIX 和 PowerShell 解析器。系统不会再次对原始命令文本分词，也就不会产生两套解析结果的偏差。
 
 已发布运行时目标为 Node.js 18 或更高版本。
 

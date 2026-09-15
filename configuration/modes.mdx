@@ -45,7 +45,7 @@ Strict mode turns on the `fail_closed` capability. It tightens five distinct thi
 - **Heredocs fail closed.** A command containing a heredoc is denied unless it has exactly one unexpanded heredoc, on stdin, no other input redirection, and a consumer that is a literal `cat`, `tee`, `git apply`, `git commit`, `gh pr create`, or `gh issue create`. A heredoc is unexpanded when the delimiter is quoted (`<<'EOF'`), or when the delimiter is unquoted and its body contains no `$`, backtick, or backslash. So `python3 - <<'PY'` and a `cat <<EOF` whose body mentions `$HOME` are denied here, while `git commit -F - <<'EOF'` and a plain-text `cat <<EOF` still pass. See [Heredoc analysis](/guides/analysis-engine#heredoc-analysis) for the exact gate.
 - **Unverifiable destructive targets are blocked** by the five rules listed below.
 - **Metadata-only sensitive-path discovery is blocked.** `test -f ~/.ssh/id_rsa` and `find ~/.ssh -type f` are allowed in standard and denied in strict.
-- **The standard-only inline-data relaxation is disabled.** In standard, a sensitive path literal inside a Node or Bun inline evaluation is treated as inert diagnostic data when a bounded lexical scan finds no filesystem or command-execution marker. Strict removes that allowance.
+- **The standard-only inline-data relaxation is disabled.** In standard, a sensitive path literal inside an interpreter's inline code is inert data unless the code names a filesystem, command-execution, or eval marker. That covers every code interpreter except the POSIX shells, whose inline code the guard walks as shell instead. Strict removes the allowance and scans inside literal text as well. See [Secret protection](/reference/secret-protection).
 
 These five rules activate only when `fail_closed` is on:
 

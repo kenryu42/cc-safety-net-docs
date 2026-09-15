@@ -1,7 +1,7 @@
 ---
 title: "已知限制和易错点"
 sidebarTitle: "已知限制"
-description: "CC Safety Net 无法捕获的内容：不透明命令代理、二进制文件内部行为、文件系统隔离和网络、符号链接 TOCTOU、解释器标志、基于 eval 的执行、Codex 交互会话缺口、fail-open 的宿主 Grok Build，以及 Hermes Agent 和 OpenClaw 的覆盖边界。"
+description: "CC Safety Net 无法捕获的内容：不透明命令代理、二进制文件内部行为、文件系统隔离和网络、符号链接 TOCTOU、解释器标志、解释器注释中的引号、基于 eval 的执行、Codex 交互会话缺口、fail-open 的宿主 Grok Build，以及 Hermes Agent 和 OpenClaw 的覆盖边界。"
 ---
 
 CC Safety Net 分析智能体尝试运行的命令字符串。它能阻止已知的破坏性 Git 和文件系统操作，降低意外丢失数据的风险，但不是完整的安全方案。本页列出仍存在的**残余**限制，并说明何时应改用<a href="/zh-Hans/guides/vs-sandboxing">沙箱</a>。
@@ -53,6 +53,12 @@ CC Safety Net 会递归扫描 `bash -c` 和解释器的代码参数，但如果�
 CC Safety Net 提取传给解释器 `-c` 或 `-e` 标志的代码（适用于 `python`、`python2`、`python3`、`node`、`ruby`、`perl`），并扫描其中是否有内嵌的破坏性操作。**对应的长格式**（`--eval`、`--execute`、`--print`、`--require`）和附加的 `=value` 形式（`--eval='code'`）并非在所有代码路径中都能识别。使用长格式时，代码参数可能不会被提取出来做递归分析。
 
 如果你担心自己的环境中出现解释器绕过，请启用 <a href="/zh-Hans/configuration/modes#paranoid-interpreters">paranoid interpreters 模式</a>（`CC_SAFETY_NET_PARANOID_INTERPRETERS=1`），它会一律阻止所有解释器单行命令，不论内容如何。
+
+### 解释器注释中的引号
+
+机密保护会先把解释器内联代码中的字符串字面量涂白，再把剩下的部分按代码扫描。这一步是词法层面的，不会跳过注释，因此注释里的引号会与代码中后面的引号配成一对，使字面量的起止位置发生偏移。Ruby 或 Perl 注释里的英文缩写（`# it's the config`）会留下一个撇号，等着后面的撇号来闭合；含 `"""` 的 Python 注释则会开启一个三引号字符串。
+
+单引号或双引号的字面量到行尾仍未闭合时，这一步会中止，整段代码回退到保留全部带引号 token 和类路径 token 的扫描。多数错配都止步于此。注释里开启的 Python 三引号没有这样的停止点，因此可能让一次读取躲过 standard 模式。<a href="/zh-Hans/configuration/modes#strict-mode">strict 模式</a>不受影响，因为它同时会扫描字面量文本内部。
 
 ### 短选项附加值
 

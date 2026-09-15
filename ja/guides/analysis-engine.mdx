@@ -42,7 +42,7 @@ standard は、認識できる破壊的コマンドをブロックします。�
 
 - **解析できないコマンドをブロックします。** `echo 'unterminated` は、安全に解析できなかったという理由で拒否されます。
 - **メタデータのみで機密パスを探る操作をブロックします。** `test -f ~/.ssh/id_rsa` と `find ~/.ssh -type f` は standard では許可され、strict ではブロックされます。
-- Node や Bun のインライン評価に含まれる機密パスのリテラルを、実行されない診断用データとして扱う standard 限定の緩和を無効にします。
+- **standard 限定のインラインデータ緩和が無効になります。** standard では、インタープリターのインラインコードに含まれる機密パスのリテラルは、コードにファイルシステム操作、コマンド実行、eval のいずれの痕跡もなければ、実行されないデータのままです。strict はすべてのリテラルを候補として残し、リテラルの中身もスキャンします。
 - **heredoc が fail closed になります。** heredoc を含むコマンドは、他のアナライザーがそのセグメントを処理する前に、[heredoc の解析](#heredoc-analysis)で説明する狭い条件を満たさないかぎり拒否されます。条件とは、標準入力に接続された展開されない heredoc が 1 つだけで、他に入力リダイレクトがなく、読み取り側がリテラルで書かれた 6 つの候補のいずれかであることです。デリミタに引用符がなく、シェルが本文を展開する場合は「Unquoted heredoc input is not supported safely. Quote the delimiter or ask the user to verify.」で拒否され、条件を満たさないそれ以外の場合は「This heredoc form or stdin consumer is not supported safely. Use a quoted heredoc with a supported consumer (cat, tee, git apply, git commit, gh pr create, gh issue create), or ask the user to verify.」で拒否されます。そのため `python3 - <<'PY'` と、本文に `$HOME` を含む `cat <<EOF` はここで拒否され、本文がプレーンテキストだけの `cat <<EOF` は通過します。
 - **検証できない破壊的対象をブロックします。** 次の 5 つのルールは fail closed 機能によって切り替わるため、standard では許可され、strict ではブロックされます。
 
@@ -143,7 +143,7 @@ heredoc の本文は、標準入力に渡されるテキストです。そのテ
 
 3 つの経路には共通の構造上の境界があります。heredoc の本文はシェルのテキストとして解析し直すため、本文の中でさらに別の heredoc を宣言できます。この解析し直しをまたいだネストは、パーサーの最大深度 64 に制限されます。これを超えた場合は解析状態として `structural-limit` を報告し、standard を含む**すべて**の安全レベルでコマンドを拒否します。
 
-実行されないデータとして条件を通過した場合でも、本文をファイルに保存するときは追加の処理があります。条件を満たした heredoc を、追記ではなくリテラルのパスにそのまま書き込む場合（`cat > setup.sh <<'EOF'`、本文がプレーンテキストだけの `cat > setup.sh <<EOF`、`tee setup.sh <<'EOF'`）、エンジンはそのパスと本文を記憶します。同じコマンド内で後から `bash setup.sh`、`sh setup.sh`、`source setup.sh` を実行したり、シェル起動時の設定（`BASH_ENV`、`ENV`、`--rcfile`、`--init-file`）から参照したりすると、記憶しておいたスクリプトのテキストを解析します。トレースには、理由 `heredoc-file` の `recurse` ステップとして表示されます。そのため、本文が破壊的であれば `cat > x.sh <<'EOF' … EOF && bash x.sh` はブロックされます。追跡の範囲は意図的に限定しています。記憶するのは 1 回の解析につき最大 64 ファイルまでで（`MAX_TRACKED_HEREDOC_FILES`。超えた場合は派生コマンドの処理量の上限によって fail closed になります）、`/dev`、`/proc`、`/sys` 配下のパスは追跡しません。追跡中のパスにその後書き込みやリダイレクトがあった場合、記憶した本文は無効になります。
+実行されないデータとして条件を通過した場合でも、本文をファイルに保存するときは追加の処理があります。条件を満たした heredoc を、追記ではなくリテラルのパスにそのまま書き込む場合（`cat > setup.sh <<'EOF'`、本文がプレーンテキストだけの `cat > setup.sh <<EOF`、`tee setup.sh <<'EOF'`）、エンジンはそのパスと本文を記憶します。同じコマンド内で後から `bash setup.sh`、`sh setup.sh`、`source setup.sh` を実行したり、シェル起動時の設定（`BASH_ENV`、`ENV`、`--rcfile`、`--init-file`）から参照したりすると、記憶しておいたスクリプトのテキストを解析します。トレースには、理由 `heredoc-file` の `recurse` ステップとして表示されます。そのため、本文が破壊的であれば `cat > x.sh <<'EOF' … EOF && bash x.sh` はブロックされます。追跡の範囲は意図的に限定しています。記憶するのは 1 回の解析につき最大 64 ファイルまでで（超えた場合は派生コマンドの処理量の上限によって fail closed になります）、`/dev`、`/proc`、`/sys` 配下のパスは追跡しません。追跡中のパスにその後書き込みやリダイレクトがあった場合、記憶した本文は無効になります。
 
 <span id="git-rule-engine"></span>
 

@@ -42,7 +42,7 @@ Standard 会阻止可识别的破坏性命令，但**不具备**对抗级保护�
 
 - **阻止无法解析的命令。** `echo 'unterminated` 会被拒绝，原因说明该命令无法安全分析。
 - **阻止仅元数据的敏感路径发现。** `test -f ~/.ssh/id_rsa` 和 `find ~/.ssh -type f` 在 standard 中允许，在 strict 中阻止。
-- Standard 中把 Node 和 Bun 内联求值里的敏感路径字面量视为惰性诊断数据的放宽，在 strict 中会被禁用。
+- **禁用仅限 standard 的内联数据放宽。** 在 standard 中，只要解释器内联代码整体没有出现文件系统、命令执行或 eval 标记，其中的敏感路径字面量就仍是惰性数据。Strict 会保留全部字面量，并且连字面量内部也会扫描。
 - **Heredoc 会 fail closed。** 在其他分析器处理命令段之前，包含 heredoc 的命令会被拒绝，除非它通过 [Heredoc 分析](#heredoc-分析)中描述的狭窄支持门：恰好一个不展开的 heredoc、连接到 stdin、没有其他输入重定向，而且使用六个字面量数据 consumer 中的一个。分隔符不带引号且 shell 会展开其 body 时，拒绝消息为 "Unquoted heredoc input is not supported safely. Quote the delimiter or ask the user to verify."；其他失败的消息为 "This heredoc form or stdin consumer is not supported safely. Use a quoted heredoc with a supported consumer (cat, tee, git apply, git commit, gh pr create, gh issue create), or ask the user to verify."。因此，这里会拒绝 `python3 - <<'PY'` 和 body 中出现 `$HOME` 的 `cat <<EOF`，而 body 为纯文本的 `cat <<EOF` 可以通过。
 - **阻止无法验证的破坏性目标。** 有五条规则以 fail-closed 能力为前提，因此在 standard 中允许，在 strict 中阻止：
 
@@ -143,7 +143,7 @@ Heredoc body 是 stdin 上的文本，由 consumer 决定该文本是数据还�
 
 这三条路径下面还有一个共同的结构边界：heredoc body 会被当作 shell 文本重新解析，而 body 内部还能声明自己的 heredoc。这些重新解析之间的嵌套上限为解析器的 64 层深度限制；更深的嵌套会报告 `structural-limit` 解析状态，并在**每个**安全级别（包括 standard）拒绝该命令。
 
-当 body 落入文件时，以惰性数据通过支持门并不代表就此结束。当通过支持门的 heredoc 被原样写入字面量路径（`cat > setup.sh <<'EOF'`、body 为纯文本的 `cat > setup.sh <<EOF`，或未使用 append 的 `tee setup.sh <<'EOF'`）时，引擎会记住该路径下的 body。同一命令中随后执行 `bash setup.sh`、`sh setup.sh`、`source setup.sh`，或通过 shell 启动引用（`BASH_ENV`、`ENV`、`--rcfile`、`--init-file`）使用该文件时，会根据记住的脚本文本进行分析。这在 explain 跟踪中显示为 reason 为 `heredoc-file` 的 `recurse` 步骤。因此，如果 body 具有破坏性，`cat > x.sh <<'EOF' … EOF && bash x.sh` 会被阻止。跟踪范围有意保持狭窄：每次分析最多记住 64 个文件（`MAX_TRACKED_HEREDOC_FILES`；超过此值会在派生命令工作量限制处 fail closed）；永远不跟踪 `/dev`、`/proc` 和 `/sys` 下的路径；后续写入或重定向到已跟踪路径会使存储的 body 失效。
+当 body 落入文件时，以惰性数据通过支持门并不代表就此结束。当通过支持门的 heredoc 被原样写入字面量路径（`cat > setup.sh <<'EOF'`、body 为纯文本的 `cat > setup.sh <<EOF`，或未使用 append 的 `tee setup.sh <<'EOF'`）时，引擎会记住该路径下的 body。同一命令中随后执行 `bash setup.sh`、`sh setup.sh`、`source setup.sh`，或通过 shell 启动引用（`BASH_ENV`、`ENV`、`--rcfile`、`--init-file`）使用该文件时，会根据记住的脚本文本进行分析。这在 explain 跟踪中显示为 reason 为 `heredoc-file` 的 `recurse` 步骤。因此，如果 body 具有破坏性，`cat > x.sh <<'EOF' … EOF && bash x.sh` 会被阻止。跟踪范围有意保持狭窄：每次分析最多记住 64 个文件（超过此值会在派生命令工作量限制处 fail closed）；永远不跟踪 `/dev`、`/proc` 和 `/sys` 下的路径；后续写入或重定向到已跟踪路径会使存储的 body 失效。
 
 ## Git 规则引擎
 
