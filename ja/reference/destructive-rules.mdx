@@ -1,0 +1,137 @@
+---
+title: "破壊的コマンドルールのリファレンス"
+sidebarTitle: "破壊的コマンドルール"
+description: "CC Safety Net に組み込まれた破壊的コマンドルールの全一覧です。すべてのルール ID、ブロックする内容、例、ルールを有効にする安全レベルまたは機能、致命的（catastrophic）なルール、policy.json でルールを無効にする方法を説明します。"
+keywords:
+  - "破壊的コマンドルール"
+  - "ルール ID"
+  - "destructive_command_protection.overrides"
+  - "致命的なルール"
+  - "ブロックされたコマンドを許可する"
+  - "git.reset-hard"
+  - "rm.recursive-force-root-or-home"
+---
+
+破壊的コマンドの保護は、未コミットの作業、stash した変更、リモートの履歴、その他のデータ、ディスクを破壊しうるコマンドをブロックするコマンド解析のステージです。すべてのブロックは、ブロックメッセージ、[監査ログ](/ja/reference/audit-log)、`explain --json` の `ruleId` フィールドで、以下のルール ID のいずれかを示します。
+
+このページでは、すべての組み込みルール ID、ブロックする内容、有効になる条件を示します。ブロックメッセージからルールを調べ、無効にするかどうかを判断するために使ってください。各ルールの境界と具体例については[ブロックされるコマンド](/ja/reference/blocked-commands)を、`destructive_command_protection` スキーマについては[ポリシー](/ja/configuration/policy#destructive-command-protection)を、独自のルールを追加するには[カスタムルール](/ja/configuration/custom-rules)を参照してください。
+
+登録済みのルールは **59 個**です。そのうち 6 個は[致命的な操作に対するルール](#catastrophic-rules)で、無効にできません。それ以外のすべてのルールは、ルール単位の override を受け付けます。
+
+<span id="allow-a-built-in-rule"></span>
+
+## 組み込みルールを許可する
+
+致命的でないすべてのルールに、同じ 3 つの手順が適用されます。
+
+1. ルール ID を取得します。ブロックメッセージに表示されるほか、対象のコマンドそのものに対して `explain` を実行し、`ruleId` を読み取ることもできます。
+
+   ```bash
+   npx -y cc-safety-net explain --json 'git push --force origin main'
+   ```
+
+2. `policy.json` の `destructive_command_protection.overrides` に、その ID を値 `"off"` で追加します。ユーザーファイルはすべてのプロジェクトに、プロジェクトファイル `.cc-safety-net/policy.json` はそのプロジェクトだけに適用されます。既存のファイルにマージしてください。以下は完全な例です。
+
+   ```json
+   {
+     "version": 1,
+     "destructive_command_protection": {
+       "overrides": {
+         "git.push-force": "off"
+       }
+     }
+   }
+   ```
+
+3. もう一度 `explain` で確認します。そのコマンドの判定は allowed になり、`status` に override が表示されます。
+
+override はルール全体を無効にするものであり、特定のコマンド 1 つだけを許可するものではありません。`"on"` はその逆で、安全レベルが無効にしているルール（standard モードでの `rm.recursive-force-paranoid` など）を有効にします。再帰削除をパス単位で除外するには `destructive_command_protection.allow_paths` を使います。[Allow path](/ja/configuration/policy#allow-paths) を参照してください。登録されていない ID は `policy check` で拒否されます。
+
+<span id="catastrophic-rules"></span>
+
+## 致命的な操作に対するルール
+
+6 個のルールは致命的（catastrophic）としてマークされています。これらは `destructive_command_protection.enabled: false` も `"off"` の override も無視するため、どのポリシーでも、どの安全レベルでもブロックします。対象は、`rm`、`find`、PowerShell による `/` またはホームディレクトリの再帰削除と、Git メタデータの削除です。以下の表では **致命的** と表示しています。
+
+## 表の読み方
+
+**有効になる条件**は、どの安全レベルまたは機能がそのルールを有効にするかを示します。**すべてのレベル**は standard、strict、paranoid のすべてを意味します。機能に紐づくルールは、安全レベルと `safety.overrides` のどちらで設定されたかにかかわらず、その機能が有効なときに有効になります。例は、そのルールを発火させる最短のコマンドです。各境界がどこにあるかは、[ブロックされるコマンド](/ja/reference/blocked-commands)のリファレンスを参照してください。
+
+## Git のルール
+
+| ルール ID | ブロックする内容 | 例 | 有効になる条件 |
+| --- | --- | --- | --- |
+| `git.ssh-env` | SSH 関連の環境変数を上書きした Git のネットワーク操作をブロックします。 | `GIT_SSH_COMMAND="./ssh-wrapper" git push` | すべてのレベル |
+| `git.alias-config` | 安全に解決できないコマンドラインの Git エイリアスをブロックします。 | `git -c alias.wipe='!rm -rf /' wipe` | すべてのレベル |
+| `git.checkout-force` | ローカルの変更を破棄する強制 checkout をブロックします。 | `git checkout --force main` | すべてのレベル |
+| `git.checkout-double-dash` | `--` の後にパスを復元する checkout をブロックします。 | `git checkout -- src/app.ts` | すべてのレベル |
+| `git.checkout-ref-path` | ref とパスの復元を組み合わせた checkout をブロックします。 | `git checkout HEAD -- src/app.ts` | すべてのレベル |
+| `git.checkout-pathspec-from-file` | ファイルから pathspec を読み込む checkout をブロックします。 | `git checkout --pathspec-from-file=paths.txt` | すべてのレベル |
+| `git.checkout-ambiguous` | パスを復元する可能性のある曖昧な checkout 引数をブロックします。 | `git checkout main src/app.ts` | すべてのレベル |
+| `git.switch-discard-changes` | ローカルの変更を明示的に破棄するブランチ切り替えをブロックします。 | `git switch --discard-changes main` | すべてのレベル |
+| `git.switch-force` | 強制的なブランチ切り替えをブロックします。 | `git switch --force main` | すべてのレベル |
+| `git.restore-worktree` | 作業ツリーへの restore をブロックします。 | `git restore --worktree src/app.ts` | すべてのレベル |
+| `git.restore-unstaged` | ステージされていない変更の restore をブロックします。 | `git restore src/app.ts` | すべてのレベル |
+| `git.reset-hard` | hard reset をブロックします。 | `git reset --hard` | すべてのレベル |
+| `git.reset-merge` | merge reset をブロックします。 | `git reset --merge` | すべてのレベル |
+| `git.clean-force` | 強制的な clean をブロックします。 | `git clean -fd` | すべてのレベル |
+| `git.rm-force` | 追跡中のファイルを作業ツリーから強制削除する操作をブロックします。 | `git rm -rf .` | すべてのレベル |
+| `git.push-force` | force push をブロックします。 | `git push --force origin main` | すべてのレベル |
+| `git.push-delete` | push によるリモート ref の削除をブロックします。 | `git push --delete origin old-branch` | すべてのレベル |
+| `git.push-mirror` | リモート ref を強制更新または削除しうる mirror push をブロックします。 | `git push --mirror origin` | すべてのレベル |
+| `git.branch-force-delete` | ブランチの強制削除をブロックします。 | `git branch -D old-branch` | すべてのレベル |
+| `git.rebase-abort` | rebase の中止をブロックします。 | `git rebase --abort` | すべてのレベル |
+| `git.merge-abort` | merge の中止をブロックします。 | `git merge --abort` | すべてのレベル |
+| `git.tag-delete` | タグの削除をブロックします。 | `git tag --delete v1.0.0` | すべてのレベル |
+| `git.reflog-delete` | reflog の削除をブロックします。 | `git reflog delete HEAD@{1}` | すべてのレベル |
+| `git.stash-drop` | stash エントリの削除をブロックします。 | `git stash drop stash@{0}` | すべてのレベル |
+| `git.stash-clear` | すべての stash エントリの消去をブロックします。 | `git stash clear` | すべてのレベル |
+| `git.worktree-remove-force` | worktree の強制削除をブロックします。 | `git worktree remove --force ../feature` | すべてのレベル |
+
+## ファイルシステムのルール
+
+| ルール ID | ブロックする内容 | 例 | 有効になる条件 |
+| --- | --- | --- | --- |
+| `rm.recursive-force-root-or-home` | ルートまたはホームのパスに対する再帰的な強制削除をブロックします。 | `rm -rf /` | **致命的**、常に有効 |
+| `rm.git-metadata` | 保護対象の Git メタデータとフックの削除をブロックします。 | `rm -rf .git` | **致命的**、常に有効 |
+| `rm.recursive-force-dynamic-target` | strict モードで、動的なターゲットに対する再帰的な強制削除をブロックします。 | `rm -rf "$target"` | [Strict](/ja/configuration/modes#strict-mode) |
+| `rm.recursive-force-home-cwd` | ホームで作業中の再帰的な強制削除をブロックします。 | `cd "$HOME" && rm -rf build` | すべてのレベル |
+| `rm.recursive-force-cwd-self` | カレントディレクトリ自体の再帰的な強制削除をブロックします。 | `rm -rf .` | すべてのレベル |
+| `rm.recursive-force-outside-cwd` | 元の作業ディレクトリの外に対する再帰的な強制削除をブロックします。 | `rm -rf ../outside` | すべてのレベル |
+| `rm.recursive-force-paranoid` | paranoid rm が有効なとき、一時ディレクトリ以外への再帰的な強制削除をブロックします。 | `rm -rf ./cache` | [Paranoid rm](/ja/configuration/modes#paranoid-rm-check) |
+| `find.delete` | 安全でない find -delete をブロックします。 | `find . -delete` | すべてのレベル |
+| `find.delete-git-metadata` | 保護対象の Git メタデータとフックを選択する find -delete をブロックします。 | `find .git -delete` | **致命的**、常に有効 |
+| `find.exec-rm-recursive-force` | find -exec rm -rf をブロックします。 | `find . -exec rm -rf {} +` | すべてのレベル |
+| `dd.device-write` | /dev デバイスへの dd 書き込みをブロックします。 | `dd if=/dev/zero of=/dev/sda` | すべてのレベル |
+| `mkfs.device` | /dev デバイスをフォーマットする mkfs をブロックします。 | `mkfs.ext4 /dev/sda1` | すべてのレベル |
+| `shred.target` | shred --help と shred --version を含む、あらゆるターゲットに対する shred をブロックします。 | `shred -u secret.txt` | すべてのレベル |
+
+## PowerShell のルール
+
+| ルール ID | ブロックする内容 | 例 | 有効になる条件 |
+| --- | --- | --- | --- |
+| `powershell.remove-item-root-or-home` | ルートまたはホームのパスを対象とする PowerShell の Remove-Item をブロックします。 | `Remove-Item C:\` | **致命的**、常に有効 |
+| `powershell.remove-item-recursive-force-root-or-home` | ルートまたはホームのパスに対する PowerShell の再帰的な強制削除をブロックします。 | `Remove-Item C:\ -Recurse -Force` | **致命的**、常に有効 |
+| `powershell.remove-item-git-metadata` | 保護対象の Git メタデータとフックの PowerShell による削除をブロックします。 | `Remove-Item .git -Recurse -Force` | **致命的**、常に有効 |
+| `powershell.remove-item-recursive-force-dynamic-target` | strict モードで、動的なターゲットに対する PowerShell の再帰的な強制削除をブロックします。 | `Remove-Item $target -Recurse -Force` | [Strict](/ja/configuration/modes#strict-mode) |
+| `powershell.remove-item-recursive-force-home-cwd` | ホームで作業中の PowerShell の再帰的な強制削除をブロックします。 | `Set-Location $HOME; Remove-Item ./build -Recurse -Force` | すべてのレベル |
+| `powershell.remove-item-recursive-force-cwd-self` | カレントディレクトリ自体に対する PowerShell の再帰的な強制削除をブロックします。 | `Remove-Item . -Recurse -Force` | すべてのレベル |
+| `powershell.remove-item-recursive-force-outside-cwd` | 元の作業ディレクトリの外に対する PowerShell の再帰的な強制削除をブロックします。 | `Remove-Item ../outside -Recurse -Force` | すべてのレベル |
+| `powershell.remove-item-recursive-force-paranoid` | paranoid rm が有効なとき、一時ディレクトリ以外への PowerShell の再帰的な強制削除をブロックします。 | `Remove-Item ./cache -Recurse -Force` | [Paranoid rm](/ja/configuration/modes#paranoid-rm-check) |
+| `powershell.remove-item-pipeline-dynamic-target` | strict モードで、検証できないパイプライン入力を受け取る PowerShell の Remove-Item をブロックします。 | `Get-ChildItem . -Recurse \| Remove-Item -Force` | [Strict](/ja/configuration/modes#strict-mode) |
+
+## 実行のルール
+
+| ルール ID | ブロックする内容 | 例 | 有効になる条件 |
+| --- | --- | --- | --- |
+| `interpreter.dangerous-command` | 危険なコマンドを含むインタープリターの 1 行コードをブロックします。 | `python -c "import os; os.system('rm -rf /')"` | すべてのレベル |
+| `interpreter.one-liner-paranoid` | paranoid interpreters が有効なとき、インタープリターの 1 行コードをブロックします。 | `python -c "print(1)"` | [Paranoid interpreters](/ja/configuration/modes#paranoid-interpreters) |
+| `awk.system-dynamic` | 安全に解析できない awk の system 呼び出しをブロックします。 | `awk '{ system($0) }'` | すべてのレベル |
+| `xargs.rm-recursive-force-dynamic` | 動的な入力を受け取る xargs rm -rf をブロックします。 | `printf / \| xargs rm -rf` | すべてのレベル |
+| `xargs.shell-dynamic` | 動的な入力によるシェル実行を行う xargs をブロックします。 | `xargs r$(printf m) -rf` | すべてのレベル |
+| `parallel.rm-recursive-force-dynamic` | 動的な入力を受け取る parallel rm -rf をブロックします。 | `printf / \| parallel rm -rf` | すべてのレベル |
+| `parallel.shell-dynamic` | 動的な入力によるシェル実行を行う parallel をブロックします。 | `parallel r$(printf m) -rf ::: child` | すべてのレベル |
+| `parallel.command-stream-dynamic` | 動的な入力からコマンドストリームを受け取る parallel をブロックします。 | `parallel --dry-run` | すべてのレベル |
+| `shell.dynamic-structure` | strict モードで、置換の出力から組み立てられたガード対象のサブコマンドとオプションをブロックします。 | `git reset $(printf --hard)` | [Strict](/ja/configuration/modes#strict-mode) |
+| `shell.dynamic-executable` | strict モードで、コマンド置換の出力から組み立てられた実行ファイル名をブロックします。 | `$(printf r)m -rf /` | [Strict](/ja/configuration/modes#strict-mode) |
+| `raw-text.dangerous-command` | 生のコマンドテキストから検出された危険なコマンドをブロックします。 | `git reset --hard 'unterminated` | すべてのレベル |

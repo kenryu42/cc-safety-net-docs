@@ -1,0 +1,137 @@
+---
+title: "破坏性命令规则参考"
+sidebarTitle: "破坏性命令规则"
+description: "CC Safety Net 内置破坏性命令规则的完整目录：每个规则 ID、阻止的内容、示例、启用该规则的安全级别或能力、哪些规则是灾难性规则，以及如何在 policy.json 中关闭某条规则。"
+keywords:
+  - "破坏性命令规则"
+  - "规则 ID"
+  - "destructive_command_protection.overrides"
+  - "灾难性规则"
+  - "允许被阻止的命令"
+  - "git.reset-hard"
+  - "rm.recursive-force-root-or-home"
+---
+
+破坏性命令保护是命令分析阶段，用于阻止可能销毁未提交的工作、已暂存的更改、远程历史、其他数据或整个磁盘的命令。每次阻止都会在阻止消息、[审计日志](/zh-Hans/reference/audit-log)和 `explain --json` 的 `ruleId` 字段中给出下面的某个规则 ID。
+
+本页列出每个内置规则 ID、它阻止的内容以及生效条件。你可以据此从阻止消息中查找规则，并决定是否关闭它。各规则的边界和示例见[被阻止的命令](/zh-Hans/reference/blocked-commands)，`destructive_command_protection` schema 见[策略](/zh-Hans/configuration/policy#destructive-command-protection)，添加自己的规则见[自定义规则](/zh-Hans/configuration/custom-rules)。
+
+共有 **59 条已注册规则**。其中 6 条是[灾难性规则](#catastrophic-rules)，无法关闭。其余所有规则都接受单条规则的覆盖。
+
+<span id="allow-a-built-in-rule"></span>
+
+## 允许某条内置规则
+
+对每条非灾难性规则，都是同样的三个步骤：
+
+1. 获取规则 ID。它会打印在阻止消息中；也可以对那条命令本身运行 `explain`，并读取 `ruleId`：
+
+   ```bash
+   npx -y cc-safety-net explain --json 'git push --force origin main'
+   ```
+
+2. 在 `policy.json` 的 `destructive_command_protection.overrides` 中添加该 ID，值为 `"off"`。用户文件适用于所有项目，项目文件 `.cc-safety-net/policy.json` 只适用于一个项目。请合并到你已有的文件中；下面是一个完整示例：
+
+   ```json
+   {
+     "version": 1,
+     "destructive_command_protection": {
+       "overrides": {
+         "git.push-force": "off"
+       }
+     }
+   }
+   ```
+
+3. 再次用 `explain` 确认。该命令的判定变为 allowed，`status` 会列出这条覆盖。
+
+覆盖会关闭整条规则，而不是只放行某一条命令。`"on"` 则相反，会启用你的安全级别未启用的规则，例如 standard 模式下的 `rm.recursive-force-paranoid`。针对特定路径豁免递归删除，请使用 `destructive_command_protection.allow_paths`，见[允许路径](/zh-Hans/configuration/policy#allow-paths)。未注册的 ID 会被 `policy check` 拒绝。
+
+<span id="catastrophic-rules"></span>
+
+## 灾难性规则
+
+有 6 条规则被标记为灾难性规则。它们忽略 `destructive_command_protection.enabled: false`，也忽略 `"off"` 覆盖，因此在任何策略下、任何安全级别都会阻止。它们涵盖用 `rm`、`find` 和 PowerShell 递归删除 `/` 或主目录，以及删除 Git 元数据。下表中以 **灾难性** 标出。
+
+## 如何阅读表格
+
+**生效条件**说明哪个安全级别或能力会启用该规则。**所有级别**指 standard、strict 和 paranoid。与某项能力绑定的规则在该能力开启时生效，无论它是由安全级别还是由 `safety.overrides` 条目开启的。示例是触发该规则的最短命令；各边界的具体位置见[被阻止的命令](/zh-Hans/reference/blocked-commands)参考。
+
+## Git 规则
+
+| 规则 ID | 阻止的内容 | 示例 | 生效条件 |
+| --- | --- | --- | --- |
+| `git.ssh-env` | 阻止带有 SSH 环境变量覆盖的 Git 网络操作。 | `GIT_SSH_COMMAND="./ssh-wrapper" git push` | 所有级别 |
+| `git.alias-config` | 阻止无法安全解析的命令行 Git 别名。 | `git -c alias.wipe='!rm -rf /' wipe` | 所有级别 |
+| `git.checkout-force` | 阻止会丢弃本地更改的强制 checkout。 | `git checkout --force main` | 所有级别 |
+| `git.checkout-double-dash` | 阻止在 `--` 之后恢复路径的 checkout。 | `git checkout -- src/app.ts` | 所有级别 |
+| `git.checkout-ref-path` | 阻止同时包含 ref 和路径恢复的 checkout 形式。 | `git checkout HEAD -- src/app.ts` | 所有级别 |
+| `git.checkout-pathspec-from-file` | 阻止从文件加载 pathspec 的 checkout。 | `git checkout --pathspec-from-file=paths.txt` | 所有级别 |
+| `git.checkout-ambiguous` | 阻止可能恢复路径的含糊 checkout 参数。 | `git checkout main src/app.ts` | 所有级别 |
+| `git.switch-discard-changes` | 阻止显式丢弃本地更改的分支切换。 | `git switch --discard-changes main` | 所有级别 |
+| `git.switch-force` | 阻止强制分支切换。 | `git switch --force main` | 所有级别 |
+| `git.restore-worktree` | 阻止针对工作树的 restore 操作。 | `git restore --worktree src/app.ts` | 所有级别 |
+| `git.restore-unstaged` | 阻止针对未暂存更改的 restore 操作。 | `git restore src/app.ts` | 所有级别 |
+| `git.reset-hard` | 阻止 hard reset。 | `git reset --hard` | 所有级别 |
+| `git.reset-merge` | 阻止 merge reset。 | `git reset --merge` | 所有级别 |
+| `git.clean-force` | 阻止强制 clean 操作。 | `git clean -fd` | 所有级别 |
+| `git.rm-force` | 阻止从工作树中强制删除已跟踪文件。 | `git rm -rf .` | 所有级别 |
+| `git.push-force` | 阻止强制推送。 | `git push --force origin main` | 所有级别 |
+| `git.push-delete` | 阻止通过 push 删除远程 ref。 | `git push --delete origin old-branch` | 所有级别 |
+| `git.push-mirror` | 阻止可能强制更新或删除远程 ref 的 mirror 推送。 | `git push --mirror origin` | 所有级别 |
+| `git.branch-force-delete` | 阻止强制删除分支。 | `git branch -D old-branch` | 所有级别 |
+| `git.rebase-abort` | 阻止中止 rebase。 | `git rebase --abort` | 所有级别 |
+| `git.merge-abort` | 阻止中止 merge。 | `git merge --abort` | 所有级别 |
+| `git.tag-delete` | 阻止删除标签。 | `git tag --delete v1.0.0` | 所有级别 |
+| `git.reflog-delete` | 阻止删除 reflog。 | `git reflog delete HEAD@{1}` | 所有级别 |
+| `git.stash-drop` | 阻止丢弃 stash 条目。 | `git stash drop stash@{0}` | 所有级别 |
+| `git.stash-clear` | 阻止清空所有 stash 条目。 | `git stash clear` | 所有级别 |
+| `git.worktree-remove-force` | 阻止强制删除 worktree。 | `git worktree remove --force ../feature` | 所有级别 |
+
+## 文件系统规则
+
+| 规则 ID | 阻止的内容 | 示例 | 生效条件 |
+| --- | --- | --- | --- |
+| `rm.recursive-force-root-or-home` | 阻止对根目录或主目录路径的递归强制删除。 | `rm -rf /` | **灾难性**，始终开启 |
+| `rm.git-metadata` | 阻止删除受保护的 Git 元数据和钩子。 | `rm -rf .git` | **灾难性**，始终开启 |
+| `rm.recursive-force-dynamic-target` | 在 strict 模式下阻止目标为动态值的递归强制删除。 | `rm -rf "$target"` | [Strict](/zh-Hans/configuration/modes#strict-mode) |
+| `rm.recursive-force-home-cwd` | 阻止在主目录中工作时的递归强制删除。 | `cd "$HOME" && rm -rf build` | 所有级别 |
+| `rm.recursive-force-cwd-self` | 阻止对当前目录本身的递归强制删除。 | `rm -rf .` | 所有级别 |
+| `rm.recursive-force-outside-cwd` | 阻止对原始工作目录之外的递归强制删除。 | `rm -rf ../outside` | 所有级别 |
+| `rm.recursive-force-paranoid` | 在启用 paranoid rm 时阻止对非临时路径的递归强制删除。 | `rm -rf ./cache` | [Paranoid rm](/zh-Hans/configuration/modes#paranoid-rm-check) |
+| `find.delete` | 阻止不安全的 find -delete 操作。 | `find . -delete` | 所有级别 |
+| `find.delete-git-metadata` | 阻止选中受保护 Git 元数据和钩子的 find -delete 操作。 | `find .git -delete` | **灾难性**，始终开启 |
+| `find.exec-rm-recursive-force` | 阻止 find -exec rm -rf 操作。 | `find . -exec rm -rf {} +` | 所有级别 |
+| `dd.device-write` | 阻止 dd 写入 /dev 设备。 | `dd if=/dev/zero of=/dev/sda` | 所有级别 |
+| `mkfs.device` | 阻止 mkfs 格式化 /dev 设备。 | `mkfs.ext4 /dev/sda1` | 所有级别 |
+| `shred.target` | 阻止针对任何目标的 shred，包括 shred --help 和 shred --version。 | `shred -u secret.txt` | 所有级别 |
+
+## PowerShell 规则
+
+| 规则 ID | 阻止的内容 | 示例 | 生效条件 |
+| --- | --- | --- | --- |
+| `powershell.remove-item-root-or-home` | 阻止针对根目录或主目录路径的 PowerShell Remove-Item。 | `Remove-Item C:\` | **灾难性**，始终开启 |
+| `powershell.remove-item-recursive-force-root-or-home` | 阻止对根目录或主目录路径的 PowerShell 递归强制删除。 | `Remove-Item C:\ -Recurse -Force` | **灾难性**，始终开启 |
+| `powershell.remove-item-git-metadata` | 阻止用 PowerShell 删除受保护的 Git 元数据和钩子。 | `Remove-Item .git -Recurse -Force` | **灾难性**，始终开启 |
+| `powershell.remove-item-recursive-force-dynamic-target` | 在 strict 模式下阻止目标为动态值的 PowerShell 递归强制删除。 | `Remove-Item $target -Recurse -Force` | [Strict](/zh-Hans/configuration/modes#strict-mode) |
+| `powershell.remove-item-recursive-force-home-cwd` | 阻止在主目录中工作时的 PowerShell 递归强制删除。 | `Set-Location $HOME; Remove-Item ./build -Recurse -Force` | 所有级别 |
+| `powershell.remove-item-recursive-force-cwd-self` | 阻止对当前目录本身的 PowerShell 递归强制删除。 | `Remove-Item . -Recurse -Force` | 所有级别 |
+| `powershell.remove-item-recursive-force-outside-cwd` | 阻止对原始工作目录之外的 PowerShell 递归强制删除。 | `Remove-Item ../outside -Recurse -Force` | 所有级别 |
+| `powershell.remove-item-recursive-force-paranoid` | 在启用 paranoid rm 时阻止对非临时路径的 PowerShell 递归强制删除。 | `Remove-Item ./cache -Recurse -Force` | [Paranoid rm](/zh-Hans/configuration/modes#paranoid-rm-check) |
+| `powershell.remove-item-pipeline-dynamic-target` | 在 strict 模式下阻止管道输入无法验证的 PowerShell Remove-Item。 | `Get-ChildItem . -Recurse \| Remove-Item -Force` | [Strict](/zh-Hans/configuration/modes#strict-mode) |
+
+## 执行规则
+
+| 规则 ID | 阻止的内容 | 示例 | 生效条件 |
+| --- | --- | --- | --- |
+| `interpreter.dangerous-command` | 阻止包含危险命令的解释器单行代码。 | `python -c "import os; os.system('rm -rf /')"` | 所有级别 |
+| `interpreter.one-liner-paranoid` | 在启用 paranoid interpreters 时阻止解释器单行代码。 | `python -c "print(1)"` | [Paranoid interpreters](/zh-Hans/configuration/modes#paranoid-interpreters) |
+| `awk.system-dynamic` | 阻止无法安全分析的 awk system 调用。 | `awk '{ system($0) }'` | 所有级别 |
+| `xargs.rm-recursive-force-dynamic` | 阻止带有动态输入的 xargs rm -rf。 | `printf / \| xargs rm -rf` | 所有级别 |
+| `xargs.shell-dynamic` | 阻止带有动态输入的 xargs shell 执行。 | `xargs r$(printf m) -rf` | 所有级别 |
+| `parallel.rm-recursive-force-dynamic` | 阻止带有动态输入的 parallel rm -rf。 | `printf / \| parallel rm -rf` | 所有级别 |
+| `parallel.shell-dynamic` | 阻止带有动态输入的 parallel shell 执行。 | `parallel r$(printf m) -rf ::: child` | 所有级别 |
+| `parallel.command-stream-dynamic` | 阻止来自动态输入的 parallel 命令流。 | `parallel --dry-run` | 所有级别 |
+| `shell.dynamic-structure` | 在 strict 模式下阻止由替换输出拼装而成的受保护子命令和选项。 | `git reset $(printf --hard)` | [Strict](/zh-Hans/configuration/modes#strict-mode) |
+| `shell.dynamic-executable` | 在 strict 模式下阻止由命令替换输出拼装而成的可执行文件名。 | `$(printf r)m -rf /` | [Strict](/zh-Hans/configuration/modes#strict-mode) |
+| `raw-text.dangerous-command` | 阻止在原始命令文本中检测到的危险命令。 | `git reset --hard 'unterminated` | 所有级别 |

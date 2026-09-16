@@ -1,0 +1,133 @@
+---
+title: "Destructive-command rules reference"
+sidebarTitle: "Destructive-command rules"
+description: "Complete catalog of CC Safety Net's built-in destructive-command rules: every rule id, what it blocks, an example, the safety level or capability that activates it, which rules are catastrophic, and how to turn a rule off in policy.json."
+keywords:
+  - "destructive command rules"
+  - "rule id"
+  - "destructive_command_protection.overrides"
+  - "catastrophic rules"
+  - "allow a blocked command"
+  - "git.reset-hard"
+  - "rm.recursive-force-root-or-home"
+---
+
+Destructive-command protection is the command-analysis stage that blocks commands which can destroy uncommitted work, stashed changes, remote history, other data, or a disk. Every block names one of the rule ids below in the block message, the [audit log](/reference/audit-log), and the `ruleId` field of `explain --json`.
+
+This page lists every built-in rule id, what it blocks, and when it is active. Use it to look up a rule from a block message and decide whether to turn it off. See [Blocked commands](/reference/blocked-commands) for the boundary of each rule with worked examples, [Policy](/configuration/policy#destructive-command-protection) for the `destructive_command_protection` schema, and [Custom rules](/configuration/custom-rules) to add rules of your own.
+
+There are **59 registered rules**. Six are [catastrophic](#catastrophic-rules) and cannot be turned off. Every other rule accepts a per-rule override.
+
+## Allow a built-in rule
+
+The same three steps apply to every non-catastrophic rule:
+
+1. Get the rule id. It is printed in the block message, or run `explain` on the exact command and read `ruleId`:
+
+   ```bash
+   npx -y cc-safety-net explain --json 'git push --force origin main'
+   ```
+
+2. Add the id to `destructive_command_protection.overrides` with the value `"off"` in `policy.json`. The user file applies to every project, and the project file `.cc-safety-net/policy.json` applies to one. Merge into the file you already have; this is a complete example:
+
+   ```json
+   {
+     "version": 1,
+     "destructive_command_protection": {
+       "overrides": {
+         "git.push-force": "off"
+       }
+     }
+   }
+   ```
+
+3. Confirm with `explain` again. The verdict for the command becomes allowed, and `status` lists the override.
+
+An override turns the whole rule off, not one command. `"on"` does the opposite and enables a rule that your safety level leaves off, such as `rm.recursive-force-paranoid` in standard mode. A path-specific exemption for recursive deletes is `destructive_command_protection.allow_paths`, described under [Allow paths](/configuration/policy#allow-paths). An unregistered id is rejected by `policy check`.
+
+## Catastrophic rules
+
+Six rules are marked catastrophic. They ignore `destructive_command_protection.enabled: false` and ignore an `"off"` override, so they block at every safety level under every policy. They cover recursive removal of `/` or your home directory and deletion of Git metadata, in `rm`, `find`, and PowerShell form. They are marked **Catastrophic** in the tables below.
+
+## Reading the tables
+
+**Active when** says which safety level or capability turns the rule on. **All levels** means standard, strict, and paranoid. A rule tied to a capability is on whenever that capability is on, whether the safety level or a `safety.overrides` entry set it. The examples are the shortest command that fires the rule; the [Blocked commands](/reference/blocked-commands) reference shows where each boundary falls.
+
+## Git rules
+
+| Rule id | What it blocks | Example | Active when |
+| --- | --- | --- | --- |
+| `git.ssh-env` | Blocks Git network operations with SSH environment overrides. | `GIT_SSH_COMMAND="./ssh-wrapper" git push` | All levels |
+| `git.alias-config` | Blocks command-line Git aliases that cannot be safely resolved. | `git -c alias.wipe='!rm -rf /' wipe` | All levels |
+| `git.checkout-force` | Blocks forced checkout operations that discard local changes. | `git checkout --force main` | All levels |
+| `git.checkout-double-dash` | Blocks checkout path restores after --. | `git checkout -- src/app.ts` | All levels |
+| `git.checkout-ref-path` | Blocks checkout forms that mix a ref and path restore. | `git checkout HEAD -- src/app.ts` | All levels |
+| `git.checkout-pathspec-from-file` | Blocks checkout pathspec loading from a file. | `git checkout --pathspec-from-file=paths.txt` | All levels |
+| `git.checkout-ambiguous` | Blocks ambiguous checkout arguments that may restore paths. | `git checkout main src/app.ts` | All levels |
+| `git.switch-discard-changes` | Blocks branch switches that explicitly discard local changes. | `git switch --discard-changes main` | All levels |
+| `git.switch-force` | Blocks forced branch switches. | `git switch --force main` | All levels |
+| `git.restore-worktree` | Blocks worktree restore operations. | `git restore --worktree src/app.ts` | All levels |
+| `git.restore-unstaged` | Blocks unstaged restore operations. | `git restore src/app.ts` | All levels |
+| `git.reset-hard` | Blocks hard resets. | `git reset --hard` | All levels |
+| `git.reset-merge` | Blocks merge resets. | `git reset --merge` | All levels |
+| `git.clean-force` | Blocks forced clean operations. | `git clean -fd` | All levels |
+| `git.rm-force` | Blocks forced removal of tracked files from the working tree. | `git rm -rf .` | All levels |
+| `git.push-force` | Blocks force pushes. | `git push --force origin main` | All levels |
+| `git.push-delete` | Blocks remote ref deletion through push. | `git push --delete origin old-branch` | All levels |
+| `git.push-mirror` | Blocks mirror pushes that can force-update or delete remote refs. | `git push --mirror origin` | All levels |
+| `git.branch-force-delete` | Blocks forced branch deletion. | `git branch -D old-branch` | All levels |
+| `git.rebase-abort` | Blocks rebase abort operations. | `git rebase --abort` | All levels |
+| `git.merge-abort` | Blocks merge abort operations. | `git merge --abort` | All levels |
+| `git.tag-delete` | Blocks tag deletion. | `git tag --delete v1.0.0` | All levels |
+| `git.reflog-delete` | Blocks reflog deletion. | `git reflog delete HEAD@{1}` | All levels |
+| `git.stash-drop` | Blocks dropping stash entries. | `git stash drop stash@{0}` | All levels |
+| `git.stash-clear` | Blocks clearing all stash entries. | `git stash clear` | All levels |
+| `git.worktree-remove-force` | Blocks forced worktree removal. | `git worktree remove --force ../feature` | All levels |
+
+## Filesystem rules
+
+| Rule id | What it blocks | Example | Active when |
+| --- | --- | --- | --- |
+| `rm.recursive-force-root-or-home` | Blocks recursive forced removal of root or home paths. | `rm -rf /` | **Catastrophic**, always on |
+| `rm.git-metadata` | Blocks removal of protected Git metadata and hooks. | `rm -rf .git` | **Catastrophic**, always on |
+| `rm.recursive-force-dynamic-target` | Blocks recursive forced removal with dynamic targets in strict mode. | `rm -rf "$target"` | [Strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) |
+| `rm.recursive-force-home-cwd` | Blocks recursive forced removal while working in home. | `cd "$HOME" && rm -rf build` | All levels |
+| `rm.recursive-force-cwd-self` | Blocks recursive forced removal of the current directory. | `rm -rf .` | All levels |
+| `rm.recursive-force-outside-cwd` | Blocks recursive forced removal outside the original cwd. | `rm -rf ../outside` | All levels |
+| `rm.recursive-force-paranoid` | Blocks non-temp recursive forced removal when paranoid rm is enabled. | `rm -rf ./cache` | [Paranoid rm](/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1) |
+| `find.delete` | Blocks unsafe find -delete operations. | `find . -delete` | All levels |
+| `find.delete-git-metadata` | Blocks find -delete operations selecting protected Git metadata and hooks. | `find .git -delete` | **Catastrophic**, always on |
+| `find.exec-rm-recursive-force` | Blocks find -exec rm -rf operations. | `find . -exec rm -rf {} +` | All levels |
+| `dd.device-write` | Blocks dd writing to a /dev device. | `dd if=/dev/zero of=/dev/sda` | All levels |
+| `mkfs.device` | Blocks mkfs formatting a /dev device. | `mkfs.ext4 /dev/sda1` | All levels |
+| `shred.target` | Blocks shred against any target, including shred --help and shred --version. | `shred -u secret.txt` | All levels |
+
+## PowerShell rules
+
+| Rule id | What it blocks | Example | Active when |
+| --- | --- | --- | --- |
+| `powershell.remove-item-root-or-home` | Blocks PowerShell Remove-Item targeting root or home paths. | `Remove-Item C:\` | **Catastrophic**, always on |
+| `powershell.remove-item-recursive-force-root-or-home` | Blocks recursive forced PowerShell removal of root or home paths. | `Remove-Item C:\ -Recurse -Force` | **Catastrophic**, always on |
+| `powershell.remove-item-git-metadata` | Blocks PowerShell removal of protected Git metadata and hooks. | `Remove-Item .git -Recurse -Force` | **Catastrophic**, always on |
+| `powershell.remove-item-recursive-force-dynamic-target` | Blocks recursive forced PowerShell removal with dynamic targets in strict mode. | `Remove-Item $target -Recurse -Force` | [Strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) |
+| `powershell.remove-item-recursive-force-home-cwd` | Blocks recursive forced PowerShell removal while working in home. | `Set-Location $HOME; Remove-Item ./build -Recurse -Force` | All levels |
+| `powershell.remove-item-recursive-force-cwd-self` | Blocks recursive forced PowerShell removal of the current directory. | `Remove-Item . -Recurse -Force` | All levels |
+| `powershell.remove-item-recursive-force-outside-cwd` | Blocks recursive forced PowerShell removal outside the original cwd. | `Remove-Item ../outside -Recurse -Force` | All levels |
+| `powershell.remove-item-recursive-force-paranoid` | Blocks non-temp recursive forced PowerShell removal when paranoid rm is enabled. | `Remove-Item ./cache -Recurse -Force` | [Paranoid rm](/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1) |
+| `powershell.remove-item-pipeline-dynamic-target` | Blocks PowerShell Remove-Item with unverifiable pipeline input in strict mode. | `Get-ChildItem . -Recurse \| Remove-Item -Force` | [Strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) |
+
+## Execution rules
+
+| Rule id | What it blocks | Example | Active when |
+| --- | --- | --- | --- |
+| `interpreter.dangerous-command` | Blocks interpreter one-liners containing dangerous commands. | `python -c "import os; os.system('rm -rf /')"` | All levels |
+| `interpreter.one-liner-paranoid` | Blocks interpreter one-liners when paranoid interpreters is enabled. | `python -c "print(1)"` | [Paranoid interpreters](/configuration/modes#paranoid-interpreters) |
+| `awk.system-dynamic` | Blocks awk system calls that cannot be safely analyzed. | `awk '{ system($0) }'` | All levels |
+| `xargs.rm-recursive-force-dynamic` | Blocks xargs rm -rf with dynamic input. | `printf / \| xargs rm -rf` | All levels |
+| `xargs.shell-dynamic` | Blocks xargs shell execution with dynamic input. | `xargs r$(printf m) -rf` | All levels |
+| `parallel.rm-recursive-force-dynamic` | Blocks parallel rm -rf with dynamic input. | `printf / \| parallel rm -rf` | All levels |
+| `parallel.shell-dynamic` | Blocks parallel shell execution with dynamic input. | `parallel r$(printf m) -rf ::: child` | All levels |
+| `parallel.command-stream-dynamic` | Blocks parallel command streams from dynamic input. | `parallel --dry-run` | All levels |
+| `shell.dynamic-structure` | Blocks guarded subcommands and options assembled from substitution output in strict mode. | `git reset $(printf --hard)` | [Strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) |
+| `shell.dynamic-executable` | Blocks executable names assembled from command substitution output in strict mode. | `$(printf r)m -rf /` | [Strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) |
+| `raw-text.dangerous-command` | Blocks dangerous commands detected in raw command text. | `git reset --hard 'unterminated` | All levels |

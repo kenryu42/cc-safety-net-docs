@@ -21,7 +21,7 @@ keywords:
 
 CC Safety Net 阻止这些命令，因为它们可能永久破坏数据，包括未提交的更改、stash、远程历史或整个磁盘。下表涵盖默认内置规则，[自定义规则](/zh-Hans/configuration/custom-rules)可以在此基础上扩展。
 
-默认情况下，未标记的行在三个安全级别下都会阻止。标记为 **Strict** 或 **Paranoid** 的行需要对应级别或能力。策略可以禁用部分非灾难性规则。启用各级别的方法见[模式](/zh-Hans/configuration/modes)。
+默认情况下，未标记的行在三个安全级别下都会阻止。标记为 **Strict** 或 **Paranoid** 的行需要对应级别或能力。每个规则 ID 以及关闭非灾难性规则的方法见[破坏性命令规则参考](/zh-Hans/reference/destructive-rules)。启用各级别的方法见[模式](/zh-Hans/configuration/modes)。
 
 本页是行为矩阵，说明*阻止什么*以及各条边界的位置。它不是架构页面：有序防护流程见[架构](/zh-Hans/guides/architecture)，分类器如何得到判定见[分析引擎](/zh-Hans/guides/analysis-engine)，可通过的安全变体见[被允许的命令](/zh-Hans/reference/allowed-commands)。
 
@@ -64,15 +64,22 @@ CC Safety Net 阻止这些命令，因为它们可能永久破坏数据，包括
 
 同时带强制标志和创建/重置标志的 Git 分支变更命令（例如 `git checkout -Bf`、`git switch -Cf --discard-changes`）会被视为强制分支重置并阻止。
 
+<span id="git-ssh-environment-overrides"></span>
+
 ### Git SSH 环境覆盖
 
-Git 接受 `GIT_SSH_COMMAND`、`GIT_SSH` 和 `GIT_SSH_VARIANT`，以在网络操作期间运行任意程序。CC Safety Net 会阻止这些覆盖与网络子命令的组合，因为它们可以执行任意命令：
+Git 接受 `GIT_SSH_COMMAND` 和 `GIT_SSH` 以在网络操作期间运行任意程序，并接受 `GIT_SSH_VARIANT` 来改变调用该程序的方式。规则 `git.ssh-env` 会阻止在命令中设置了这些变量（或通过 `-c` 或 `GIT_CONFIG_*` 设置了 `core.sshCommand`）并运行网络子命令（`clone`、`fetch`、`pull`、`push`、`ls-remote`、`submodule`）的命令：
 
 | 被阻止的模式 | 阻止原因 |
 | --- | --- |
 | `GIT_SSH_COMMAND=... git clone` | SSH 覆盖可在网络操作期间执行任意命令 |
 | `GIT_SSH=... git fetch` / `pull` / `push` | 同上，适用于 fetch、pull 和 push |
-| `GIT_SSH_VARIANT=... git ls-remote` / `submodule` | 同上，适用于 ls-remote 和 submodule |
+| `GIT_SSH_VARIANT=... git ls-remote` / `submodule` | 改变 Git 传给 SSH 程序的参数约定 |
+| `git -c core.sshCommand=... push` | 同一覆盖，通过 Git 配置而不是环境变量设置 |
+
+只有在命令行中设置的覆盖才算数。在代理启动之前由 shell 配置文件导出的 `GIT_SSH_COMMAND` 是你自己的选择，不会阻止 `git fetch`、`git pull` 或 `git push`。
+
+该规则不是灾难性规则，因此可以像其他内置规则一样关闭。参见[允许某条内置规则](/zh-Hans/reference/destructive-rules#allow-a-built-in-rule)。
 
 <span id="filesystem-commands"></span>
 

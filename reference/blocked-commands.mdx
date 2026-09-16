@@ -21,7 +21,7 @@ keywords:
 
 CC Safety Net blocks commands that can permanently destroy uncommitted changes, stashed work, remote history, other data, or a whole disk. The tables below cover the default built-in rules; [custom rules](/configuration/custom-rules) can extend them.
 
-By default, every untagged row blocks at all three safety levels. Rows marked **Strict** or **Paranoid** need that safety level or capability. Policy can disable some non-catastrophic rules. See [Modes](/configuration/modes) for how to activate each level.
+By default, every untagged row blocks at all three safety levels. Rows marked **Strict** or **Paranoid** need that safety level or capability. Every rule id, and how to turn a non-catastrophic rule off, is in the [Destructive-command rules reference](/reference/destructive-rules). See [Modes](/configuration/modes) for how to activate each level.
 
 This page is the behavior matrix for what is blocked and where each boundary falls. See [Architecture](/guides/architecture) for the ordered guard flow, [Analysis engine](/guides/analysis-engine) for classifier logic, and [Allowed commands](/reference/allowed-commands) for safe variants.
 
@@ -70,13 +70,18 @@ Git commands that mutate a branch with both a force flag and a create/reset flag
 
 ### Git SSH environment overrides
 
-Git accepts `GIT_SSH_COMMAND`, `GIT_SSH`, and `GIT_SSH_VARIANT` to run an arbitrary program during network operations. CC Safety Net blocks any of these overrides when combined with a network subcommand, because they can execute arbitrary commands:
+Git accepts `GIT_SSH_COMMAND` and `GIT_SSH` to run an arbitrary program during network operations, and `GIT_SSH_VARIANT` to change how that program is invoked. The rule `git.ssh-env` blocks a command that sets any of these variables, or `core.sshCommand` through `-c` or `GIT_CONFIG_*`, and runs a network subcommand (`clone`, `fetch`, `pull`, `push`, `ls-remote`, `submodule`):
 
 | Blocked pattern | Why it's blocked |
 | --- | --- |
 | `GIT_SSH_COMMAND=... git clone` | SSH override can execute arbitrary commands during network ops |
 | `GIT_SSH=... git fetch` / `pull` / `push` | Same, applies to fetch, pull, push |
-| `GIT_SSH_VARIANT=... git ls-remote` / `submodule` | Same, applies to ls-remote and submodule |
+| `GIT_SSH_VARIANT=... git ls-remote` / `submodule` | Changes the argument convention Git uses for the SSH program it runs |
+| `git -c core.sshCommand=... push` | Same override, set through Git configuration instead of the environment |
+
+Only an override set on the command line counts. A `GIT_SSH_COMMAND` exported by your shell profile before the agent started is your own choice and does not block `git fetch`, `git pull`, or `git push`.
+
+The rule is not catastrophic, so it can be turned off like any other built-in rule. See [Allow a built-in rule](/reference/destructive-rules#allow-a-built-in-rule).
 
 ## Filesystem commands
 

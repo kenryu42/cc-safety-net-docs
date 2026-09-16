@@ -21,7 +21,7 @@ keywords:
 
 ここに挙げるコマンドは、未コミットの変更、stash に退避した作業、リモートの履歴、ディスク全体を失う可能性があるため、ブロックされます。次の表は既定の組み込みルールです。[カスタムルール](/ja/configuration/custom-rules)で拡張できます。
 
-既定では、マークのないすべての行を 3 つの安全レベルでブロックします。**Strict** または **Paranoid** と記載した行には、その安全レベルまたは機能が必要です。ポリシーは重大でない一部のルールを無効にできます。各レベルを有効にする方法については、[モード](/ja/configuration/modes)を参照してください。
+既定では、マークのないすべての行を 3 つの安全レベルでブロックします。**Strict** または **Paranoid** と記載した行には、その安全レベルまたは機能が必要です。すべてのルール ID と、致命的でないルールを無効にする方法は、[破壊的コマンドルールのリファレンス](/ja/reference/destructive-rules)にあります。各レベルを有効にする方法については、[モード](/ja/configuration/modes)を参照してください。
 
 このページは、ブロックされる操作と、その境界の一覧です。ガードの処理順は[アーキテクチャ](/ja/guides/architecture)、分類処理の詳細は[解析エンジン](/ja/guides/analysis-engine)、許可される書き方は[許可されるコマンド](/ja/reference/allowed-commands)を参照してください。
 
@@ -68,15 +68,22 @@ keywords:
 
 強制フラグと、ブランチの作成・リセットのフラグを両方使ってブランチを変更する Git コマンド（`git checkout -Bf`、`git switch -Cf --discard-changes` など）は、ブランチの強制リセットとみなしてブロックします。
 
+<span id="git-ssh-environment-overrides"></span>
+
 ### Git の SSH 関連の環境変数による上書き
 
-Git は、ネットワーク操作中に任意のプログラムを実行するために `GIT_SSH_COMMAND`、`GIT_SSH`、`GIT_SSH_VARIANT` を使えます。CC Safety Net は、これらの上書きをネットワーク系のサブコマンドと組み合わせた場合にブロックします。任意のコマンドを実行できてしまうためです。
+Git は、ネットワーク操作中に任意のプログラムを実行するために `GIT_SSH_COMMAND` と `GIT_SSH` を、そのプログラムの呼び出し方を変えるために `GIT_SSH_VARIANT` を使えます。ルール `git.ssh-env` は、これらの変数、または `-c` や `GIT_CONFIG_*` による `core.sshCommand` を設定したうえでネットワーク系のサブコマンド（`clone`、`fetch`、`pull`、`push`、`ls-remote`、`submodule`）を実行するコマンドをブロックします。
 
 | ブロックする形式 | ブロックする理由 |
 | --- | --- |
 | `GIT_SSH_COMMAND=... git clone` | SSH の上書きにより、ネットワーク操作中に任意のコマンドを実行できてしまう |
 | `GIT_SSH=... git fetch` / `pull` / `push` | 同じ理由。fetch、pull、push が対象 |
-| `GIT_SSH_VARIANT=... git ls-remote` / `submodule` | 同じ理由。ls-remote と submodule が対象 |
+| `GIT_SSH_VARIANT=... git ls-remote` / `submodule` | Git が SSH プログラムに渡す引数の形式を変更する |
+| `git -c core.sshCommand=... push` | 環境変数ではなく Git の設定で同じ上書きを行う |
+
+対象になるのは、コマンドラインで設定した上書きだけです。エージェントの起動前にシェルのプロファイルで export した `GIT_SSH_COMMAND` はユーザー自身の選択であり、`git fetch`、`git pull`、`git push` をブロックしません。
+
+このルールは catastrophic ではないため、他の組み込みルールと同じ方法で無効にできます。[組み込みルールを許可する](/ja/reference/destructive-rules#allow-a-built-in-rule)を参照してください。
 
 <span id="filesystem-commands"></span>
 
