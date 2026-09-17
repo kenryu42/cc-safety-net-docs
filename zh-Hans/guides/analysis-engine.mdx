@@ -145,6 +145,20 @@ Heredoc body 是 stdin 上的文本，由 consumer 决定该文本是数据还�
 
 当 body 落入文件时，以惰性数据通过支持门并不代表就此结束。当通过支持门的 heredoc 被原样写入字面量路径（`cat > setup.sh <<'EOF'`、body 为纯文本的 `cat > setup.sh <<EOF`，或未使用 append 的 `tee setup.sh <<'EOF'`）时，引擎会记住该路径下的 body。同一命令中随后执行 `bash setup.sh`、`sh setup.sh`、`source setup.sh`，或通过 shell 启动引用（`BASH_ENV`、`ENV`、`--rcfile`、`--init-file`）使用该文件时，会根据记住的脚本文本进行分析。这在 explain 跟踪中显示为 reason 为 `heredoc-file` 的 `recurse` 步骤。因此，如果 body 具有破坏性，`cat > x.sh <<'EOF' … EOF && bash x.sh` 会被阻止。跟踪范围有意保持狭窄：每次分析最多记住 64 个文件（超过此值会在派生命令工作量限制处 fail closed）；永远不跟踪 `/dev`、`/proc` 和 `/sys` 下的路径；后续写入或重定向到已跟踪路径会使存储的 body 失效。
 
+<span id="brace-expansion"></span>
+
+## 花括号展开
+
+对已解析为字面文本的词，解析器会展开其中的 `{a,b}` 各项。含变量或命令替换的词保持原样，因此 `{rm,$(printf ls)} -rf /` 中的花括号会原样保留。嵌套和相邻的组都会完全展开：`{r,l}{m,s} -rf /` 变成 `rm rs lm ls -rf /`。扫描器能识别引号和反斜杠转义，因此 `{"rm",ls}`、`{'rm',ls}`、`{r\m,ls}` 和 `{rm,l"s"}` 的结果都与 `{rm,ls}` 相同。
+
+展开结果如何解读，取决于该组所在的位置。
+
+**位于命令词。** 展开出的各项按 shell 的顺序插入词列表，因此 `{rm,ls} -rf /` 按 `rm ls -rf /` 分析，并在 `rm` 上阻止。只有第一项会成为命令，这与 shell 的行为一致：`{ls,rm} -rf /` 执行的是 `ls`，操作数为 `rm -rf /`，因此被允许。前缀会附加到每一项上，`a{rm,ls}` 变成 `arm als`。这里不展开范围写法，`{1..3}` 仍是一个字面量词。前导的 `VAR=value` 赋值和 `sudo`、`env`、`command` 前缀之后的那个词，同样算命令词。
+
+**位于 `rm` 或 `find` 的删除目标。** shell 会把所有项都交给命令，因此这里分类的是全部项，而不只是第一项。即使 `x` 无害，`rm -rf {x,/}` 也会因 `/` 被阻止；`find {x,/} -delete` 同样会被阻止。
+
+解析器无法解析的目标组不会按字面量读取，而是 fail closed。这包括范围写法（`rm -rf {a..c}` 和 `rm -rf ./{a..c}` 都以 `rm.recursive-force-outside-cwd` 拒绝），以及展开后超过 64 个词或 16,384 个字符的组。位于命令词的组则改由[解析器限制](/zh-Hans/guides/architecture#parsers-and-the-runtime-dependency-surface)约束，超出限制时，解析会以 `Structural command analysis limit exceeded.` 结束，并在所有安全级别下拒绝。
+
 ## Git 规则引擎
 
 Git 分析器提取子命令及其选项，匹配危险选项模式，并返回原因和**分类**：`localDiscard` 或 `sharedState`。此分类决定能否进行 [worktree 放宽](#worktree-放宽)。

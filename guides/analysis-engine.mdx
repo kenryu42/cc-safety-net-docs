@@ -139,6 +139,18 @@ One structural bound sits underneath all three paths: a heredoc body is re-parse
 
 Passing the gate as inert data is not the end of the analysis when the body lands in a file. The engine remembers a gate-passing heredoc body written verbatim to a literal path, such as `cat > setup.sh <<'EOF'`, `cat > setup.sh <<EOF` with a plain-text body, or `tee setup.sh <<'EOF'` without append. If the same command later runs that path through `bash`, `sh`, `source`, or a shell startup reference (`BASH_ENV`, `ENV`, `--rcfile`, `--init-file`), the engine analyzes the remembered script text. The trace shows a `recurse` step with reason `heredoc-file`. Thus, `cat > x.sh <<'EOF' … EOF && bash x.sh` blocks when the body is destructive. Tracking has three limits. The engine remembers at most 64 files per analysis (exceeding that fails closed on the derived-command work limit), never tracks paths under `/dev`, `/proc`, or `/sys`, and invalidates the stored body after a later write or redirection to that path.
 
+## Brace expansion
+
+The parser expands `{a,b}` alternatives in a word it resolved as literal text. A word carrying a variable or a command substitution is left whole, so `{rm,$(printf ls)} -rf /` keeps its brace group. Nested and adjacent groups expand in full: `{r,l}{m,s} -rf /` becomes `rm rs lm ls -rf /`. The scanner tracks quotes and backslash escapes, so `{"rm",ls}`, `{'rm',ls}`, `{r\m,ls}`, and `{rm,l"s"}` all resolve the same way as `{rm,ls}`.
+
+Where the group sits decides how the result is read.
+
+**At the command word.** The alternatives are spliced into the word list in shell order, so `{rm,ls} -rf /` is analyzed as `rm ls -rf /` and blocks on `rm`. Only the first alternative becomes the command, which is what a shell does as well: `{ls,rm} -rf /` runs `ls` with the operands `rm -rf /`, so it is allowed. A prefix stays attached, so `a{rm,ls}` becomes `arm als`. Ranges are not expanded here, which leaves `{1..3}` a single literal word. The command word is still the command word after leading `VAR=value` assignments and after a `sudo`, `env`, or `command` prefix.
+
+**At an `rm` or `find` delete target.** Every alternative is classified, not only the first, because the shell hands all of them to the command. `rm -rf {x,/}` blocks on `/` even though `x` is harmless, and `find {x,/} -delete` blocks the same way.
+
+A target group the parser cannot resolve fails closed instead of being read literally. That covers a range (`rm -rf {a..c}` and `rm -rf ./{a..c}` both deny as `rm.recursive-force-outside-cwd`) and a group that expands past 64 words or 16,384 characters. A group at the command word is bounded by the [parser limits](/guides/architecture#parsers-and-the-runtime-dependency-surface) instead, and exceeding them ends the parse with `Structural command analysis limit exceeded.`, which denies at every safety level.
+
 ## Git rule engine
 
 The git analyzer extracts the subcommand and its options, matches dangerous option patterns, and returns a reason plus a **classification**: `localDiscard` or `sharedState`. This classification drives [worktree relaxation](#worktree-relaxation).
