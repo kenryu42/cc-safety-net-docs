@@ -59,7 +59,7 @@ graph TD
 
 ## 策略快照
 
-`loadPolicySnapshot()` 由用户策略文件、项目策略文件、各范围的 `rule.json`，以及每个已配置来源指向的 rulebook 文件组合出有效运行时策略。它的约定和内容同样重要：
+`loadPolicySnapshot()` 由用户策略文件、项目策略文件、各范围的 `rule.json`，以及每个已配置来源指向的 rulebook 文件组合出生效运行时策略。它的约定和内容同样重要：
 
 - 它**不写入、不发出网络请求，也不使用内存缓存**。rulebook 是实时文件，加载器每次工具调用都从磁盘读取各个 `rulebook.json`。只有 `cc-safety-net rule add` 和 `cc-safety-net rule update` 会访问网络。
 - 结果**深度不可变**。策略对象、规则数组、每条规则及其 `block_args`、透明包装器列表、安全块及其 override、破坏性命令规则 override、允许路径、机密保护块及其 disabled rule 和拒绝路径都已冻结，快照包装器本身也是如此。
@@ -83,11 +83,11 @@ graph TD
 | 5 | 无 | 为执行工作目录解析受保护的 Git 元数据。 | 否 |
 | 6 | `policy-protection` | **策略文件保护**：写入、移动或递归删除触及用户 `policy.json`、项目 `policy.json`、项目文件自身的 `.cc-safety-net` 目录，或用户文件的目录及其任一上级目录时，以 `hard_stop` intent 拒绝。智能体执行 `cc-safety-net policy apply` 也在此阶段以相同 intent 拒绝；`cc-safety-net policy check` 仍然放行。 | 否 |
 | 7 | `policy-protection` | **Git 元数据保护**：删除、移动、重定向、写工具、patch 或未知工具路由指向已解析 `.git` 入口、其目录或 hooks 目录时，以 `hard_stop` intent 拒绝。写工具、patch 和未知工具路由中的只读工具除外。 | 否 |
-| 8 | `config-load` | **加载策略快照**，并根据策略和环境解析有效安全级别。 | 不适用 |
+| 8 | `config-load` | **加载策略快照**，并根据策略和环境解析生效安全级别。 | 不适用 |
 | 9 | `secret-protection` | **敏感路径保护**：检查 command、path、search 和 patch 形式中的内置敏感路径及配置的拒绝路径。匹配时以 `hard_stop` intent 拒绝，并携带匹配的 rule ID。策略禁用机密保护时完全跳过。 | 是 |
 | 10 | `non-command` | 通过阶段 1 到 9 的非命令 invocation 在此获得允许。 | 不适用 |
 | 11 | `command-validation` | 空或纯空白命令文本 fail closed。 | 否 |
-| 12 | `command-analysis` | **破坏性命令分析**使用快照、有效能力、已解析程序、事实存储和已解析 Git 元数据运行，然后阻止或允许。 | 部分 |
+| 12 | `command-analysis` | **破坏性命令分析**使用快照、生效能力、已解析程序、事实存储和已解析 Git 元数据运行，然后阻止或允许。 | 部分 |
 
 从该顺序可直接得出三点关于阶段位置的事实：
 

@@ -37,7 +37,7 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 | `ruleId` | `string` | 仅在 blocked 并匹配规则时 | 产生该阻止的规则 ID |
 | `trace` | `ExplainTrace` | 始终 | 跟踪容器，含顶级步骤和各片段的步骤 |
 | `customRule` | `object` | 匹配到自定义规则或 rulebook 规则时 | `id`，以及可选的 `rulebook`（`name`、`version`）、`source` 和 `override`（`{ type: "reason", reason }`） |
-| `configSource` | `string \| null` | 始终 | 有效配置所来自的配置文件 |
+| `configSource` | `string \| null` | 始终 | 生效配置所来自的配置文件 |
 | `configValid` | `boolean` | 始终 | 加载的配置是否顺利通过校验 |
 | `effectiveLevel` | `"standard" \| "strict" \| "paranoid" \| "custom"` | 始终 | 环境标志和覆盖生效之后实际采用的级别 |
 | `selectedPreset` | `"standard" \| "strict" \| "paranoid"` | 始终 | 策略中命名的预设，默认为 `standard` |
@@ -87,7 +87,7 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 
 跟踪只记录信息，不会改变判定。普通防护评估不会构建跟踪，只有 `explain` 会。
 
-**上限。** 记录器会限制自己保留的内容：最多 512 个事件、每个文本值最多 2,048 个字符、每个列表最多 128 项、每个对象最多 128 个属性、最多 16 层嵌套。超出上限的事件会被直接丢弃，每个记录下来的值都会被深度冻结。`ExplainTrace` 只公开 `steps` 和 `segments`。
+**上限。** 记录器最多保留 512 个事件、每个文本值最多 2,048 个字符、每个列表最多 128 项、每个对象最多 128 个属性、最多 16 层嵌套。超出上限的事件会被直接丢弃，每个记录下来的值都会被深度冻结。`ExplainTrace` 只公开 `steps` 和 `segments`。
 
 ## `TraceStep` 变体
 
@@ -108,7 +108,7 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 | `tmpdir-check` | `tmpdirValue`, `allowTmpdirVar` | `$TMPDIR` 解析和覆盖检测 |
 | `fallback-scan` | `tokensScanned`, `embeddedCommandFound?` | 对剩余 token 的危险文本 fallback 扫描 |
 | `custom-rules-check` | `rulesChecked`, `matched`, `reason?` | 评估了用户定义的规则 |
-| `cwd-change` | `segment`, `effectiveCwdNowUnknown` | `cd`/`pushd` 改变了有效 cwd；后续分类使用新的或未知的 cwd |
+| `cwd-change` | `segment`, `effectiveCwdNowUnknown` | `cd`/`pushd` 改变了实际 cwd；后续分类使用新的或未知的 cwd |
 | `dangerous-text` | `token`, `matched`, `reason?` | 按危险文本模式扫描了某个 token |
 | `strict-unparseable` | `rawCommand`, `reason` | strict 模式在无法解析的命令上 fail closed |
 | `segment-skipped` | `index`, `reason` | 因为前一个片段已经阻止，所以跳过了该片段 |

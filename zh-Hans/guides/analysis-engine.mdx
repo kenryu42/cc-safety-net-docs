@@ -22,7 +22,7 @@ description: "分析引擎详解：安全级别边界、包装器和解释器递
 | `strict` | **开启** | 关闭 | 关闭 |
 | `paranoid` | **开启** | **开启** | **开启** |
 
-任何不完全对应三个预设之一的能力组合，其有效级别都会报告为 `custom`。
+任何不完全对应三个预设之一的能力组合，其生效级别都会报告为 `custom`。
 
 ### Standard
 
@@ -90,7 +90,7 @@ Standard 会阻止可识别的破坏性命令，但**不具备**对抗级保护�
 
 未声明的代理，或改写、隐藏子命令而不是执行可见子命令的代理，不会被展开。只有顶层危险文本 fallback 扫描可能捕获它。
 
-cwd 会在同一命令的各个命令段之间跟踪。目标为字面量的 `cd` 或 `pushd` 会更新后续 `rm` 和 `find` 分析使用的有效 cwd；`cd` 到动态目标（包含 `$` 或反引号）会把 cwd 置为未知，`rm` 分析会将其视为没有 cwd 锚点。
+cwd 会在同一命令的各个命令段之间跟踪。目标为字面量的 `cd` 或 `pushd` 会更新后续 `rm` 和 `find` 分析使用的实际 cwd；`cd` 到动态目标（包含 `$` 或反引号）会把 cwd 置为未知，`rm` 分析会将其视为没有 cwd 锚点。
 
 <Note>
 一项已知限制：解释器的**长格式标志**（`--eval`、`--execute`、`--require` 以及附带 `=value` 的形式）并非在所有代码路径中都能识别，因此代码参数不一定总能被提取。见[已知限制](/zh-Hans/guides/known-limitations#interpreter-long-form-flags)。
@@ -100,7 +100,7 @@ cwd 会在同一命令的各个命令段之间跟踪。目标为字面量的 `cd
 
 ## POSIX shell 函数
 
-函数定义会被解析为定义，而不是待执行的代码。可识别三种写法：`name() { ... }`、bash 关键字写法 `function name { ... }`，以及混合写法 `function name() { ... }`。左花括号必须与函数名同行，并且自成一个词，因此 `function cleanup{ echo ok; }` 不算定义。CC Safety Net 在每个调用点用调用者的有效工作目录和 shell 状态分析函数体。
+函数定义会被解析为定义，而不是待执行的代码。可识别三种写法：`name() { ... }`、bash 关键字写法 `function name { ... }`，以及混合写法 `function name() { ... }`。左花括号必须与函数名同行，并且自成一个词，因此 `function cleanup{ echo ok; }` 不算定义。CC Safety Net 在每个调用点用调用者的实际工作目录和 shell 状态分析函数体。
 
 `cleanup() { rm -rf ../outside; }` 是允许的，因为它只定义了函数。加上调用后，例如 `cleanup() { rm -rf ../outside; }; cleanup`，命令就会因函数体而被阻止。被调用函数体内的状态变化会延续到后续命令。例如 `cleanup() { cd ..; }; cleanup && rm -rf build` 会被阻止，因为 `rm` 锚定在上一级目录。
 
@@ -272,7 +272,7 @@ linked worktree 会被正向验证，而不是简单假定。检查会确认 `.g
 即使在已确认的 linked worktree 内，以下情况也绝不放宽：包含 `$`、`*`、`?` 或 `[` 的动态参数；强制分支重置（带 `-f` 或 `--discard-changes` 的 `git checkout -B`/`-Bf` 或 `git switch -C`/`-Cf`）；带多个 `-f` 标志的 `git clean`（删除嵌套的 git 仓库才需要，而这超出了一次性 worktree 的边界）；以及任何 `--recurse-submodules` 选项或递归 submodule 配置。
 </Accordion>
 <Accordion title="git -C 路径解析">
-有效的 git 工作目录通过遍历前置的全局选项解析得出。`-C <path>` 和内联的 `-C<path>` 会改变目录。`--git-dir`/`--work-tree`（分开写或 `=` 形式）标记显式的 git 上下文，会完全禁用放宽。
+git 的实际工作目录通过遍历前置的全局选项解析得出。`-C <path>` 和内联的 `-C<path>` 会改变目录。`--git-dir`/`--work-tree`（分开写或 `=` 形式）标记显式的 git 上下文，会完全禁用放宽。
 </Accordion>
 </AccordionGroup>
 

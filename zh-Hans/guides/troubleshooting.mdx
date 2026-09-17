@@ -89,12 +89,12 @@ bunx cc-safety-net doctor
 
     **解决步骤：**
 
-    1. 运行 `npx cc-safety-net explain "<the command>"`，查看 CC Safety Net 对该命令的完整逐步分析。输出会列出检查过的规则和有效安全级别；如果某条规则存在但在当前级别未启用，规则激活行会说明这一点。
+    1. 运行 `npx cc-safety-net explain "<the command>"`，查看 CC Safety Net 对该命令的完整逐步分析。输出会列出检查过的规则和生效安全级别；如果某条规则存在但在当前级别未启用，规则激活行会说明这一点。
        <Warning>
          真实跟踪不会自动变得可以安全分享。脱敏只覆盖可识别的凭证形式；命令文本、解析后的 token、包括主目录在内的绝对路径，以及策略文件路径都会原样保留。请用**占位凭证**复现，并在粘贴到任何地方之前先检查输出。
        </Warning>
 
-    2. 确认输出中的有效级别。[`standard` 模式](/zh-Hans/configuration/modes#default-mode)只提供尽力保护：它有意允许动态可执行文件名、通过替换拼接的命令结构、`rm -rf "$target"` 这类无法验证的递归删除目标，以及对内置敏感路径仅做元数据检查。如果命令可能来自提示注入或其他对抗性环境，请把级别提高到 [`strict`](/zh-Hans/configuration/modes#strict-mode) 或 [`paranoid`](/zh-Hans/configuration/modes#paranoid-mode)，它们对上述所有形式都会 fail closed。
+    2. 确认输出中的生效级别。[`standard` 模式](/zh-Hans/configuration/modes#default-mode)只提供尽力保护：它有意允许动态可执行文件名、通过替换拼接的命令结构、`rm -rf "$target"` 这类无法验证的递归删除目标，以及对内置敏感路径仅做元数据检查。如果命令可能来自提示注入或其他对抗性环境，请把级别提高到 [`strict`](/zh-Hans/configuration/modes#strict-mode) 或 [`paranoid`](/zh-Hans/configuration/modes#paranoid-mode)，它们对上述所有形式都会 fail closed。
     3. 检查命令是否属于明确允许的形式，例如当前工作目录内的 `rm -rf` 因为限定在项目范围内而默认允许。完整列表见[被允许的命令](/zh-Hans/reference/allowed-commands)。
     4. 运行 `npx cc-safety-net status`。`degraded` 判定表示某个规则来源已被丢弃，因此该来源贡献的拒绝规则不再生效。详情见[配置恢复](/zh-Hans/configuration/recovery)。
     5. 在同一份 `status` 输出中查找 `Project policy` 区块。项目的 `.cc-safety-net/policy.json` 削弱了用户策略时才会出现该区块，每个被削弱的字段占一行，例如 `project policy lowers level: strict -> standard`、`project policy disables rule <id>` 或 `project policy adds destructive allow path: <path>`。某条规则只在这个项目里不再触发、在别处照常触发，任何一行都可能是原因。状态行用 `🔻` 表示同一情况，`doctor` 则在 `Project policy deltas:` 下打印同样的行。
