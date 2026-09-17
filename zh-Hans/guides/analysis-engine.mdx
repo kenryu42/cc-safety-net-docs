@@ -237,6 +237,10 @@ Git 支持用 `GIT_SSH_COMMAND` 和 `GIT_SSH` 在网络操作期间运行任意�
 
 对于 `xargs` 和 `parallel`，问题在于目标来自动态输入（管道 stdin 或占位符展开），因此无法相对 cwd 验证。`parallel` 的 SSH 远程模式（`-S`/`--sshlogin`）也会禁用 worktree 放宽。
 
+CC Safety Net 只从一个 `:::` 参数组展开 `parallel`，展开时使用 `{}` 和 `{n}` 替换字符串。第二个 `:::` 组、从最后一个输入源往回数的 `{-n}`、`{= ... =}` Perl 表达式，以及 `--workdir`/`--wd`，都会以 `parallel.command-stream-dynamic` 拒绝；引擎从未展开过的那些输入形式同样如此：`::::`、`:::+`、`-a`/`--arg-file`、`--colsep`、`--rpl`、`--arg-sep`、`--arg-file-sep` 和 `--env`。引擎仍会展开子命令，也仍会把 `--workdir` 解析为子命令实际运行的目录，因此即使关闭了 `parallel.command-stream-dynamic`，`rm -rf /` 这类[灾难性](/zh-Hans/reference/destructive-rules#catastrophic-rules)目标仍会命中自身的规则而被阻止。把 `:::` 各组展开成作业会计入 derived token 预算，耗尽预算的作业矩阵会 fail closed。
+
+如果子命令由[自定义规则](/zh-Hans/configuration/custom-rules)负责，其参数中任何位置出现替换字符串都算动态输入，会以 `xargs.shell-dynamic` 或 `parallel.shell-dynamic` 拒绝。CC Safety Net 不会反推哪个输入值会命中该规则。
+
 <span id="worktree-relaxation"></span>
 
 ## Worktree 放宽

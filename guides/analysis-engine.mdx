@@ -229,6 +229,10 @@ All three also appear in the unparseable-text heuristic scan. Thus, `dd of=/dev/
 
 For `xargs` and `parallel`, the concern is that the targets come from dynamic input (piped stdin or placeholder expansion), so they cannot be verified against the cwd. SSH-remote mode in `parallel` (`-S`/`--sshlogin`) also disables worktree relaxation.
 
+CC Safety Net expands `parallel` only from one `:::` argument group, using the `{}` and `{n}` replacement strings. A second `:::` group, a `{-n}` index counting back from the last input source, a `{= ... =}` Perl expression, and `--workdir` / `--wd` deny as `parallel.command-stream-dynamic`, as do the input forms it has never expanded: `::::`, `:::+`, `-a` / `--arg-file`, `--colsep`, `--rpl`, `--arg-sep`, `--arg-file-sep`, and `--env`. The engine still expands the child command and still resolves a `--workdir` as the directory it would run in, so a [catastrophic](/reference/destructive-rules#catastrophic-rules) target such as `rm -rf /` blocks on its own rule even when `parallel.command-stream-dynamic` is turned off. Expanding the `:::` groups into jobs charges the derived-token budget, and a job matrix that exhausts it fails closed.
+
+When a [custom rule](/configuration/custom-rules) owns the child command, a replacement string anywhere in its arguments counts as dynamic input and denies as `xargs.shell-dynamic` or `parallel.shell-dynamic`. CC Safety Net does not work out which input value would trigger the rule.
+
 ## Worktree relaxation
 
 When [worktree mode](/configuration/modes#worktree-mode-cc_safety_net_worktree=1) is active, local-discard git commands are allowed inside a confirmed linked worktree. Relaxation requires all of the following:

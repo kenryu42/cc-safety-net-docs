@@ -245,6 +245,10 @@ Windows では、Git Bash などの MSYS シェルが `/c/Users/...` 形式の�
 
 `xargs` と `parallel` では、対象が動的な入力（パイプされた標準入力やプレースホルダーの展開）から来るため、カレントディレクトリを基準に検証できません。`parallel` の SSH リモートモード（`-S`／`--sshlogin`）も、worktree での緩和を無効にします。
 
+エンジンが `parallel` を展開できるのは `:::` の引数グループ 1 つからだけで、置換文字列は `{}` と `{n}` を使います。2 つ目の `:::` グループ、末尾の入力ソースから数える `{-n}`、`{= ... =}` の Perl 式、`--workdir`／`--wd` は `parallel.command-stream-dynamic` として拒否します。もともと展開に対応していない入力形式（`::::`、`:::+`、`-a`／`--arg-file`、`--colsep`、`--rpl`、`--arg-sep`、`--arg-file-sep`、`--env`）も同じく拒否します。拒否する場合でも、エンジンは子コマンドを展開し、`--workdir` を実行先のディレクトリとして解決します。そのため、`parallel.command-stream-dynamic` を無効にしていても、`rm -rf /` のような[致命的な操作](/ja/reference/destructive-rules#catastrophic-rules)はそれ自身のルールでブロックされます。`:::` のグループをジョブへ展開する処理は派生トークンの上限に計上され、ジョブの組み合わせで上限を使い切ると fail closed になります。
+
+子コマンドが[カスタムルール](/ja/configuration/custom-rules)の対象である場合、その引数のどこかに置換文字列があると動的な入力とみなし、`xargs.shell-dynamic` または `parallel.shell-dynamic` として拒否します。どの入力値ならルールに一致するかを逆算することはしません。
+
 <span id="worktree-relaxation"></span>
 
 ## Worktree の緩和

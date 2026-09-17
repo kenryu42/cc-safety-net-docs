@@ -87,7 +87,7 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 
 トレースの記録は判定に影響しません。通常のガード評価ではトレースを作らず、`explain` を実行したときだけ作ります。
 
-**上限。** レコーダーは保持する内容を制限します。イベントは最大 512 件、テキスト値は 1 件あたり 2,048 文字、リストは 1 件あたり 128 項目、オブジェクトは 1 件あたり 128 プロパティ、ネストは 16 レベルです。上限を超えたイベントは保存せずに数だけを記録し、記録されたすべての値は deep-freeze されます。削除したイベントの数は `ExplainTrace` では公開されません。公開されるのは `steps` と `segments` だけです。
+**上限。** レコーダーは保持する内容を制限します。イベントは最大 512 件、テキスト値は 1 件あたり 2,048 文字、リストは 1 件あたり 128 項目、オブジェクトは 1 件あたり 128 プロパティ、ネストは 16 レベルです。上限を超えたイベントは破棄し、記録した値はすべて deep-freeze します。`ExplainTrace` が公開するのは `steps` と `segments` だけです。
 
 ## `TraceStep` のバリエーション
 
@@ -105,7 +105,7 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 | `recurse` | `reason`, `innerCommand`, `depth` | 再帰的な再解析を開始した場合 |
 | `rule-check` | `rule`, `matched`, `reason?` | 組み込みルールモジュールを評価した場合。`rule` は `<module>:<function>` 形式の 1 つの文字列で、たとえば `git:analyzeGitMatch`。人向けの出力では `Rule:   <value>()` と表示される |
 | `worktree-relaxation` | `originalReason`, `gitCwd` | 対象が linked worktree だと確認できたため、Git の破棄コマンドを緩和した場合 |
-| `tmpdir-check` | `tmpdirValue`, `isOverriddenToNonTemp`, `allowTmpdirVar` | `$TMPDIR` の解決と上書き検出 |
+| `tmpdir-check` | `tmpdirValue`, `allowTmpdirVar` | `$TMPDIR` の解決と上書き検出 |
 | `fallback-scan` | `tokensScanned`, `embeddedCommandFound?` | 残りのトークンに対するフォールバックの危険テキストスキャン |
 | `custom-rules-check` | `rulesChecked`, `matched`, `reason?` | ユーザー定義ルールを評価した場合 |
 | `cwd-change` | `segment`, `effectiveCwdNowUnknown` | `cd` や `pushd` によって実効カレントディレクトリが変わった場合。以降の分類では、新しいカレントディレクトリ、または「不明」として扱われる |
