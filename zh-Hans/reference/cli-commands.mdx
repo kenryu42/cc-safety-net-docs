@@ -607,14 +607,14 @@ npx -y cc-safety-net install --claude-code
 | `--hermes-agent` | Hermes Agent | 把托管的 Python 插件写入 `~/.hermes/plugins/cc-safety-net`（或 `$HERMES_HOME` 下），并用 `hermes plugins enable` 启用 |
 | `--kimi-code` | Kimi Code | 在终端中先出现方式选择提示，然后将 `[[hooks]]` 块写入 `~/.kimi-code/config.toml`（或 `$KIMI_CODE_HOME/config.toml`） |
 | `--openclaw` | OpenClaw | 通过 OpenClaw 自带的 `openclaw plugins` 命令安装并启用捆绑的插件 |
-| `--opencode` | OpenCode | 运行 OpenCode 的全局插件安装 |
+| `--opencode` | OpenCode | 运行 OpenCode 自身的插件命令：1.x 用 `opencode plugin -g -f`，2.x 用 `opencode plugin add` 和 `opencode plugin update` |
 | `--pi` | Pi | 运行 Pi 的包安装 |
 
 ### 安装机制
 
 CC Safety Net 使用三种安装机制：
 
-- **原生插件或扩展命令**：Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、OpenClaw、OpenCode 和 Pi。CC Safety Net 调用智能体自带的插件管理器，并顺带清理已被取代的插件 ID。OpenClaw 的安装在完成后还会验证 OpenClaw 是否报告插件已加载，然后请你重启 OpenClaw Gateway。OpenCode 的安装会导入缓存的包条目，并验证它导出了可调用的 `CCSafetyNetPlugin`；如果 OpenCode 会什么都不加载并 fail open，则安装失败。
+- **原生插件或扩展命令**：Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、OpenClaw、OpenCode 和 Pi。CC Safety Net 调用智能体自带的插件管理器，并顺带清理已被取代的插件 ID。OpenClaw 的安装在完成后还会验证 OpenClaw 是否报告插件已加载，然后请你重启 OpenClaw Gateway。在 OpenCode 1.x 上，安装会导入缓存的包条目，并验证它导出了可调用的 `CCSafetyNetPlugin`；在 2.x 上，安装会读取 `opencode plugin list`，要求其中有一行 `cc-safety-net` 且来源为 `cc-safety-net@latest`。任一检查失败都会中止安装，因为 OpenCode 否则会什么都不加载并 fail open。
 - **配置文件写入**：Antigravity CLI、Cursor、Grok Build 和 Kimi Code。这四者是 CC Safety Net 唯一直接编辑的智能体配置。
 - **托管插件产物**：Amp Code 和 Hermes Agent。Amp 的插件通过 amp CLI 发布到你账户下托管的 Amp Personal Plugins 仓库（预检命令是 `amp plugins repositories --json`），因此安装需要 amp CLI 和 `amp login`；发布后的插件对每个 Amp 会话都生效，包括 Orb 线程。遗留在 `~/.config/amp/plugins/cc-safety-net.ts` 的托管本地副本会遮蔽个人插件，因此安装会将其移除。改动之后，请重启 Amp 或运行 `plugins: reload`。对于 Hermes Agent，安装会把插件写入磁盘并运行 `hermes plugins enable`，改动同样需要重启 Hermes。
 

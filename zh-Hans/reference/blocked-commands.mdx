@@ -35,11 +35,14 @@ CC Safety Net 阻止这些命令，因为它们可能永久破坏数据，包括
 
 <Note>部分灾难性保护不依赖所选安全级别：根目录和主目录的递归删除保护、Git 元数据保护和规范 `policy.json` 保护会忽略主破坏性命令开关和单条规则的 `off` 覆盖。</Note>
 
+<span id="git-commands"></span>
+
 ## Git 命令
 
 | 命令模式 | 阻止原因 |
 | --- | --- |
 | `git checkout -- <files>` | 永久丢弃未提交的更改 |
+| `git checkout <path>` | 不带 `--` 分隔符的同一种恢复，例如 `git checkout .`、`git checkout src/`、`git checkout src/app.ts` |
 | `git checkout --force` / `-f` | 强制丢弃未提交的更改 |
 | `git checkout <ref> -- <path>` | 用 ref 中的版本覆盖工作树 |
 | `git checkout <ref> <path>` | Git 区分 ref 和 pathspec 时可能覆盖工作树 |
@@ -61,6 +64,8 @@ CC Safety Net 阻止这些命令，因为它们可能永久破坏数据，包括
 | `git stash drop` | 永久删除已 stash 的更改 |
 | `git stash clear` | 删除所有已 stash 的更改 |
 | `git worktree remove --force` | 不检查是否有更改就强制删除 worktree |
+
+只有一个位置参数的 `git checkout <operand>` 同样按规则 `git.checkout-double-dash` 视为路径恢复，条件是：该参数写成路径形式（`.`、`..`、`./…`、`../…`、绝对路径、盘符路径、末尾带斜杠，或以 `:` 开头的 magic pathspec）、包含 `*`、`?` 或 `[`，或者指向解析后 git 工作目录中已存在的条目。`main`、`feature/x` 这类纯分支名仍然允许，`-b`、`-B`、`--orphan`、`-d` / `--detach`、`-t` / `--track` 也不会被阻止。分析过程不启动 git 子进程，也不解析 ref，因此与已有文件或目录同名的分支会被阻止，提示信息指向 `git switch`。
 
 同时带强制标志和创建/重置标志的 Git 分支变更命令（例如 `git checkout -Bf`、`git switch -Cf --discard-changes`）会被视为强制分支重置并阻止。
 

@@ -607,14 +607,14 @@ npx -y cc-safety-net install --claude-code
 | `--hermes-agent` | Hermes Agent | `~/.hermes/plugins/cc-safety-net`（または `$HERMES_HOME` の下）に管理対象 Python プラグインを書き込み、`hermes plugins enable` で有効にする |
 | `--kimi-code` | Kimi Code | ターミナルでは方式プロンプトの後に、`~/.kimi-code/config.toml`（または `$KIMI_CODE_HOME/config.toml`）に `[[hooks]]` ブロックを書き込む |
 | `--openclaw` | OpenClaw | OpenClaw 自身の `openclaw plugins` コマンドで同梱プラグインをインストールして有効にする |
-| `--opencode` | OpenCode | OpenCode のグローバルプラグインインストールを実行する |
+| `--opencode` | OpenCode | OpenCode 自身のプラグインコマンドを実行する。1.x では `opencode plugin -g -f`、2.x では `opencode plugin add` と `opencode plugin update` |
 | `--pi` | Pi | Pi のパッケージインストールを実行する |
 
 ### インストールの仕組み
 
 CC Safety Net は、3 つのインストール方法を使います。
 
-- **ネイティブのプラグインまたは拡張機能のコマンド**：Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、OpenClaw、OpenCode、Pi。CC Safety Net はエージェント自身のプラグインマネージャーを実行し、置き換えられた古いプラグイン ID を削除します。OpenClaw のインストールは、その後に OpenClaw がプラグインを読み込み済みと報告することも確認し、OpenClaw Gateway の再起動を求めます。OpenCode のインストールは、キャッシュ済みパッケージのエントリを import し、呼び出し可能な `CCSafetyNetPlugin` を export することを確認します。OpenCode が何も読み込まず fail open になる場合、インストールは失敗します。
+- **ネイティブのプラグインまたは拡張機能のコマンド**：Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、OpenClaw、OpenCode、Pi。CC Safety Net はエージェント自身のプラグインマネージャーを実行し、置き換えられた古いプラグイン ID を削除します。OpenClaw のインストールは、その後に OpenClaw がプラグインを読み込み済みと報告することも確認し、OpenClaw Gateway の再起動を求めます。OpenCode 1.x のインストールは、キャッシュ済みパッケージのエントリを import し、呼び出し可能な `CCSafetyNetPlugin` を export することを確認します。2.x では `opencode plugin list` を読み取り、ソースが `cc-safety-net@latest` の `cc-safety-net` の行があることを要求します。どちらの確認も、失敗すればインストールは中止されます。そのまま進めると、OpenCode が何も読み込まず fail open になるためです。
 - **設定ファイルへの書き込み**：Antigravity CLI、Cursor、Grok Build、Kimi Code。CC Safety Net がエージェントの設定を直接編集するのは、この 4 つだけです。
 - **管理対象プラグイン成果物**：Amp Code と Hermes Agent。Amp のプラグインは、amp CLI を通じてアカウントのホスト型 Amp Personal Plugins リポジトリに公開されます（事前確認は `amp plugins repositories --json`）。そのため、インストールには amp CLI と `amp login` が必要です。公開されたプラグインは、Orb スレッドを含むすべての Amp セッションに適用されます。`~/.config/amp/plugins/cc-safety-net.ts` に管理対象のローカルコピーが残っているとパーソナルプラグインを覆い隠すため、インストール時に削除されます。変更後は Amp を再起動するか `plugins: reload` を実行します。Hermes Agent では、インストール時にプラグインをディスクに書き込んで `hermes plugins enable` も実行し、変更後に Hermes の再起動が必要です。
 

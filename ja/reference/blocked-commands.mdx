@@ -37,6 +37,8 @@ keywords:
   一部の重要な保護は、選択した安全レベルに依存しません。root とホームディレクトリの再帰削除、Git メタデータの保護、正規の `policy.json` の保護は、破壊的コマンドのマスタースイッチも、ルール単位の `off` の override も無視します。
 </Note>
 
+<span id="git-commands"></span>
+
 ## Git コマンド
 
 次の Git 操作は、未コミットの作業を破棄する、復旧に必要な履歴を壊す、共有された状態を書き換える、といった理由でブロックします。
@@ -44,6 +46,7 @@ keywords:
 | コマンド形式 | ブロックする理由 |
 | --- | --- |
 | `git checkout -- <files>` | 未コミット変更を永久に破棄する |
+| `git checkout <path>` | `--` を挟まない同じ復元。`git checkout .`、`git checkout src/`、`git checkout src/app.ts` など |
 | `git checkout --force` / `-f` | 未コミット変更を強制的に破棄する |
 | `git checkout <ref> -- <path>` | ref の内容で作業ツリーを上書きする |
 | `git checkout <ref> <path>` | Git が ref と pathspec を判別する際に上書きする可能性がある |
@@ -65,6 +68,8 @@ keywords:
 | `git stash drop` | stash に退避した変更を完全に削除する |
 | `git stash clear` | stash に退避した変更をすべて削除する |
 | `git worktree remove --force` | 変更の有無を確認せずに worktree を削除する |
+
+位置引数が 1 つだけの `git checkout <operand>` も、同じルール `git.checkout-double-dash` でパスの復元として扱います。判定の条件は、オペランドがパスの形（`.`、`..`、`./…`、`../…`、絶対パス、ドライブレター付きのパス、末尾のスラッシュ、`:` で始まる magic pathspec）であること、`*`、`?`、`[` を含むこと、解決後の git の作業ディレクトリに実在するエントリを指していること、のいずれかです。`main` や `feature/x` のような素のブランチ名は引き続き許可され、`-b`、`-B`、`--orphan`、`-d` / `--detach`、`-t` / `--track` もブロックしません。解析では git のサブプロセスを起動せず、ref の解決もしません。そのため、実在するファイルやディレクトリと同じ名前のブランチはブロックされ、メッセージは `git switch` を案内します。
 
 強制フラグと、ブランチの作成・リセットのフラグを両方使ってブランチを変更する Git コマンド（`git checkout -Bf`、`git switch -Cf --discard-changes` など）は、ブランチの強制リセットとみなしてブロックします。
 

@@ -105,14 +105,43 @@ OpenClaw 把 CC Safety Net 作为原生插件**进程内**加载。插件以包�
 
 ### OpenCode
 
-OpenCode 把 CC Safety Net 作为实现自身 `@opencode-ai/plugin` 约定的插件对象**进程内**加载。插件在 `~/.config/opencode/opencode.json`（或 `.jsonc`）的 `plugin` 数组中声明，并执行两项工作：
+OpenCode 把 CC Safety Net 作为插件对象**进程内**加载，插件在 OpenCode 配置目录下 `opencode.json`（或 `.jsonc`）的 `plugin` 或 `plugins` 数组中声明。同一个 npm 包覆盖 OpenCode 1.18.29+ 和 2.0.6+，两代实现的插件约定并不相同。v1 的 `bash` 工具和 v2 的 `shell` 工具走同一套策略、分析器和审计代码。
+
+在 OpenCode 1.x 上，插件实现 `@opencode-ai/plugin` 约定，并执行两项工作：
 
 1. 实现 `tool.execute.before`，OpenCode 在每次工具执行前都会调用它。CC Safety Net 分析该调用，并在命令具有破坏性时抛出拒绝。没有 JSON-over-stdio。
 2. 实现 `config` hook，把 CC Safety Net 的内置命令注入 OpenCode 命令集，同时不覆盖你已定义的命令。
 
 对于 `bash` 工具，插件根据 OpenCode 的 `shell` 设置选择分析方言。如果该设置不是字符串，Windows 上默认使用 PowerShell，其他系统使用 `SHELL`。识别到的 `powershell` 和 `pwsh` 可执行文件选择 PowerShell；识别到的 POSIX shell 选择 POSIX；其他值使用自动检测。只有在给定的 `workdir` 解析为可读、可搜索的目录时，它才会成为执行目录。在 Windows 上，会归一化文档化的 `/C:`、`/C`、`/cygdrive/C` 和 `/mnt/C` 形式，其他以斜线开头的路径保持不变，交由 OpenCode 解析。
 
-OpenCode 可能提供插件的过期缓存副本，因此更改接入方式后，可能要清除缓存才会生效，见<a href="/zh-Hans/installation#opencode-installation">安装</a>。
+在 OpenCode 2.x 上，插件以 `cc-safety-net` 为 ID 注册，hook `tool.execute.before`，返回带类型的 `Tool.Error` 拒绝。它把 `shell` 工具当作命令检查，read、edit、write、patch、grep、glob 以及未知工具则走与 v1 相同的输入路径。Code Mode 的子工具调用同样经过这个 hook；CC Safety Net 不解释外层 Code Mode 的 JavaScript。插件还通过 command API 注册 `/cc-safety-net`，并保留已经存在的同名命令。
+
+#### v2 的 shell 方言
+
+v2 的工具事件不给出 shell 可执行文件，因此分析方言来自插件的 `shell` 选项，而不是 OpenCode 的 `shell` 设置。默认值在 Windows 上是 `powershell`，其他系统上是 `posix`。如果你在 Unix 上用 PowerShell，或在 Windows 上用 Git Bash，请在配置条目中指定：
+
+```json
+{
+  "plugins": [
+    {
+      "package": "cc-safety-net@latest",
+      "options": { "shell": "powershell" }
+    }
+  ]
+}
+```
+
+bash、dash、ksh、sh、zsh 用 `"posix"`，powershell 和 pwsh 用 `"powershell"`。该选项不决定 OpenCode 使用哪个可执行文件，它必须与 OpenCode 实际使用的保持一致。填其他值会让插件以 `CC Safety Net: plugin option shell must be posix or powershell.` 失败。
+
+`shell.create.before` hook 会在启动 shell 之前把真实可执行文件与配置的方言对比，不一致就停止：
+
+```text
+CC Safety Net: actual shell "<actual>" does not match plugin option shell "<configured>". Configure the plugin's shell option to match OpenCode; supported dialects are posix and powershell.
+```
+
+包括 cmd.exe、fish 和 nushell 在内的不受支持的 shell 会被拒绝，而不是用错误的 parser 去分析。这种停止不同于普通的工具拒绝。OpenCode 的 shell hook 既没有带类型的拒绝通道，也没有会话 ID，因此一旦不一致，当前操作可能直接失败，而且不会留下归属到会话的审计记录。该检查覆盖插件所在 `location`（即插件被加载时对应的 OpenCode 目录上下文）中创建的每一个 shell，包括智能体工具调用之外的 shell 操作。它不是操作系统级沙箱。
+
+OpenCode 1.x 可能沿用缓存中过期的插件副本，因此更改接入方式后，可能要清除缓存才会生效，见<a href="/zh-Hans/installation#opencode-installation">安装</a>。
 
 ## Pi 扩展
 

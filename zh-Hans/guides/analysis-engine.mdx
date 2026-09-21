@@ -90,7 +90,7 @@ Standard 会阻止可识别的破坏性命令，但**不具备**对抗级保护�
 
 未声明的代理，或改写、隐藏子命令而不是执行可见子命令的代理，不会被展开。只有顶层危险文本 fallback 扫描可能捕获它。
 
-cwd 会在同一命令的各个命令段之间跟踪。目标为字面量的 `cd` 或 `pushd` 会更新后续 `rm` 和 `find` 分析使用的实际 cwd；`cd` 到动态目标（包含 `$` 或反引号）会把 cwd 置为未知，`rm` 分析会将其视为没有 cwd 锚点。
+cwd 会在同一条命令的各个命令段之间追踪，`rm` 和 `find` 正是以它为基准对目标分类。哪些 `cd` 写法会更新 cwd、哪些情况会把 cwd 置为未知，见[工作目录追踪](#工作目录追踪)。
 
 <Note>
 一项已知限制：解释器的**长格式标志**（`--eval`、`--execute`、`--require` 以及附带 `=value` 的形式）并非在所有代码路径中都能识别，因此代码参数不一定总能被提取。见[已知限制](/zh-Hans/guides/known-limitations#interpreter-long-form-flags)。
@@ -161,12 +161,14 @@ Heredoc body 是 stdin 上的文本，由 consumer 决定该文本是数据还�
 
 ## Git 规则引擎
 
-Git 分析器提取子命令及其选项，匹配危险选项模式，并返回原因和**分类**：`localDiscard` 或 `sharedState`。此分类决定能否进行 [worktree 放宽](#worktree-放宽)。
+Git 分析器提取子命令及其选项，匹配危险选项模式，并返回原因和**分类**：`localDiscard` 或 `sharedState`。此分类决定能否进行 [worktree 放宽](#worktree-放宽)。[临时根目录放宽](#临时根目录放宽)只在 linked worktree 中才用到它。
 
 | 分类 | 含义 | 示例 |
 | --- | --- | --- |
-| **localDiscard** | 只丢弃本地工作树状态，属于 worktree 放宽的候选 | `checkout --`、`restore`、`clean -f`、`reset --hard`（无 ref）、`switch --force`、`rebase --abort`、`merge --abort` |
-| **sharedState** | 影响共享、远程或用于恢复的状态，绝不放宽 | `push --force`、`branch -D`、`stash drop`/`clear`、`worktree remove --force`、`tag -d`、`reflog delete`、`reset --hard <ref>` |
+| **localDiscard** | 只丢弃本地工作树状态，属于 worktree 放宽的候选 | `checkout --`、`checkout <path>`、`restore`、`clean -f`、`reset --hard`（无 ref）、`switch --force`、`rebase --abort`、`merge --abort` |
+| **sharedState** | 影响共享、远程或用于恢复的状态，不在 worktree 放宽的范围内 | `push --force`、`branch -D`、`stash drop`/`clear`、`worktree remove --force`、`tag -d`、`reflog delete`、`reset --hard <ref>` |
+
+临时根目录放宽只在 linked worktree 中才参考这个分类。若临时根目录下的仓库 `.git` 是目录，则除 `git.push-*` 外的所有规则都可以放宽，`sharedState` 规则也不例外。
 
 选项匹配会处理 git 的真实语法：长选项使用前缀匹配（因此 `--forc`、`--force` 和 `--force-with-lease` 都能正确解析），短选项会展开（因此 `-Df` 读作 `-D` 加 `-f`），定位子命令时会跳过带值的全局选项（`-c`、`-C`、`--git-dir`、`--work-tree`、`--namespace`、`--super-prefix`、`--config-env`）。被阻止的 git 模式完整列表见[被阻止的命令](/zh-Hans/reference/blocked-commands)。
 
@@ -176,11 +178,42 @@ Git 支持用 `GIT_SSH_COMMAND` 和 `GIT_SSH` 在网络操作期间运行任意�
 </Accordion>
 <Accordion title="checkout 细节">
 `checkout` 分析按以下顺序检查：强制（`--force`/`-f`）；新建分支的例外（`-b`/`-B`/`--orphan` 不返回阻止）；`--pathspec-from-file`；双短横线 pathspec（`git checkout --` 丢弃未提交的更改；`git checkout <ref> -- <path>` 用该 ref 的版本覆盖工作树）；以及有歧义的多位置参数形式（出现两个或更多位置参数时，建议改用 `switch`/`restore`）。
+
+没有 `--`、只有一个位置参数时，以下三种情况会判定为路径恢复：写成路径的形式（`.`、`..`、`./…`、`../…`、以 `:` 开头的 magic pathspec、绝对路径、盘符形式、以 `/` 结尾）；含有 glob 字符（`*`、`?`、`[`）；或者它指向解析出的 git 工作目录下已存在的条目。规则 ID 仍是 `git.checkout-double-dash`，原因是 `git checkout <path> discards uncommitted changes permanently. Use 'git stash' first, or 'git switch' to change branches.`。`main`、`feature/x` 这类纯分支名仍然允许，`-d`、`--detach`、`-t` 和 `--track` 会让该位置参数不参与这项判定。
+
+这项检查不会启动 git 子进程，也不解析 ref，这是刻意的取舍：名字与工作树中已有条目相同的分支会被阻止，提示信息指向 `git switch`。判断条目是否存在时，git 工作目录从原始 token 解析，因此别名展开为 `checkout` 时，前置的 `-C <dir>` 依然生效。
 </Accordion>
 <Accordion title="reset 分类">
 当 `--` 之前出现 ref 时，`reset --hard`/`--merge` 归类为 `sharedState`（因为它会移动分支指针），否则归类为 `localDiscard`（它只丢弃工作树更改）。
 </Accordion>
 </AccordionGroup>
+
+<span id="working-directory-tracking"></span>
+
+## 工作目录追踪
+
+分析器在同一条命令的各个命令段之间维护一个实际工作目录。`cd` 的目标若是字面量且能解析，解析结果就成为被追踪的 cwd；分析器解析不了的目标则把 cwd 置为未知，`rm` 分析随之失去 cwd 锚点。无论哪种情况，原始 cwd 都仍作为锚点保留，因此下面的分类会同时用到这两个目录。
+
+`pushd` 和 `popd` 始终把 cwd 置为未知，只有 `cd` 会被追踪。
+
+**哪些 `cd` 写法会被追踪。** 选项只读到第一个非选项 token 为止，且其中每一个都必须是 `-L`/`-P` 组合；可选的 `--` 之后还必须恰好剩下一个操作数。因此 `cd -- /tmp/scratch` 和 `cd -P /tmp/scratch` 会被追踪。`cd -`、带未知选项的写法（如 `cd -x -- /tmp/scratch`）、`cd /tmp/scratch -P`、`cd -P /tmp/scratch -L` 和 `cd /tmp/scratch extra`，都会把 cwd 置为未知。
+
+**变量操作数。** `$VAR` 或 `${VAR}` 操作数会用随命令携带的字面量 shell 赋值展开，但仅限解析器把该词标记为变量展开的情况。`R=/tmp/scratch; cd $R` 会被追踪；`cd '$R'` 和 `cd \$R` 不会，因为 `$` 是原样交给 shell 的。展开结果中若仍含 `$`、反引号、空白、glob 字符（`*`、`?`、`[`）或开头的 `~`，同样把 cwd 置为未知。赋值在被收集的那一刻就完成展开，与 shell 的行为一致，因此单引号或转义过的 `$` 保持字面量，之后不会再次展开。`A='$B'; B=/tmp/scratch; cd $A` 的 cwd 仍是未知。
+
+**CDPATH。** 不以 `.`、`/` 或盘符开头的裸操作数，只要任一命令段上出现 `CDPATH=` 或 `CDPATH+=`（前面有没有 `export` 都算），或者 hook 环境中设置了 `CDPATH`，就会把 cwd 置为未知。`./sub` 和绝对路径操作数仍被追踪，因为 shell 解析它们时不会查 CDPATH。
+
+**语句块作用域。** `then`、`do` 和 `case` 开启一个语句块，`fi`、`done` 和 `esac` 结束一个，`elif` 结束它前面的那个分支。语句块打开期间所做的赋值在块内可用，最后一个语句块结束后即被丢弃，因此之后的 `cd $VAR` 会变成未知。查找命令词时会跳过开头的 `do`/`then`/`else`，所以 `if true; then unset R; fi` 会解除该绑定。
+
+**`for` 循环。** `for NAME in` 后接 1 到 8 个字面量词时，分析状态会按词数分叉，每个分叉都绑定 NAME，且必须全部通过。其他形式的 `for`，包括不带列表的 `for c` 和由命令替换拼出的列表，都不会绑定 NAME。
+
+被追踪的 cwd 参与四项判定：
+
+- cwd 自身目标的判定会匹配解析到被追踪 cwd 或原始锚定 cwd 的目标，因此 `cd helpers && rm -rf ..` 是 `rm.recursive-force-cwd-self`，而不是 cwd 内目标。
+- cwd 内目标的判定也用它，因此在工作区内 `cd src && rm -rf build` 仍然允许。
+- Git 元数据保护同样按它解析目标，因此当 `checkout` 是一个仓库时，`cd scratch && rm -rf ../checkout` 会报 `rm.git-metadata`。
+- 落在受信任的临时根目录下的相对路径目标会成为临时目标，即下表中的第 11 步。
+
+只有当 cwd 变为未知时，跟踪才记录 `cwd-change` 步骤；追踪成功的 `cd` 不记录任何步骤。参见 [explain 跟踪](/zh-Hans/reference/explain-trace)。
 
 <span id="recursive-delete-target-classification"></span>
 
@@ -198,14 +231,17 @@ Git 支持用 `GIT_SSH_COMMAND` 和 `GIT_SSH` 在网络操作期间运行任意�
 | 6 | **动态目标** | 任何无法预测展开结果的目标 | standard 中允许；[strict](/zh-Hans/configuration/modes#strict-mode) 启用 fail-closed 能力后阻止 |
 | 7 | **配置的允许路径** | `destructive_command_protection.allow_paths` 下经过验证的字面量目标 | 允许（归类为临时） |
 | 8 | **home-cwd 目标** | cwd _就是_ 主目录（请先进入项目目录） | 阻止 |
-| 9 | **cwd 自身目标** | `.`、`./`，或解析到与 cwd 相同 inode 的任何目标 | 阻止 |
+| 9 | **cwd 自身目标** | `.`、`./`，或解析到与被追踪 cwd 或原始锚定 cwd 相同 inode 的任何目标 | 阻止 |
 | 10 | **cwd 内目标** | 解析后位于当前工作目录内的路径 | 允许；[paranoid rm](/zh-Hans/configuration/modes#paranoid-rm-check) 下阻止 |
-| 11 | **cwd 外目标** | 其他所有情况（cwd 之外的绝对路径、父目录路径或非临时路径） | 阻止 |
+| 11 | **`cd` 追踪成功后的临时目标** | 追踪成功的 `cd` 改变 cwd 后，解析到受信任的临时根目录下、且不含 `..` 分量的相对路径目标 | 允许 |
+| 12 | **cwd 外目标** | 其他所有情况（cwd 之外的绝对路径、父目录路径或非临时路径） | 阻止 |
 
 该顺序有两个后果值得明确说明：
 
 - 步骤 4 在步骤 7 之前，因此**包含仓库的允许路径不会放宽 Git 元数据保护**。
 - 步骤 6 在步骤 7 之前，因此**允许路径绝不会应用于动态目标或其他无法验证的目标**。
+
+第 11 步需要一个由追踪成功的 `cd` 得到的 cwd，能否进入这一步取决于[工作目录追踪](#工作目录追踪)。当被追踪的 cwd 包含原始 cwd 时，这一步不适用，因此从 `/tmp` 下的工作区往上走，删除同级目录仍会被拒绝。它同样不适用于绝对路径、以 `~` 开头的路径、动态目标，以及含 `..` 分量的目标。
 
 允许路径必须是绝对目录或带 `~/` 前缀的目录。它们在**每个**安全级别下都适用于 `rm`、`Remove-Item` 和 `find -delete`。它们绝不放宽机密保护、拒绝路径、根目录、主目录或受保护的 Git 元数据。等于或包含 `$HOME` 的条目会在验证时被拒绝，规范化后再次被拒绝；符号链接逃逸不在覆盖范围内。
 
@@ -275,6 +311,26 @@ linked worktree 会被正向验证，而不是简单假定。检查会确认 `.g
 git 的实际工作目录通过遍历前置的全局选项解析得出。`-C <path>` 和内联的 `-C<path>` 会改变目录。`--git-dir`/`--work-tree`（分开写或 `=` 形式）标记显式的 git 上下文，会完全禁用放宽。
 </Accordion>
 </AccordionGroup>
+
+<span id="temp-root-relaxation"></span>
+
+## 临时根目录放宽
+
+第二项放宽面向在受信任的临时根目录下的一次性仓库中运行的 git 命令。它与 [worktree 放宽](#worktree-放宽)相互独立，也不需要开启 worktree 模式。除 `git.push-*` 外的每一条 git 规则都可以这样放宽。
+
+出现以下任一情况时，这项放宽都不适用：命令行上有 `--git-dir` 或 `--work-tree`；存在 git 上下文环境覆盖（`GIT_DIR`、`GIT_WORK_TREE`、`GIT_COMMON_DIR`、`GIT_INDEX_FILE`）；命令来自展开后的命令行 git 别名。`git.alias-config` 和 `git.ssh-env` 在两种放宽之前就已判定，因此同样不会被放宽。
+
+引擎从解析出的 git 工作目录逐级向上，找到最近一个持有 `.git` 条目的祖先目录作为仓库根。该根必须位于某个受信任的临时根目录之下，本身不能就是临时根目录，也不能是工作区（即原始 cwd）的祖先或子目录。该根的 `.git` 必须是实际存在的目录条目；`.git` 缺失或是符号链接时，规则保持不变。
+
+临时根目录下的 linked worktree，`.git` 是文件而不是目录。这种情况下只有分类为 `localDiscard` 的规则才能放宽，而且引擎读取 worktree 信息时，必须确认存在回链到该 worktree 的 gitdir 和一个 `commondir`。命令还要通过 linked worktree 模式所列的[不可放宽的本地丢弃](#worktree-放宽)。branch、stash 和 tag 操作会改动该 worktree 所属的仓库，因此仍被阻止；`git reset --hard <ref>` 属于共享状态，在这里同样绝不放宽。
+
+`git.worktree-remove-force` 依据操作数而非仓库来判断，因为 git 运行在工作区中，而真正一次性的是被删除的那个路径。该规则读取 `remove` 之后那个唯一的字面量操作数。
+
+只有解析器把该词标记为变量展开，且该词的每个字面量片段都不含 `$` 和反引号时，才会用[追踪到的 shell 赋值](#工作目录追踪)替换它。否则操作数就按原文处理。
+
+替换之后，操作数必须是绝对路径，不含空白、`$`、反引号和 glob 字符，并且已经是一个存在的、非符号链接的目录。它的真实路径必须位于受信任的临时根目录之下，本身不是临时根目录，也不是工作区的祖先或子目录。因此 `git worktree remove --force "$S/main"` 和不带引号的 `$S/main` 可以放宽，而 `'$S/main'`、`./linked` 这类相对路径、不存在的路径以及符号链接，都会让规则保持不变。
+
+跟踪中会记录一个 `temp-root-relaxation` 步骤，带上所解除的原因和 git 工作目录。参见 [explain 跟踪](/zh-Hans/reference/explain-trace)。
 
 ## 自定义规则
 

@@ -142,19 +142,21 @@ You can also set `workflow.worktree_mode: true` in [policy.json](/configuration/
 When worktree mode is active and the cwd is confirmed to be a linked worktree, the following commands are permitted:
 
 - `git restore <file>` and `git restore --worktree <file>`
-- `git checkout -- <file>`, `git checkout <ref> -- <file>`, `git checkout --force`, and ambiguous multi-positional checkout forms
+- `git checkout -- <file>`, `git checkout <path>`, `git checkout <ref> -- <file>`, `git checkout --force`, and ambiguous multi-positional checkout forms
 - `git reset --hard` and `git reset --merge`
 - `git clean -f` (and combined short flags like `-fd`)
 - `git switch --discard-changes` and `git switch -f / --force`
 
 ### Commands blocked in linked worktrees
 
-These commands affect shared refs or other worktrees and are **never relaxed**, regardless of worktree mode:
+These commands affect shared refs or other worktrees, so **worktree mode never relaxes them**:
 
 - `git push --force` affects the remote
 - `git branch -D` force-deletes a branch that is shared across worktrees
 - `git stash drop` / `git stash clear` changes the stash shared across worktrees
 - `git worktree remove --force` could delete another worktree
+
+A separate [temp-root relaxation](/guides/analysis-engine#temp-root-relaxation) can allow `git worktree remove --force` when the operand is a disposable worktree directory under a trusted temp root. It is not part of worktree mode and does not need `CC_SAFETY_NET_WORKTREE=1`.
 
 ### Linked-worktree detection
 

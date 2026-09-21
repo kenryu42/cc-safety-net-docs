@@ -88,7 +88,7 @@ Unwrapping finds the first *protectable* child command after wrapper flags and e
 
 The engine does not unwrap an undeclared proxy or a proxy that rewrites or hides its child command instead of executing a visible child. Only the top-level dangerous-text fallback scan may catch it.
 
-Cwd is tracked across segments of the same command. A `cd` or `pushd` with a literal target updates the effective cwd for subsequent `rm` and `find` analysis; a `cd` to a dynamic target (containing `$` or a backtick) sets the cwd to unknown, which `rm` analysis treats as having no cwd anchor.
+Cwd is tracked across segments of the same command, which is what `rm` and `find` classify their targets against. [Working-directory tracking](#working-directory-tracking) covers which `cd` forms update it and what sets it to unknown.
 
 <Note>
   A known limitation: interpreter **long-form flags** (`--eval`, `--execute`, `--require`, and the attached `=value` form) are not recognized in every code path, so the code argument may not always be extracted. See [Known limitations](/guides/known-limitations#interpreter-long-form-flags).
@@ -153,12 +153,14 @@ A target group the parser cannot resolve fails closed instead of being read lite
 
 ## Git rule engine
 
-The git analyzer extracts the subcommand and its options, matches dangerous option patterns, and returns a reason plus a **classification**: `localDiscard` or `sharedState`. This classification drives [worktree relaxation](#worktree-relaxation).
+The git analyzer extracts the subcommand and its options, matches dangerous option patterns, and returns a reason plus a **classification**: `localDiscard` or `sharedState`. This classification drives [worktree relaxation](#worktree-relaxation). [Temp-root relaxation](#temp-root-relaxation) uses it only for a linked worktree.
 
 | Classification | Meaning | Examples |
 | --- | --- | --- |
-| **localDiscard** | Discards only local working-tree state and may qualify for worktree relaxation | `checkout --`, `restore`, `clean -f`, `reset --hard` (no ref), `switch --force`, `rebase --abort`, `merge --abort` |
-| **sharedState** | Affects shared, remote, or recovery state and is never relaxed | `push --force`, `branch -D`, `stash drop`/`clear`, `worktree remove --force`, `tag -d`, `reflog delete`, `reset --hard <ref>` |
+| **localDiscard** | Discards only local working-tree state and may qualify for worktree relaxation | `checkout --`, `checkout <path>`, `restore`, `clean -f`, `reset --hard` (no ref), `switch --force`, `rebase --abort`, `merge --abort` |
+| **sharedState** | Affects shared, remote, or recovery state, so worktree relaxation never applies | `push --force`, `branch -D`, `stash drop`/`clear`, `worktree remove --force`, `tag -d`, `reflog delete`, `reset --hard <ref>` |
+
+Temp-root relaxation reads the classification only inside a linked worktree. In a temp-root repository whose `.git` is a directory it relaxes every rule except the `git.push-*` rules, `sharedState` ones included.
 
 Option matching handles the real-world grammar of git: long options use prefix matching (so `--forc`, `--force`, and `--force-with-lease` resolve correctly), short options are unbundled (so `-Df` is read as `-D` plus `-f`), and global options that take values (`-c`, `-C`, `--git-dir`, `--work-tree`, `--namespace`, `--super-prefix`, `--config-env`) are skipped when locating the subcommand. See [Blocked commands](/reference/blocked-commands) for the full list of blocked git patterns.
 
@@ -168,11 +170,40 @@ Option matching handles the real-world grammar of git: long options use prefix m
   </Accordion>
   <Accordion title="checkout specifics">
     `checkout` analysis checks, in order: force (`--force`/`-f`); new-branch escape (`-b`/`-B`/`--orphan` returns no block); `--pathspec-from-file`; double-dash pathspec (`git checkout --` discards uncommitted changes; `git checkout <ref> -- <path>` overwrites the working tree with the ref version); and ambiguous multi-positional forms (two or more positionals suggests using `switch`/`restore` instead).
+
+    A lone operand with no `--` is read as a path restore in three cases: it is spelled as a path (`.`, `..`, `./…`, `../…`, a `:` magic pathspec, an absolute or drive-letter form, or a trailing slash), it contains a glob character (`*`, `?`, `[`), or it names an entry that exists under the resolved git cwd. The rule id stays `git.checkout-double-dash`, and the reason is `git checkout <path> discards uncommitted changes permanently. Use 'git stash' first, or 'git switch' to change branches.` Bare branch names such as `main` and `feature/x` stay allowed, and `-d`, `--detach`, `-t`, and `--track` exempt the operand.
+
+    The check runs no git subprocess and resolves no refs. That is deliberate: a branch whose name matches an existing working-tree entry is denied, and the message points at `git switch`. The existence probe resolves the git cwd from the original tokens, so a leading `-C <dir>` still applies when an alias expands to `checkout`.
   </Accordion>
   <Accordion title="reset classification">
     `reset --hard`/`--merge` is classified `sharedState` when a ref precedes `--` (it moves a branch pointer), and `localDiscard` otherwise (it only discards working-tree changes).
   </Accordion>
 </AccordionGroup>
+
+## Working-directory tracking
+
+The analyzer carries an effective working directory across the segments of one command. A literal, resolvable `cd` target becomes the tracked cwd. Anything the analyzer cannot resolve sets the cwd to unknown, and `rm` analysis then has no cwd anchor. The original cwd stays anchored either way, so both directories take part in the classification below.
+
+`pushd` and `popd` always set the cwd to unknown. Only `cd` is tracked.
+
+**Which `cd` forms are tracked.** Options are read up to the first non-option token, and every one of them must be a `-L`/`-P` group. Exactly one operand has to remain after an optional `--`. So `cd -- /tmp/scratch` and `cd -P /tmp/scratch` are tracked. `cd -`, an unknown option as in `cd -x -- /tmp/scratch`, `cd /tmp/scratch -P`, `cd -P /tmp/scratch -L`, and `cd /tmp/scratch extra` all set the cwd to unknown.
+
+**Variable operands.** A `$VAR` or `${VAR}` operand expands from the literal shell assignments carried with the command, but only when the parser marked that word as a variable expansion. `R=/tmp/scratch; cd $R` is tracked, while `cd '$R'` and `cd \$R` are not, because the `$` reaches the shell literally. A result that still contains `$`, a backtick, whitespace, a glob character (`*`, `?`, `[`), or a leading `~` sets the cwd to unknown. An assignment is expanded at the moment it is collected, as a shell does, so a single-quoted or escaped `$` stays literal and is never expanded later. `A='$B'; B=/tmp/scratch; cd $A` leaves the cwd unknown.
+
+**CDPATH.** A bare operand, meaning one that does not start with `.`, `/`, or a drive letter, sets the cwd to unknown whenever a `CDPATH=` or `CDPATH+=` word appears on any segment, with or without a leading `export`, or whenever `CDPATH` is set in the hook's environment. `./sub` and absolute operands stay tracked, because a shell resolves those without consulting CDPATH.
+
+**Body scope.** `then`, `do`, and `case` open a body; `fi`, `done`, and `esac` close one, and `elif` closes the branch it follows. An assignment made while a body is open is usable inside that body and is dropped once the last body closes, so a later `cd $VAR` goes unknown. The command word is located past a leading `do`/`then`/`else`, which is why `if true; then unset R; fi` clears the binding.
+
+**`for` loops.** A `for NAME in` list of one to eight literal words forks the analysis state once per word with NAME bound, and every forked state has to pass. Any other `for` form, including `for c` with no list and a list built by substitution, forgets NAME.
+
+The tracked cwd feeds four checks:
+
+- The cwd self-target check matches a target that resolves to either the tracked cwd or the original anchored cwd, so `cd helpers && rm -rf ..` is `rm.recursive-force-cwd-self` rather than a within-cwd target.
+- Within-cwd classification uses it, so `cd src && rm -rf build` stays allowed inside the workspace.
+- Git-metadata protection resolves the target against it, so `cd scratch && rm -rf ../checkout` reports `rm.git-metadata` when `checkout` holds a repository.
+- A relative target that lands under a trusted temp root becomes a temp target. That is step 11 in the table below.
+
+The trace records a `cwd-change` step only when the cwd becomes unknown. A tracked `cd` records nothing. See [Explain trace](/reference/explain-trace).
 
 ## Recursive-delete target classification
 
@@ -188,14 +219,17 @@ Option matching handles the real-world grammar of git: long options use prefix m
 | 6 | **dynamic target** | Any target whose expansion cannot be predicted | Allowed in standard; blocked once [strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) turns on the fail-closed capability |
 | 7 | **configured allow path** | A literal, verified target under `destructive_command_protection.allow_paths` | Allowed (classified as temp) |
 | 8 | **home-cwd target** | The cwd _is_ the home directory (move into a project directory first) | Blocked |
-| 9 | **cwd self-target** | `.`, `./`, or any target that resolves to the same inode as the cwd | Blocked |
+| 9 | **cwd self-target** | `.`, `./`, or any target that resolves to the same inode as the tracked cwd or the original anchored cwd | Blocked |
 | 10 | **within-cwd target** | A path that resolves inside the current working directory | Allowed; blocked under [paranoid rm](/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1) |
-| 11 | **outside-cwd target** | Anything else (absolute, parent, or non-temp paths outside the cwd) | Blocked |
+| 11 | **temp target after a tracked `cd`** | A relative target with no `..` component that resolves under a trusted temp root once a tracked `cd` moved the cwd | Allowed |
+| 12 | **outside-cwd target** | Anything else (absolute, parent, or non-temp paths outside the cwd) | Blocked |
 
 Two consequences of the ordering are worth stating explicitly:
 
 - Step 4 precedes step 7, so **an allow path that contains a repository does not relax Git-metadata protection**.
 - Step 6 precedes step 7, so **allow paths never apply to dynamic or otherwise unverifiable targets**.
+
+Step 11 needs a cwd that a tracked `cd` produced, so [Working-directory tracking](#working-directory-tracking) decides whether it can run at all. It does not apply when the tracked cwd contains the original cwd, which is why moving up out of a workspace that sits under `/tmp` keeps its sibling-delete denial. It also never applies to an absolute, tilde-rooted, or dynamic target, or to one with a `..` component.
 
 Allow paths must be absolute or `~/`-prefixed directories. They apply in **every** safety level to `rm`, `Remove-Item`, and `find -delete`. They never relax secret protection, deny paths, root, home, or protected Git metadata. Entries equal to or containing `$HOME` are rejected at validation and again after canonicalization; symlink escapes are not covered.
 
@@ -263,6 +297,24 @@ The engine verifies a linked worktree instead of assuming one. It confirms that 
     The effective git working directory is resolved by walking leading global options. `-C <path>` and inline `-C<path>` apply a directory change. `--git-dir`/`--work-tree` (separate or `=` forms) mark an explicit git context, which disables relaxation entirely.
   </Accordion>
 </AccordionGroup>
+
+## Temp-root relaxation
+
+A second relaxation covers git commands that run in a disposable repository under a trusted temp root. It is separate from [worktree relaxation](#worktree-relaxation) and does not require worktree mode. Every git rule except the `git.push-*` rules can relax this way.
+
+The relaxation never applies when `--git-dir` or `--work-tree` is on the command line, when a git context environment override is present (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE`), or when the command came from an expanded command-line git alias. `git.alias-config` and `git.ssh-env` are decided before either relaxation runs, so they never relax either.
+
+The engine locates the repository by walking up from the resolved git cwd to the nearest ancestor that holds a `.git` entry. That root has to be a descendant of a trusted temp root, must not be a temp root itself, and must be neither an ancestor nor a descendant of the workspace, which is the original cwd. The root's `.git` must be a present directory entry. A missing or symlinked `.git` keeps the rule.
+
+A linked worktree under a temp root has a `.git` file rather than a directory. Only a rule classified `localDiscard` can relax there, and only when the engine reads worktree facts confirming a gitdir that backlinks to that worktree and a `commondir`. The command must also clear the [non-relaxable local discards](#worktree-relaxation) that linked-worktree mode lists. Branch, stash, and tag operations change the repository the worktree belongs to, so they stay blocked, and `git reset --hard <ref>` is shared state and never relaxes here.
+
+`git.worktree-remove-force` is judged by its operand rather than by the repository, because git runs in the workspace while the disposable subject is the path being removed. The rule reads the single literal operand after `remove`.
+
+Substitution from the [tracked shell assignments](#working-directory-tracking) happens only when the parser marked that word as a variable expansion and every literal fragment of the word is free of `$` and backticks. Otherwise the operand text stands as written.
+
+The operand must then be absolute, free of whitespace, `$`, backticks, and glob characters, and must already be a present directory that is not a symlink. Its real path must be a temp-root descendant that is neither a temp root itself nor an ancestor or descendant of the workspace. So `git worktree remove --force "$S/main"` and the unquoted `$S/main` can relax, while `'$S/main'`, a relative operand such as `./linked`, a missing path, and a symlink all keep the rule.
+
+The trace records a `temp-root-relaxation` step carrying the reason it lifted and the git cwd. See [Explain trace](/reference/explain-trace).
 
 ## Custom rules
 

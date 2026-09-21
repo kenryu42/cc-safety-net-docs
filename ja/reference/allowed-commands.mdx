@@ -31,6 +31,8 @@ CC Safety Net はコマンドの意味を解析し、許可できる形式と破
 | --- | --- |
 | `git checkout -b <branch>` | 新しいブランチを作成して、そのブランチに切り替える |
 | `git checkout --orphan` | 履歴を持たない新しいブランチを作成する |
+| `git checkout <branch>` | 素のブランチ名はパスの復元ではなく、ブランチの切り替えとして扱う |
+| `git checkout -d` / `--detach`、`-t` / `--track` | これらのオプションが付くと、オペランドはパス復元の判定から除外される |
 | `git restore --staged` | ファイルのステージを解除するだけで、変更を破棄しない |
 | `git restore --help` / `--version` | ヘルプまたはバージョンのみを出力する |
 | `git branch -d` | マージ確認を使う安全な削除 |
@@ -38,6 +40,8 @@ CC Safety Net はコマンドの意味を解析し、許可できる形式と破
 | `git rm <files>` | 強制指定がないため、git 自身の安全確認によって、削除できる対象が `HEAD` から復元できる内容に限られる |
 | `git rm --cached`、`git rm --dry-run` / `-n` | ステージングの解除かプレビューだけで、作業ツリーのファイルは残る。`git rm -r --cached .` は安全なステージング解除 |
 | `git push --force-with-lease` | 履歴を書き換える前に、想定したリモート状態を確認する |
+
+素のブランチ名が許可されるのは、パスの形をしておらず、解決後の git の作業ディレクトリに実在するエントリも指していない場合だけです。実在するファイルやディレクトリと同じ名前のブランチはブロックされ、拒否メッセージは `git switch` を案内します。パスの形については[ブロックされるコマンド](/ja/reference/blocked-commands#git-commands)を参照してください。
 
 <span id="filesystem-commands"></span>
 
@@ -172,7 +176,7 @@ allow path が他の範囲を広げることはありません。機密パス保
 worktree モードが有効なとき、リンクされた worktree 内で次のコマンドが許可されます。
 
 - `git restore <file>` と `git restore --worktree <file>`
-- `git checkout -- <file>`、`git checkout <ref> -- <file>`、`git checkout --force`、位置引数が複数あって判別しにくい checkout の形式
+- `git checkout -- <file>`、`git checkout <path>`、`git checkout <ref> -- <file>`、`git checkout --force`、位置引数が複数あって判別しにくい checkout の形式
 - `git switch --discard-changes` と `git switch -f` / `--force`
 - `git reset --hard` と `git reset --merge`
 - `git clean -f`（`-fd` などの結合フラグも含む）
@@ -185,7 +189,25 @@ worktree モードが有効なとき、リンクされた worktree 内で次の�
 - `git stash drop` / `git stash clear`：stash は worktree 間で共有される
 - `git worktree remove --force`：別の worktree を削除しかねない
 
+後述の一時ルートの緩和はこれとは別の経路です。オペランド自体が信頼された一時ルート配下の使い捨て worktree ディレクトリであれば、`git worktree remove --force` が許可されることがあります。
+
 worktree モードが緩和するのは、Git のローカル破棄ルールだけです。ファイルシステム、デバイス、PowerShell のルールには影響せず、Git メタデータの保護が緩和されることもありません。linked worktree の中でも、`rm .git`、`rm -rf <resolved gitDir>`、`rm -rf <commonDir>`、`> .git` へのリダイレクトは、いずれも即座にブロックされます。参照ファイルが指す先の Git ディレクトリも保護対象だからです。
+
+<span id="temp-root-relaxation"></span>
+
+## 一時ルートの緩和
+
+信頼された一時ルート配下にある使い捨てリポジトリで git を実行した場合も、Git のルールは緩和されます。これは worktree モードとは独立していて、`CC_SAFETY_NET_WORKTREE=1` は必要ありません。
+
+`git.push-*` を除くすべての Git ルールが、この経路で緩和され得ます。対象となるリポジトリは、解決後の git の作業ディレクトリから最も近い、`.git` エントリを持つ祖先ディレクトリです。このリポジトリのルートは、信頼された一時ルートの配下にあり、一時ルートそのものではなく、ワークスペース（元のカレントディレクトリ）の祖先でも配下でもない必要があります。さらに `.git` が実在するディレクトリでなければならず、`.git` が存在しない場合やシンボリックリンクの場合はルールがそのまま適用されます。
+
+一時ルート配下の linked worktree は、代わりに `.git` がファイルです。ここで緩和され得るのはローカル破棄のルールだけで、worktree の情報を確認できること、および worktree モードが挙げるものと同じ「緩和できないローカル破棄」に該当しないことが条件です。branch、stash、tag の操作は引き続きブロックされ、`git reset --hard <ref>` は共有された状態であるため、ここでも緩和されません。
+
+コマンドラインに `--git-dir` や `--work-tree` がある場合、`GIT_DIR` 系の環境変数による上書きがある場合、コマンドがコマンドラインの git エイリアスを展開したものである場合、この緩和は適用されません。
+
+`git worktree remove --force` だけは、リポジトリではなくオペランドで判定します。`remove` の後ろにあるリテラルのオペランドがちょうど 1 つで、絶対パスであり、空白、`$`、バッククォート、glob 文字を含まず、シンボリックリンクではない実在のディレクトリを指し、その実パスが信頼された一時ルートの配下にあり、一時ルートそのものではなく、ワークスペースとも無関係である必要があります。展開されるのは、パーサーが変数展開と判断した語だけです。
+
+詳しい条件は[解析エンジン](/ja/guides/analysis-engine#temp-root-relaxation)を参照してください。
 
 <Tip>
   安全だと考えるコマンドを CC Safety Net がブロックする場合は、`npx cc-safety-net explain "<command>"` を実行して解析全体を確認し、理由を把握してください。フラグについては [CLI コマンド](/ja/reference/cli-commands#explain)を、より広い診断フローについては[トラブルシューティング](/ja/guides/troubleshooting)を参照してください。

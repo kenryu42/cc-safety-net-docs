@@ -31,6 +31,8 @@ This page is the allowed-command reference. See [Blocked commands](/reference/bl
 | --- | --- |
 | `git checkout -b <branch>` | Creates and switches to a new branch |
 | `git checkout --orphan` | Creates an orphan branch |
+| `git checkout <branch>` | A bare branch name is a branch switch, not a path restore |
+| `git checkout -d` / `--detach`, `-t` / `--track` | These options exempt the operand from path-restore detection |
 | `git restore --staged` | Only unstages files, doesn't discard changes |
 | `git restore --help` / `--version` | Help/version output only |
 | `git branch -d` | Safe delete with merge check |
@@ -38,6 +40,8 @@ This page is the allowed-command reference. See [Blocked commands](/reference/bl
 | `git rm <files>` | Not forced, so git's own safety check limits the removal to content recoverable from `HEAD` |
 | `git rm --cached`, `git rm --dry-run` / `-n` | Unstages or previews only. The working-tree files stay. `git rm -r --cached .` is a safe unstage |
 | `git push --force-with-lease` | Checks the expected remote state before it rewrites history |
+
+A bare branch name is allowed only while it is not spelled as a path and does not name an existing entry under the resolved git cwd. A branch that shares its name with a file or directory is blocked, and the denial points at `git switch`. See [Blocked commands](/reference/blocked-commands#git-commands) for the path forms.
 
 ## Filesystem commands
 
@@ -166,7 +170,7 @@ With [`CC_SAFETY_NET_WORKTREE=1`](/configuration/modes#worktree-mode-cc_safety_n
 The following commands are allowed inside a linked worktree when worktree mode is active:
 
 - `git restore <file>` and `git restore --worktree <file>`
-- `git checkout -- <file>`, `git checkout <ref> -- <file>`, `git checkout --force`, and ambiguous multi-positional checkout forms
+- `git checkout -- <file>`, `git checkout <path>`, `git checkout <ref> -- <file>`, `git checkout --force`, and ambiguous multi-positional checkout forms
 - `git switch --discard-changes` and `git switch -f` / `--force`
 - `git reset --hard` and `git reset --merge`
 - `git clean -f` (and combined flags like `-fd`)
@@ -179,7 +183,23 @@ These commands remain blocked even inside a linked worktree, because they reach 
 - `git stash drop` / `git stash clear` affect the stash shared across worktrees.
 - `git worktree remove --force` could delete another worktree.
 
+The temp-root relaxation below is a separate path, and it can allow `git worktree remove --force` when the operand itself is a disposable worktree directory under a trusted temp root.
+
 Worktree mode is a relaxation of git local-discard rules only. It does not touch filesystem, device, or PowerShell rules, and it never relaxes Git-metadata protection: inside a linked worktree, `rm .git`, `rm -rf <resolved gitDir>`, `rm -rf <commonDir>`, and the redirection `> .git` all still hard-stop, because the marker file's resolved Git directories are protected too.
+
+## Temp-root relaxation
+
+Git rules also relax when git runs in a disposable repository under a trusted temp root. This is independent of worktree mode and does not need `CC_SAFETY_NET_WORKTREE=1`.
+
+Every git rule except the `git.push-*` rules can relax this way. The repository is the nearest ancestor of the resolved git cwd that holds a `.git` entry. That root must be under a trusted temp root, must not be a temp root itself, and must be neither an ancestor nor a descendant of the workspace, which is the original cwd. Its `.git` must be a present directory entry; a missing or symlinked `.git` keeps the rule.
+
+A linked worktree under a temp root has a `.git` file instead. Only a local-discard rule can relax there, only when the worktree facts verify, and only when the command clears the same non-relaxable local discards that worktree mode lists. Branch, stash, and tag operations there stay blocked, and `git reset --hard <ref>` is shared state and does not relax there either.
+
+The relaxation never applies when `--git-dir` or `--work-tree` is on the command line, when a `GIT_DIR`-style environment override is present, or when the command came from an expanded command-line git alias.
+
+`git worktree remove --force` is judged by its operand rather than by the repository. The single literal operand after `remove` must be absolute, must contain no whitespace, `$`, backtick, or glob character, and must already be a present directory that is not a symlink, whose real path is under a trusted temp root, is not a temp root itself, and is unrelated to the workspace. Only a word the parser marked as a variable expansion is expanded first.
+
+See [Analysis engine](/guides/analysis-engine#temp-root-relaxation) for the full conditions.
 
 <Tip>
   If CC Safety Net is blocking a command you believe is safe, run `npx cc-safety-net explain "<command>"` to see the full analysis and understand why. See [CLI commands](/reference/cli-commands#explain) for the flags and [Troubleshooting](/guides/troubleshooting) for the wider diagnosis flow.

@@ -105,14 +105,17 @@ Use `type` to select the variant before you read its other fields.
 | `recurse` | `reason`, `innerCommand`, `depth` | Recursive re-analysis was triggered |
 | `rule-check` | `rule`, `matched`, `reason?` | A built-in rule module was evaluated. `rule` is one `<module>:<function>` string, for example `git:analyzeGitMatch`. Human output renders it as `Rule:   <value>()` |
 | `worktree-relaxation` | `originalReason`, `gitCwd` | A git discard command was relaxed because the target is a linked worktree |
+| `temp-root-relaxation` | `originalReason`, `gitCwd` | A git rule was relaxed because git runs in a disposable repository under a trusted temp root |
 | `tmpdir-check` | `tmpdirValue`, `allowTmpdirVar` | `$TMPDIR` resolution and override detection |
 | `fallback-scan` | `tokensScanned`, `embeddedCommandFound?` | Fallback dangerous-text scan over the remaining tokens |
 | `custom-rules-check` | `rulesChecked`, `matched`, `reason?` | User-defined rules were evaluated |
-| `cwd-change` | `segment`, `effectiveCwdNowUnknown` | A `cd`/`pushd` changed the effective cwd; later classification uses the new or unknown cwd |
+| `cwd-change` | `segment`, `effectiveCwdNowUnknown` | The effective cwd became unknown, so later classification has no cwd anchor. `effectiveCwdNowUnknown` is always `true`, and a tracked `cd` records no step |
 | `dangerous-text` | `token`, `matched`, `reason?` | A token was scanned against dangerous-text patterns |
 | `strict-unparseable` | `rawCommand`, `reason` | Strict mode failed closed on an unparseable command |
 | `segment-skipped` | `index`, `reason` | A segment was skipped because a prior segment already blocked |
 | `error` | `message`, `partial?` | An analysis error was captured; `partial` marks partial output |
+
+Human output renders `temp-root-relaxation` as a numbered `Temp-root relaxation` step showing `Git cwd:` and `Result: Allowed git discard in a temp-root repository`. See [Temp-root relaxation](/guides/analysis-engine#temp-root-relaxation) for the conditions behind it, and [Working-directory tracking](/guides/analysis-engine#working-directory-tracking) for what makes a `cd` record a `cwd-change` step.
 
 ### `recurse` reasons
 
@@ -142,7 +145,7 @@ Three protections short-circuit before the evaluator runs: policy-file protectio
 ## Before you share a trace
 
 <Warning>
-  **An explain trace is not inherently safe to share.** The `parse` step records the raw command string and every parsed token. Other fields also carry raw text: `fallback-scan.tokensScanned`, `dangerous-text.token`, `shell-wrapper.innerCommand`, `interpreter.codeArg`, `recurse.innerCommand`, `strict-unparseable.rawCommand`, `transparent-wrapper.output`, `worktree-relaxation.gitCwd`, and `cwd-change.segment`. `configSource` is an absolute path, normally inside your home directory.
+  **An explain trace is not inherently safe to share.** The `parse` step records the raw command string and every parsed token. Other fields also carry raw text: `fallback-scan.tokensScanned`, `dangerous-text.token`, `shell-wrapper.innerCommand`, `interpreter.codeArg`, `recurse.innerCommand`, `strict-unparseable.rawCommand`, `transparent-wrapper.output`, `worktree-relaxation.gitCwd`, `temp-root-relaxation.gitCwd`, and `cwd-change.segment`. `configSource` is an absolute path, normally inside your home directory.
 
   Redaction removes only recognized credential **shapes** from the bounded pattern list used by the [audit log](/reference/audit-log#secret-redaction). It does not cover file paths, hostnames, IP addresses, usernames, project or client names, or secrets with unrecognized formats.
 

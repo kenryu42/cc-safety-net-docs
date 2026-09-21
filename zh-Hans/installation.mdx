@@ -371,15 +371,37 @@ OpenClaw 将 CC Safety Net 作为进程内插件加载，而不是 hook 子进�
 npx -y cc-safety-net@latest install --opencode
 ```
 
-当 `XDG_CACHE_HOME` 已设置且非空时，OpenCode 使用 `$XDG_CACHE_HOME/opencode` 作为缓存目录；否则使用 `~/.cache/opencode`。OpenCode 可能会一直沿用缓存中过期的插件版本，因此安装命令会先清除该目录下的 `packages/cc-safety-net@latest`，再运行 `opencode plugin -g -f cc-safety-net@latest`。然后，安装会验证缓存的软件包存在、其声明的 `main` 入口可以加载，并且导出可调用的 `CCSafetyNetPlugin`。如果验证失败，安装会停止，因为 OpenCode 否则会在没有保护的情况下继续运行。
+CC Safety Net 用同一个 npm 包支持 OpenCode 1.18.29+ 和 2.0.6+。安装会先运行 `opencode --version`，其他版本一律以 `OpenCode 1.18.29+ or 2.0.6+ is required; found <version>.` 拒绝。更早的 v1 版本不支持合并后的插件入口，因此请先升级 OpenCode，再更新 CC Safety Net。
+
+OpenCode 的配置目录依次取 `OPENCODE_CONFIG_DIR`（已设置时）、`$XDG_CONFIG_HOME/opencode`、`~/.config/opencode`。配置文件是该目录下的 `opencode.json` 或 `opencode.jsonc`。安装前的预检、检测和卸载都按同一顺序解析该目录。
+
+在 OpenCode 1.x 上，安装会先清除缓存的软件包，再运行 `opencode plugin -g -f cc-safety-net@latest`。当 `XDG_CACHE_HOME` 已设置且非空时，缓存目录是 `$XDG_CACHE_HOME/opencode`，否则是 `~/.cache/opencode`；清除的是其下的 `packages/cc-safety-net@latest`。OpenCode 可能会一直沿用缓存中过期的插件版本，所以先清缓存。然后，安装会验证缓存的软件包存在、其声明的 `main` 入口可以加载，并且导出可调用的 `CCSafetyNetPlugin`。如果验证失败，安装会停止，因为 OpenCode 否则会在没有保护的情况下继续运行。
+
+在 OpenCode 2.x 上，安装在改动任何内容之前先读取两个配置文件。如果任一文件的 `plugin` 或 `plugins` 数组中有 `cc-safety-net` 条目，而它的包规格不是 `cc-safety-net@latest`，安装就会停止：
+
+```text
+Change the cc-safety-net package spec in <path> to cc-safety-net@latest, preserving its options, then retry. Adding another spec would create a duplicate plugin ID.
+```
+
+请自行把该条目的包规格改成 `cc-safety-net@latest`，保留它的选项和注释，然后重新安装。
+
+否则，安装会运行 `opencode plugin add cc-safety-net@latest` 和 `opencode plugin update cc-safety-net@latest`，再读取 `opencode plugin list`，要求其中有一行的包 ID 为 `cc-safety-net`、来源为 `cc-safety-net@latest`。缺少该行则失败：
+
+```text
+OpenCode did not load cc-safety-net from cc-safety-net@latest. Run `opencode plugin list` for details.
+```
+
+该列表只能确认插件被发现，不代表 hook 已激活。如果插件出现在列表里却什么都没拦住，请查看 OpenCode 自身的诊断信息。这条路径不清除缓存。
 
 ```bash
 npx -y cc-safety-net@latest uninstall --opencode
 ```
 
-当 `XDG_CONFIG_HOME` 已设置且非空时，OpenCode 使用 `$XDG_CONFIG_HOME/opencode` 作为配置目录；否则使用 `~/.config/opencode`。卸载会从该目录中的 `opencode.json` 或 `opencode.jsonc` 的 `plugin` 数组中删除 `cc-safety-net`，并再次清除缓存的软件包。
+卸载会先清除缓存的软件包，再从 `opencode.json` 和 `opencode.jsonc` 两个文件的 `plugin` 和 `plugins` 数组中删除由它管理的 `cc-safety-net` 条目。字符串条目和带 `package` 键的对象条目都会删除，JSONC 注释则原样保留。
 
-安装或更新后，请重启 OpenCode，以从刷新的缓存加载插件。
+在 OpenCode 2.x 上，分析方言由插件的 `shell` 选项决定，见[集成架构](/zh-Hans/guides/integration-architecture#opencode)。
+
+安装或更新后，请重启 OpenCode 使改动生效。
 
 <span id="pi-installation"></span>
 

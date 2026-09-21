@@ -117,14 +117,43 @@ OpenClaw は、ネイティブの OpenClaw プラグインとして CC Safety Ne
 
 ### OpenCode
 
-OpenCode は CC Safety Net を**プロセス内**に読み込みます。読み込む対象は、`~/.config/opencode/opencode.json`（または `.jsonc`）の `plugin` 配列で宣言し、OpenCode 自身の `@opencode-ai/plugin` の仕様を実装したプラグインオブジェクトです。プラグインが行うことは 2 つです。
+OpenCode は CC Safety Net を**プロセス内**にプラグインオブジェクトとして読み込みます。宣言先は、OpenCode の設定ディレクトリにある `opencode.json`（または `.jsonc`）の `plugin` 配列または `plugins` 配列です。1 つの npm パッケージが OpenCode 1.18.29 以降と 2.0.6 以降の両方に対応しており、2 つの世代はそれぞれ別のプラグイン仕様を実装しています。v1 の `bash` ツールと v2 の `shell` ツールは、同じポリシー、アナライザー、監査ログのコードを通ります。
+
+OpenCode 1.x では、プラグインは `@opencode-ai/plugin` の仕様を実装し、次の 2 つを行います。
 
 1. `tool.execute.before` を実装します。OpenCode は各ツールの実行前にこれを呼び出します。CC Safety Net は呼び出しを解析し、コマンドが破壊的であれば拒否を例外として投げます。標準入出力経由の JSON のやり取りはありません。
 2. `config` の hook を実装し、CC Safety Net の組み込みコマンドを OpenCode のコマンド一覧に追加します。ユーザーがすでに定義しているコマンドを上書きすることはありません。
 
 `bash` ツールでは、プラグインは OpenCode の `shell` の設定からアナライザーの方言を選びます。この設定が文字列でない場合、Windows では PowerShell を既定とし、それ以外では `SHELL` を参照します。認識できる `powershell` と `pwsh` の実行ファイルなら PowerShell を、認識できる POSIX シェルなら POSIX を選びます。それ以外の値の場合は自動判定に任せます。指定された `workdir` は、読み取りと検索ができるディレクトリとして解決できた場合にかぎり、実行ディレクトリになります。Windows では、`/C:`、`/C`、`/cygdrive/C`、`/mnt/C` という文書化された形式を正規化し、それ以外のスラッシュ始まりのパスは OpenCode 側で解決できるようそのまま渡します。
 
-OpenCode が古いキャッシュのプラグインを使い続けることがあるため、キャッシュを消去するまで設定変更が反映されない場合があります。[インストール](/ja/installation#opencode-installation)を参照してください。
+OpenCode 2.x では、プラグインは `cc-safety-net` という ID で登録され、`tool.execute.before` を hook して、型付きの `Tool.Error` で拒否を返します。`shell` ツールはコマンドとして検査し、read、edit、write、patch、grep、glob と未知のツールは v1 と同じ入力経路で検査します。Code Mode から呼ばれる子ツールもこの hook を通りますが、CC Safety Net は外側の Code Mode の JavaScript 自体は解釈しません。プラグインはさらに command API 経由で `/cc-safety-net` を登録し、同名のコマンドがすでにある場合はそれをそのまま残します。
+
+#### v2 のシェル方言
+
+v2 のツールイベントはシェルの実行ファイル名を伝えないため、アナライザーの方言は OpenCode の `shell` 設定ではなく、プラグインの `shell` オプションで決まります。既定値は Windows では `powershell`、それ以外では `posix` です。Unix で PowerShell を使う場合や、Windows で Git Bash を使う場合は、設定のエントリで指定してください。
+
+```json
+{
+  "plugins": [
+    {
+      "package": "cc-safety-net@latest",
+      "options": { "shell": "powershell" }
+    }
+  ]
+}
+```
+
+bash、dash、ksh、sh、zsh には `"posix"` を、powershell と pwsh には `"powershell"` を指定します。このオプションは OpenCode が使う実行ファイルを選ぶものではありません。OpenCode が実際に使う実行ファイルと一致させる必要があります。それ以外の値を指定すると、プラグインは `CC Safety Net: plugin option shell must be posix or powershell.` で失敗します。
+
+`shell.create.before` の hook が、シェルの起動前に実際の実行ファイルと設定された方言を突き合わせ、食い違っていれば次のメッセージで停止します。
+
+```text
+CC Safety Net: actual shell "<actual>" does not match plugin option shell "<configured>". Configure the plugin's shell option to match OpenCode; supported dialects are posix and powershell.
+```
+
+cmd.exe、fish、nushell を含む未対応のシェルは、誤った parser で解析せずに拒否します。この停止は通常のツール拒否とは異なります。OpenCode のシェル hook には型付きの拒否の経路もセッション ID もないため、実行中の操作そのものが失敗することがあり、セッションに紐づく監査エントリも残りません。この検査は、プラグインの `location`、つまりプラグインが読み込まれた OpenCode のディレクトリコンテキストで作成されるすべてのシェルが対象で、エージェントのツール呼び出し以外のシェル操作も含みます。OS レベルのサンドボックスではありません。
+
+OpenCode 1.x は古いキャッシュのプラグインを使い続けることがあるため、キャッシュを消去するまで設定変更が反映されない場合があります。[インストール](/ja/installation#opencode-installation)を参照してください。
 
 ## Pi の拡張機能
 

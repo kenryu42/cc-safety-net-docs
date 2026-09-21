@@ -31,6 +31,8 @@ CC Safety Net 通过语义分析区分允许的命令形式和破坏性的命令
 | --- | --- |
 | `git checkout -b <branch>` | 创建并切换到新分支 |
 | `git checkout --orphan` | 创建孤儿分支 |
+| `git checkout <branch>` | 纯分支名按切换分支处理，不算路径恢复 |
+| `git checkout -d` / `--detach`、`-t` / `--track` | 带这些选项时，操作数不参与路径恢复判定 |
 | `git restore --staged` | 仅取消暂存文件，不丢弃更改 |
 | `git restore --help` / `--version` | 仅输出帮助/版本信息 |
 | `git branch -d` | 安全删除，带合并检查 |
@@ -38,6 +40,8 @@ CC Safety Net 通过语义分析区分允许的命令形式和破坏性的命令
 | `git rm <files>` | 未加 force，因此 git 自身的安全检查会把可删除的内容限制在可从 `HEAD` 恢复的范围内 |
 | `git rm --cached`、`git rm --dry-run` / `-n` | 仅取消暂存或预览，工作树中的文件不受影响。`git rm -r --cached .` 是安全的取消暂存操作 |
 | `git push --force-with-lease` | 改写历史之前先检查远程状态是否符合预期 |
+
+纯分支名获得允许的前提是：它没有写成路径形式，也没有指向解析后 git 工作目录中已存在的条目。与已有文件或目录同名的分支会被阻止，拒绝信息指向 `git switch`。路径形式见[被阻止的命令](/zh-Hans/reference/blocked-commands#git-commands)。
 
 <span id="filesystem-commands"></span>
 
@@ -172,7 +176,7 @@ heredoc 必须是不展开的：分隔符带引号（`<<'EOF'`），或者分隔
 worktree 模式启用后，以下命令在 linked worktree 内是允许的：
 
 - `git restore <file>` 和 `git restore --worktree <file>`
-- `git checkout -- <file>`、`git checkout <ref> -- <file>`、`git checkout --force`，以及有歧义的多位置参数 checkout 形式
+- `git checkout -- <file>`、`git checkout <path>`、`git checkout <ref> -- <file>`、`git checkout --force`，以及有歧义的多位置参数 checkout 形式
 - `git switch --discard-changes` 和 `git switch -f` / `--force`
 - `git reset --hard` 和 `git reset --merge`
 - `git clean -f`（以及 `-fd` 这类组合标志）
@@ -185,7 +189,25 @@ worktree 模式启用后，以下命令在 linked worktree 内是允许的：
 - `git stash drop` / `git stash clear` 会影响多个 worktree 共享的 stash。
 - `git worktree remove --force` 可能删除另一个 worktree。
 
+下面的临时根目录放宽是另一条独立路径：当操作数本身就是受信任的临时根目录下的一次性 worktree 目录时，这条路径可以放行 `git worktree remove --force`。
+
 Worktree 模式只放宽 git 本地丢弃规则。它不涉及文件系统、设备或 PowerShell 规则，也绝不放宽 Git 元数据保护：在 linked worktree 内，`rm .git`、`rm -rf <resolved gitDir>`、`rm -rf <commonDir>` 以及重定向 `> .git` 仍会硬停止，因为标记文件解析出的 Git 目录同样受保护。
+
+<span id="temp-root-relaxation"></span>
+
+## 临时根目录放宽
+
+在受信任的临时根目录下的一次性仓库中运行 git 时，Git 规则同样会放宽。这条路径独立于 worktree 模式，不需要 `CC_SAFETY_NET_WORKTREE=1`。
+
+除 `git.push-*` 外，所有 Git 规则都可以通过这条路径放宽。目标仓库是解析后 git 工作目录向上最近的、含有 `.git` 条目的祖先目录。该仓库根目录必须位于受信任的临时根目录之下，本身不能是临时根目录，也不能是工作区（原始 cwd）的祖先或子目录。它的 `.git` 必须是实际存在的目录条目；`.git` 缺失或是符号链接时规则继续生效。
+
+临时根目录下的 linked worktree，`.git` 是文件。这种情况下只有本地丢弃类规则才能放宽，而且要同时满足两点：worktree 信息通过验证，命令通过 worktree 模式所列的同一组「不可放宽的本地丢弃」。因此其中的 branch、stash 和 tag 操作仍然被阻止，`git reset --hard <ref>` 改动共享状态，在这里同样不会放宽。
+
+出现以下情况时不会放宽：命令行中带 `--git-dir` 或 `--work-tree`、存在 `GIT_DIR` 一类的环境变量覆盖，或命令来自展开后的命令行 git 别名。
+
+`git worktree remove --force` 按操作数判断，而不是按仓库判断。`remove` 之后必须只有一个字面操作数，它必须是绝对路径，不含空白、`$`、反引号和 glob 字符，并且已经是一个实际存在的非符号链接目录，其真实路径位于受信任的临时根目录之下，本身不是临时根目录，也与工作区无关。只有解析器判定为变量展开的词才会先做展开。
+
+完整条件见[分析引擎](/zh-Hans/guides/analysis-engine#temp-root-relaxation)。
 
 <Tip>
   如果 CC Safety Net 阻止了你认为安全的命令，运行 `npx cc-safety-net explain "<command>"` 可以查看完整分析并了解原因。它的标志见 [CLI 命令](/zh-Hans/reference/cli-commands#explain)，更完整的诊断流程见[故障排除](/zh-Hans/guides/troubleshooting)。

@@ -371,15 +371,37 @@ OpenClaw の状態ディレクトリは、`OPENCLAW_STATE_DIR` が設定され�
 npx -y cc-safety-net@latest install --opencode
 ```
 
-OpenCode はキャッシュディレクトリとして、`XDG_CACHE_HOME` が設定されていて空でなければ `$XDG_CACHE_HOME/opencode` を、そうでなければ `~/.cache/opencode` を使用します。OpenCode は古いキャッシュのプラグインを使い続けることがあるため、インストールコマンドは `opencode plugin -g -f cc-safety-net@latest` を実行する前に、そのディレクトリ内の `packages/cc-safety-net@latest` を削除します。その後、キャッシュされたパッケージが存在すること、宣言された `main` エントリが読み込めること、呼び出し可能な `CCSafetyNetPlugin` を export していることを確認します。この確認に失敗した場合、インストールは中止されます。そのまま進めると、OpenCode が保護のない状態で動き続けてしまうためです。
+CC Safety Net は、同じ npm パッケージで OpenCode 1.18.29 以降と 2.0.6 以降に対応しています。インストールはまず `opencode --version` を実行し、それ以外のバージョンは `OpenCode 1.18.29+ or 2.0.6+ is required; found <version>.` で拒否します。v1 の古いリリースは統合されたプラグインエントリに対応していないため、CC Safety Net を更新する前に OpenCode を更新してください。
+
+OpenCode の設定ディレクトリは、`OPENCODE_CONFIG_DIR` が設定されていればその値、なければ `$XDG_CONFIG_HOME/opencode`、それもなければ `~/.config/opencode` です。設定ファイルは、そのディレクトリ内の `opencode.json` または `opencode.jsonc` です。インストールの事前確認、検出、アンインストールは、いずれもこの順序でディレクトリを解決します。
+
+OpenCode 1.x では、インストールはキャッシュ内のパッケージを削除してから `opencode plugin -g -f cc-safety-net@latest` を実行します。キャッシュディレクトリは、`XDG_CACHE_HOME` が設定されていて空でなければ `$XDG_CACHE_HOME/opencode`、そうでなければ `~/.cache/opencode` で、削除対象はその下の `packages/cc-safety-net@latest` です。OpenCode は古いキャッシュのプラグインを使い続けることがあるため、先にキャッシュを削除します。その後、キャッシュされたパッケージが存在すること、宣言された `main` エントリが読み込めること、呼び出し可能な `CCSafetyNetPlugin` を export していることを確認します。この確認に失敗した場合、インストールは中止されます。そのまま進めると、OpenCode が保護のない状態で動き続けてしまうためです。
+
+OpenCode 2.x では、インストールは何も変更する前に両方の設定ファイルを読み取ります。どちらかの `plugin` 配列または `plugins` 配列に、パッケージ指定が `cc-safety-net@latest` ではない `cc-safety-net` のエントリがあれば、次のメッセージを出して中止します。
+
+```text
+Change the cc-safety-net package spec in <path> to cc-safety-net@latest, preserving its options, then retry. Adding another spec would create a duplicate plugin ID.
+```
+
+そのエントリのパッケージ指定を、オプションとコメントは残したまま自分で書き換えてから、インストールをやり直してください。
+
+問題がなければ、インストールは `opencode plugin add cc-safety-net@latest` と `opencode plugin update cc-safety-net@latest` を実行し、続いて `opencode plugin list` を読み取って、パッケージ ID が `cc-safety-net`、ソースが `cc-safety-net@latest` の行があることを要求します。その行がなければ、次のメッセージで失敗します。
+
+```text
+OpenCode did not load cc-safety-net from cc-safety-net@latest. Run `opencode plugin list` for details.
+```
+
+この一覧でわかるのはプラグインが認識されたことだけで、hook が有効になったことまではわかりません。一覧に出ているのに何もブロックされない場合は、OpenCode 側の診断情報を確認してください。この経路ではキャッシュを削除しません。
 
 ```bash
 npx -y cc-safety-net@latest uninstall --opencode
 ```
 
-OpenCode は設定ディレクトリとして、`XDG_CONFIG_HOME` が設定されていて空でなければ `$XDG_CONFIG_HOME/opencode` を、そうでなければ `~/.config/opencode` を使用します。アンインストールでは、そのディレクトリ内の `opencode.json` または `opencode.jsonc` の `plugin` 配列から `cc-safety-net` を削除し、あわせてキャッシュ内のパッケージをもう一度削除します。
+アンインストールは、キャッシュ内のパッケージを削除したうえで、`opencode.json` と `opencode.jsonc` の両方について、`plugin` 配列と `plugins` 配列から管理下の `cc-safety-net` エントリを削除します。文字列のエントリも、`package` キーを持つオブジェクトのエントリも削除対象で、JSONC のコメントはそのまま残します。
 
-更新後のキャッシュからプラグインを読み込むため、インストールまたは更新の後に OpenCode を再起動してください。
+OpenCode 2.x では、アナライザーの方言はプラグインの `shell` オプションで選びます。[連携アーキテクチャ](/ja/guides/integration-architecture#opencode)を参照してください。
+
+変更を反映させるため、インストールまたは更新の後に OpenCode を再起動してください。
 
 <span id="pi-installation"></span>
 

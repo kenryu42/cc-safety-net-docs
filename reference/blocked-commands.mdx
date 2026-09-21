@@ -44,6 +44,7 @@ These git operations are blocked because they discard uncommitted work, destroy 
 | Command pattern | Why CC Safety Net blocks it |
 | --- | --- |
 | `git checkout -- <files>` | Discards uncommitted changes permanently |
+| `git checkout <path>` | Same restore without the `--` separator, for example `git checkout .`, `git checkout src/`, `git checkout src/app.ts` |
 | `git checkout --force` / `-f` | Force-discards uncommitted changes |
 | `git checkout <ref> -- <path>` | Overwrites working tree with ref version |
 | `git checkout <ref> <path>` | May overwrite working tree when Git disambiguates ref vs pathspec |
@@ -65,6 +66,8 @@ These git operations are blocked because they discard uncommitted work, destroy 
 | `git stash drop` | Permanently deletes stashed changes |
 | `git stash clear` | Deletes all stashed changes |
 | `git worktree remove --force` | Force-deletes worktree without checking for changes |
+
+A lone `git checkout <operand>` counts as a path restore, under the same rule `git.checkout-double-dash`, when the operand is spelled as a path (`.`, `..`, `./…`, `../…`, an absolute or drive-letter path, a trailing slash, or a `:` magic pathspec), when it contains `*`, `?`, or `[`, or when it names an existing entry under the resolved git cwd. A bare branch name such as `main` or `feature/x` stays allowed, and `-b`, `-B`, `--orphan`, `-d` / `--detach`, and `-t` / `--track` are not blocked. The analyzer runs no git subprocess and resolves no refs, so a branch whose name matches an existing file or directory is blocked, and the message points at `git switch`.
 
 Git commands that mutate a branch with both a force flag and a create/reset flag (for example `git checkout -Bf`, `git switch -Cf --discard-changes`) are treated as forced branch resets and blocked.
 

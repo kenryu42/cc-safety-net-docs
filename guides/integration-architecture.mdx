@@ -109,14 +109,43 @@ Restart the OpenClaw Gateway after installing or uninstalling. The manifest acti
 
 ### OpenCode
 
-OpenCode loads CC Safety Net **in process** as a plugin object implementing OpenCode's own `@opencode-ai/plugin` contract, declared in the `plugin` array of `~/.config/opencode/opencode.json` (or `.jsonc`). The plugin does two things:
+OpenCode loads CC Safety Net **in process** as a plugin object, declared in the `plugin` or `plugins` array of `opencode.json` (or `.jsonc`) in OpenCode's config directory. One npm package covers OpenCode 1.18.29+ and 2.0.6+, and the two generations implement different plugin contracts. V1's `bash` tool and v2's `shell` tool run through the same policy, analyzer, and audit code.
+
+On OpenCode 1.x the plugin implements the `@opencode-ai/plugin` contract and does two things:
 
 1. Implements `tool.execute.before`, which OpenCode calls ahead of every tool execution. CC Safety Net analyzes the call and throws a denial when the command is destructive; there is no JSON-over-stdio.
 2. Implements the `config` hook to inject CC Safety Net's builtin commands into the OpenCode command set, without overwriting commands you have already defined.
 
 For the `bash` tool, the plugin selects the analyzer dialect from OpenCode's `shell` setting. If the setting is not a string, it defaults to PowerShell on Windows and uses `SHELL` elsewhere. Recognized `powershell` and `pwsh` executables select PowerShell; recognized POSIX shells select POSIX; other values use automatic detection. A supplied `workdir` becomes the execution directory only when it resolves to a readable, searchable directory. On Windows, documented `/C:`, `/C`, `/cygdrive/C`, and `/mnt/C` forms are normalized, while other slash-rooted paths pass through for OpenCode to resolve.
 
-OpenCode can serve a stale cached copy of the plugin, so a wiring change may not take effect until the cache is cleared. See [Installation](/installation#opencode-installation).
+On OpenCode 2.x the plugin registers under the id `cc-safety-net` and hooks `tool.execute.before`, returning typed `Tool.Error` denials. It checks the `shell` tool as a command, and read, edit, write, patch, grep, glob, and unknown tools through the same input routes as v1. Code Mode's child tool calls cross this hook too; CC Safety Net does not interpret the outer Code Mode JavaScript. The plugin also registers `/cc-safety-net` through the command API, and leaves an existing command of that name alone.
+
+#### The v2 shell dialect
+
+V2's tool event does not name the shell executable, so the analyzer dialect comes from the plugin's `shell` option rather than OpenCode's `shell` setting. It defaults to `powershell` on Windows and `posix` everywhere else. Set it in the config entry if you run PowerShell on Unix, or Git Bash on Windows:
+
+```json
+{
+  "plugins": [
+    {
+      "package": "cc-safety-net@latest",
+      "options": { "shell": "powershell" }
+    }
+  ]
+}
+```
+
+Use `"posix"` for bash, dash, ksh, sh, or zsh, and `"powershell"` for powershell or pwsh. The option does not select OpenCode's executable; it has to match the one OpenCode uses. Any other value fails the plugin with `CC Safety Net: plugin option shell must be posix or powershell.`
+
+A `shell.create.before` hook compares the real executable against the configured dialect before the spawn and stops on a mismatch:
+
+```text
+CC Safety Net: actual shell "<actual>" does not match plugin option shell "<configured>". Configure the plugin's shell option to match OpenCode; supported dialects are posix and powershell.
+```
+
+Unsupported shells, including cmd.exe, fish, and nushell, are rejected rather than analyzed with the wrong parser. That stop is not an ordinary tool denial. OpenCode's shell hook has no typed denial channel and no session ID, so a mismatch may fail the current operation, and it leaves no session-attributed audit entry. The check covers every shell created in the plugin's `location`, the OpenCode directory context the plugin was loaded for, including shell operations outside agent tool calls. It is not an operating-system sandbox.
+
+OpenCode 1.x can serve a stale cached copy of the plugin, so a wiring change may not take effect until the cache is cleared. See [Installation](/installation#opencode-installation).
 
 ## The Pi extension
 

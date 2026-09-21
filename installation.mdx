@@ -345,15 +345,37 @@ This integration is macOS and Linux only.
 npx -y cc-safety-net@latest install --opencode
 ```
 
-OpenCode uses `$XDG_CACHE_HOME/opencode` as its cache directory when `XDG_CACHE_HOME` is set and non-empty, otherwise `~/.cache/opencode`. It can keep serving a stale cached plugin version, so the install command clears `packages/cc-safety-net@latest` under that directory before running `opencode plugin -g -f cc-safety-net@latest`. Install then proves that the cached package exists, its declared `main` entry loads, and it exports a callable `CCSafetyNetPlugin`; a failed proof stops the install because OpenCode would otherwise continue without protection.
+CC Safety Net supports OpenCode 1.18.29+ and 2.0.6+ from the same npm package. Install runs `opencode --version` first and refuses anything else with `OpenCode 1.18.29+ or 2.0.6+ is required; found <version>.` Older v1 releases do not support the combined plugin entry, so upgrade OpenCode before you update CC Safety Net.
+
+OpenCode's config directory is `OPENCODE_CONFIG_DIR` when set, otherwise `$XDG_CONFIG_HOME/opencode`, otherwise `~/.config/opencode`. The config file is `opencode.json` or `opencode.jsonc` there. Install preflight, detection, and uninstall all resolve the directory in that order.
+
+On OpenCode 1.x, install clears the cached package and runs `opencode plugin -g -f cc-safety-net@latest`. The cache directory is `$XDG_CACHE_HOME/opencode` when `XDG_CACHE_HOME` is set and non-empty, otherwise `~/.cache/opencode`, and the package cleared under it is `packages/cc-safety-net@latest`. OpenCode can keep serving a stale cached plugin version, which is why the cache goes first. Install then proves that the cached package exists, its declared `main` entry loads, and it exports a callable `CCSafetyNetPlugin`; a failed proof stops the install because OpenCode would otherwise continue without protection.
+
+On OpenCode 2.x, install reads both config files before it changes anything. If either one lists a `cc-safety-net` entry in its `plugin` or `plugins` array whose package spec is not `cc-safety-net@latest`, it stops:
+
+```text
+Change the cc-safety-net package spec in <path> to cc-safety-net@latest, preserving its options, then retry. Adding another spec would create a duplicate plugin ID.
+```
+
+Edit that entry yourself, keep its options and comments, and run the install again.
+
+Otherwise install runs `opencode plugin add cc-safety-net@latest` and `opencode plugin update cc-safety-net@latest`, then reads `opencode plugin list` and requires a row naming the package id `cc-safety-net` with the source `cc-safety-net@latest`. Without that row it fails:
+
+```text
+OpenCode did not load cc-safety-net from cc-safety-net@latest. Run `opencode plugin list` for details.
+```
+
+That listing confirms discovery, not that the hooks activated. If the plugin is listed but nothing is blocked, check OpenCode's own diagnostics. This path clears no cache.
 
 ```bash
 npx -y cc-safety-net@latest uninstall --opencode
 ```
 
-OpenCode uses `$XDG_CONFIG_HOME/opencode` as its config directory when `XDG_CONFIG_HOME` is set and non-empty, otherwise `~/.config/opencode`. Uninstall removes `cc-safety-net` from the `plugin` array in `opencode.json` or `opencode.jsonc` there and clears the cached package again.
+Uninstall clears the cached package, then removes managed `cc-safety-net` entries from the `plugin` and `plugins` arrays in both `opencode.json` and `opencode.jsonc`. It removes plain string entries and object entries carrying a `package` key, and it keeps JSONC comments.
 
-Restart OpenCode after installing or updating so the plugin is loaded from the refreshed cache.
+On OpenCode 2.x, the plugin's `shell` option selects the analyzer dialect. See [Integration architecture](/guides/integration-architecture#opencode).
+
+Restart OpenCode after installing or updating so the change takes effect.
 
 ## Pi installation
 

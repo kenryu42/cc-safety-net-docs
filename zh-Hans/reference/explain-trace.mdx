@@ -105,14 +105,17 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 | `recurse` | `reason`, `innerCommand`, `depth` | 触发了递归重新分析 |
 | `rule-check` | `rule`, `matched`, `reason?` | 评估了内置规则模块。`rule` 是单个 `<module>:<function>` 字符串，例如 `git:analyzeGitMatch`；人类可读输出中渲染为 `Rule:   <value>()` |
 | `worktree-relaxation` | `originalReason`, `gitCwd` | 因为目标是 linked worktree，git 丢弃类命令被放宽 |
+| `temp-root-relaxation` | `originalReason`, `gitCwd` | 因为 git 运行在受信任临时根目录下的一次性仓库中，某条 git 规则被放宽 |
 | `tmpdir-check` | `tmpdirValue`, `allowTmpdirVar` | `$TMPDIR` 解析和覆盖检测 |
 | `fallback-scan` | `tokensScanned`, `embeddedCommandFound?` | 对剩余 token 的危险文本 fallback 扫描 |
 | `custom-rules-check` | `rulesChecked`, `matched`, `reason?` | 评估了用户定义的规则 |
-| `cwd-change` | `segment`, `effectiveCwdNowUnknown` | `cd`/`pushd` 改变了实际 cwd；后续分类使用新的或未知的 cwd |
+| `cwd-change` | `segment`, `effectiveCwdNowUnknown` | 实际 cwd 变为未知，后续分类失去 cwd 锚点。`effectiveCwdNowUnknown` 始终为 `true`，追踪成功的 `cd` 不记录此步骤 |
 | `dangerous-text` | `token`, `matched`, `reason?` | 按危险文本模式扫描了某个 token |
 | `strict-unparseable` | `rawCommand`, `reason` | strict 模式在无法解析的命令上 fail closed |
 | `segment-skipped` | `index`, `reason` | 因为前一个片段已经阻止，所以跳过了该片段 |
 | `error` | `message`, `partial?` | 捕获了分析错误；`partial` 标记了部分输出 |
+
+人类可读输出把 `temp-root-relaxation` 渲染为编号的 `Temp-root relaxation` 步骤，显示 `Git cwd:` 和 `Result: Allowed git discard in a temp-root repository`。具体条件见[临时根目录放宽](/zh-Hans/guides/analysis-engine#temp-root-relaxation)，哪些 `cd` 会记录 `cwd-change` 见[工作目录追踪](/zh-Hans/guides/analysis-engine#working-directory-tracking)。
 
 ### `recurse` 原因
 
@@ -144,7 +147,7 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 ## 分享跟踪之前
 
 <Warning>
-  **explain 跟踪本身并不天然可以安全分享。** `parse` 步骤会记录你提供的原始命令字符串，以及从中解析出的每一个 token。许多其他步骤也携带原始文本，包括 `fallback-scan.tokensScanned`、`dangerous-text.token`、`shell-wrapper.innerCommand`、`interpreter.codeArg`、`recurse.innerCommand`、`strict-unparseable.rawCommand`、`transparent-wrapper.output`、`worktree-relaxation.gitCwd` 和 `cwd-change.segment`。`configSource` 是绝对路径，通常位于你的主目录内。
+  **explain 跟踪本身并不天然可以安全分享。** `parse` 步骤会记录你提供的原始命令字符串，以及从中解析出的每一个 token。许多其他步骤也携带原始文本，包括 `fallback-scan.tokensScanned`、`dangerous-text.token`、`shell-wrapper.innerCommand`、`interpreter.codeArg`、`recurse.innerCommand`、`strict-unparseable.rawCommand`、`transparent-wrapper.output`、`worktree-relaxation.gitCwd`、`temp-root-relaxation.gitCwd` 和 `cwd-change.segment`。`configSource` 是绝对路径，通常位于你的主目录内。
 
   脱敏只移除已识别的凭证**形式**，使用的是[审计日志](/zh-Hans/reference/audit-log#secret-redaction)中的有界模式列表。它对文件路径、主机名、IP 地址、用户名、项目或客户名称，以及任何格式不在列表中的机密都不作保证，也无法脱敏无法识别的内容。
 
