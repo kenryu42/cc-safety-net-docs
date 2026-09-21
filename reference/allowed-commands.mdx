@@ -191,13 +191,15 @@ Worktree mode is a relaxation of git local-discard rules only. It does not touch
 
 Git rules also relax when git runs in a disposable repository under a trusted temp root. This is independent of worktree mode and does not need `CC_SAFETY_NET_WORKTREE=1`.
 
-Every git rule except the `git.push-*` rules can relax this way. The repository is the nearest ancestor of the resolved git cwd that holds a `.git` entry. That root must be under a trusted temp root, must not be a temp root itself, and must be neither an ancestor nor a descendant of the workspace, which is the original cwd. Its `.git` must be a present directory entry; a missing or symlinked `.git` keeps the rule.
+Every git rule except the `git.push-*` rules can relax this way. `git.ssh-env` and `git.alias-config` are decided before the relaxation runs, so they never relax either. The repository is the nearest ancestor of the resolved git cwd that holds a `.git` entry. That root must be under a trusted temp root, must not be a temp root itself, and must be neither an ancestor nor a descendant of the workspace, which is the original cwd. Its `.git` must be a present directory entry; a missing or symlinked `.git` keeps the rule.
 
 A linked worktree under a temp root has a `.git` file instead. Only a local-discard rule can relax there, only when the worktree facts verify, and only when the command clears the same non-relaxable local discards that worktree mode lists. Branch, stash, and tag operations there stay blocked, and `git reset --hard <ref>` is shared state and does not relax there either.
 
 The relaxation never applies when `--git-dir` or `--work-tree` is on the command line, when a `GIT_DIR`-style environment override is present, or when the command came from an expanded command-line git alias.
 
 `git worktree remove --force` is judged by its operand rather than by the repository. The single literal operand after `remove` must be absolute, must contain no whitespace, `$`, backtick, or glob character, and must already be a present directory that is not a symlink, whose real path is under a trusted temp root, is not a temp root itself, and is unrelated to the workspace. Only a word the parser marked as a variable expansion is expanded first.
+
+Configured `allow_paths` do not widen this relaxation. They are read only during `rm` target classification, so adding a path there does not make a repository under it disposable for git rules.
 
 See [Analysis engine](/guides/analysis-engine#temp-root-relaxation) for the full conditions.
 
