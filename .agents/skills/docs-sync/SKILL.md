@@ -16,7 +16,7 @@ sync (see Feedback at the end).
    commit. For a partial sync that is the last commit of the handled PREFIX of
    the oldest-first list; never advance past an unread commit.
 2. Drafted English prose follows the unslop skill's pattern-removal and
-   plain-speech rules (`~/.claude/skills/unslop/SKILL.md`). Its "adding soul"
+   plain-speech rules (`.claude/skills/unslop/SKILL.md`). Its "adding soul"
    section does NOT apply — these are reference docs, not essays.
 3. Verify every fact against the source CODE, not against commit messages.
    Read the files the diff touches before you write a sentence about them.
@@ -24,7 +24,8 @@ sync (see Feedback at the end).
    the source. Do not paraphrase machine-checkable strings.
 5. A "skip" is a decision. Record it in the step-7 report; never drop a commit
    silently.
-6. `make check` needs Node < 25. Run it as:
+6. `make check` needs Node < 25 (`.node-version` pins it). If `node --version`
+   reports 25 or later, run it as:
    `PATH="$HOME/.nvm/versions/node/v24.18.0/bin:$PATH" make check`
 7. The docs ship in three languages. Every English page has a Japanese mirror
    under `ja/` and a Simplified Chinese mirror under `zh-Hans/` at the same
@@ -82,7 +83,7 @@ mirrors live under `ja/` and `zh-Hans/`. `docs/`, `cc-safety-net-wiki/`,
 
 ### Step 4 — Draft the edits
 
-Invoke the `unslop` skill (Skill tool) before drafting, so its patterns are in
+Read `.claude/skills/unslop/SKILL.md` before drafting, so its patterns are in
 context while you write (hard rule 2).
 
 Edit the pages directly in the working tree. Each English page and its `ja/`
@@ -93,7 +94,7 @@ translate that edit into both mirrors.
   page unit (Agent tool). Give each subagent: the commit shas, the source repo
   path, the English page plus its two mirror paths, and hard rules 2-4 and 7-9
   above. Subagents do not inherit the unslop skill — include its path
-  (`~/.claude/skills/unslop/SKILL.md`) with an instruction to read it before
+  (`.claude/skills/unslop/SKILL.md`) with an instruction to read it before
   drafting English prose. Page units that share a story go to one subagent.
 - Match the plain-language standard of the existing pages, and match the
   established terminology of the existing `ja/` and `zh-Hans/` pages.

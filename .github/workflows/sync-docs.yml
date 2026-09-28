@@ -1,0 +1,101 @@
+name: Sync Docs
+
+# Dispatched by cc-safety-net's notify-landing-page-release.yml once a release
+# is finalized. Like the landing page's sync-releases.yml, it ignores the
+# payload and syncs through the latest published release.
+on:
+  repository_dispatch:
+    types: [cc-safety-net-release-published]
+  workflow_dispatch:
+
+concurrency:
+  group: sync-docs
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  sync-docs:
+    if: github.repository == 'kenryu42/cc-safety-net-docs'
+    runs-on: ubuntu-latest
+    environment: claude
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: cc-safety-net-docs
+    steps:
+      # The docs and source checkouts sit side by side so SOURCE-SYNC.json's
+      # "../cc-safety-net" path resolves as it does locally.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          path: cc-safety-net-docs
+          persist-credentials: false
+      - name: Resolve the latest source release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=$(gh release view --repo kenryu42/cc-safety-net --json tagName --jq .tagName)
+          echo "Syncing through ${TAG}"
+          printf 'tag=%s\n' "$TAG" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          repository: kenryu42/cc-safety-net
+          ref: ${{ steps.release.outputs.tag }}
+          path: cc-safety-net
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Point the source main at the release
+        # make drift reads SOURCE-SYNC.json's branch (main); pinning it to the
+        # release keeps commits merged after the tag out of the docs.
+        run: |
+          git -C ../cc-safety-net merge-base --is-ancestor HEAD origin/main
+          git -C ../cc-safety-net checkout -B main
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: cc-safety-net-docs/.node-version
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version-file: cc-safety-net-docs/package.json
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Install pinned Claude Code
+        run: |
+          npm install --global @anthropic-ai/claude-code@2.1.237
+          test "$(claude --version)" = "2.1.237 (Claude Code)"
+      - name: Run docs-sync
+        id: sync
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          printf 'base=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          claude -p "/docs-sync" --model opus --effort high \
+            --allowedTools "Bash,Read,Write,Edit,Glob,Grep,Agent" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Push the sync commit
+        env:
+          BASE: ${{ steps.sync.outputs.base }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$(git rev-parse HEAD)" = "$BASE" ]; then
+            if ! make drift | grep -q '^Docs are current'; then
+              echo "::error::docs-sync made no commit, but the docs still drift from the source."
+              exit 1
+            fi
+            echo "Docs are current; nothing to push."
+            exit 0
+          fi
+          if ! git diff --quiet HEAD; then
+            echo "::error::docs-sync left uncommitted edits to tracked files."
+            exit 1
+          fi
+          if git diff --quiet "$BASE" HEAD -- SOURCE-SYNC.json; then
+            echo "::error::docs-sync committed without advancing SOURCE-SYNC.json."
+            exit 1
+          fi
+          gh auth setup-git
+          git push origin HEAD:main
