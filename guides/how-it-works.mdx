@@ -71,7 +71,7 @@ Command: git checkout -- src/main.py
 If this operation is truly needed, ask the user for explicit permission and have them run the command manually.
 ```
 
-When they apply, the message also carries the matched `Rule:` id, the `Tool:` name, the specific `Segment:` that triggered the block, and a `Config warning:` if a fallback configuration is in force. Command and segment text is excerpted, and everything in the message is secret-redacted before it leaves the process.
+When they apply, the message also carries the matched `Rule:` id, the `Tool:` name, the specific `Segment:` that triggered the block, the `Working directory:` when the call was refused over the directory it would have run in, and a `Config warning:` if a fallback configuration is in force. Command and segment text is excerpted, and everything in the message is secret-redacted before it leaves the process.
 
 A block does not end the agent session. The message arrives as a normal tool result and directs the agent back to the task instead of retrying variants. The rule's intent selects the closing instruction:
 
@@ -84,6 +84,24 @@ A block does not end the agent session. The message arrives as a normal tool res
 | `stop_and_explain` | Do not brute-force variants; simplify or restructure the command, or report the block |
 
 [Design principles](/guides/design-principles#denials-that-keep-the-agent-on-task) explains why the messages use this structure and why the instruction is advisory while the guard enforces the decision.
+
+### When the message asks instead of blocking
+
+In Claude Code, a command that standard mode could not verify reaches you as a permission prompt instead of a block. The message keeps the same fields and changes the first and last lines:
+
+```text
+CC Safety Net could not verify this command
+
+Reason: shell execution source cannot be verified safely. Use a literal command string or ask the user to run it manually.
+
+Command: eval "$CMD"
+
+Segment: eval $CMD
+
+Approve only if you expected this command.
+```
+
+The closing line replaces the intent instruction, because you decide this one rather than the agent. Approving runs the command and declining does not, and the audit log records the call as a denial either way. Which denials can ask, and in which Claude Code permission modes, is in [Integration architecture](/guides/integration-architecture#when-claude-code-asks-instead-of-denying).
 
 ## The audit record
 

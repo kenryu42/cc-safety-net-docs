@@ -53,6 +53,7 @@ A bare branch name is allowed only while it is not spelled as a path and does no
 | `rm -rf ./subdir` (within cwd) | Limited to a path inside the current working directory | All except [paranoid rm](/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1) |
 | `rm -rf "$target"` (dynamic target) | Standard does not categorically block targets it cannot verify | **Standard only** |
 | `cleanup() { rm -rf ../outside; }` (definition only) | A function definition alone executes nothing. The body is analyzed only where the function is called | All |
+| `find . -name '*.pyc' -exec rm {} +` at a repository root | A literal `-name` filter that no protected Git-metadata entry matches lifts the starting-point block | All |
 
 `rm -rf` is classified by target, first match wins. Root/home targets (`/`, `~`, `$HOME`), protected Git metadata, the cwd itself (`rm -rf .`), and the case where your cwd *is* your home are blocked in every level. Other literal paths outside the cwd are also blocked unless they are recognized temp targets or configured allow paths. Temp paths and paths inside the cwd are allowed. Note the distinction: `rm -rf ./subdir` is allowed, but `rm -rf .` (the cwd itself) is blocked.
 
@@ -60,6 +61,8 @@ Two level-dependent adjustments apply on top of that:
 
 - Dynamic targets (`rm -rf "$target"`, backticks, substitutions) are allowed in standard and blocked once the fail-closed capability is on. Standard is best-effort against adversarial or dynamically generated command text.
 - With `CC_SAFETY_NET_PARANOID_RM=1`, non-temp recursive forced removal is blocked *even inside the cwd*, so `rm -rf ./cache` no longer passes. Temp targets and configured allow paths still do.
+
+A `find` that deletes is still blocked when its starting point reaches protected Git metadata, which a starting point of `.` does at a repository root. A literal `-name` or `-iname` filter lifts that block when no protected metadata entry can match it, so `find . -name '*.pyc' -exec rm {} +` and `find . -name '*.pyc' -execdir rm -f -- {} \;` pass there. `find . -name '*.pyc' -delete` does not, because `find.delete` blocks it separately. See [Git metadata](/reference/blocked-commands#git-metadata) for the conditions and for the shapes that keep the block.
 
 ### Configured allow paths
 
@@ -93,7 +96,7 @@ These shapes are permitted in standard and denied once [strict](/configuration/m
 | `Get-ChildItem . -Recurse \| Remove-Item -Force` | Unverifiable PowerShell pipeline input |
 | `$(printf r)m -rf /`, `c=rm; "$c" -rf dir`, `$CMD --version` | Dynamic executable. The command head comes from a substitution or a variable |
 | `git reset $(printf --hard)`, `rm $(printf -- '-rf') dir` | Dynamic structure. The arguments are assembled through substitution |
-| `test -f ~/.ssh/id_rsa`, `find ~/.ssh -type f`, `ls -la ~/.ssh`, `stat .env` | Metadata-only discovery of a built-in sensitive path, with no content access |
+| `test -f ~/.ssh/id_rsa`, `find ~/.ssh -type f`, `ls -la ~/.ssh`, `stat .env`, `git check-ignore .env && git status --short` | Metadata-only discovery of a built-in sensitive path, with no content access. One segment of a compound command counts, not only a whole command |
 | `W='rm -rf ~'; echo "$W"` | Dangerous text inside a cleanly parsed quoted-literal assignment. The block defers to use time when the variable is only ever used as quoted argument data |
 | `f() { rm -rf "$1"; }; f ~` | Positional parameters stay unbound inside a called function body, so the target is dynamic. This is the same trade-off as `rm -rf "$target"` |
 | `eval "$(ssh-agent -s)"`, `source <(kubectl completion bash)` | A single fully literal local generator command. Its *shape* is verifiable, though its output is not |
@@ -152,7 +155,10 @@ Sensitive-path protection is a bounded pattern set over supported shapes, so som
 | `test -f ~/.ssh/id_rsa` | Metadata-only existence check, no content access | **Standard only** |
 | `find ~/.ssh -type f` | Metadata-only listing, no content access | **Standard only** |
 | `ls -la ~/.ssh`, `stat .env` | Directory listing and file status, no content access | **Standard only** |
+| `git check-ignore .env && git status --short`, `if [ -f ~/.aws/credentials ]; then echo present; fi` | A metadata-only segment of a compound command, with no content access | **Standard only** |
 | Interpreter inline code containing sensitive path literals | The literal stays inert data when the code names no filesystem, command-execution, or eval marker. POSIX shell code is excluded, because the guard walks it as shell | **Standard only** |
+
+The metadata-only forms are a fixed list: `ls`, `stat`, `test -e <path>`, `test -f <path>`, `[ -e <path> ]`, `[ -f <path> ]`, `git check-ignore`, and a `find` carrying no action that reads or writes. Standard ignores a sensitive path that only such a form names, whether that form is the whole command or one segment of a compound command. Naming the same path in a segment that reads it still blocks, so `test -f .env && cat .env` is denied. The [Secret protection reference](/reference/secret-protection) lists the `find` actions that disqualify it.
 
 Two of those allowances have precise boundaries worth knowing:
 

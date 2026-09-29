@@ -37,6 +37,10 @@ This page is the behavior matrix for what is blocked and where each boundary fal
   Some catastrophic protections do not depend on the selected safety level. Root and home recursive deletion, Git-metadata protection, and canonical `policy.json` protection ignore the master destructive-command switch and per-rule `off` overrides.
 </Note>
 
+<Note>
+  On the Claude Code hook, two of the denials below reach you as a permission prompt instead of a block: a `raw-text.dangerous-command` match, and a denial whose reason is `shell execution source cannot be verified safely.` That happens only while the fail-closed capability is off, which means the standard level, and only in the `default`, `acceptEdits`, and `plan` permission modes. Strict, paranoid, and every other host deny. See [When Claude Code asks instead of denying](/guides/integration-architecture#when-claude-code-asks-instead-of-denying) for the two cases that keep the deny.
+</Note>
+
 ## Git commands
 
 These git operations are blocked because they discard uncommitted work, destroy recovery history, or rewrite shared state.
@@ -144,6 +148,9 @@ CC Safety Net resolves the nearest ancestor `.git` entry for each of two directo
 | `> .git` and other write redirections | Redirection route |
 | `Write` or patch targeting `.git/hooks/new-hook` | Write-tool, patch, and unknown-tool routes. Read-only tools are exempt |
 | `find .git -delete` | Catastrophic even with `find.delete-git-metadata` set to `off` |
+| `find . -exec rm {} +` at a repository root | An `-exec` or `-execdir` that hands `{}` to `rm` or `rmdir` counts as deleting the paths `find` returns, and so does one that hands `{}` to a shell `-c` body running `rm` or `rmdir` |
+
+A literal `-name` or `-iname` filter can lift the block that the starting point alone causes. CC Safety Net scans the protected metadata for an entry matching every filter collected ahead of the first action, and allows the delete when it finds none. `find . -name '*.pyc' -exec rm {} +` therefore passes at a repository root, while `find . -name '*.sample' -exec rm {} +` and `find . -name HEAD -exec rm {} +` still block, because `.git` holds entries with those names. `find . -name '*.pyc' -delete` blocks too, under `find.delete` rather than `find.delete-git-metadata`. The exception is narrow, and the scan fails closed on a symlinked metadata root, an unreadable directory, and more than 50,000 entries. [Analysis engine](/guides/analysis-engine) lists every shape that keeps the block.
 
 A symlinked `.git` directory and a symlinked hooks directory are protected on **both** the lexical and the canonical alias, and a `.git` marker pointing at a missing Git directory still blocks. A trailing `*` glob in a POSIX shell does not match dot-entries, so `rm -rf ./*` at a repository root does not cover `.git`, but `rm -rf .git/worktrees/*` and PowerShell wildcards do.
 
@@ -224,6 +231,12 @@ Commands wrapped in shell interpreters like `bash -c` or `sh -c` are also blocke
 | --- | --- |
 | `bash -c 'git reset --hard'` | Blocked |
 | `sh -lc 'rm -rf /'` | Blocked |
+
+A shell `-c` body is analyzed with its literal positional arguments bound in, so `sh -c 'rm -rf "$1"' _ /` blocks as `rm.recursive-force-root-or-home` and `sh -c 'rm -rf "$1"/.git' _ .` blocks as `rm.git-metadata`. One argument that is not literal leaves the body as written. See [Analysis engine](/guides/analysis-engine) for the binding rules.
+
+The `sudo`, `env`, `command`, and `builtin` prelude is matched by basename, so a full path is stripped the same way a bare name is. `/usr/bin/env git reset --hard`, `sudo /usr/bin/env git reset --hard`, and `/usr/bin/env rm -rf ../outside` all block. `/usr/bin/env -- git status` stays allowed, because `git status` is allowed.
+
+Your own [custom rules](/configuration/custom-rules) run at every depth as well, so a rule that names `rm` or `git` also applies inside `bash -c`, `sh -c`, `eval`, and a called function body.
 
 Destructive code embedded in interpreter one-liners is detected and blocked **by default**. CC Safety Net extracts the code passed to an interpreter's `-c` or `-e` flag and scans it for embedded destructive operations, so an agent cannot sneak `os.system("rm -rf /")` past the hook by wrapping it in a Python or Node call.
 

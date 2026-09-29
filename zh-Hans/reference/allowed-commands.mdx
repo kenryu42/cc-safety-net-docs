@@ -55,6 +55,7 @@ CC Safety Net 通过语义分析区分允许的命令形式和破坏性的命令
 | `rm -rf ./subdir`（cwd 内） | 限定在当前工作目录内的路径 | 除 [paranoid rm](/zh-Hans/configuration/modes#paranoid-rm-check) 外全部 |
 | `rm -rf "$target"`（动态目标） | `standard` 不会一律阻止无法验证的目标 | **仅 `standard`** |
 | `cleanup() { rm -rf ../outside; }`（仅定义） | 只定义函数不会执行正文；函数正文只在调用位置分析 | 全部 |
+| 仓库根目录下的 `find . -name '*.pyc' -exec rm {} +` | 受保护的 Git 元数据中没有条目能匹配这个字面量 `-name` 过滤条件，起点触发的阻止随之解除 | 全部 |
 
 `rm -rf` 按目标分类，第一个匹配项生效。根目录或主目录目标（`/`、`~`、`$HOME`）、受保护的 Git 元数据、当前工作目录本身（`rm -rf .`），以及当前工作目录就是主目录的情况，在所有级别都被阻止。当前工作目录外的其他字面路径也会被阻止，除非它们是已识别的临时目标或配置的允许路径。临时路径和当前工作目录内的路径是允许的。请注意区别：`rm -rf ./subdir` 是允许的，但 `rm -rf .`（当前工作目录本身）被阻止。
 
@@ -62,6 +63,8 @@ CC Safety Net 通过语义分析区分允许的命令形式和破坏性的命令
 
 - 动态目标（`rm -rf "$target"`、反引号、替换）在 `standard` 中允许，一旦启用 fail-closed 能力就会被阻止。`standard` 对对抗性或动态生成的命令文本只提供尽力保护。
 - 启用 `CC_SAFETY_NET_PARANOID_RM=1` 后，*即使在当前工作目录内*，非临时的递归强制删除也会被阻止，因此 `rm -rf ./cache` 不再通过。临时目标和配置的允许路径仍然可以通过。
+
+执行删除的 `find`，只要起点能够到达受保护的 Git 元数据就仍会被阻止；在仓库根目录下，起点 `.` 就是这种情况。但如果字面量的 `-name` 或 `-iname` 过滤条件无法匹配任何受保护的元数据条目，这项阻止就会解除，因此 `find . -name '*.pyc' -exec rm {} +` 和 `find . -name '*.pyc' -execdir rm -f -- {} \;` 在仓库根目录下可以通过。`find . -name '*.pyc' -delete` 则不行，因为 `find.delete` 会单独阻止它。条件以及仍被阻止的形式见 [Git 元数据](/zh-Hans/reference/blocked-commands#git-metadata)。
 
 <span id="configured-allow-paths"></span>
 
@@ -99,7 +102,7 @@ heredoc 必须是不展开的：分隔符带引号（`<<'EOF'`），或者分隔
 | `Get-ChildItem . -Recurse \| Remove-Item -Force` | 无法验证的 PowerShell 管道输入 |
 | `$(printf r)m -rf /`、`c=rm; "$c" -rf dir`、`$CMD --version` | 动态可执行文件名，命令头来自替换或变量 |
 | `git reset $(printf --hard)`、`rm $(printf -- '-rf') dir` | 动态结构，参数由替换拼接而成 |
-| `test -f ~/.ssh/id_rsa`、`find ~/.ssh -type f`、`ls -la ~/.ssh`、`stat .env` | 对内置敏感路径的纯元数据发现，不访问内容 |
+| `test -f ~/.ssh/id_rsa`、`find ~/.ssh -type f`、`ls -la ~/.ssh`、`stat .env`、`git check-ignore .env && git status --short` | 对内置敏感路径的纯元数据发现，不访问内容。不限于整条命令，复合命令中的一个命令段同样计入 |
 | `W='rm -rf ~'; echo "$W"` | 能够干净解析的带引号字面量赋值中的危险文本。变量始终只作为带引号的参数数据使用时，阻止会推迟到使用时判定 |
 | `f() { rm -rf "$1"; }; f ~` | 被调用的函数正文内，位置参数仍未绑定，因此目标是动态的，与 `rm -rf "$target"` 采用相同的权衡 |
 | `eval "$(ssh-agent -s)"`、`source <(kubectl completion bash)` | 单条完全字面的本地生成命令。其*形态*可验证，输出则无法验证 |
@@ -158,7 +161,10 @@ heredoc 必须是不展开的：分隔符带引号（`<<'EOF'`），或者分隔
 | `test -f ~/.ssh/id_rsa` | 只做元数据层面的存在性检查，不访问内容 | **仅 `standard`** |
 | `find ~/.ssh -type f` | 只做元数据层面的列举，不访问内容 | **仅 `standard`** |
 | `ls -la ~/.ssh`、`stat .env` | 只做目录列举和文件状态查看，不访问内容 | **仅 `standard`** |
+| `git check-ignore .env && git status --short`、`if [ -f ~/.aws/credentials ]; then echo present; fi` | 复合命令中只做元数据查看的命令段，不访问内容 | **仅 `standard`** |
 | 包含敏感路径字面量的解释器内联代码 | 代码中没有出现文件系统、命令执行或 eval 标记时，字面量仍是惰性数据。POSIX shell 代码除外，因为防护阶段会把它按 shell 遍历 | **仅 `standard`** |
+
+纯元数据的形式是一份固定清单：`ls`、`stat`、`test -e <path>`、`test -f <path>`、`[ -e <path> ]`、`[ -f <path> ]`、`git check-ignore`，以及不带任何读写动作的 `find`。在 `standard` 中，只被这类形式提到的敏感路径会被忽略；这类形式是整条命令还是复合命令中的一段，并不影响结果。但只要有哪一段真的读取了该路径，仍会被阻止，因此 `test -f .env && cat .env` 会被拒绝。哪些 `find` 动作会取消这一资格，见[机密保护参考](/zh-Hans/reference/secret-protection)。
 
 其中两项允许的边界很明确，值得了解：
 

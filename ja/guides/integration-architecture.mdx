@@ -26,7 +26,7 @@ CC Safety Net は 13 のコーディングエージェントに対応し、接�
 | エージェント | 実行時フラグ | hook イベント | コマンド用ツール | 拒否時の出力形式 |
 | --- | --- | --- | --- | --- |
 | Antigravity CLI | `-ac` / `--agy-cli` | `PreToolUse` | `run_command` | `{ "decision": "deny", "reason": … }` |
-| Claude Code | `-cc` / `--coding-cli` | `PreToolUse` | `Bash`, `PowerShell` | `hookSpecificOutput.permissionDecision: "deny"` |
+| Claude Code | `-cc` / `--coding-cli` | `PreToolUse` | `Bash`, `PowerShell` | `hookSpecificOutput.permissionDecision: "deny"`。[standard モードで検証できなかったコマンド](#when-claude-code-asks-instead-of-denying)では `"ask"` |
 | Codex | `-cx` / `--codex` | `PreToolUse` | `Bash` | `hookSpecificOutput.permissionDecision: "deny"` |
 | Cursor | `-cu` / `--cursor` | `preToolUse` | `Shell` | `{ "permission": "deny", "user_message": …, "agent_message": … }` |
 | Gemini CLI | `-gc` / `--gemini-cli` | `BeforeTool` | `run_shell_command` | `{ "decision": "deny", "reason": …, "systemMessage": … }` |
@@ -38,6 +38,25 @@ CC Safety Net は 13 のコーディングエージェントに対応し、接�
 <Note>
   エージェントごとにイベント名も拒否の形式も異なるため、CC Safety Net はそれぞれに合った形式で出力します。たとえば Gemini CLI は、Claude Code の `hookSpecificOutput` ではなく、終了コード 0 と `decision`／`systemMessage` を持つオブジェクトを求めます。出力形式を自分で設定する必要はありません。指定したフラグによって自動的に決まります。
 </Note>
+
+<span id="when-claude-code-asks-instead-of-denying"></span>
+
+### Claude Code が拒否ではなく確認を求める場合
+
+`ask` を返せるのは Claude Code の hook だけです。`permissionDecision: "deny"` の代わりに `permissionDecision: "ask"` を出力し、Claude Code はその呼び出しを権限確認のプロンプトとして表示します。
+
+`ask` になる拒否は次の 2 つだけで、しかも fail closed の機能が無効な場合、つまり standard レベルに限られます。
+
+- ルール `raw-text.dangerous-command`。CC Safety Net がパースできなかったコマンドのテキストが、それでも破壊的に読み取れる場合に発火します。
+- 理由 `shell execution source cannot be verified safely. Use a literal command string or ask the user to run it manually.`。ただし 2 つの場合は拒否のままです。1 つはコマンドの生テキスト自体にも破壊的なパターンが含まれる場合、もう 1 つは検証できないソースを `sh -` のような標準入力を読むだけのシェルに渡す場合です。
+
+これ以外の拒否はすべて拒否のままです。[strict と paranoid](/ja/configuration/modes#strict-mode) はどちらも fail closed を有効にするため、これらのレベルでは確認に変わることがありません。
+
+`ask` は人が見て初めて意味を持つため、hook が出力するのは `default`、`acceptEdits`、`plan` の 3 つの permission mode の場合だけです。それ以外の値の場合や、値がない場合は拒否になります。残りのモードでは Claude Code が誰も見ないままプロンプトを処理できてしまい、`ask` が黙って許可されるのと変わらなくなるためです。
+
+`ask` を出力するホストは他にありません。Codex と Kimi Code は同じ `PreToolUse` のアダプターを使いますが、`ask` の出力を有効にしていません。Cursor の hook 形式には `allow` と `deny` しかありません。`ask` でプロンプトを出さないホストでは、コマンドが止まらずに実行されてしまいます。Codex はこの値を受け付けず、ツールを実行します。
+
+プロンプトの文面はブロックメッセージとは異なります。監査ログには、引き続き拒否として記録されます。どちらのメッセージも[ブロック結果の形式](/ja/guides/how-it-works#what-a-block-looks-like)で確認できます。同じ 2 つの拒否をポリシーの側から見た説明は、[standard がコマンドを検証できない場合](/ja/configuration/modes#when-standard-cannot-verify-a-command)にあります。
 
 ### 共通の Coding CLI hook を使う
 
@@ -109,7 +128,9 @@ OpenClaw は、ネイティブの OpenClaw プラグインとして CC Safety Ne
 
 `host` が `auto` と `gateway` 以外の `exec` 呼び出しもブロックします。`gateway` はローカルであることが確認できているためです。`host: "auto"`（または `host` の指定なし）の呼び出しは、ローカル Gateway の前提で解析しますが、OpenClaw が実際にどこへ振り分けるかまではプラグインからは確認できません。サンドボックスの場合については、[既知の制限](/ja/guides/known-limitations)を参照してください。
 
-プラグインの状態は OpenClaw が管理しているため、インストールには OpenClaw 自身の CLI を使います。`openclaw plugins install <packaged dir> --force` を実行し、続けて `openclaw plugins enable cc-safety-net` を実行します。`--force` を使うコマンドの前に、CC Safety Net は対象の拡張機能ディレクトリが自身の管理対象ファイルだけを含むことを確認します。これにより、自分のものだと確認できないプラグインを上書きしたり削除したりすることはありません。インストール後には `openclaw plugins inspect cc-safety-net --runtime --json` を実行し、状態が `loaded` の場合だけ成功とみなします。バンドルが壊れたまま有効になっているプラグインは、インストール自体は問題なく完了しても、何も保護しないまま終わってしまうためです。
+プラグインの状態は OpenClaw が管理しているため、インストールには OpenClaw 自身の CLI を使います。実行するコマンドは `openclaw plugins install <packaged dir> --force --accept-capabilities` の 1 つだけです。OpenClaw 2026.8.1 以降では、`--no-enable` を指定しないかぎり install がプラグインの有効化まで行うため、`openclaw plugins enable` を別に実行する必要はありません。`openclaw.json` で手動で無効にしている場合は無効のままで、下記のランタイム確認が読み込まれていない状態をそのまま報告します。CC Safety Net が黙って有効に戻すことはありません。`--accept-capabilities` は 2026.8.1 より前には存在しないため、それ以前の OpenClaw では unknown-option エラーでインストールが失敗します。バージョンの判定もフォールバックもありません。
+
+`--force` を使うコマンドの前に、CC Safety Net は対象の拡張機能ディレクトリが自身の管理対象ファイルだけを含むことを確認します。これにより、自分のものだと確認できないプラグインを上書きしたり削除したりすることはありません。インストール後には `openclaw plugins inspect cc-safety-net --runtime --json` を実行し、状態が `loaded` の場合だけ成功とみなします。バンドルが壊れたまま有効になっているプラグインは、インストール自体は問題なく完了しても、何も保護しないまま終わってしまうためです。
 
 インストールされたファイルは `<state dir>/extensions/cc-safety-net/` にあります。state dir は、設定されていれば `OPENCLAW_STATE_DIR`、次に `OPENCLAW_CONFIG_PATH` があるディレクトリ、いずれもなければ `~/.openclaw` です。有効・無効の状態は OpenClaw 自身の設定（state dir の `openclaw.json`、または `OPENCLAW_CONFIG_PATH`）にあります。全体の `plugins.enabled` スイッチ、`plugins.allow` / `plugins.deny` の一覧、プラグインごとの `plugins.entries.cc-safety-net.enabled` の項目が、いずれも影響します。`plugins.allow` を設定している場合は、そこに `cc-safety-net` も記載する必要があります。
 

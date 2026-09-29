@@ -35,6 +35,8 @@ CC Safety Net 阻止这些命令，因为它们可能永久破坏数据，包括
 
 <Note>部分灾难性保护不依赖所选安全级别：根目录和主目录的递归删除保护、Git 元数据保护和规范 `policy.json` 保护会忽略主破坏性命令开关和单条规则的 `off` 覆盖。</Note>
 
+<Note>下面有两类拒绝在 Claude Code 的 hook 上不是阻止，而是权限提示：匹配 `raw-text.dangerous-command`，以及原因为 `shell execution source cannot be verified safely.` 的拒绝。这只发生在 fail-closed 能力关闭（也就是 `standard` 级别）、且权限模式为 `default`、`acceptEdits` 或 `plan` 时。`strict`、`paranoid` 以及其他所有宿主都会拒绝。仍然保持拒绝的两种情况见 [Claude Code 何时改为询问而不是拒绝](/zh-Hans/guides/integration-architecture#when-claude-code-asks-instead-of-denying)。</Note>
+
 <span id="git-commands"></span>
 
 ## Git 命令
@@ -148,6 +150,9 @@ CC Safety Net 会解析两个目录最近的祖先 `.git` 条目：一个是执�
 | `> .git` 和其他写入重定向 | 重定向途径 |
 | `Write` 或 patch 的目标是 `.git/hooks/new-hook` | 写入工具、patch 和未知工具三条途径；只读工具除外 |
 | `find .git -delete` | 即使将 `find.delete-git-metadata` 设置为 `off`，也始终是灾难性操作 |
+| 仓库根目录下的 `find . -exec rm {} +` | `-exec` 或 `-execdir` 把 `{}` 交给 `rm` 或 `rmdir` 时，算作删除 `find` 返回的路径；把 `{}` 交给运行 `rm` 或 `rmdir` 的 shell `-c` 正文时同样如此 |
+
+字面量的 `-name` 或 `-iname` 过滤条件可以解除仅由起点触发的阻止。CC Safety Net 会在受保护的元数据中查找同时匹配第一个动作之前全部过滤条件的条目，一个都找不到就放行这次删除。因此在仓库根目录下 `find . -name '*.pyc' -exec rm {} +` 可以通过；而 `.git` 中存在同名条目，所以 `find . -name '*.sample' -exec rm {} +` 和 `find . -name HEAD -exec rm {} +` 仍被阻止。`find . -name '*.pyc' -delete` 也被阻止，但规则是 `find.delete` 而不是 `find.delete-git-metadata`。这条例外范围很窄，扫描也是 fail-closed：元数据根是符号链接、目录不可读，或条目数超过 50,000 时都保持阻止。保持阻止的全部形式见[分析引擎](/zh-Hans/guides/analysis-engine)。
 
 符号链接的 `.git` 和 hooks 会同时按字面路径和规范路径保护，指向缺失 Git 目录的 `.git` 标记仍会阻止。POSIX shell 中末尾的 `*` 不匹配以点开头的条目，因此仓库根目录中的 `rm -rf ./*` 不涵盖 `.git`，但 `rm -rf .git/worktrees/*` 和 PowerShell 通配符会涵盖。
 
@@ -226,6 +231,12 @@ command 形式的提取是有界且结构化的：触及结构性 shell 语法�
 | --- | --- |
 | `bash -c 'git reset --hard'` | 阻止 |
 | `sh -lc 'rm -rf /'` | 阻止 |
+
+分析 shell 的 `-c` 正文时会先绑定字面量位置参数，因此 `sh -c 'rm -rf "$1"' _ /` 以 `rm.recursive-force-root-or-home` 阻止，`sh -c 'rm -rf "$1"/.git' _ .` 以 `rm.git-metadata` 阻止。只要有一个参数不是字面量，正文就保持原样。绑定规则见[分析引擎](/zh-Hans/guides/analysis-engine)。
+
+`sudo`、`env`、`command`、`builtin` 这层包装按 basename 匹配，因此写成完整路径和写成命令名一样会被剥离。`/usr/bin/env git reset --hard`、`sudo /usr/bin/env git reset --hard` 和 `/usr/bin/env rm -rf ../outside` 都会被阻止。`/usr/bin/env -- git status` 仍然允许，因为 `git status` 本身是允许的。
+
+你自己的[自定义规则](/zh-Hans/configuration/custom-rules)同样在任意嵌套深度生效，因此针对 `rm` 或 `git` 的规则在 `bash -c`、`sh -c`、`eval` 和被调用的函数正文内部也会命中。
 
 默认情况下，会检测并阻止解释器单行命令中嵌入的破坏性代码。CC Safety Net 提取传给解释器 `-c` 或 `-e` 标志的代码，并扫描嵌入的破坏性操作，因此智能体无法把 `os.system("rm -rf /")` 包在 Python 或 Node 调用里来绕过 hook。
 

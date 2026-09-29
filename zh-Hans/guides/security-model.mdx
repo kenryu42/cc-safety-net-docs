@@ -41,7 +41,7 @@ Standard、strict 和 paranoid 是三个预设，为 `fail_closed`、`paranoid_r
 
 | 级别 | 保证 |
 | --- | --- |
-| [Standard](/zh-Hans/configuration/modes#default-mode) | 对可识别的破坏性命令提供**尽力**保护。它有意允许动态可执行文件名、通过替换拼接的命令结构、无法验证的递归删除目标、针对内置敏感路径的仅元数据独立检查，以及对单条完全字面的本地生成命令执行 `eval`/`source`。看似安全但无法解析的文本会被允许通过；看似具有破坏性的文本仍会被保守的启发式规则捕获。 |
+| [Standard](/zh-Hans/configuration/modes#default-mode) | 对可识别的破坏性命令提供**尽力**保护。它有意允许动态可执行文件名、通过替换拼接的命令结构、无法验证的递归删除目标、针对内置敏感路径的仅元数据检查（单独出现或只占复合命令中的一段均可），以及对单条完全字面的本地生成命令执行 `eval`/`source`。看似安全但无法解析的文本会被允许通过；看似具有破坏性的文本仍会被保守的启发式规则捕获。 |
 | [Strict](/zh-Hans/configuration/modes#strict-mode) | 增加 fail-closed 能力：无法解析的输入会被拒绝而不是直接通过，`rm -rf "$target"` 等无法验证的破坏性目标会被阻止，仅元数据的敏感路径发现也会被阻止。 |
 | [Paranoid](/zh-Hans/configuration/modes#paranoid-mode) | 在 strict 基础上增加两项限制：即使在当前工作目录内也阻止非临时的[递归强制删除](/zh-Hans/configuration/modes#paranoid-rm-check)，并且无论内容如何都阻止[所有解释器单行命令](/zh-Hans/configuration/modes#paranoid-interpreters)。 |
 
@@ -49,7 +49,11 @@ Standard、strict 和 paranoid 是三个预设，为 `fail_closed`、`paranoid_r
   Standard 模式**不具备对抗级能力**。它不会一律阻止动态 `rm -rf` 目标。`rm -rf "$target"` 在 standard 中允许，只有 strict 或 paranoid 会阻止。当命令可能来自提示注入或其他对抗性上下文时，必须使用 strict 或 paranoid。
 </Warning>
 
+除允许和拒绝之外，standard 还有第三种结果。有两种情况算作无法验证，而不是已判定为危险：一是无法解析、但被后备的破坏性模式扫描命中的文本；二是命令文本中没有破坏性模式，分析器又无法解析其 shell 执行来源。对这两种情况，Claude Code hook 不再拒绝，而是通过 Claude Code 自己的权限提示请你批准，并且只在 `default`、`acceptEdits` 和 `plan` 三种权限模式下这样做。其他权限模式、其他宿主以及 strict 和 paranoid 都保持拒绝。参见 [`standard` 无法验证命令时](/zh-Hans/configuration/modes#when-standard-cannot-verify-a-command)。
+
 启用机密保护时，安全级别不会放宽已匹配敏感**内容**的访问，也不会放宽用户配置的拒绝路径及其后代。配置的 `secret_protection.allow_paths` 条目可以让字面文件或目录树豁免于非 CLI 的内置机密规则；拒绝路径和 `secret.cli.*` 规则仍然优先。灾难性保护始终强制执行，包括递归删除根目录或用户主目录、对受保护 Git 元数据的破坏性更改，以及对用户或项目 `policy.json` 的破坏性更改。
+
+对内置的文件名规则，standard 还会把三种形式当作提及而不是读取：机密文件名对应一个已存在的目录；含空白字符的词既不像路径，磁盘上也不存在；重定向新建了一个原本不存在的机密文件名。`secret.home.*` 和 `secret.cli.*` 规则不会因此被放宽。准确条件见 [`standard` 对敏感路径的放宽](/zh-Hans/configuration/modes#sensitive-path-relaxations-in-standard)。
 
 ## 配置恢复边界
 

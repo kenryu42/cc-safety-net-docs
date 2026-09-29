@@ -26,7 +26,7 @@ For these nine agents, the protection is the runtime `hook <flag>` command, whic
 | Agent | Runtime flag | Hook event | Command tool | Deny output shape |
 | --- | --- | --- | --- | --- |
 | Antigravity CLI | `-ac` / `--agy-cli` | `PreToolUse` | `run_command` | `{ "decision": "deny", "reason": … }` |
-| Claude Code | `-cc` / `--coding-cli` | `PreToolUse` | `Bash`, `PowerShell` | `hookSpecificOutput.permissionDecision: "deny"` |
+| Claude Code | `-cc` / `--coding-cli` | `PreToolUse` | `Bash`, `PowerShell` | `hookSpecificOutput.permissionDecision: "deny"`, or `"ask"` when [standard mode could not verify the command](#when-claude-code-asks-instead-of-denying) |
 | Codex | `-cx` / `--codex` | `PreToolUse` | `Bash` | `hookSpecificOutput.permissionDecision: "deny"` |
 | Cursor | `-cu` / `--cursor` | `preToolUse` | `Shell` | `{ "permission": "deny", "user_message": …, "agent_message": … }` |
 | Gemini CLI | `-gc` / `--gemini-cli` | `BeforeTool` | `run_shell_command` | `{ "decision": "deny", "reason": …, "systemMessage": … }` |
@@ -38,6 +38,23 @@ For these nine agents, the protection is the runtime `hook <flag>` command, whic
 <Note>
   Because these agents use different events and deny formats, CC Safety Net emits the correct shape per agent. Gemini CLI, for example, expects a `decision`/`systemMessage` object with exit 0 rather than Claude Code's `hookSpecificOutput`. You do not need to configure the output format because the flag selects it.
 </Note>
+
+### When Claude Code asks instead of denying
+
+The Claude Code hook is the only one that can answer `ask`. In place of `permissionDecision: "deny"` it emits `permissionDecision: "ask"`, and Claude Code puts the call in front of you as a permission prompt.
+
+Two denials become an ask, and only while the fail-closed capability is off, which is the standard level:
+
+- The rule `raw-text.dangerous-command`, which fires when a command CC Safety Net could not parse still reads as destructive.
+- The reason `shell execution source cannot be verified safely. Use a literal command string or ask the user to run it manually.` Two cases here keep the deny. One is a command whose raw text also holds a destructive pattern. The other is an unverifiable source fed to a bare shell reading stdin, such as `sh -`.
+
+Every other denial stays a deny, as does every denial at [strict and paranoid](/configuration/modes#strict-mode-cc_safety_net_strict=1), because both turn fail-closed on.
+
+An ask is only useful when a person sees it, so the hook emits it in the `default`, `acceptEdits`, and `plan` permission modes. Any other value, and a missing one, gets the deny instead. In the remaining modes Claude Code can settle a prompt with nobody watching, which would turn the ask into a quiet allow.
+
+No other host asks. Codex and Kimi Code run through the same `PreToolUse` adapter but do not enable the ask output, and Cursor's hook shape carries only `allow` and `deny`. A host that does not prompt on `ask` runs the command instead of stopping it. Codex rejects the value and runs the tool.
+
+The prompt carries different wording from a block message, and the audit log still records the call as a denial. [What a block looks like](/guides/how-it-works#what-a-block-looks-like) shows both messages, and [When standard cannot verify a command](/configuration/modes#when-standard-cannot-verify-a-command) covers the same two denials from the policy side.
 
 ### Use the shared Coding CLI hook
 
@@ -101,7 +118,9 @@ The plugin registers a `before_tool_call` handler matched to the `exec` tool. On
 
 It resolves the agent's workspace directory through OpenClaw's runtime API and uses it as both the policy and execution directory; a `workdir` in the call is resolved contained within that workspace. CC Safety Net fails closed on a malformed event, a missing or empty command, a workspace it cannot resolve, a `workdir` outside the workspace, or a call already cancelled. An `exec` call whose `host` is anything other than `auto` or `gateway` is also blocked. `gateway` is proven local. A call with `host: "auto"` (or no `host` at all) is analyzed with local Gateway semantics, but the plugin does not check where OpenClaw routes it. The sandbox case is listed in [Known limitations](/guides/known-limitations).
 
-OpenClaw owns its plugin state, so installation drives OpenClaw's own CLI: `openclaw plugins install <packaged dir> --force`, then `openclaw plugins enable cc-safety-net`. Before any `--force` command, CC Safety Net verifies that the target extension directory holds only its own managed files. It cannot overwrite or delete a plugin that is not provably its own. After installation, it runs `openclaw plugins inspect cc-safety-net --runtime --json` and treats only a `loaded` status as success. Otherwise, a broken enabled plugin could install cleanly and then protect nothing.
+OpenClaw owns its plugin state, so installation drives OpenClaw's own CLI. It runs one command, `openclaw plugins install <packaged dir> --force --accept-capabilities`. Since OpenClaw 2026.8.1 that install enables the plugin itself unless you pass `--no-enable`, so there is no separate `openclaw plugins enable` step. If you disabled the plugin by hand in `openclaw.json`, it stays disabled and the runtime check below reports the non-loaded status rather than silently re-enabling it. `--accept-capabilities` does not exist before 2026.8.1, so an older OpenClaw rejects the install with an unknown-option error. There is no version check and no fallback.
+
+Before any `--force` command, CC Safety Net verifies that the target extension directory holds only its own managed files. It cannot overwrite or delete a plugin that is not provably its own. After installation, it runs `openclaw plugins inspect cc-safety-net --runtime --json` and treats only a `loaded` status as success. Otherwise, a broken enabled plugin could install cleanly and then protect nothing.
 
 The installed copy lives at `<state dir>/extensions/cc-safety-net/`, where the state dir is `OPENCLAW_STATE_DIR` when set, else the directory holding `OPENCLAW_CONFIG_PATH`, else `~/.openclaw`. Enablement lives in OpenClaw's own config (`openclaw.json` in the state dir, or `OPENCLAW_CONFIG_PATH`): the global `plugins.enabled` switch, the `plugins.allow` and `plugins.deny` lists, and the per-plugin `plugins.entries.cc-safety-net.enabled` entry all take part. If `plugins.allow` is set, it must also list `cc-safety-net`.
 

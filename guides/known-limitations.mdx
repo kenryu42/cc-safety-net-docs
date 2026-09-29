@@ -46,6 +46,8 @@ bash -c "$(cat destructive.sh)"
 
 CC Safety Net recursively scans `bash -c` and interpreter code arguments, but if the code is fetched from a remote source or assembled from variables, the destructive payload is invisible to command-string analysis. This is a fundamental limit of the approach.
 
+In standard mode the decision on some of these commands moves to you. When the analyzer cannot resolve a shell execution source, and that source is not a shell reading its program from stdin and the command text names no destructive pattern, the Claude Code hook asks you to approve the command instead of denying it. `bash -c "$CMD"` is such a command. The same applies to unparseable text that matched the fallback destructive-pattern scan. Approving runs the command with no further analysis. The prompt appears only in Claude Code's `default`, `acceptEdits`, and `plan` permission modes. Strict and paranoid, every other permission mode, and every other host keep the deny. See [When standard cannot verify a command](/configuration/modes#when-standard-cannot-verify-a-command).
+
 ## Parser limits
 
 ### Interpreter long-form flags
@@ -85,7 +87,7 @@ Coding-CLI coverage comes in two tiers. The **credential** tier (auth tokens and
 The residual limit is that this is a **bounded pattern set over supported shapes**, not a general read boundary:
 
 - A credential in a file whose name and extension are not on the pattern list is not recognized.
-- Standard mode allows standalone metadata-only checks of built-in sensitive paths (for example `test -f ~/.ssh/id_rsa`, `find ~/.ssh -type f`, `ls -la ~/.ssh`, or `stat .env`). [Strict and paranoid](/configuration/modes#strict-mode-cc_safety_net_strict=1) block that discovery. Configured deny paths are never relaxed in any mode.
+- Standard mode allows metadata-only checks of built-in sensitive paths (for example `test -f ~/.ssh/id_rsa`, `find ~/.ssh -type f`, `ls -la ~/.ssh`, or `stat .env`), either alone or as one segment of a compound command such as `test -f .env && echo present`. For the built-in file-name rules it also treats three shapes as a mention rather than a read: a secret name that is an existing directory, a word containing whitespace that neither starts like a path nor exists on disk, and an output redirection that creates a secret-named file where none exists. Those three never apply to the `secret.home.*` or `secret.cli.*` rules. [Strict and paranoid](/configuration/modes#strict-mode-cc_safety_net_strict=1) block every form listed here, and configured deny paths are never relaxed in any mode. [Sensitive-path relaxations in standard](/configuration/modes#sensitive-path-relaxations-in-standard) has the exact conditions.
 - Setting `secret_protection.enabled` to `false` in `policy.json` turns the whole stage off, deny paths included.
 
 For a boundary that constrains *all* reads rather than a recognized set, use [sandboxing](/guides/vs-sandboxing#where-cc-safety-net-cannot-help).

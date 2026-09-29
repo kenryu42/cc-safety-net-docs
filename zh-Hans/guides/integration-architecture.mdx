@@ -26,7 +26,7 @@ CC Safety Net 支持十三种编码智能体，它们通过四种模型接入。
 | 智能体 | 运行时标志 | Hook 事件 | 命令工具 | Deny 输出形式 |
 | --- | --- | --- | --- | --- |
 | Antigravity CLI | `-ac` / `--agy-cli` | `PreToolUse` | `run_command` | `{ "decision": "deny", "reason": … }` |
-| Claude Code | `-cc` / `--coding-cli` | `PreToolUse` | `Bash`, `PowerShell` | `hookSpecificOutput.permissionDecision: "deny"` |
+| Claude Code | `-cc` / `--coding-cli` | `PreToolUse` | `Bash`, `PowerShell` | `hookSpecificOutput.permissionDecision: "deny"`；<a href="#when-claude-code-asks-instead-of-denying">standard 模式无法验证命令时</a>则为 `"ask"` |
 | Codex | `-cx` / `--codex` | `PreToolUse` | `Bash` | `hookSpecificOutput.permissionDecision: "deny"` |
 | Cursor | `-cu` / `--cursor` | `preToolUse` | `Shell` | `{ "permission": "deny", "user_message": …, "agent_message": … }` |
 | Gemini CLI | `-gc` / `--gemini-cli` | `BeforeTool` | `run_shell_command` | `{ "decision": "deny", "reason": …, "systemMessage": … }` |
@@ -36,6 +36,25 @@ CC Safety Net 支持十三种编码智能体，它们通过四种模型接入。
 | Kimi Code | `-kc` / `--kimi-code` | `PreToolUse` | `Bash` | `hookSpecificOutput.permissionDecision: "deny"` |
 
 <Note>由于这些智能体使用不同的事件和 deny 格式，CC Safety Net 会按智能体发出正确的形式。例如，Gemini CLI 要求以 0 退出并返回 `decision`/`systemMessage` 对象，而不是 Claude Code 的 `hookSpecificOutput`。无需配置输出格式，传入的标志会决定使用哪种格式。</Note>
+
+<span id="when-claude-code-asks-instead-of-denying"></span>
+
+### Claude Code 何时改为询问而不是拒绝
+
+只有 Claude Code 的 hook 能返回 `ask`。它不输出 `permissionDecision: "deny"`，而是输出 `permissionDecision: "ask"`，由 Claude Code 把这次调用作为权限提示交给你确认。
+
+只有两类拒绝会变成 `ask`，且仅在 fail-closed 能力关闭时，也就是 standard 级别：
+
+- 规则 `raw-text.dangerous-command`，在 CC Safety Net 无法解析的命令文本读起来仍具有破坏性时触发。
+- 原因为 `shell execution source cannot be verified safely. Use a literal command string or ask the user to run it manually.` 的那一类。其中两种情况仍然保持拒绝：命令原文本身也含有破坏性模式，或者把无法验证的来源交给了 `sh -` 这类只从 stdin 读取程序的 shell。
+
+其余拒绝一律不变。<a href="/zh-Hans/configuration/modes#strict-mode">strict 和 paranoid</a> 都会开启 fail-closed，因此这两个级别的拒绝同样不变。
+
+`ask` 只有在有人看到时才有意义，所以 hook 仅在 `default`、`acceptEdits` 和 `plan` 三种权限模式下输出它。其他取值，以及缺少该字段的情况，都按拒绝处理。在其余模式下，Claude Code 可能在无人查看的情况下处理掉提示，`ask` 就等同于悄悄放行。
+
+其他宿主都不会询问。Codex 和 Kimi Code 使用同一个 `PreToolUse` 适配器，但未启用 ask 输出；Cursor 的 hook 形式只有 `allow` 和 `deny`。不会在 `ask` 上弹出提示的宿主会直接运行命令，而不是拦截它。Codex 就会拒绝这个取值并执行该工具。
+
+提示文案与阻止消息不同，审计日志仍按拒绝记录这次调用。两种消息都可以在<a href="/zh-Hans/guides/how-it-works#what-a-block-looks-like">阻止消息的形式</a>中查看；这两类拒绝在策略层面的说明见<a href="/zh-Hans/configuration/modes#when-standard-cannot-verify-a-command">`standard` 无法验证命令时</a>。
 
 ### 使用共享 Coding CLI hook
 
@@ -97,7 +116,9 @@ OpenClaw 把 CC Safety Net 作为原生插件**进程内**加载。插件以包�
 
 插件通过 OpenClaw runtime API 解析智能体的 workspace 目录，并把它同时用作策略目录和执行目录；调用中的 `workdir` 会在解析后限定在该 workspace 内。遇到格式错误的事件、缺失或为空的命令、无法解析的 workspace、workspace 之外的 `workdir`，或已取消的调用时，CC Safety Net 都会 fail closed。`host` 不是 `auto` 或 `gateway` 的 `exec` 调用同样会被阻止。`gateway` 已证明为本地。`host: "auto"` 或完全没有 `host` 的调用按本地 Gateway 语义分析，但插件不会检查 OpenClaw 实际把它路由到哪里。沙箱情况见<a href="/zh-Hans/guides/known-limitations">已知限制</a>。
 
-插件状态由 OpenClaw 自己掌管，因此安装过程通过 OpenClaw 自身的 CLI 完成：`openclaw plugins install <packaged dir> --force`，然后 `openclaw plugins enable cc-safety-net`。执行任何 `--force` 命令前，CC Safety Net 都会验证目标扩展目录只含自有的托管文件，因此绝不会覆盖或删除无法证明属于自己的插件。安装后它会运行 `openclaw plugins inspect cc-safety-net --runtime --json`，并且只把 `loaded` 状态视为成功：bundle 损坏的插件即使已启用，安装过程也不会报错，之后却静默地不提供任何保护。
+插件状态由 OpenClaw 自己掌管，因此安装过程通过 OpenClaw 自身的 CLI 完成，只运行一条命令：`openclaw plugins install <packaged dir> --force --accept-capabilities`。自 OpenClaw 2026.8.1 起，只要不传 `--no-enable`，install 本身就会启用插件，因此不再单独执行 `openclaw plugins enable`。若你在 `openclaw.json` 中手动禁用了插件，它会保持禁用，下面的运行时检查会如实报告未加载状态，CC Safety Net 不会悄悄把它重新启用。`--accept-capabilities` 在 2026.8.1 之前并不存在，更早的 OpenClaw 会以 unknown-option 错误拒绝安装。这里没有版本判断，也没有回退。
+
+执行任何 `--force` 命令前，CC Safety Net 都会验证目标扩展目录只含自有的托管文件，因此绝不会覆盖或删除无法证明属于自己的插件。安装后它会运行 `openclaw plugins inspect cc-safety-net --runtime --json`，并且只把 `loaded` 状态视为成功：bundle 损坏的插件即使已启用，安装过程也不会报错，之后却静默地不提供任何保护。
 
 安装副本位于 `<state dir>/extensions/cc-safety-net/`。其中 state dir 为 `OPENCLAW_STATE_DIR`（若已设置）；否则为 `OPENCLAW_CONFIG_PATH` 所指文件的所在目录；两者都未设置时为 `~/.openclaw`。启用状态位于 OpenClaw 自身的配置中（state dir 中的 `openclaw.json`，或 `OPENCLAW_CONFIG_PATH` 指向的文件）：全局 `plugins.enabled` 开关、`plugins.allow` 和 `plugins.deny` 列表，以及针对单个插件的 `plugins.entries.cc-safety-net.enabled` 条目都会起作用。设置了 `plugins.allow` 时，其中必须也列出 `cc-safety-net`。
 

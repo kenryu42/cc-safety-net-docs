@@ -30,12 +30,35 @@ Some failures are handled the same way at every level:
 
 Where standard differs is unparseable and unverifiable input:
 
-- If a command cannot be tokenized by the shell parser (for example, an unterminated quote), CC Safety Net runs a fallback text scan for known-dangerous patterns. If the scan matches, the command is blocked; if it does not match, the command is **allowed through**. So `echo 'unterminated` is allowed, while `git reset --hard 'unterminated` is still blocked by the heuristic scan.
+- If a command cannot be tokenized by the shell parser (for example, an unterminated quote), CC Safety Net runs a fallback text scan for known-dangerous patterns. Text the scan does not match is **allowed through**, so `echo 'unterminated` runs. Text the scan matches, such as `git reset --hard 'unterminated`, is blocked. On Claude Code the hook asks you to approve it instead. See [When standard cannot verify a command](#when-standard-cannot-verify-a-command).
 - **Dynamic recursive-delete targets are not categorically blocked in standard.** `rm -rf "$target"` is allowed here and blocked only once the fail-closed capability is on.
 
-Standard also intentionally allows dynamic executables, command structure assembled through substitution, other unverifiable recursive-delete targets, standalone metadata-only checks of built-in sensitive paths, and `eval`/`source` of a single fully literal local generator command such as `eval "$(ssh-agent -s)"`. These are deliberate trade-offs: standard is **best-effort against adversarial or dynamic input**. Use strict or paranoid when commands may come from prompt injection or another adversarial context.
+Standard also intentionally allows dynamic executables, command structure assembled through substitution, other unverifiable recursive-delete targets, metadata-only checks of built-in sensitive paths, and `eval`/`source` of a single fully literal local generator command such as `eval "$(ssh-agent -s)"`. These are deliberate trade-offs: standard is **best-effort against adversarial or dynamic input**. Use strict or paranoid when commands may come from prompt injection or another adversarial context.
 
 Standard never relaxes sensitive **content** access, user-configured deny paths and their descendants, or the catastrophic protections (root and home recursive deletion, Git metadata, and the canonical `policy.json`).
+
+### Sensitive-path relaxations in standard
+
+Standard allows a metadata-only check of a built-in sensitive path. The recognized forms are `ls`, `stat`, `test -e` and `test -f`, `[ -e ... ]` and `[ -f ... ]`, `git check-ignore`, and `find` with none of `-delete`, `-exec`, `-execdir`, `-ok`, `-okdir`, `-files0-from`, `-fls`, `-fprint`, `-fprint0`, or `-fprintf`. The check may stand alone or be one segment of a compound command, so `test -f .env && echo present` and `if [ -f ~/.aws/credentials ]; then echo yes; fi` are both allowed. A read in another segment is still blocked, so `test -f .env && cat .env` is denied.
+
+For the built-in file-name rules, standard also treats three shapes as a mention rather than a read:
+
+- A secret name that resolves to an existing **directory**. `ls credentials` lists a folder, so it is allowed.
+- A word containing whitespace that neither starts like a path (`~`, `.`, `/`, or a Windows drive letter) nor exists on disk, such as the quoted text in `for c in 'cat ~/.aws/credentials'; do echo "$c"; done`.
+- An output redirection that **creates** a secret-named file where none exists, such as `printf 'KEY=1\n' > .env` in a directory that has no `.env`.
+
+The last two apply only when the word contains no `$`. None of the three relax the `secret.home.*` or `secret.cli.*` rules, so `du -sh ~/.aws` stays blocked. Configured deny paths are never relaxed in any mode, and [strict and paranoid](#strict-mode-cc_safety_net_strict=1) block all of these forms. See [Secret protection](/reference/secret-protection) for the rules themselves.
+
+### When standard cannot verify a command
+
+Standard has a third outcome besides allow and deny. Two denials are marked as unverified rather than dangerous:
+
+- Unparseable text whose fallback scan matched a destructive pattern, rule `raw-text.dangerous-command`.
+- A shell execution source the analyzer cannot resolve, when that source is not a shell reading its program from stdin and the command text names no destructive pattern. `bash -c "$CMD"` qualifies. `cat install.sh | sh -` does not, because `sh -` is a shell reading its program from stdin.
+
+On Claude Code the hook returns `permissionDecision: "ask"` for those two, so Claude Code prompts you instead of refusing. The message is headed `CC Safety Net could not verify this command` and ends with `Approve only if you expected this command.` Approving runs the command with no further analysis.
+
+The prompt appears only in the `default`, `acceptEdits`, and `plan` permission modes. `bypassPermissions`, `dontAsk`, `auto`, and a payload that names no permission mode keep the deny, because nothing there would put the question to a person. Strict and paranoid keep the deny in every permission mode, and so does every other host, where an `ask` either fails open or can be answered without a person. See [Integration architecture](/guides/integration-architecture) for each host's output.
 
 ## Strict mode (`CC_SAFETY_NET_STRICT=1`)
 
@@ -44,8 +67,8 @@ Strict mode turns on the `fail_closed` capability. It tightens five distinct thi
 - **Unparseable commands are blocked.** CC Safety Net denies any command the parser cannot split into tokens, even when the fallback text scan finds no dangerous pattern. The reason is "Command could not be safely analyzed (strict mode)". `echo 'unterminated` is allowed in standard and blocked here.
 - **Heredocs fail closed.** A command containing a heredoc is denied unless it has exactly one unexpanded heredoc, on stdin, no other input redirection, and a consumer that is a literal `cat`, `tee`, `git apply`, `git commit`, `gh pr create`, or `gh issue create`. A heredoc is unexpanded when the delimiter is quoted (`<<'EOF'`), or when the delimiter is unquoted and its body contains no `$`, backtick, or backslash. So `python3 - <<'PY'` and a `cat <<EOF` whose body mentions `$HOME` are denied here, while `git commit -F - <<'EOF'` and a plain-text `cat <<EOF` still pass. See [Heredoc analysis](/guides/analysis-engine#heredoc-analysis) for the exact gate.
 - **Unverifiable destructive targets are blocked** by the five rules listed below.
-- **Metadata-only sensitive-path discovery is blocked.** `test -f ~/.ssh/id_rsa` and `find ~/.ssh -type f` are allowed in standard and denied in strict.
-- **The standard-only inline-data relaxation is disabled.** In standard, a sensitive path literal inside an interpreter's inline code is inert data unless the code names a filesystem, command-execution, or eval marker. That covers every code interpreter except the POSIX shells, whose inline code the guard walks as shell instead. Strict removes the allowance and scans inside literal text as well. See [Secret protection](/reference/secret-protection).
+- **Metadata-only sensitive-path discovery is blocked.** `test -f ~/.ssh/id_rsa` and `find ~/.ssh -type f` are allowed in standard and denied in strict, whether they stand alone or sit in one segment of a compound command. Strict also denies the three shapes listed under [Sensitive-path relaxations in standard](#sensitive-path-relaxations-in-standard).
+- **The standard-only inline-data relaxation is disabled.** In standard, a sensitive path literal inside an interpreter's inline code is inert data unless the code names a filesystem, command-execution, or eval marker. Even with such a marker, standard walks a literal as shell text only where an execution call can receive it: every literal when the call's first argument holds a name, otherwise the literals inside the call's parentheses or directly after a parenthesis-less `system`, `exec`, `spawn`, or `popen`. That covers every code interpreter except the POSIX shells, whose inline code the guard walks as shell instead. Strict removes both allowances and scans inside literal text as well. See [Secret protection](/reference/secret-protection).
 
 These five rules activate only when `fail_closed` is on:
 

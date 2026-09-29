@@ -32,12 +32,39 @@ CC Safety Net には、`standard`、`strict`、`paranoid` という 3 つの**�
 
 standard が他と異なるのは、解析できない入力と検証できない入力の扱いです。
 
-- シェルのパーサーがコマンドをトークンに分割できない場合（引用符が閉じていない場合など）、CC Safety Net は既知の危険なパターンをフォールバックのテキストスキャンで探します。一致すればブロックし、一致しなければそのコマンドを**通します**。そのため `echo 'unterminated` は許可されますが、`git reset --hard 'unterminated` はヒューリスティックなスキャンによって引き続きブロックされます。
+- シェルのパーサーがコマンドをトークンに分割できない場合（引用符が閉じていない場合など）、CC Safety Net は既知の危険なパターンをフォールバックのテキストスキャンで探します。一致しなかったテキストはそのまま**通す**ため、`echo 'unterminated` は実行されます。一致したテキスト（`git reset --hard 'unterminated` など）はブロックします。Claude Code では、hook がブロックせずに承認を求めます。[standard がコマンドを検証できない場合](#when-standard-cannot-verify-a-command)を参照してください。
 - **standard では、動的な再帰削除の対象を一律にはブロックしません。** `rm -rf "$target"` はここでは許可され、fail closed 機能を有効にして初めてブロックされます。
 
-standard はこのほかにも、次のものを意図的に許可します。動的な実行ファイル、コマンド置換で組み立てられたコマンド構造、検証できないその他の再帰削除対象、組み込みの機密パスに対するメタデータのみの単独チェック、そして `eval "$(ssh-agent -s)"` のように完全にリテラルなローカルの生成コマンド 1 つに対する `eval`／`source` です。これらは意図的なトレードオフです。standard は、**敵対的な入力や動的な入力に対してはベストエフォート**という位置づけです。コマンドがプロンプトインジェクションなど敵対的な文脈から渡される可能性がある場合は、strict または paranoid を使ってください。
+standard はこのほかにも、次のものを意図的に許可します。動的な実行ファイル、コマンド置換で組み立てられたコマンド構造、検証できないその他の再帰削除対象、組み込みの機密パスに対するメタデータのみのチェック、そして `eval "$(ssh-agent -s)"` のように完全にリテラルなローカルの生成コマンド 1 つに対する `eval`／`source` です。これらは意図的なトレードオフです。standard は、**敵対的な入力や動的な入力に対してはベストエフォート**という位置づけです。コマンドがプロンプトインジェクションなど敵対的な文脈から渡される可能性がある場合は、strict または paranoid を使ってください。
 
 一方で standard でも、緩和されないものがあります。機密情報の**内容**へのアクセス、ユーザーが設定した deny path とその配下、そして致命的な操作に対する保護（root とホームディレクトリの再帰削除、Git メタデータ、正規の `policy.json`）です。
+
+<span id="sensitive-path-relaxations-in-standard"></span>
+
+### standard における機密パスの緩和
+
+standard では、組み込みの機密パスに対してメタデータだけを見るチェックを許可します。対象となるのは `ls`、`stat`、`test -e` と `test -f`、`[ -e ... ]` と `[ -f ... ]`、`git check-ignore`、および `-delete`、`-exec`、`-execdir`、`-ok`、`-okdir`、`-files0-from`、`-fls`、`-fprint`、`-fprint0`、`-fprintf` のいずれも含まない `find` です。このチェックは単独でも、複合コマンドの 1 セグメントとしても許可されるため、`test -f .env && echo present` も `if [ -f ~/.aws/credentials ]; then echo yes; fi` も通ります。別のセグメントに読み取りがあれば引き続きブロックするため、`test -f .env && cat .env` は拒否されます。
+
+組み込みのファイル名ルールについては、standard は次の 3 つの形も、読み取りではなく単なる言及として扱います。
+
+- 機密ファイル名が既存の**ディレクトリ**を指す場合。`ls credentials` はディレクトリの一覧表示なので許可されます。
+- 空白を含む語で、パスらしい文字（`~`、`.`、`/`、Windows のドライブレター）で始まらず、ディスク上にも存在しないもの。`for c in 'cat ~/.aws/credentials'; do echo "$c"; done` の引用符で囲まれた文字列がこれにあたります。
+- 存在しない機密ファイル名を出力リダイレクトで**新規作成**する場合。`.env` のないディレクトリでの `printf 'KEY=1\n' > .env` などです。
+
+あとの 2 つが適用されるのは、語に `$` が含まれない場合だけです。この 3 つはいずれも `secret.home.*` と `secret.cli.*` のルールを緩和しないため、`du -sh ~/.aws` はブロックされたままです。設定した deny path はどのモードでも緩和されず、[strict と paranoid](#strict-mode) ではここに挙げた形をすべてブロックします。ルールそのものは[シークレット保護](/ja/reference/secret-protection)を参照してください。
+
+<span id="when-standard-cannot-verify-a-command"></span>
+
+### standard がコマンドを検証できない場合
+
+standard には、許可と拒否に加えて 3 つ目の結果があります。次の 2 つの拒否は、危険と判断されたものではなく、検証できなかったものとして扱われます。
+
+- パースできないテキストのうち、フォールバックスキャンが破壊的パターンに一致したもの（ルール `raw-text.dangerous-command`）。
+- シェルの実行元を解決できず、その実行元が標準入力からプログラムを読むシェルでもなく、コマンドテキストにも破壊的パターンが現れない場合。`bash -c "$CMD"` はこれにあたります。`cat install.sh | sh -` は、`sh -` が標準入力からプログラムを読むシェルなのであたりません。
+
+Claude Code では、hook がこの 2 つに `permissionDecision: "ask"` を返すため、拒否ではなく権限確認のプロンプトが表示されます。メッセージの見出しは `CC Safety Net could not verify this command` で、末尾は `Approve only if you expected this command.` です。承認すると、そのコマンドはそれ以上解析されずに実行されます。
+
+この確認が出るのは、permission mode が `default`、`acceptEdits`、`plan` のときだけです。`bypassPermissions`、`dontAsk`、`auto`、および permission mode を指定しないペイロードでは、人に問いかける手段がないため拒否のままです。strict と paranoid はどの permission mode でも拒否します。他のホストも同様で、`ask` が fail open になるか、人を介さずに応答されうるためです。各ホストの出力は[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
 
 <span id="strict-mode"></span>
 
@@ -48,8 +75,8 @@ strict モードは `fail_closed` 機能を有効にします。厳しくなる�
 - **解析できないコマンドをブロックします。** フォールバックのテキストスキャンで危険なパターンが見つからなかった場合でも、パーサーがトークンに分割できないコマンドは「Command could not be safely analyzed (strict mode)」として拒否します。`echo 'unterminated` は standard では許可されますが、ここではブロックされます。
 - **heredoc を fail closed で扱います。** 次の条件をすべて満たす場合を除き、heredoc を含むコマンドを拒否します。標準入力を対象とする展開されない heredoc が 1 つだけで、他に入力リダイレクトがなく、読み取り側が `cat`、`tee`、`git apply`、`git commit`、`gh pr create`、`gh issue create` のいずれかとしてリテラルに書かれていることが必要です。展開されない heredoc とは、デリミタが引用符で囲まれているもの（`<<'EOF'`）か、引用符がなくても本文に `$`、バッククォート、バックスラッシュが含まれないものを指します。そのため `python3 - <<'PY'` や、本文に `$HOME` を含む `cat <<EOF` は拒否され、`git commit -F - <<'EOF'` と、本文がプレーンテキストだけの `cat <<EOF` は許可されます。正確な条件は [heredoc の解析](/ja/guides/analysis-engine#heredoc-analysis)を参照してください。
 - 下に挙げる 5 つのルールによって、**検証できない破壊的対象をブロックします**。
-- **メタデータのみで機密パスを探る操作をブロックします。** `test -f ~/.ssh/id_rsa` と `find ~/.ssh -type f` は standard では許可され、strict では拒否されます。
-- **standard 限定のインラインデータ緩和が無効になります。** standard では、インタープリターのインラインコードに機密パスのリテラルが含まれていても、コード全体にファイルシステム操作、コマンド実行、eval のいずれの痕跡もなければ、実行されないデータとして扱います。この緩和の対象は POSIX シェル以外のすべてのコードインタープリターです。POSIX シェルのインラインコードは、代わりにシェルとしてたどります。strict ではこの緩和がなくなり、リテラルの中身もスキャンします。[シークレット保護](/ja/reference/secret-protection)を参照してください。
+- **メタデータのみで機密パスを探る操作をブロックします。** `test -f ~/.ssh/id_rsa` と `find ~/.ssh -type f` は standard では許可され、strict では拒否されます。単独で書かれていても、複合コマンドの 1 セグメントであっても同じです。[standard における機密パスの緩和](#sensitive-path-relaxations-in-standard)に挙げた 3 つの形も、strict では拒否されます。
+- **standard 限定のインラインデータ緩和が無効になります。** standard では、インタープリターのインラインコードに機密パスのリテラルが含まれていても、コード全体にファイルシステム操作、コマンド実行、eval のいずれの痕跡もなければ、実行されないデータとして扱います。痕跡がある場合でも、standard がリテラルをシェルとしてたどるのは、実行呼び出しがそのリテラルを受け取れるときだけです。呼び出しの第 1 引数がリテラルではなく名前の場合はすべてのリテラルが対象になり、そうでない場合は呼び出しの括弧の中にあるリテラルと、括弧なしの `system`、`exec`、`spawn`、`popen` の直後にあるリテラルだけが対象になります。この緩和の対象は POSIX シェル以外のすべてのコードインタープリターです。POSIX シェルのインラインコードは、代わりにシェルとしてたどります。strict ではこの 2 つの緩和がなくなり、リテラルの中身もスキャンします。[シークレット保護](/ja/reference/secret-protection)を参照してください。
 
 次の 5 つのルールは、`fail_closed` が有効なときにだけ動作します。
 

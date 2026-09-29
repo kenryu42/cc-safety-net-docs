@@ -41,7 +41,7 @@ standard、strict、paranoid は、`fail_closed`、`paranoid_rm`、`paranoid_int
 
 | レベル | 保証の内容 |
 | --- | --- |
-| [standard](/ja/configuration/modes#default-mode) | 認識できる破壊的コマンドに対する**ベストエフォート**の保護。動的な実行ファイル、コマンド置換で組み立てられたコマンド構造、検証できない再帰削除の対象、組み込みの機密パスに対する単独のメタデータのみのチェック、完全にリテラルなローカルの生成コマンド 1 つに対する `eval`／`source` は、意図的に許可する。パースできなくても安全に見えるテキストは通し、破壊的に見えるテキストは保守的なヒューリスティックで検出する |
+| [standard](/ja/configuration/modes#default-mode) | 認識できる破壊的コマンドに対する**ベストエフォート**の保護。動的な実行ファイル、コマンド置換で組み立てられたコマンド構造、検証できない再帰削除の対象、組み込みの機密パスに対するメタデータのみのチェック（単独でも複合コマンドの 1 セグメントでも）、完全にリテラルなローカルの生成コマンド 1 つに対する `eval`／`source` は、意図的に許可する。パースできなくても安全に見えるテキストは通し、破壊的に見えるテキストは保守的なヒューリスティックで検出する |
 | [strict](/ja/configuration/modes#strict-mode) | fail closed の機能を追加する。パースできない入力を拒否し、`rm -rf "$target"` のような検証できない破壊的対象と、メタデータのみによる機密パスの探索をブロックする |
 | [paranoid](/ja/configuration/modes#paranoid-mode) | strict にさらに 2 つの制限を加える。カレントディレクトリ配下であっても一時パス以外への[再帰的な強制削除](/ja/configuration/modes#paranoid-rm-check)をブロックし、内容にかかわらず[すべてのインタープリター 1 行コード](/ja/configuration/modes#paranoid-interpreters)をブロックする |
 
@@ -49,7 +49,11 @@ standard、strict、paranoid は、`fail_closed`、`paranoid_rm`、`paranoid_int
   standard モードは**敵対的な入力に耐える水準ではありません**。動的な `rm -rf` の対象は、standard では一律にはブロックされません。`rm -rf "$target"` は standard では許可され、ブロックされるのは strict と paranoid だけです。コマンドがプロンプトインジェクションなど敵対的な文脈から来る可能性がある場合は、strict または paranoid が必要です。
 </Warning>
 
+standard には、許可と拒否に加えて 3 つ目の結果があります。次の 2 つは、危険と判断されたものではなく検証できなかったものとして扱われます。1 つはフォールバックの破壊的パターンスキャンに一致した、パースできないテキストです。もう 1 つは、コマンドテキストに破壊的パターンが現れず、シェルの実行元も解決できないコマンドです。この 2 つに対して、Claude Code の hook は拒否せず、Claude Code 自身の権限確認のプロンプトで承認を求めます。これが起きるのは permission mode が `default`、`acceptEdits`、`plan` のときだけです。他の permission mode、他のホスト、strict と paranoid は拒否のままです。[standard がコマンドを検証できない場合](/ja/configuration/modes#when-standard-cannot-verify-a-command)を参照してください。
+
 シークレット保護が有効な間は、安全レベルによって、一致した機密情報の**内容**へのアクセスや、ユーザーが設定した deny path とその配下が緩和されることはありません。設定した `secret_protection.allow_paths` の項目により、特定のファイルやディレクトリツリーを CLI 以外の組み込みシークレットルールから除外できますが、deny path と `secret.cli.*` のルールは引き続き優先されます。致命的な操作に対する保護は常に適用されます。これには、root またはユーザーのホームディレクトリの再帰削除、保護対象の Git メタデータへの破壊的な変更、ユーザーまたはプロジェクトの `policy.json` への破壊的な変更が含まれます。
+
+組み込みのファイル名ルールについては、standard は次の 3 つの形を読み取りではなく単なる言及として扱います。既存のディレクトリを指す機密ファイル名、パスらしい文字で始まらずディスク上にも存在しない空白を含む語、そして存在しない機密ファイル名を作る出力リダイレクトです。`secret.home.*` と `secret.cli.*` のルールがこの形で緩和されることはありません。正確な条件は [standard における機密パスの緩和](/ja/configuration/modes#sensitive-path-relaxations-in-standard)にあります。
 
 <span id="configuration-recovery-boundary"></span>
 

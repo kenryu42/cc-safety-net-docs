@@ -233,7 +233,7 @@ Schema 版本。必须为 `1`。这是唯一的必填字段；值缺失或错误
 </ParamField>
 
 <ParamField body="secret_protection.allow_paths" type="string[]" default="[]">
-从内置机密模式规则中豁免的精确文件或目录树。配置的拒绝路径和编码 CLI 保护仍然适用。验证规则和优先顺序见[机密允许路径](#机密允许路径)。
+从内置机密模式规则中豁免的精确文件或目录树。条目也可以写成一个目录加 `**/` 再加精确的文件名，例如 `~/code/**/.env.local`。配置的拒绝路径和编码 CLI 保护仍然适用。验证规则和优先顺序见[机密允许路径](#机密允许路径)。
 </ParamField>
 
 <ParamField body="audit.retention_days" type="integer" default="30">
@@ -365,6 +365,8 @@ Schema 版本。必须为 `1`。这是唯一的必填字段；值缺失或错误
 
 `secret_protection.allow_paths` 把精确的文件或目录及其所有后代从内置的 basename、主目录、密钥变体和扩展名规则中豁免出来。它适用于你有意管理的文件，例如仓库中的 `.env.test`，或包含形似凭证但并非机密的文件名的 fixture 目录。
 
+条目也可以只指定某个目录下的一个文件名：先写目录，再写 `**/`，最后写精确的文件名，例如 `~/code/**/.env.local`。这条条目豁免 `~/code` 下任意深度的每个 `.env.local`，除此之外不豁免任何路径。`**/` 之前的目录是必需的，并且要经过与普通条目相同的检查。其他 glob 形式一律不接受。
+
 优先顺序是固定的：
 
 1. 配置的拒绝路径始终优先。如果同一目标同时出现在两个列表中，结果是 `secret.deny-path`。
@@ -377,14 +379,19 @@ Schema 版本。必须为 `1`。这是唯一的必填字段；值缺失或错误
 | --- | --- |
 | 非字符串，或去除空白后为空的字符串 | 无效：`must be a non-empty path string` |
 | 相对路径，例如 `.env.test` 或 `fixtures/credentials` | **有效**：每个会话都按配置工作目录解析 |
-| 包含 `*` 或 `?` 的条目 | 无效：`cannot contain glob characters (* or ?); list the exact file or directory` |
+| 目录加 `**/` 再加精确文件名的条目，例如 `~/code/**/.env.local` 或 `packages/**/.env.local` | **有效**：豁免该目录下任意深度中的这一个文件名 |
+| `**/` 之前没有目录的条目，例如 `**/.env.local` | 无效：`supports only a folder followed by **/ and an exact file name, such as ~/code/**/.env.local` |
+| 其他任何对 `*` 或 `?` 的使用，例如 `apps/*/.env`、`.env.v?` 或 `~/**/.ssh/config` | 无效：同一条消息 |
 | 单独的 `~`、`$HOME` 或 `${HOME}`，或主目录之上的路径 | 无效：`cannot cover the home directory or a path above it (this would disable secret protection everywhere)` |
-| `~/.cc-safety-net` 或其下的任何路径 | 无效：`cannot cover the guard's own configuration` |
+| `**/` 之前的目录是主目录或主目录上级的条目，例如 `~/**/config` 或 `/**/id_rsa` | 无效：同一条消息 |
+| `~/.cc-safety-net` 或其下的任何路径，包括 `~/.cc-safety-net/**/.env.local` | 无效：`cannot cover the guard's own configuration` |
 | 其他任何字面绝对路径、`~/…`、`$HOME/…` 或 `${HOME}/…` 路径 | 有效 |
 
-条目是字面路径，而不是 glob 模式。目标按执行工作目录解析，相对的允许条目按配置工作目录解析。在进行相同或后代比较前，两边都会跟随现有符号链接，因此允许根目录也涵盖通过符号链接到达的目标。
+`**/` 后面只能是一个文件名，不能包含斜杠，因此 `~/**/.ssh/config` 不属于这种写法，会按 glob 被拒绝。除这种写法外，条目都是字面路径，而不是 glob 模式。
 
-运行时会在解析后再次检查安全边界。解析结果为主目录或主目录上级的条目会被忽略。位于生效的防护配置根目录之下的目标永远不会被豁免，包括 `CC_SAFETY_NET_HOME` 改变了该根目录时，以及主目录或 `~/.cc-safety-net` 是符号链接时。
+目标按执行工作目录解析；相对的允许条目，以及相对 `**/` 条目中的目录，按配置工作目录解析。在进行相同或后代比较前，两边都会跟随现有符号链接，因此允许根目录也涵盖通过符号链接到达的目标。`**/` 条目还要求目标自身的文件名与 `**/` 后面的名称相同，并且从不豁免目录本身。
+
+运行时会在解析后再次检查安全边界。解析结果为主目录或主目录上级的条目会被忽略，`../**/config` 这类相对目录就是在这里被拦下的。位于生效的防护配置根目录之下的目标永远不会被豁免，包括 `CC_SAFETY_NET_HOME` 改变了该根目录时，以及主目录或 `~/.cc-safety-net` 是符号链接时。
 
 <span id="audit-retention"></span>
 

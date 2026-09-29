@@ -229,7 +229,7 @@ The root object is **strict**: an unrecognized top-level key is an error, as is 
 </ParamField>
 
 <ParamField body="secret_protection.allow_paths" type="string[]" default="[]">
-  Exact files or directory trees exempted from built-in secret-pattern rules. Configured deny paths and Coding CLI protections still apply. See [Secret allow paths](#secret-allow-paths) for the validation rules and precedence.
+  Exact files or directory trees exempted from built-in secret-pattern rules. An entry can instead be a folder, then `**/`, then an exact file name, such as `~/code/**/.env.local`. Configured deny paths and Coding CLI protections still apply. See [Secret allow paths](#secret-allow-paths) for the validation rules and precedence.
 </ParamField>
 
 <ParamField body="audit.retention_days" type="integer" default="30">
@@ -349,6 +349,8 @@ Two limits worth knowing:
 
 `secret_protection.allow_paths` exempts an exact file or a directory and all its descendants from the built-in basename, home-directory, key-variant, and extension rules. Use it for files you manage deliberately, such as a repository's `.env.test`, or a fixture directory that contains non-secret credential-shaped filenames.
 
+An entry can instead name one file name under a folder: the folder, then `**/`, then an exact file name, such as `~/code/**/.env.local`. That entry exempts every `.env.local` at any depth below `~/code`, and nothing else. The folder before `**/` is required, and it goes through the same checks a plain entry does. No other glob form is accepted.
+
 The precedence is fixed:
 
 1. A configured deny path always wins. If the same target is in both lists, the result is `secret.deny-path`.
@@ -361,14 +363,19 @@ Validation:
 | --- | --- |
 | Non-string, or a string that trims to empty | Invalid. `must be a non-empty path string` |
 | Relative path, such as `.env.test` or `fixtures/credentials` | **Valid**. Resolved per session against the config working directory |
-| An entry containing `*` or `?` | Invalid. `cannot contain glob characters (* or ?); list the exact file or directory` |
+| A folder, then `**/`, then an exact file name, such as `~/code/**/.env.local` or `packages/**/.env.local` | **Valid**. Exempts that one file name at any depth below the folder |
+| An entry with no folder before `**/`, such as `**/.env.local` | Invalid. `supports only a folder followed by **/ and an exact file name, such as ~/code/**/.env.local` |
+| Any other use of `*` or `?`, such as `apps/*/.env`, `.env.v?`, or `~/**/.ssh/config` | Invalid. Same message |
 | `~`, `$HOME`, or `${HOME}` alone, or a path above home | Invalid. `cannot cover the home directory or a path above it (this would disable secret protection everywhere)` |
-| `~/.cc-safety-net` or anything below it | Invalid. `cannot cover the guard's own configuration` |
+| A `**/` entry whose folder is home or above, such as `~/**/config` or `/**/id_rsa` | Invalid. Same message |
+| `~/.cc-safety-net` or anything below it, including `~/.cc-safety-net/**/.env.local` | Invalid. `cannot cover the guard's own configuration` |
 | Any other literal absolute, `~/…`, `$HOME/…`, or `${HOME}/…` path | Valid |
 
-Entries are literal paths, not glob patterns. The target is resolved from the execution working directory, and a relative allow entry is resolved from the config working directory. Both sides follow existing symlinks before the same-or-descendant comparison, so an allow root also covers a target reached through a symlink.
+The name after `**/` is one file name and cannot contain a slash, so `~/**/.ssh/config` is not this form and is rejected as a glob. Apart from this form, entries are literal paths, not glob patterns.
 
-The runtime repeats the safety-boundary checks after resolution. An entry that resolves to home or an ancestor of home is ignored. A target under the effective guard configuration root is never exempted, including when `CC_SAFETY_NET_HOME` moves that root or when home or `~/.cc-safety-net` is a symlink.
+The target is resolved from the execution working directory, and a relative allow entry, or the folder of a relative `**/` entry, is resolved from the config working directory. Both sides follow existing symlinks before the same-or-descendant comparison, so an allow root also covers a target reached through a symlink. A `**/` entry additionally requires the target's own file name to equal the name after `**/`, and it never exempts the folder itself.
+
+The runtime repeats the safety-boundary checks after resolution. An entry that resolves to home or an ancestor of home is ignored, which is how a relative `**/` folder such as `../**/config` is caught. A target under the effective guard configuration root is never exempted, including when `CC_SAFETY_NET_HOME` moves that root or when home or `~/.cc-safety-net` is a symlink.
 
 ## Audit retention
 

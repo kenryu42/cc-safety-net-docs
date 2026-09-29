@@ -32,12 +32,39 @@ CC Safety Net 有三个**安全级别**：`standard`、`strict` 和 `paranoid`�
 
 `standard` 的差异在于无法解析和无法验证的输入：
 
-- 如果 shell 解析器无法将命令拆分成 token（例如存在未结束的引号），CC Safety Net 会对已知危险模式运行后备文本扫描。扫描匹配时阻止命令；不匹配时**允许通过**。因此 `echo 'unterminated` 会被允许，而 `git reset --hard 'unterminated` 仍会被启发式扫描阻止。
+- 如果 shell 解析器无法将命令拆分成 token（例如存在未结束的引号），CC Safety Net 会对已知危险模式运行后备文本扫描。扫描未命中的文本会**允许通过**，因此 `echo 'unterminated` 可以执行；扫描命中的文本（例如 `git reset --hard 'unterminated`）会被阻止。只有在 Claude Code 中不同：hook 会改为请你确认。参见 [`standard` 无法验证命令时](#when-standard-cannot-verify-a-command)。
 - **`standard` 不会一律阻止动态递归删除目标。** `rm -rf "$target"` 在此级别被允许，仅在启用 fail-closed 能力后才会被阻止。
 
-`standard` 还会有意允许动态可执行文件名、通过替换拼接的命令结构、其他无法验证的递归删除目标、对内置敏感路径仅读取元数据的独立检查，以及对单条完全字面的本地生成命令执行 `eval`/`source`（例如 `eval "$(ssh-agent -s)"`）。这些是有意的权衡：对于对抗性或动态输入，`standard` 仅提供**尽力保护**。如果命令可能来自提示注入或其他对抗性环境，请使用 `strict` 或 `paranoid`。
+`standard` 还会有意允许动态可执行文件名、通过替换拼接的命令结构、其他无法验证的递归删除目标、对内置敏感路径的仅元数据检查，以及对单条完全字面的本地生成命令执行 `eval`/`source`（例如 `eval "$(ssh-agent -s)"`）。这些是有意的权衡：对于对抗性或动态输入，`standard` 仅提供**尽力保护**。如果命令可能来自提示注入或其他对抗性环境，请使用 `strict` 或 `paranoid`。
 
 `standard` 绝不会放宽敏感**内容**访问、用户配置的拒绝路径及其后代，也不会放宽灾难性保护（根目录和主目录递归删除、Git 元数据和规范 `policy.json`）。
+
+<span id="sensitive-path-relaxations-in-standard"></span>
+
+### `standard` 对敏感路径的放宽
+
+`standard` 允许对内置敏感路径做仅元数据检查。可识别的形式有 `ls`、`stat`、`test -e` 和 `test -f`、`[ -e ... ]` 和 `[ -f ... ]`、`git check-ignore`，以及不含 `-delete`、`-exec`、`-execdir`、`-ok`、`-okdir`、`-files0-from`、`-fls`、`-fprint`、`-fprint0`、`-fprintf` 的 `find`。这类检查既可以单独出现，也可以只是复合命令中的一段，因此 `test -f .env && echo present` 和 `if [ -f ~/.aws/credentials ]; then echo yes; fi` 都会放行。但只要有哪一段真的读取了该路径，仍会被阻止，所以 `test -f .env && cat .env` 会被拒绝。
+
+对内置的文件名规则，`standard` 还会把下面三种形式当作提及而不是读取：
+
+- 机密文件名对应一个已存在的**目录**。`ls credentials` 列出的是目录，因此放行。
+- 含空白字符的词，既不以路径字符（`~`、`.`、`/` 或 Windows 盘符）开头，磁盘上也不存在，例如 `for c in 'cat ~/.aws/credentials'; do echo "$c"; done` 中被引号括起的那段文本。
+- 输出重定向**新建**了一个原本不存在的机密文件名，例如在没有 `.env` 的目录中执行 `printf 'KEY=1\n' > .env`。
+
+后两种只在该词不含 `$` 时适用。这三种都不会放宽 `secret.home.*` 和 `secret.cli.*` 规则，因此 `du -sh ~/.aws` 仍被阻止。任何模式都不会放宽配置的拒绝路径。[strict 和 paranoid](#strict-mode) 会阻止这里列出的全部形式。规则本身见[机密保护](/zh-Hans/reference/secret-protection)。
+
+<span id="when-standard-cannot-verify-a-command"></span>
+
+### `standard` 无法验证命令时
+
+除允许和拒绝之外，`standard` 还有第三种结果。下面两类拒绝被标记为无法验证，而不是已判定为危险：
+
+- 后备扫描在无法解析的文本中命中了破坏性模式，规则为 `raw-text.dangerous-command`。
+- 分析器无法解析 shell 的执行来源，且该来源不是从标准输入读取程序的 shell，命令文本中也没有出现破坏性模式。`bash -c "$CMD"` 属于这一类；`cat install.sh | sh -` 不属于，因为 `sh -` 本身就是一个从标准输入读取程序的 shell。
+
+在 Claude Code 中，hook 对这两类返回 `permissionDecision: "ask"`，于是 Claude Code 转而请你确认，而不是拒绝。消息以 `CC Safety Net could not verify this command` 开头，以 `Approve only if you expected this command.` 结尾。批准后命令直接执行，不再经过任何分析。
+
+这个确认只出现在 `default`、`acceptEdits` 和 `plan` 三种权限模式下。`bypassPermissions`、`dontAsk`、`auto` 以及未给出权限模式的 payload 仍然拒绝，因为在这些情况下没有人会来回答这个问题。`strict` 和 `paranoid` 在任何权限模式下都保持拒绝，其他宿主也一样：在它们那里，`ask` 要么会 fail open，要么可能在无人参与的情况下被自动应答。各宿主的输出见[集成架构](/zh-Hans/guides/integration-architecture)。
 
 <span id="strict-mode"></span>
 
@@ -48,8 +75,8 @@ Strict 模式开启 `fail_closed` 能力。它会收紧以下五类检查，不�
 - **阻止无法解析的命令。** 解析器无法拆分成 token 的任何命令都会被拒绝，即使后备文本扫描没有发现危险模式，原因也为 `Command could not be safely analyzed (strict mode)`。`echo 'unterminated` 在 `standard` 中允许，在此级别中阻止。
 - **Heredoc 会 fail closed。** 含有 heredoc 的命令只有在以下条件全部满足时才会被允许：仅有一个不展开的 heredoc、用于标准输入、没有其他输入重定向，并且消费者是字面量 `cat`、`tee`、`git apply`、`git commit`、`gh pr create` 或 `gh issue create`。所谓不展开，指分隔符带引号（`<<'EOF'`），或者分隔符不带引号且正文中不含 `$`、反引号或反斜杠。因此，`python3 - <<'PY'` 和正文中出现 `$HOME` 的 `cat <<EOF` 都会在此级别被拒绝，而 `git commit -F - <<'EOF'` 和正文为纯文本的 `cat <<EOF` 仍可通过。准确的判定条件见 [Heredoc 分析](/zh-Hans/guides/analysis-engine#heredoc-analysis)。
 - **阻止无法验证的破坏性目标**，由下面列出的五条规则负责。
-- **阻止仅元数据的敏感路径发现。** `test -f ~/.ssh/id_rsa` 和 `find ~/.ssh -type f` 在 `standard` 中允许，在 `strict` 中拒绝。
-- **禁用仅限 `standard` 的内联数据放宽。** 在 `standard` 中，只要解释器内联代码整体没有出现文件系统、命令执行或 eval 标记，其中的敏感路径字面量就视为惰性数据。这条放宽适用于除 POSIX shell 以外的所有代码解释器；POSIX shell 的内联代码则由防护阶段改按 shell 遍历。Strict 会移除这条放宽，并且连字面量内部也会扫描。参见[机密保护](/zh-Hans/reference/secret-protection)。
+- **阻止仅元数据的敏感路径发现。** `test -f ~/.ssh/id_rsa` 和 `find ~/.ssh -type f` 在 `standard` 中允许，在 `strict` 中拒绝，无论它们是单独出现还是作为复合命令中的一段。[`standard` 对敏感路径的放宽](#sensitive-path-relaxations-in-standard)中列出的三种形式，在 `strict` 中同样被拒绝。
+- **禁用仅限 `standard` 的内联数据放宽。** 在 `standard` 中，只要解释器内联代码整体没有出现文件系统、命令执行或 eval 标记，其中的敏感路径字面量就视为惰性数据。即使出现了这类标记，`standard` 也只在执行调用能接收到该字面量时，才把它当作 shell 文本遍历：调用的第一个参数是名称而不是字面量时，遍历该段代码中的全部字面量；否则只遍历该调用括号内的字面量，以及紧跟在不带括号的 `system`、`exec`、`spawn`、`popen` 之后的字面量。这条放宽适用于除 POSIX shell 以外的所有代码解释器；POSIX shell 的内联代码则由防护阶段改按 shell 遍历。Strict 会移除这两条放宽，并且连字面量内部也会扫描。参见[机密保护](/zh-Hans/reference/secret-protection)。
 
 以下五条规则仅在 `fail_closed` 开启时启用：
 

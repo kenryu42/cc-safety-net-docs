@@ -44,6 +44,8 @@ bash -c "$(cat destructive.sh)"
 
 CC Safety Net 会递归扫描 `bash -c` 和解释器的代码参数，但如果代码来自远程来源或由变量拼接而成，命令字符串分析就看不到其中的破坏性 payload。这是这种方法的根本限制。
 
+在 standard 模式下，其中一部分命令的决定权会转到你手上。当分析器无法解析 shell 的执行来源，且该来源不是从标准输入读取程序的 shell、命令文本中也没有出现破坏性模式时，Claude Code hook 会请你批准而不是直接拒绝，`bash -c "$CMD"` 就属于这种情况。被后备的破坏性模式扫描命中的无法解析文本也一样。批准后命令直接执行，不再经过任何分析。这个确认只出现在 Claude Code 的 `default`、`acceptEdits` 和 `plan` 权限模式下；strict 和 paranoid、其他权限模式以及其他宿主都保持拒绝。参见 <a href="/zh-Hans/configuration/modes#when-standard-cannot-verify-a-command">`standard` 无法验证命令时</a>。
+
 ## 解析器限制
 
 <span id="interpreter-long-form-flags"></span>
@@ -87,7 +89,7 @@ CC Safety Net **确实**保护敏感路径。对<a href="/zh-Hans/reference/secr
 残余限制在于，它是**针对受支持形式的有界模式集**，而不是通用的读取边界：
 
 - 凭证所在文件的名称和扩展名不在模式列表中时，不会被识别。
-- Standard 模式允许对内置敏感路径做独立的仅元数据检查，例如 `test -f ~/.ssh/id_rsa`、`find ~/.ssh -type f`、`ls -la ~/.ssh` 或 `stat .env`。<a href="/zh-Hans/configuration/modes#strict-mode">Strict 和 paranoid</a> 会阻止这类探查。任何模式都不会放宽配置的拒绝路径。
+- Standard 模式允许对内置敏感路径做仅元数据检查，例如 `test -f ~/.ssh/id_rsa`、`find ~/.ssh -type f`、`ls -la ~/.ssh` 或 `stat .env`；这类检查既可以单独出现，也可以像 `test -f .env && echo present` 那样只占复合命令中的一段。对内置的文件名规则，下面三种形式也被当作提及而不是读取：机密文件名对应一个已存在的目录；含空白字符的词既不以路径字符开头，磁盘上也不存在；输出重定向新建了一个原本不存在的机密文件名。这三种都不适用于 `secret.home.*` 和 `secret.cli.*` 规则。<a href="/zh-Hans/configuration/modes#strict-mode">Strict 和 paranoid</a> 会阻止这里列出的全部形式。任何模式都不会放宽配置的拒绝路径。准确条件见 <a href="/zh-Hans/configuration/modes#sensitive-path-relaxations-in-standard">`standard` 对敏感路径的放宽</a>。
 - 在 `policy.json` 中把 `secret_protection.enabled` 设置为 `false` 会关闭整个阶段，包括拒绝路径。
 
 如果需要限制*所有*读取而不是已识别集合，请使用<a href="/zh-Hans/guides/vs-sandboxing#where-cc-safety-net-cannot-help">沙箱</a>。

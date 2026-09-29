@@ -37,6 +37,10 @@ keywords:
   一部の重要な保護は、選択した安全レベルに依存しません。root とホームディレクトリの再帰削除、Git メタデータの保護、正規の `policy.json` の保護は、破壊的コマンドのマスタースイッチも、ルール単位の `off` の override も無視します。
 </Note>
 
+<Note>
+  以下の拒否のうち 2 つは、Claude Code の hook ではブロックではなく権限確認のプロンプトになります。`raw-text.dangerous-command` に一致した場合と、理由が `shell execution source cannot be verified safely.` の拒否です。これは fail closed の機能が無効な場合、つまり standard レベルに限られ、さらに permission mode が `default`、`acceptEdits`、`plan` のいずれかの場合だけです。strict と paranoid、および他のすべてのホストは拒否します。拒否のままになる 2 つのケースは、[Claude Code が拒否ではなく確認を求める場合](/ja/guides/integration-architecture#when-claude-code-asks-instead-of-denying)を参照してください。
+</Note>
+
 <span id="git-commands"></span>
 
 ## Git コマンド
@@ -165,6 +169,9 @@ CC Safety Net は、どの安全レベルでも `dd`、`mkfs`、`shred` を解�
 | `> .git` などの書き込みリダイレクト | 上書きをブロックする |
 | `.git/hooks/new-hook` への `Write` や patch | 書き込み、patch、未知のツール経由の操作から保護する |
 | `find .git -delete` | 常に重大な操作として扱う |
+| リポジトリルートでの `find . -exec rm {} +` | `-exec` や `-execdir` が `{}` を `rm` や `rmdir` に渡す場合、`find` が返したパスの削除として扱う。`rm` や `rmdir` を実行するシェルの `-c` の本体に `{}` を渡す場合も同様 |
+
+リテラルの `-name` または `-iname` のフィルターは、起点だけを理由にしたブロックを解除できます。CC Safety Net は、最初のアクションより前に集めたフィルターすべてに一致するエントリを保護対象のメタデータから探し、見つからなければ削除を許可します。そのため、リポジトリルートでも `find . -name '*.pyc' -exec rm {} +` は通ります。一方、`.git` に同じ名前のエントリがあるため、`find . -name '*.sample' -exec rm {} +` と `find . -name HEAD -exec rm {} +` は引き続きブロックされます。`find . -name '*.pyc' -delete` もブロックされますが、`find.delete-git-metadata` ではなく `find.delete` によるものです。この例外の範囲は狭く、メタデータのルートがシンボリックリンクの場合、ディレクトリを読み取れない場合、エントリ数が 50,000 を超えた場合は fail closed でブロックを維持します。ブロックが残る形式の一覧は[解析エンジン](/ja/guides/analysis-engine)にあります。
 
 シンボリックリンクになっている `.git` ディレクトリと hooks ディレクトリは、表記上のパスと正規化後のパスの**どちらでも**保護します。存在しない Git ディレクトリを指す `.git` の参照ファイルもブロックします。POSIX シェルの末尾の `*` glob はドットで始まるエントリに一致しないため、リポジトリルートでの `rm -rf ./*` は `.git` を対象にしません。ただし、`rm -rf .git/worktrees/*` と PowerShell のワイルドカードは対象になります。
 
@@ -249,6 +256,12 @@ PowerShell への対応は限定的なサブセットです。対象は、`Remov
 | --- | --- |
 | `bash -c 'git reset --hard'` | ブロック |
 | `sh -lc 'rm -rf /'` | ブロック |
+
+シェルの `-c` の本体は、リテラルの位置パラメーターを束縛したうえで解析します。そのため `sh -c 'rm -rf "$1"' _ /` は `rm.recursive-force-root-or-home` で、`sh -c 'rm -rf "$1"/.git' _ .` は `rm.git-metadata` でブロックされます。リテラルでない引数が 1 つでもあれば、本体は書かれたままになります。束縛の条件は[解析エンジン](/ja/guides/analysis-engine)を参照してください。
+
+`sudo`、`env`、`command`、`builtin` のラッパーは basename で照合するため、フルパスの表記もコマンド名だけの表記と同じように取り除かれます。`/usr/bin/env git reset --hard`、`sudo /usr/bin/env git reset --hard`、`/usr/bin/env rm -rf ../outside` はいずれもブロックされます。`/usr/bin/env -- git status` は、`git status` が許可されるため許可されたままです。
+
+[カスタムルール](/ja/configuration/custom-rules)もすべての深さで適用されます。そのため、`rm` や `git` を対象にしたルールは `bash -c`、`sh -c`、`eval`、呼び出された関数の本体の中にも及びます。
 
 インタープリターの 1 行コードに埋め込まれた破壊的なコードは、**既定で**検出してブロックします。CC Safety Net は、インタープリターの `-c` や `-e` フラグに渡されたコードを取り出し、埋め込まれた破壊的操作をスキャンします。そのため、エージェントが Python や Node の呼び出しに `os.system("rm -rf /")` を紛れ込ませても、hook はすり抜けられません。
 

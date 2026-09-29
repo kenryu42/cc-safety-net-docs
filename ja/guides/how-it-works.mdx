@@ -80,6 +80,7 @@ If this operation is truly needed, ask the user for explicit permission and have
 - 一致したルールの `Rule:` ID
 - ツール名を示す `Tool:`
 - ブロックのきっかけになった `Segment:`
+- 実行先のディレクトリが理由で拒否された場合の `Working directory:`
 - フォールバック設定が有効なときの `Config warning:`
 
 コマンドとセグメントのテキストは抜粋され、プロセスの外に出る前にメッセージ全体から資格情報がマスクされます。
@@ -95,6 +96,24 @@ If this operation is truly needed, ask the user for explicit permission and have
 | `stop_and_explain` | 別の形式を総当たりせず、コマンドを単純化または再構成するか、ブロックを報告する |
 
 このメッセージ形式を使う理由と、強制をガード側に担わせている理由は、[設計原則](/ja/guides/design-principles#denials-that-keep-the-agent-on-task)を参照してください。
+
+### ブロックではなく確認を求める場合
+
+Claude Code では、standard モードで検証できなかったコマンドはブロックではなく権限確認のプロンプトとして届きます。メッセージの項目は同じで、最初と最後の行だけが変わります。
+
+```text
+CC Safety Net could not verify this command
+
+Reason: shell execution source cannot be verified safely. Use a literal command string or ask the user to run it manually.
+
+Command: eval "$CMD"
+
+Segment: eval $CMD
+
+Approve only if you expected this command.
+```
+
+最後の行は、intent による指示の代わりに入ります。判断するのはエージェントではなくユーザーだからです。承認すればコマンドは実行され、拒否すれば実行されません。どちらの場合も、監査ログには拒否として記録されます。どの拒否が確認に変わるか、Claude Code のどの permission mode で変わるかは、[連携アーキテクチャ](/ja/guides/integration-architecture#when-claude-code-asks-instead-of-denying)を参照してください。
 
 <span id="the-audit-record"></span>
 

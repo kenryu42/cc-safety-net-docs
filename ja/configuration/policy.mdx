@@ -235,7 +235,7 @@ Only the user may apply a policy proposal, because it rewrites the configuration
 </ParamField>
 
 <ParamField body="secret_protection.allow_paths" type="string[]" default="[]">
-  組み込みのシークレットパターンルールから除外する、特定のファイルまたはディレクトリツリーです。設定済みの deny path と Coding CLI の保護は引き続き適用されます。検証ルールと優先順位は、[Secret allow path](#secret-allow-paths)を参照してください。
+  組み込みのシークレットパターンルールから除外する、特定のファイルまたはディレクトリツリーです。ディレクトリ、`**/`、正確なファイル名を順に並べた形（`~/code/**/.env.local` など）も指定できます。設定済みの deny path と Coding CLI の保護は引き続き適用されます。検証ルールと優先順位は、[Secret allow path](#secret-allow-paths)を参照してください。
 </ParamField>
 
 <ParamField body="audit.retention_days" type="integer" default="30">
@@ -367,6 +367,8 @@ Only the user may apply a policy proposal, because it rewrites the configuration
 
 `secret_protection.allow_paths` は、特定のファイル、またはディレクトリとその配下すべてを、組み込みのベース名ルール、ホームディレクトリルール、鍵ファイルの派生形ルール、拡張子ルールから除外します。リポジトリ内の `.env.test` や、シークレットではないものの資格情報らしいファイル名を含むフィクスチャ用ディレクトリなど、意図して管理しているファイルに使います。
 
+ディレクトリ配下の 1 つのファイル名だけを指定することもできます。ディレクトリ、`**/`、正確なファイル名を順に並べた `~/code/**/.env.local` のような形です。この項目は `~/code` 配下の任意の深さにある `.env.local` だけを除外し、それ以外は除外しません。`**/` の前のディレクトリは必須で、リテラルな項目と同じ検査を受けます。これ以外の glob の形は指定できません。
+
 優先順位は固定です。
 
 1. 設定済みの deny path が常に優先します。同じ対象が両方のリストにある場合、結果は `secret.deny-path` になります。
@@ -379,14 +381,19 @@ Only the user may apply a policy proposal, because it rewrites the configuration
 | --- | --- |
 | 文字列でない、または前後の空白を除くと空になる文字列 | 無効：`must be a non-empty path string` |
 | `.env.test` や `fixtures/credentials` などの相対パス | **有効**：セッションごとに、設定時の作業ディレクトリを基準に解決 |
-| `*` または `?` を含む項目 | 無効：`cannot contain glob characters (* or ?); list the exact file or directory` |
+| ディレクトリ、`**/`、正確なファイル名の順に並べた項目（`~/code/**/.env.local`、`packages/**/.env.local` など） | **有効**：そのディレクトリ配下の任意の深さにある、そのファイル名だけを除外 |
+| `**/` の前にディレクトリがない項目（`**/.env.local` など） | 無効：`supports only a folder followed by **/ and an exact file name, such as ~/code/**/.env.local` |
+| それ以外の `*` または `?` の使用（`apps/*/.env`、`.env.v?`、`~/**/.ssh/config` など） | 無効：同じメッセージ |
 | `~`、`$HOME`、`${HOME}` 単体、またはホームディレクトリより上位のパス | 無効：`cannot cover the home directory or a path above it (this would disable secret protection everywhere)` |
-| `~/.cc-safety-net` またはその配下 | 無効：`cannot cover the guard's own configuration` |
+| `**/` の前のディレクトリがホームディレクトリまたはその上位である項目（`~/**/config`、`/**/id_rsa` など） | 無効：同じメッセージ |
+| `~/.cc-safety-net` またはその配下（`~/.cc-safety-net/**/.env.local` を含む） | 無効：`cannot cover the guard's own configuration` |
 | 上記以外のリテラルな絶対パス、`~/…`、`$HOME/…`、`${HOME}/…` | 有効 |
 
-各項目はリテラルなパスであり、glob パターンではありません。対象は実行時の作業ディレクトリから、相対指定の allow path は設定時の作業ディレクトリから解決されます。一致判定（同一または配下かどうか）の前に、両側とも既存のシンボリックリンクをたどるため、allow path の起点はシンボリックリンク経由で到達する対象も含みます。
+`**/` の後ろに書けるのはファイル名 1 つだけで、スラッシュは含められません。そのため `~/**/.ssh/config` はこの形に当てはまらず、glob として拒否されます。この形を除けば、各項目はリテラルなパスであり、glob パターンではありません。
 
-ランタイムは、パスを解決した後にも安全性の境界を確認します。ホームディレクトリやその上位に解決される項目は無視します。実際に使われるガード設定ルート配下の対象も除外しません。`CC_SAFETY_NET_HOME` でルートを移した場合や、ホームディレクトリまたは `~/.cc-safety-net` がシンボリックリンクの場合も同じです。
+対象は実行時の作業ディレクトリから解決されます。相対指定の allow path、および相対指定の `**/` 項目のディレクトリは、設定時の作業ディレクトリから解決されます。一致判定（同一または配下かどうか）の前に、両側とも既存のシンボリックリンクをたどるため、allow path の起点はシンボリックリンク経由で到達する対象も含みます。`**/` 項目では、対象自身のファイル名が `**/` の後ろの名前と一致することも必要で、ディレクトリ自体は除外されません。
+
+ランタイムは、パスを解決した後にも安全性の境界を確認します。ホームディレクトリやその上位に解決される項目は無視します。`../**/config` のような相対指定のディレクトリは、この段階で弾かれます。実際に使われるガード設定ルート配下の対象も除外しません。`CC_SAFETY_NET_HOME` でルートを移した場合や、ホームディレクトリまたは `~/.cc-safety-net` がシンボリックリンクの場合も同じです。
 
 <span id="audit-retention"></span>
 

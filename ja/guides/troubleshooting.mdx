@@ -47,7 +47,7 @@ bunx cc-safety-net doctor
     10. **Grok Build**：`~/.grok/hooks/cc-safety-net.json`（または `$GROK_HOME/hooks/cc-safety-net.json`）に、`npx -y cc-safety-net hook --grok-build` を実行する管理対象の `PreToolUse` エントリがあることを確認します。なければ `npx -y cc-safety-net@latest install --grok-build` を実行し直してください。
     11. **Hermes Agent**：管理対象のプラグインファイルが `$HERMES_HOME/plugins/cc-safety-net`（`HERMES_HOME` が未設定の場合は `~/.hermes/plugins/cc-safety-net`）にあること、および `hermes plugins enable cc-safety-net --no-allow-tool-override` によってプラグインが有効になっていることを確認します。Hermes は `config.yaml` に記載されたユーザープラグインしか読み込みません。確認できたら Hermes を再起動してください。`doctor` はプラグインファイルと Hermes の設定を読むだけで、実行中の Hermes に実際に読み込まれたかまでは確認しません。変更後は再起動してから、もう一度試してください。
     12. **Kimi Code**：`~/.kimi-code/config.toml`（または `$KIMI_CODE_HOME/config.toml`）に、`PreToolUse` の `Bash` で `npx -y cc-safety-net hook --kimi-code` を実行する `[[hooks]]` ブロックがあることを確認します。なければ `npx -y cc-safety-net@latest install --kimi-code` を実行し直してください。
-    13. **OpenClaw**：プラグインは OpenClaw 自身の CLI でインストールして有効にします。`npx -y cc-safety-net@latest install --openclaw` を実行し直すと、`openclaw plugins install <plugin dir> --force` と `openclaw plugins enable cc-safety-net` が実行され、プラグインが読み込まれたことまで確認します。詳細は `openclaw plugins inspect cc-safety-net --runtime` で確認できます。その後、OpenClaw Gateway を再起動してください。`openclaw.json` に `plugins.allow` を設定している場合は、そこに `cc-safety-net` も記載する必要があります。なお `doctor` はプラグインのディレクトリと `openclaw.json` を読むだけで、実行中の Gateway に読み込まれたかは確認しないため、Gateway が停止していても失敗としては報告しません。
+    13. **OpenClaw**：プラグインは OpenClaw 自身の CLI でインストールして有効にします。OpenClaw 2026.8.1 以降が必要です。`npx -y cc-safety-net@latest install --openclaw` を実行し直すと `openclaw plugins install <plugin dir> --force --accept-capabilities` が実行されます。このコマンドがプラグインの有効化まで行い、その後に読み込まれたことを確認します。詳細は `openclaw plugins inspect cc-safety-net --runtime` で確認できます。インストールが unknown-option エラーで失敗する場合、その OpenClaw は `--accept-capabilities` に対応していません。OpenClaw をアップグレードしてください。`openclaw.json` で手動で無効にしている場合、インストールしても無効のままで、読み込みの確認もその状態を報告します。有効にするには `openclaw plugins enable cc-safety-net` を自分で実行してください。その後、OpenClaw Gateway を再起動してください。`openclaw.json` に `plugins.allow` を設定している場合は、そこに `cc-safety-net` も記載する必要があります。なお `doctor` はプラグインのディレクトリと `openclaw.json` を読むだけで、実行中の Gateway に読み込まれたかは確認しないため、Gateway が停止していても失敗としては報告しません。
     14. **OpenCode**：OpenCode の設定ディレクトリにある `opencode.json`（または `.jsonc`）を確認します。このディレクトリは、`OPENCODE_CONFIG_DIR` が設定されていればその値、なければ `$XDG_CONFIG_HOME/opencode`、それもなければ `~/.config/opencode` です。`plugin[]` または `plugins[]` の配列に `cc-safety-net` があることを確かめてください。OpenCode 2.x では `opencode plugin list` を実行し、ソースが `cc-safety-net@latest` の `cc-safety-net` の行があることを確認します。この行は OpenCode がプラグインを見つけたことを示すだけで、hook が有効になったことは示しません。OpenCode 1.x では、古いバージョンがキャッシュされたまま動き続けることがあります。キャッシュの消去手順は[インストール](/ja/installation#opencode-installation)を参照してください。
     15. **Pi**：`pi install npm:cc-safety-net` が完了していることを確認し、拡張機能を読み込むために Pi を再起動します。Pi は CC Safety Net をプロセス内の拡張機能として実行します。確認には、Pi を直接起動して調べる `npx cc-safety-net doctor` を使ってください。
     16. 変更が終わったら、エージェントのセッションを再読み込みするか再起動します。
@@ -98,12 +98,13 @@ bunx cc-safety-net doctor
        </Warning>
 
     2. 出力に表示される有効なレベルを確認します。[standard モード](/ja/configuration/modes#default-mode)はベストエフォートで、動的な実行ファイル、コマンド置換で組み立てられたコマンド構造、`rm -rf "$target"` のような検証できない再帰削除の対象、組み込みの機密パスに対するメタデータのみのチェックを意図的に許可します。コマンドがプロンプトインジェクションなど敵対的な文脈から来る可能性がある場合は、これらすべてが fail closed になる [strict](/ja/configuration/modes#strict-mode) または [paranoid](/ja/configuration/modes#paranoid-mode) に引き上げてください。
-    3. そのコマンドが、明示的に許可されている分類に該当することもあります。たとえばカレントディレクトリ配下の `rm -rf` は、プロジェクト内に閉じているため既定で許可されます。全一覧は[許可されるコマンド](/ja/reference/allowed-commands)を参照してください。
-    4. `npx cc-safety-net status` を実行します。判定が `degraded` の場合、ルールの設定元が破棄されており、その設定元が提供していた拒否は適用されていません。[設定の復旧](/ja/configuration/recovery)を参照してください。
-    5. 同じ `status` の出力に `Project policy` のブロックがないか確認します。このブロックは、プロジェクトの `.cc-safety-net/policy.json` がユーザーポリシーを緩和したときに表示され、緩和された項目ごとに 1 行ずつ、`project policy lowers level: strict -> standard`、`project policy disables rule <id>`、`project policy adds destructive allow path: <path>` のように示されます。このプロジェクトだけルールが働かず、他では働くという状況は、いずれかの行で説明できます。ステータスラインは同じ状態を `🔻` で示し、`doctor` は同じ行を `Project policy deltas:` の下に出力します。
-    6. CC Safety Net が解析しないプロキシ経由でコマンドを実行している場合は、`npx -y cc-safety-net rule wrapper add <command>` で登録し、実際の子コマンドを解析できるようにしてください。
-    7. 自分の環境ではそのコマンドをブロックしたい場合は、`npx -y cc-safety-net rule init` でカスタムの rulebook を作成し、`.cc-safety-net/rules/project-rules/rulebook.json` にルールを追加します。スキーマは[カスタムルール](/ja/configuration/custom-rules)を参照してください。
-    8. 以上のどれにも当てはまらない場合、ルールがまだブロックしないコマンド形式は**対応漏れ**であり、このプロジェクトの方針では公開のバグとして扱います。そのまま貼り付けて実行できる攻撃コードではなく、コマンドの*形式*を説明した [GitHub Issue](https://github.com/kenryu42/cc-safety-net/issues) を作成してください。シークレットの漏えい、意図したディレクトリの外への書き込み、サプライチェーンやパッケージの完全性に関わる問題は、非公開の開示経路を使います。両方の手順と切り分けの基準は[セキュリティポリシー](/ja/security)にあります。
+    3. Claude Code で standard レベルを使っている場合は、自分で承認していないか確認してください。standard モードで検証できなかったコマンドは、ブロックではなく `CC Safety Net could not verify this command` で始まる権限確認のプロンプトとして届くため、承認するとそのまま実行されます。監査ログにはどちらの場合も拒否として記録されるため、実行されたコマンドが `logs` に拒否として残ることがあります。[Claude Code が拒否ではなく確認を求める場合](/ja/guides/integration-architecture#when-claude-code-asks-instead-of-denying)を参照してください。
+    4. そのコマンドが、明示的に許可されている分類に該当することもあります。たとえばカレントディレクトリ配下の `rm -rf` は、プロジェクト内に閉じているため既定で許可されます。全一覧は[許可されるコマンド](/ja/reference/allowed-commands)を参照してください。
+    5. `npx cc-safety-net status` を実行します。判定が `degraded` の場合、ルールの設定元が破棄されており、その設定元が提供していた拒否は適用されていません。[設定の復旧](/ja/configuration/recovery)を参照してください。
+    6. 同じ `status` の出力に `Project policy` のブロックがないか確認します。このブロックは、プロジェクトの `.cc-safety-net/policy.json` がユーザーポリシーを緩和したときに表示され、緩和された項目ごとに 1 行ずつ、`project policy lowers level: strict -> standard`、`project policy disables rule <id>`、`project policy adds destructive allow path: <path>` のように示されます。このプロジェクトだけルールが働かず、他では働くという状況は、いずれかの行で説明できます。ステータスラインは同じ状態を `🔻` で示し、`doctor` は同じ行を `Project policy deltas:` の下に出力します。
+    7. CC Safety Net が解析しないプロキシ経由でコマンドを実行している場合は、`npx -y cc-safety-net rule wrapper add <command>` で登録し、実際の子コマンドを解析できるようにしてください。
+    8. 自分の環境ではそのコマンドをブロックしたい場合は、`npx -y cc-safety-net rule init` でカスタムの rulebook を作成し、`.cc-safety-net/rules/project-rules/rulebook.json` にルールを追加します。スキーマは[カスタムルール](/ja/configuration/custom-rules)を参照してください。
+    9. 以上のどれにも当てはまらない場合、ルールがまだブロックしないコマンド形式は**対応漏れ**であり、このプロジェクトの方針では公開のバグとして扱います。そのまま貼り付けて実行できる攻撃コードではなく、コマンドの*形式*を説明した [GitHub Issue](https://github.com/kenryu42/cc-safety-net/issues) を作成してください。シークレットの漏えい、意図したディレクトリの外への書き込み、サプライチェーンやパッケージの完全性に関わる問題は、非公開の開示経路を使います。両方の手順と切り分けの基準は[セキュリティポリシー](/ja/security)にあります。
 
        報告には、手順 1 で内容を確認した `explain` のトレースを添えてください。未確認のトレースや本物の資格情報は添付しないでください。文書化された境界に該当する場合は、[既知の制限](/ja/guides/known-limitations)に説明と、代わりに使える対策があります。
   </Accordion>
@@ -116,16 +117,41 @@ bunx cc-safety-net doctor
     1. `npx cc-safety-net explain "<the command>"` を実行し、ブロックの正確な理由と、一致したルールを確認します。
     2. 拒否の理由が "Command analysis exceeds CC Safety Net's derived-command work limit. Reduce nested or embedded command complexity and retry." の場合、ルールに一致したわけではありません。アナライザーがそのコマンドから派生させる処理量の上限を使い切っています。`find -exec`、`xargs`、`parallel` の中のシェル 1 行コード、ラッパーの背後に埋め込まれたコマンド、同様の入れ子構造が該当します。この上限はコンパイル時の定数で、設定では引き上げられません。コマンドを単純な複数のコマンドに分けて実行し直してください。
     3. 拒否の理由が "CC Safety Net could not analyze the command because it exceeds safe analysis limits. Simplify or split the command and retry." の場合も、ルールに一致したわけではありません。パス正規化またはシェル構造の固定された上限を超えています。該当するのは、パス正規化の上限を使い切るほど多くのパスらしきトークンを含むコマンド、シェル関数のインライン展開が呼び出し位置 256 個という上限を超えるコマンド、heredoc の本文をパーサーが許す深さより深くネストさせたコマンドです。この上限もコンパイル時の定数で、設定では引き上げられません。コマンドを単純にするか分割して実行し直してください。
-    4. 拒否の理由が "CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user." の場合は、上限の超過ではなく内部的な不具合です。コマンドを書き直しても解決しません。理由の文面どおり、そのまま報告してください。
-    5. 拒否の理由が "CC Safety Net could not use the requested working directory because it does not exist, is inaccessible, is not a directory, or uses an unsupported path form. Use an existing accessible working directory. If the requested directory is missing, create it from an accessible location before retrying the command." の場合、コマンドは解析されていません。Amp Code のシェル呼び出しで `dir` を解決できなかったときに出ます。すでに存在するディレクトリを指定するか、存在しないディレクトリをアクセスできる場所から作成したうえで、実行し直してください。
-    6. 拒否の理由が次の文面の場合、エージェントが `cc-safety-net policy apply` を実行しようとしています。
+    4. 拒否の理由が "CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user." の場合は、上限の超過ではなく内部的な不具合です。コマンドを書き直しても解決しません。理由の文面どおり、そのまま報告してください。なお、作業ディレクトリを使えない場合はこの理由になりません。手順 5 の 4 つの理由のいずれかになります。
+    5. 拒否の理由が作業ディレクトリを指している場合、コマンドは解析されていません。CC Safety Net が実行先のディレクトリを確定できなかったためで、そのパスは `Working directory:` の行に表示されます。該当する理由は 4 つあり、2 つずつの組になっています。
+
+       2 つはセッション自身のディレクトリ、つまりエージェントが起動時に決めたディレクトリに関するものです。どちらも intent は `hard_stop` で、セッションの再起動を求めます。
+
+       ```text
+       CC Safety Net cannot check tool calls because the session's working directory or workspace root no longer exists, is inaccessible, is not a directory, or uses an unsupported path form. Ask the user to restart the session from an existing directory.
+       ```
+
+       ```text
+       CC Safety Net cannot check tool calls because the session's working directory is outside its workspace roots. Ask the user to restart the session from a directory inside the workspace.
+       ```
+
+       よくある原因は、削除された git worktree のように、実行中のセッションの下でディレクトリがなくなったことです。存在するディレクトリからエージェントを起動し直すまで、すべてのツール呼び出しが拒否されます。
+
+       残りの 2 つは、個々の呼び出しが指定したディレクトリに関するものです。Amp Code のシェル呼び出しの `dir`、OpenCode の `workdir`、Kimi Code の `tool_input.cwd` などが該当します。どちらも intent は `use_alternative` で、セッションを止めずに別のディレクトリで再試行できます。
+
+       ```text
+       CC Safety Net could not use the requested working directory because it does not exist, is inaccessible, is not a directory, or uses an unsupported path form. Use an existing accessible working directory. If the requested directory is missing, create it from an accessible location before retrying the command.
+       ```
+
+       ```text
+       CC Safety Net could not use the requested working directory because it is outside the session's workspace. Use a working directory inside the workspace.
+       ```
+
+       すでに存在するディレクトリを指定するか、存在しないディレクトリをアクセスできる場所から作成したうえで、実行し直してください。なお、作業ディレクトリが空文字列や文字列以外の場合は、ディレクトリの問題ではなくペイロードの不正とみなし、手順 4 の fail closed の理由のままになります。
+    6. メッセージの先頭が `BLOCKED by CC Safety Net` ではなく `CC Safety Net could not verify this command` の場合、ブロックはされていません。standard モードで検証できなかったコマンドの承認を Claude Code が求めている状態です。承認すれば、そのコマンドは実行されます。[Claude Code が拒否ではなく確認を求める場合](/ja/guides/integration-architecture#when-claude-code-asks-instead-of-denying)を参照してください。
+    7. 拒否の理由が次の文面の場合、エージェントが `cc-safety-net policy apply` を実行しようとしています。
 
        ```text
        Only the user may apply a policy proposal, because it rewrites the configuration CC Safety Net enforces. Ask them to run `cc-safety-net policy apply <file>` themselves in a terminal; you can run `cc-safety-net policy check <file>` to show them what it would change.
        ```
 
        提案の適用はガードが強制しているポリシー自体を書き換えるため、このブロックは意図的なもので、解除する手段はありません。`npx cc-safety-net policy apply <file>` はターミナルで自分で実行してください。`policy check` は許可されたままなので、エージェントは提案による変更内容を提示できます。この判定は意図的に広めに一致するため、同じコマンドの `npx`、`bunx`、`pnpm dlx`、`npm exec`、`bun`/`node` 経由の形式でも発生します。
-    7. 状況に応じて、次の選択肢を検討してください。
+    8. 状況に応じて、次の選択肢を検討してください。
        - **linked worktree で作業していませんか？** `policy.json` の `workflow.worktree_mode` か `CC_SAFETY_NET_WORKTREE=1` で worktree モードを有効にします。使い捨ての独立した作業環境である linked worktree 内での実行だと確認できた場合にかぎり、ローカル破棄のルールが緩和されます。
        - **より安全な書き方はありませんか？** たとえば `git push --force-with-lease` は許可されており、追加の安全確認付きで `--force` と同じ結果を得られます。`git clean -n`（ドライラン）も許可されており、何が削除されるかを事前に確認できます。
        - **本当にそのコマンドが必要ですか？** エージェントの外で自分で実行するという選択肢は、常に残されています。ブロック時にも、CC Safety Net はユーザーに実行を依頼するようエージェントに指示します。

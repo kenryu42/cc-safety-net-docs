@@ -73,7 +73,7 @@ Command: git checkout -- src/main.py
 If this operation is truly needed, ask the user for explicit permission and have them run the command manually.
 ```
 
-消息还可能包含匹配的 `Rule:` id、`Tool:` 名称、触发阻止的 `Segment:`，以及回退配置生效时的 `Config warning:`。命令和命令段只保留摘录。消息离开进程前，所有内容都会经过机密脱敏。
+消息还可能包含匹配的 `Rule:` id、`Tool:` 名称、触发阻止的 `Segment:`、因执行目录而拒绝时的 `Working directory:`，以及回退配置生效时的 `Config warning:`。命令和命令段只保留摘录。消息离开进程前，所有内容都会经过机密脱敏。
 
 阻止不会结束智能体会话。消息会作为普通工具结果返回，引导智能体继续任务，避免反复尝试命令变体。结尾指令由规则的 intent 决定：
 
@@ -86,6 +86,24 @@ If this operation is truly needed, ask the user for explicit permission and have
 | `stop_and_explain` | 不要暴力尝试其他变体；简化或重组命令，或报告阻止 |
 
 这些消息为何这样写，以及为何指令只是建议、执行始终由防护负责，见[设计原则](/zh-Hans/guides/design-principles#denials-that-keep-the-agent-on-task)。
+
+### 消息改为询问而不是阻止时
+
+在 Claude Code 中，standard 模式无法验证的命令会以权限提示的形式交给你，而不是直接阻止。消息字段保持不变，只有首行和末行不同：
+
+```text
+CC Safety Net could not verify this command
+
+Reason: shell execution source cannot be verified safely. Use a literal command string or ask the user to run it manually.
+
+Command: eval "$CMD"
+
+Segment: eval $CMD
+
+Approve only if you expected this command.
+```
+
+末行取代了 intent 指令，因为这一次由你来判断，而不是智能体。批准后命令会执行，拒绝则不会；无论哪种结果，审计日志都按拒绝记录这次调用。哪些拒绝可以变成询问、在 Claude Code 的哪些权限模式下生效，见[集成架构](/zh-Hans/guides/integration-architecture#when-claude-code-asks-instead-of-denying)。
 
 ## 审计记录
 

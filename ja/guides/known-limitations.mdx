@@ -46,6 +46,8 @@ bash -c "$(cat destructive.sh)"
 
 CC Safety Net は、`bash -c` やインタープリターのコード引数を再帰的にスキャンします。しかし、コードをリモートから取得したり変数から組み立てたりする場合、破壊的な処理そのものはコマンド文字列の解析からは見えません。これは、この方式に本質的につきまとう制限です。
 
+standard モードでは、こうしたコマンドの一部について、判断がユーザーに移ります。シェルの実行元を解決できず、その実行元が標準入力からプログラムを読むシェルでもなく、コマンドテキストにも破壊的パターンが現れない場合、Claude Code の hook は拒否ではなく承認を求めます。`bash -c "$CMD"` がその例です。フォールバックの破壊的パターンスキャンに一致した、パースできないテキストも同じ扱いになります。承認すると、そのコマンドはそれ以上解析されずに実行されます。この確認が出るのは Claude Code の permission mode が `default`、`acceptEdits`、`plan` のときだけです。strict と paranoid、他の permission mode、他のホストは拒否のままです。[standard がコマンドを検証できない場合](/ja/configuration/modes#when-standard-cannot-verify-a-command)を参照してください。
+
 ## パーサーの制限
 
 <span id="interpreter-long-form-flags"></span>
@@ -89,7 +91,7 @@ CC Safety Net は機密パスを保護し、[組み込みの機密情報の一�
 残る制限は、対象範囲そのものにあります。これは汎用の読み取り境界ではなく、対応する形式に向けた**範囲の限られたパターン群**にとどまります。
 
 - ファイル名や拡張子がパターン一覧にないファイルに置かれた資格情報は、認識されません。
-- standard モードでは、組み込みの機密パスに対するメタデータのみの単独チェック（`test -f ~/.ssh/id_rsa`、`find ~/.ssh -type f`、`ls -la ~/.ssh`、`stat .env` など）が許可されます。[strict と paranoid](/ja/configuration/modes#strict-mode) では、こうした探索もブロックされます。なお、設定した deny path はどのモードでも緩和されません。
+- standard モードでは、組み込みの機密パスに対するメタデータのみのチェック（`test -f ~/.ssh/id_rsa`、`find ~/.ssh -type f`、`ls -la ~/.ssh`、`stat .env` など）が、単独でも `test -f .env && echo present` のように複合コマンドの 1 セグメントとしても許可されます。組み込みのファイル名ルールについては、次の 3 つの形も読み取りではなく単なる言及として扱われます。既存のディレクトリを指す機密ファイル名、パスらしい文字で始まらずディスク上にも存在しない空白を含む語、そして存在しない機密ファイル名を作る出力リダイレクトです。この 3 つは `secret.home.*` と `secret.cli.*` のルールには適用されません。[strict と paranoid](/ja/configuration/modes#strict-mode) では、ここに挙げた形をすべてブロックします。なお、設定した deny path はどのモードでも緩和されません。正確な条件は [standard における機密パスの緩和](/ja/configuration/modes#sensitive-path-relaxations-in-standard)にあります。
 - `policy.json` の `secret_protection.enabled` を `false` にすると、deny path も含めてこのステージ全体が無効になります。
 
 認識対象だけでなく*すべて*の読み取りを制限したい場合は、[サンドボックス](/ja/guides/vs-sandboxing#where-cc-safety-net-cannot-help)を使ってください。
