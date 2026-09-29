@@ -1,7 +1,7 @@
 ---
 title: "Known limitations and pitfalls"
 sidebarTitle: "Known limitations"
-description: "What CC Safety Net cannot catch: opaque command proxies, in-binary behavior, filesystem containment and network, symlink TOCTOU, interpreter flags, quotes inside interpreter comments, eval-based execution, the Codex interactive-session gap, the Grok Build fail-open host, and the Hermes Agent and OpenClaw coverage boundaries."
+description: "What CC Safety Net cannot catch: opaque command proxies, in-binary behavior, filesystem containment and network, symlink TOCTOU, interpreter flags, quotes inside interpreter comments, eval-based execution, the Codex interactive-session and workdir gaps, the Grok Build fail-open host, and the Hermes Agent and OpenClaw coverage boundaries including the OpenClaw session working directory."
 ---
 
 CC Safety Net analyzes the command string your agent attempts to run. It is a strong guardrail against accidental data loss from known-destructive git and filesystem operations, but it is not a complete security solution. This page is an honest list of the **residual** limits that remain today, so you can set correct expectations and know when to use [sandboxing](/guides/vs-sandboxing) instead.
@@ -132,19 +132,31 @@ Execution hosts split three ways:
 - An explicit `host: "sandbox"` or `host: "node"` is blocked as unsupported rather than analyzed, because no test proves a correct path mapping for those hosts.
 - The configured `tools.exec.host` default never changes the analysis: the plugin reads only the call's own `host` parameter, so a call with no `host` is analyzed as a local Gateway call even when the default routes it to `node` or `sandbox`.
 
-The residual gap is the `auto` case: when a sandbox runtime is active, an `auto` call runs in the sandbox filesystem while path rules are still evaluated against the Gateway workspace. Command rules are unaffected; path rules can be evaluated against the wrong filesystem.
+One residual gap is the `auto` case: when a sandbox runtime is active, an `auto` call runs in the sandbox filesystem while path rules are still evaluated against the Gateway workspace. Command rules are unaffected; path rules can be evaluated against the wrong filesystem.
+
+The other residual gap is the execution directory. OpenClaw runs `exec` in the session's working directory, which is not always the agent workspace. A managed-worktree session runs in its own checkout, by default under `<state>/worktrees`, and a session created with a `cwd` runs there. The `before_tool_call` hook context carries no working directory, so the plugin resolves every `exec` call against the agent workspace. In a session whose directory differs from the workspace:
+
+- CC Safety Net analyzes a command with no `workdir` against the workspace, but OpenClaw runs it in the session directory.
+- A relative `workdir` resolves against the workspace instead of the session directory.
+- CC Safety Net blocks an absolute `workdir` outside the workspace, such as the session's own worktree.
+
+Closing this gap requires the host to expose the execution directory.
 
 The Codex-native relay is untested and therefore unclaimed: the live end-to-end tests drive OpenClaw's own agent runtime, so they prove nothing about a Codex-native shell, patch, or MCP call.
 
 ### Windows is not supported for either integration
 
-Both integrations assume the POSIX state layout. The hosts resolve relocated state through `HERMES_HOME` for Hermes, and through `OPENCLAW_STATE_DIR` followed by the directory of `OPENCLAW_CONFIG_PATH` for OpenClaw. They fall back to `~/.hermes` and `~/.openclaw`. The Windows defaults are not supported. Install and detection target the POSIX path on Windows, so the Hermes install writes the plugin to a directory Hermes does not read. OpenClaw's own CLI installs correctly, but `doctor` misreports the state.
+Both integrations assume the POSIX state layout. Hermes takes its root from `HERMES_HOME` or `~/.hermes`, and the root's `active_profile` file selects `<root>/profiles/<name>` unless that file is missing, empty, or names `default`. A `HERMES_HOME` that already points inside a `profiles` directory is used unchanged. OpenClaw takes its home from `OPENCLAW_HOME` or the OS home, and its state directory from `OPENCLAW_STATE_DIR`, the directory of `OPENCLAW_CONFIG_PATH`, or `<home>/.openclaw`, in that order. See the [Hermes Agent](/installation#hermes-agent-installation) and [OpenClaw](/installation#openclaw-installation) installation sections. The Windows defaults are not supported. Install and detection target the POSIX path on Windows, so the Hermes install writes the plugin to a directory Hermes does not read. OpenClaw's own CLI installs correctly, but `doctor` misreports the state.
 
 ## Codex coverage boundary
 
-Codex's unified exec path, the default shell path on macOS and Linux, sends a `PreToolUse` payload when a command opens a session, but none for `write_stdin`. Only the command that opened the session is evaluated. Text the model then types into the already-running interactive session reaches the shell without inspection and without an audit entry.
+Codex's unified exec path, the default shell path on every platform, sends a `PreToolUse` payload when a command opens a session, but none for `write_stdin`. Only the command that opened the session is evaluated. Text the model then types into the already-running interactive session reaches the shell without inspection and without an audit entry.
 
-This gap cannot be closed from the hook side: the host emits no event for that call, so there is nothing to analyze. If injection into a running session is a concern in your environment, use [sandboxing](/guides/vs-sandboxing) as the containment layer.
+This gap cannot be closed from the hook side: the host emits no event for that call, so there is nothing to analyze.
+
+The payload also leaves out the call's `workdir`. It carries only `{command}`, and its `cwd` is the turn's working directory. Codex runs the command in `workdir`, so CC Safety Net analyzes it against the turn directory instead. Relative paths resolve against that directory, and so do the rules about paths outside the working directory. That can block a safe command, and it can allow one the rules would otherwise block. Closing this gap requires the host to include `workdir` in the payload.
+
+If either gap matters in your environment, use [sandboxing](/guides/vs-sandboxing) as the containment layer.
 
 ## Grok Build is a fail-open host
 

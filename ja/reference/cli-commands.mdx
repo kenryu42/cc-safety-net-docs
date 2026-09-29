@@ -73,7 +73,7 @@ npx cc-safety-net status
 plugin cc-safety-net@cc-marketplace is disabled in Claude Code; nothing is enforced in Claude Code until it is re-enabled. Other integrations are not affected.
 ```
 
-`~/.claude/settings.json` がない、解析に失敗する、`enabledPlugins` がない、または `cc-safety-net@cc-marketplace` を `true` に設定していない場合、プラグインは無効と見なされます。検査の既定値は無効なので、読み取れない設定ファイルは、有効ではなく無効として扱われます。
+Claude の設定ファイルがない、解析に失敗する、`enabledPlugins` がない、または `cc-safety-net@cc-marketplace` を `true` に設定していない場合、プラグインは無効と見なされます。この設定ファイルは、`CLAUDE_SETTINGS_PATH` が設定されていればその値、なければ Claude の設定ディレクトリ（`CLAUDE_CONFIG_DIR`、未設定なら `<home>/.claude`）にある `settings.json` です。検査の既定値は無効なので、読み取れない設定ファイルは、有効ではなく無効として扱われます。
 
 判定はポリシースナップショットから取得され、設定から再導出されることはありません。プラグイン検査はその項目を追加するだけで、判定を変更しません。
 
@@ -132,7 +132,25 @@ bunx cc-safety-net doctor
 
 `doctor` は、`codex plugin list` から Codex の状態を読み取ります。CC Safety Net に一致する行に `installed, enabled` がある場合は `Detected` かつ `Configured` です。それ以外の `installed,` がある一致行は `Detected` かつ `Not configured` です。登録済みのマーケットプレイス行が `not installed` の場合は、無効ではなく `Not detected` です。
 
+`Configured` になった Codex の行には、Hook Integration テーブルの下に信頼に関するリマインダーも表示されます。
+
+```text
+Warning (Codex): Codex runs only trusted hooks, and doctor cannot check trust. Start Codex, open `/hooks`, select the cc-safety-net PreToolUse hook, and press `t` to trust it.
+```
+
+`doctor` は hook が信頼済みかどうかを Codex に問い合わせません。そのため、このリマインダーは毎回表示されます。信頼設定が欠けていることを示すものではありません。Inspection は `Verified` のままで、finding も発生せず、終了コードも変わりません。`doctor --json` では、`hooks` の `codex` エントリの `errors` 配列に同じ文字列が入ります。
+
 GitHub Copilot CLI では、`doctor` はプラグインの checkout 状態と hook の定義を確認します。インライン設定の優先順は、`<repo>/.github/copilot/settings.local.json`、`<repo>/.github/copilot/settings.json`、`<repo>/.claude/settings.local.json`、`<repo>/.claude/settings.json`、`$COPILOT_HOME/settings.json`、`$COPILOT_HOME/config.json` です（`COPILOT_HOME` の既定値は `~/.copilot`）。さらに、`<repo>/.github/hooks/*.json` と `$COPILOT_HOME/hooks/*.json` も調べます。`.claude` ファイルのエントリは、コマンドに `hook --copilot-cli` または `hook -cp` がある場合だけ対象です。Claude Code 用の hook だけでは対象になりません。インライン設定には GitHub Copilot CLI `1.0.8+`、ユーザー hook ファイルには `0.0.422+` が必要です。
+
+Copilot のプラグインスイッチは、Copilot 自身の適用方法にあわせてエントリ単位で読み取ります。`enabledPlugins` の `cc-safety-net@cc-marketplace` に真偽値を設定している最初のリポジトリ側ファイルが結果を決めます。`doctor` は `disableAllHooks` と同じ順、つまり `<repo>/.github/copilot/settings.local.json`、`<repo>/.github/copilot/settings.json`、`<repo>/.claude/settings.local.json`、`<repo>/.claude/settings.json` の順に探します。どれも設定していなければ `$COPILOT_HOME/settings.json` が決めます。このスイッチについて `config.json` は読み取りません。したがって、リポジトリ側の `true` はユーザー側の `false` を打ち消します。プラグインの checkout があり、`$COPILOT_HOME/settings.json` が解析できない場合、`doctor` は `Not inspected` と報告します。ただし、リポジトリ側のファイルがすでにスイッチを決めているときは除きます。
+
+スイッチで無効になった Copilot プラグインを `doctor` が `Not configured` と報告するのは、CC Safety Net の hook 設定がどれも有効でない場合だけです。hook ファイルまたはインラインの hook エントリがまだガードを実行している場合、`doctor` は方式を `hook config` として、そちらを報告します。Copilot は hook 設定をプラグインの hook とは別に読み込むためです。
+
+`hooks.preToolUse` のエントリが対象になるのは、`type` がないか `command` のときです。Copilot は `type` がない場合を `command` として扱います。コマンドは `command`、`bash`、`powershell`、または `exec` と `args` を連結したものから読み取ります。`exec` は文字列、`args` は文字列の配列でなければなりません。これらの形に合わないファイルは `Invalid hook config <path>: hooks.preToolUse must be an array of hook objects`、そもそも解析できないファイルは `Failed to parse <path>: <reason>` と表示されます。
+
+OpenCode 2.x を報告するホストでは、`doctor` は設定ファイルだけを見るわけではありません。読み込まれた設定に `cc-safety-net` のエントリがある場合、`doctor` はそのプラグインが有効化されたかどうかを OpenCode に問い合わせます。`opencode api integration.list` を実行してから `opencode api plugin.list` を実行し、どちらも `--param location[directory]=<dir>` を付け、30 秒の上限を設けます。`<dir>` は `doctor` を実行したディレクトリです。`integration.list` はホストのプラグイン有効化の完了を待ちますが、`plugin.list` は待ちません。
+
+状態が `failed` の `cc-safety-net` の行があり、`active` の該当行がない場合、OpenCode は `Detected` かつ `Not configured` になり、`Error (OpenCode): OpenCode reports cc-safety-net failed: <the host's first error line>` が表示されます。`active` の行がある場合、行がない場合、出力がない場合、出力を解析できない場合は、いずれも設定から得た結果がそのまま残ります。そのため、リロードに失敗しても実行中のプラグインがそのまま残っていれば `Configured` のままです。この問い合わせは `cc-safety-net` のエントリがある場合にだけ実行されるので、エントリのない 2.x のユーザーに対しては行われません。OpenCode 1.x には `api` コマンドがないため、`doctor` は設定だけを読み取ります。
 
 `doctor` が `1` で終了するのは、エンジンのセルフテストが失敗した場合と、Findings セクションに `error` 重大度の finding が 1 つでもある場合です。それ以外は `0` で終了します。警告は終了コードに影響しません。次の finding は `error` 重大度です。
 
@@ -167,6 +185,22 @@ hook の設定ファイルをパースできない場合は、3 つとも結果�
 - `Error (Grok Build): Failed to parse Grok Build hooks config <path>: <reason>`
 
 いずれの場合も `<Agent> inspection failed` の finding が `error` 重大度で発生するため、`doctor` は `1` で終了します。
+
+### ホストごとの設定の場所
+
+設定の場所を移動できるホストがいくつかあります。`doctor` は各ホストと同じ上書きルールに従うため、移動した設定でも見つけられます。
+
+- **Claude Code**：`CLAUDE_CONFIG_DIR` が設定されていればその値、なければ `<home>/.claude` です。Claude Code 自身と同じく、値は `~` を展開せずそのまま使います。`install`、`update`、レガシープラグインの後始末、`status` と `statusline` の裏側で行う `enabledPlugins` の確認も、同じディレクトリを使います。
+- **Hermes Agent**：`HERMES_HOME` の親ディレクトリ名が `profiles` の場合、その値がそのまま Hermes のホームです。それ以外の場合、ルートは `HERMES_HOME`（未設定なら `<home>/.hermes`）で、ルートにある `active_profile` ファイルが `<root>/profiles/<name>` を選びます。この名前は前後の空白を取り除き、小文字に変換して使います。`active_profile` が空、`default`、ファイルなし、読み取り不能のいずれかであれば、ルートのままです。プラグインファイルは `<Hermes home>/plugins/cc-safety-net` に置かれます。
+- **OpenClaw**：OpenClaw のホームは、`OPENCLAW_HOME` が設定されていて空でなければその値、それ以外は OS のホームです。先頭の `~` は OS のホームを基準に展開します。状態ディレクトリは `OPENCLAW_STATE_DIR`、なければ `OPENCLAW_CONFIG_PATH` があるディレクトリ、それもなければ `<OpenClaw home>/.openclaw` です。この 2 つの環境変数では、先頭の `~` を OpenClaw のホームを基準に展開します。
+- **OpenCode**：2.x を報告するホストでは、`doctor` は `OPENCODE_CONFIG_DIR` だけを読み取ります。2.x は、この変数が設定されているとそのディレクトリしか読まないためです。それ以外のバージョンでは、そのディレクトリと XDG のディレクトリ（`$XDG_CONFIG_HOME/opencode`、なければ `<home>/.config/opencode`）の両方を読み取ります。1.x は常に XDG のディレクトリを読み込むためです。`OPENCODE_CONFIG_DIR` が空文字列の場合は未設定と同じ扱いです。`uninstall` は常に両方を読み取ります。
+- **Pi**：`PI_CODING_AGENT_DIR` が設定されていればその値、なければ `<home>/.pi/agent` です。先頭の `~` はホームディレクトリを基準に展開し、ファイルはそこにある `settings.json` です。
+
+`active_profile` が Hermes のプロファイル ID のパターンに合わない名前を指していても、実行は止まりません。Hermes Agent の行がそのエラーを報告し、`doctor` は他のホストを通常どおり検査します。
+
+```text
+Invalid Hermes profile name "<profile>" in <root>/active_profile; run `hermes profile use <name>` with a valid profile.
+```
 
 ## logs
 
@@ -604,7 +638,7 @@ npx -y cc-safety-net install --claude-code
 | `--gemini-cli` | Gemini CLI | Gemini CLI の拡張機能インストールコマンドを実行する |
 | `--copilot-cli` | GitHub Copilot CLI | Copilot CLI 自身のプラグインマーケットプレイスコマンドを実行する |
 | `--grok-build` | Grok Build | `~/.grok/hooks/cc-safety-net.json`（または `$GROK_HOME/hooks/cc-safety-net.json`）に hook エントリを書き込む |
-| `--hermes-agent` | Hermes Agent | `~/.hermes/plugins/cc-safety-net`（または `$HERMES_HOME` の下）に管理対象 Python プラグインを書き込み、`hermes plugins enable` で有効にする |
+| `--hermes-agent` | Hermes Agent | `<Hermes home>/plugins/cc-safety-net` に管理対象 Python プラグインを書き込み、`hermes plugins enable` で有効にする。Hermes のホームは `$HERMES_HOME` または `~/.hermes` で、`active_profile` がプロファイルを指定していれば `profiles/<name>` に移る |
 | `--kimi-code` | Kimi Code | ターミナルでは方式プロンプトの後に、`~/.kimi-code/config.toml`（または `$KIMI_CODE_HOME/config.toml`）に `[[hooks]]` ブロックを書き込む |
 | `--openclaw` | OpenClaw | `openclaw plugins install <plugin dir> --force --accept-capabilities` を実行する。このコマンドがプラグインの有効化まで行う。OpenClaw 2026.8.1 以降が必要 |
 | `--opencode` | OpenCode | OpenCode 自身のプラグインコマンドを実行する。1.x では `opencode plugin -g -f`、2.x では `opencode plugin add` と `opencode plugin update` |

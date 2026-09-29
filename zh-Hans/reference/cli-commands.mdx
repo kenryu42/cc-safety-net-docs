@@ -73,7 +73,7 @@ npx cc-safety-net status
 plugin cc-safety-net@cc-marketplace is disabled in Claude Code; nothing is enforced in Claude Code until it is re-enabled. Other integrations are not affected.
 ```
 
-每当 `~/.claude/settings.json` 缺失、解析失败、没有 `enabledPlugins`，或者没有将 `cc-safety-net@cc-marketplace` 设置为 `true` 时，该插件即视为已禁用。这项检查默认按禁用处理，因此读不到的设置文件会被当作禁用而不是启用。
+每当 Claude 设置文件缺失、解析失败、没有 `enabledPlugins`，或者没有将 `cc-safety-net@cc-marketplace` 设置为 `true` 时，该插件即视为已禁用。该文件是 `CLAUDE_SETTINGS_PATH`（已设置时），否则是 Claude 配置目录（`CLAUDE_CONFIG_DIR`，未设置时为 `<home>/.claude`）下的 `settings.json`。这项检查默认按禁用处理，因此读不到的设置文件会被当作禁用而不是启用。
 
 判定取自策略快照，绝不会根据你的配置重新推导；插件检查只是加上那一项，绝不会改变判定。
 
@@ -132,7 +132,25 @@ bunx cc-safety-net doctor
 
 `doctor` 从 `codex plugin list` 读取 Codex 状态。匹配 CC Safety Net 且包含 `installed, enabled` 的行是 `Detected` 和 `Configured`；包含其他 `installed,` 状态的匹配行是 `Detected` 和 `Not configured`。已注册的市场条目如果显示 `not installed`，则是 `Not detected`，而不是已禁用。
 
+显示为 `Configured` 的 Codex 行还会在 Hook Integration 表格下方打印一条关于信任的提醒：
+
+```text
+Warning (Codex): Codex runs only trusted hooks, and doctor cannot check trust. Start Codex, open `/hooks`, select the cc-safety-net PreToolUse hook, and press `t` to trust it.
+```
+
+`doctor` 从不向 Codex 查询 hook 是否已受信任，因此这条提醒每次运行都会出现，并不表示缺少信任。Inspection 仍为 `Verified`，不产生任何 finding，退出码也不变。`doctor --json` 会把同一段文本放在 `hooks` 中 `codex` 条目的 `errors` 数组里。
+
 对于 GitHub Copilot CLI，`doctor` 会检查插件签出和 hook 定义。内联设置的优先顺序是 `<repo>/.github/copilot/settings.local.json`、`<repo>/.github/copilot/settings.json`、`<repo>/.claude/settings.local.json`、`<repo>/.claude/settings.json`、`$COPILOT_HOME/settings.json`，然后是 `$COPILOT_HOME/config.json`（`COPILOT_HOME` 默认为 `~/.copilot`）。它还会扫描 `<repo>/.github/hooks/*.json` 和 `$COPILOT_HOME/hooks/*.json`。`.claude` 文件中的条目仅在命令包含 `hook --copilot-cli` 或 `hook -cp` 时才算；仅有 Claude Code hook 不算。内联设置需要 GitHub Copilot CLI `1.0.8+`，用户 hook 文件需要 `0.0.422+`。
+
+`doctor` 按 Copilot 自身的生效方式逐条读取插件开关。第一个把 `enabledPlugins` 中 `cc-safety-net@cc-marketplace` 设为布尔值的仓库文件决定结果。`doctor` 按 `disableAllHooks` 的顺序查找这些文件：`<repo>/.github/copilot/settings.local.json`、`<repo>/.github/copilot/settings.json`、`<repo>/.claude/settings.local.json`、`<repo>/.claude/settings.json`。若它们都没有设置，则由 `$COPILOT_HOME/settings.json` 决定；这个开关不读取 `config.json`。因此，仓库中的 `true` 会重新启用用户设置中的 `false`。当插件签出存在而 `$COPILOT_HOME/settings.json` 无法解析时，`doctor` 报告 `Not inspected`，除非已有仓库文件决定了该开关。
+
+只有在没有任何 CC Safety Net hook 配置生效时，`doctor` 才会把被开关关闭的 Copilot 插件报告为 `Not configured`。如果仍有 hook 文件或内联 hook 条目在运行防护，`doctor` 改为报告该 hook，方式为 `hook config`，因为 Copilot 与插件 hook 分开加载 hook 配置。
+
+`hooks.preToolUse` 条目在 `type` 缺失或为 `command` 时才计入，因为 Copilot 把缺失的 `type` 当作 `command`。命令取自 `command`、`bash`、`powershell`，或 `exec` 与 `args` 拼接后的结果。`exec` 必须是字符串，`args` 必须是字符串数组。不符合这些形状的文件会打印 `Invalid hook config <path>: hooks.preToolUse must be an array of hook objects`，完全无法解析的文件则打印 `Failed to parse <path>: <reason>`。
+
+在报告为 OpenCode 2.x 的宿主上，`doctor` 检查的不只是配置文件。当加载的配置中存在 `cc-safety-net` 条目时，`doctor` 会向 OpenCode 查询该插件是否已激活：先运行 `opencode api integration.list`，再运行 `opencode api plugin.list`，两者都带 `--param location[directory]=<dir>` 并有 30 秒上限。`<dir>` 是你运行 `doctor` 的目录。`integration.list` 会等待宿主完成插件激活，`plugin.list` 不等待。
+
+如果有状态为 `failed` 的 `cc-safety-net` 行，且没有对应的 `active` 行，OpenCode 就是 `Detected` 和 `Not configured`，并打印 `Error (OpenCode): OpenCode reports cc-safety-net failed: <the host's first error line>`。有 `active` 行、没有匹配行、没有输出、输出无法解析，这几种情况都保留配置给出的结论，因此重载失败但运行中的插件仍在时，依然显示为 `Configured`。这项查询只在存在 `cc-safety-net` 条目时才运行，所以没有该条目的 2.x 用户不会被查询。OpenCode 1.x 没有 `api` 命令，因此 `doctor` 在那里只读取配置。
 
 引擎自检失败，或 Findings 部分出现任何 `error` 严重程度的条目时，`doctor` 退出 `1`；否则退出 `0`。警告不影响退出码。以下条目属于 `error` 严重程度：
 
@@ -167,6 +185,22 @@ hook 配置无法解析则是另一种结果，三个智能体都一样：检测
 - `Error (Grok Build): Failed to parse Grok Build hooks config <path>: <reason>`
 
 每一种都还会产生一条 `error` 严重程度的 `<Agent> inspection failed` Findings 条目，因此 `doctor` 退出 `1`。
+
+### 各宿主的配置路径
+
+有几个宿主允许把配置挪到别处。`doctor` 遵循与各宿主相同的覆盖规则，因此挪过位置的配置仍能找到。
+
+- **Claude Code**。已设置时取 `CLAUDE_CONFIG_DIR`，否则取 `<home>/.claude`。与 Claude Code 本身一样，该值按原样使用，不展开 `~`。`install`、`update`、遗留插件清理，以及 `status` 和 `statusline` 背后的 `enabledPlugins` 检查，都使用同一个目录。
+- **Hermes Agent**。若 `HERMES_HOME` 的父目录名为 `profiles`，该值就是 Hermes 主目录本身。否则根目录取 `HERMES_HOME`（未设置时为 `<home>/.hermes`），再由根目录下的 `active_profile` 文件选出 `<root>/profiles/<name>`。该名称会去掉首尾空白并转为小写。`active_profile` 为空、为 `default`、缺失或读不到时，仍用根目录。插件文件位于 `<Hermes home>/plugins/cc-safety-net`。
+- **OpenClaw**。OpenClaw 主目录取 `OPENCLAW_HOME`（已设置且非空时），否则取操作系统主目录；`OPENCLAW_HOME` 开头的 `~` 按操作系统主目录展开。状态目录取 `OPENCLAW_STATE_DIR`，否则取 `OPENCLAW_CONFIG_PATH` 所在的目录，再否则为 `<OpenClaw home>/.openclaw`。这两个环境变量开头的 `~` 都按 OpenClaw 主目录展开。
+- **OpenCode**。在报告为 2.x 的宿主上，`doctor` 只读取 `OPENCODE_CONFIG_DIR`，因为 2.x 在该变量已设置时只读那一个目录。其他版本下，`doctor` 会同时读取该目录和 XDG 目录（`$XDG_CONFIG_HOME/opencode`，否则 `<home>/.config/opencode`），因为 1.x 总会加载 XDG 目录。`OPENCODE_CONFIG_DIR` 为空字符串等同于未设置。`uninstall` 始终读取两者。
+- **Pi**。已设置时取 `PI_CODING_AGENT_DIR`，否则取 `<home>/.pi/agent`。开头的 `~` 按主目录展开，文件是其中的 `settings.json`。
+
+`active_profile` 指向的名称不符合 Hermes 的 profile id 模式时，整次运行不会中断。Hermes Agent 行会报告该错误，`doctor` 照常检查其他宿主：
+
+```text
+Invalid Hermes profile name "<profile>" in <root>/active_profile; run `hermes profile use <name>` with a valid profile.
+```
 
 ## logs
 
@@ -604,7 +638,7 @@ npx -y cc-safety-net install --claude-code
 | `--gemini-cli` | Gemini CLI | 运行 Gemini CLI 的扩展安装命令 |
 | `--copilot-cli` | GitHub Copilot CLI | 运行 Copilot CLI 自带的插件市场命令 |
 | `--grok-build` | Grok Build | 将 hook 条目写入 `~/.grok/hooks/cc-safety-net.json`（或 `$GROK_HOME/hooks/cc-safety-net.json`） |
-| `--hermes-agent` | Hermes Agent | 把托管的 Python 插件写入 `~/.hermes/plugins/cc-safety-net`（或 `$HERMES_HOME` 下），并用 `hermes plugins enable` 启用 |
+| `--hermes-agent` | Hermes Agent | 把托管的 Python 插件写入 `<Hermes home>/plugins/cc-safety-net`，并用 `hermes plugins enable` 启用。Hermes 主目录是 `$HERMES_HOME` 或 `~/.hermes`，再按活动 profile 收窄 |
 | `--kimi-code` | Kimi Code | 在终端中先出现方式选择提示，然后将 `[[hooks]]` 块写入 `~/.kimi-code/config.toml`（或 `$KIMI_CODE_HOME/config.toml`） |
 | `--openclaw` | OpenClaw | 运行 `openclaw plugins install <plugin dir> --force --accept-capabilities`，该命令同时会启用插件。要求 OpenClaw 2026.8.1 或更高版本 |
 | `--opencode` | OpenCode | 运行 OpenCode 自身的插件命令：1.x 用 `opencode plugin -g -f`，2.x 用 `opencode plugin add` 和 `opencode plugin update` |

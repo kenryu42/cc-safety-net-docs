@@ -8,7 +8,7 @@ CC Safety Net は、コーディングエージェント内のプラグイン、
 
 ほとんどの連携は **Windows、macOS、Linux** で動作します。パスとコマンドを正しく解決するため、ホスト OS を検出します。Windows では、大文字と小文字を区別しないパスのほか、`COMSPEC` と `PATHEXT` を使って `cmd.exe` または PowerShell を解決します。インストールコマンドと対話式インストーラーは、npm が Windows 上で `.cmd` shim としてインストールしたエージェント CLI も検出します。このため、`install --codex` などのコマンドでも対象の CLI を見つけられます。CI では、Linux や macOS と同じフルチェック（lint、型チェック、テストスイート全体）を `windows-latest` でも実行しています。Windows でスキップするテストは 3 件です。ただし、これらのテストが検証するのはアナライザーと連携部分のコードであり、各コーディングエージェント自体を Windows 上で動かして確認しているわけではありません。Amp のマニュアルが対応対象として挙げているのも macOS、Linux、WSL であり、Windows ネイティブではありません。
 
-**Hermes Agent** と **OpenClaw** の連携は、macOS と Linux でのみ動作します。POSIX のホームディレクトリパスである `~/.hermes` と `~/.openclaw` を使用し、Windows のパスには対応していません。
+**Hermes Agent** と **OpenClaw** の連携は、macOS と Linux でのみ動作します。どちらも POSIX の状態ディレクトリ構成を前提としており、既定は `~/.hermes` と `~/.openclaw` です。Windows の既定のパスには対応していません。状態ディレクトリはどちらのホストでも移動できます。各ホストが読み取るディレクトリは、[Hermes Agent のインストール](#hermes-agent-installation)と [OpenClaw のインストール](#openclaw-installation)を参照してください。
 
 始める前に **Node.js 18 以降**をインストールしてください。以降の例では、`npx` で CLI のサブコマンドを実行します。
 
@@ -143,7 +143,7 @@ npx skill add kenryu42/cc-safety-net
 npx -y cc-safety-net@latest install --claude-code
 ```
 
-`kenryu42/cc-marketplace` から `cc-marketplace` マーケットプレイスを追加し、`cc-safety-net@cc-marketplace` プラグインをインストールします。無効化されたものがすでにある場合は、それを有効にします。
+`kenryu42/cc-marketplace` から `cc-marketplace` マーケットプレイスを追加し、`cc-safety-net@cc-marketplace` プラグインをインストールします。無効化されたものがすでにある場合は、それを有効にします。`claude plugin install` の書き込み先は、`$CLAUDE_CONFIG_DIR` が設定されていればそのディレクトリ、未設定であれば `~/.claude` です。CC Safety Net も、インストール記録と `settings.json` を同じディレクトリから読み取ります。Claude Code と同じく、この値は先頭の `~` を展開せずそのまま使います。
 
 ```bash
 npx -y cc-safety-net@latest uninstall --claude-code
@@ -275,7 +275,15 @@ npx -y cc-safety-net@latest uninstall --grok-build
 npx -y cc-safety-net@latest install --hermes-agent
 ```
 
-管理対象の Python プラグイン（`__init__.py` と `plugin.yaml`）を `$HERMES_HOME/plugins/cc-safety-net/`（`HERMES_HOME` が未設定の場合は `~/.hermes/plugins/cc-safety-net/`）に書き込み、続けて `hermes plugins enable cc-safety-net --no-allow-tool-override` を実行します。ファイルを置くだけでは何も起こりません。Hermes は自身の設定で有効と指定されたユーザープラグインしか読み込まないため、ファイルがすでに最新の場合でも、インストール時には enable コマンドを実行します。
+管理対象の Python プラグイン（`__init__.py` と `plugin.yaml`）を、Hermes のホームディレクトリ内の `plugins/cc-safety-net/` に書き込み、続けて `hermes plugins enable cc-safety-net --no-allow-tool-override` を実行します。ファイルを置くだけでは何も起こりません。Hermes は自身の設定で有効と指定されたユーザープラグインしか読み込まないため、ファイルがすでに最新の場合でも、インストール時には enable コマンドを実行します。
+
+Hermes CLI はプロファイルごとにホームディレクトリを切り替えるため、ホームディレクトリが常に `~/.hermes` とはかぎりません。`HERMES_HOME` の親ディレクトリ名が `profiles` の場合は、その値をそのまま使います。それ以外の場合は、`HERMES_HOME`（未設定であれば `~/.hermes`）をルートとし、ルートにある `active_profile` ファイルでホームディレクトリを決めます。このファイルの内容を trim して小文字にした名前が、`<root>/profiles/<name>` を指します。値が空または `default`（大文字と小文字は区別しません）の場合はルートのままで、`active_profile` が存在しない場合や読み取れない場合も同様です。Hermes 自身のプロファイル ID のパターン `^[a-z0-9][a-z0-9_-]{0,63}$` に一致しない名前の場合は処理を中止し、次のエラーで対象のファイルを示します。
+
+```text
+Invalid Hermes profile name "<profile>" in <root>/active_profile; run `hermes profile use <name>` with a valid profile.
+```
+
+インストール、アンインストール、検出は、いずれもこの同じ解決方法を使います。
 
 プラグインは `npx` 経由で subprocess を起動するため、インストール時にはまず npm の `_npx` キャッシュからキャッシュ済みの `cc-safety-net` を削除し、プラグインが最新リリースを解決できるようにします。アンインストールではキャッシュに手を加えません。キャッシュの場所は [Antigravity CLI のセクション](#antigravity-cli-installation)を参照してください。
 
@@ -349,7 +357,15 @@ CC Safety Net には OpenClaw 2026.8.1 以降が必要です。インストー�
 
 OpenClaw 自身の CLI を使ってプラグインをインストールします。実行するコマンドは、npm パッケージに同梱されているプラグインのディレクトリを指定した `openclaw plugins install <packaged plugin dir> --force --accept-capabilities` の 1 つだけです。2026.8.1 以降は、`--no-enable` を指定しないかぎり install がプラグインの有効化まで行うため、`openclaw plugins enable` を別に実行する必要はありません。`openclaw.json` で手動で無効にしているプラグインは無効のままで、下記の読み込み確認もその状態を報告します。CC Safety Net が代わりに有効へ戻すことはないため、有効にしたい場合は `openclaw plugins enable cc-safety-net` を自分で実行してください。
 
-その後、`openclaw plugins inspect cc-safety-net --runtime --json` を実行して、プラグインが実際に読み込まれたことを確認します。有効になっていてもランタイムが壊れているプラグインは、インストール自体は成功したように見えて何も保護しないため、状態が `loaded` 以外であればインストールを失敗させ、詳細を調べるための `openclaw plugins inspect cc-safety-net --runtime` を案内します。
+その後、`openclaw plugins inspect cc-safety-net --runtime --json` を実行して、プラグインが実際に読み込まれたことを確認します。有効になっていてもランタイムが壊れているプラグインは、インストール自体は成功したように見えて何も保護しないため、状態が `loaded` 以外であればインストールを失敗させ、詳細を調べるための `openclaw plugins inspect cc-safety-net --runtime` を案内します。状態が `disabled` の場合は、メッセージで有効化コマンドも案内します。
+
+```text
+OpenClaw reports the cc-safety-net plugin with status "disabled"; run `openclaw plugins enable cc-safety-net`. Run `openclaw plugins inspect cc-safety-net --runtime` for details.
+```
+
+インストールがプラグインを自動で有効にするのは、1 つの場合だけです。`openclaw plugins uninstall` は `enabled: false` というマーカーを残し、`plugins install` は明示的に無効化されたエントリを有効にしません。そのため、インストール、アンインストール、再インストールの順に実行すると、以前は状態が `disabled` のままになっていました。現在は、インストール前に管理対象プラグインのエントリファイルが存在せず、かつ最初の inspect が `disabled` を報告した場合にかぎり、`openclaw plugins enable cc-safety-net` を 1 回実行してから再度 inspect します。すでにインストール済みで、手動で無効にしたプラグインは、インストール時も更新時も無効のままです。
+
+Gateway が動作している状態では、この有効化が `config reload superseded by a newer runtime config source` で失敗することがあります。OpenClaw は有効化をまず設定ファイルに保存し、そのあとのランタイム反映が新しい設定ソースに取って代わられます。保存した内容は巻き戻されないため、この失敗だけは許容します。有効化を再試行することも、インストールを失敗させることもありません。結果を決めるのは、2 回目の `openclaw plugins inspect cc-safety-net --runtime --json` です。これ以外の有効化の失敗は、従来どおりインストールを失敗させます。保存された設定は、Gateway が次に再読み込みまたは起動したときに反映されます。下記の再起動が必要なのはこのためです。
 
 `--force` は `cc-safety-net` という拡張機能 ID を持つものを上書きし、アンインストール時には削除します。そのため、どちらのコマンドも実行前に、拡張機能のディレクトリに CC Safety Net の管理対象プラグインだけがあるか、または空であることを確認し、そうでない場合は実行を中止します。ディレクトリを移動または削除してから、コマンドを再実行してください。
 
@@ -363,7 +379,7 @@ npx -y cc-safety-net@latest uninstall --openclaw
 
 OpenClaw は CC Safety Net を hook subprocess ではなくプロセス内のプラグインとして読み込むため、実行時の hook フラグはありません。プラグインが `before_tool_call` ハンドラーを登録するのは、タグの付いていない `exec` ツールに対してだけです。OpenClaw のファイル系ツールと、タグ付きの `exec` は対象外です。対応する `exec` の呼び出しは、いずれもエージェントのワークスペースディレクトリを基準に解析します。ワークスペースを解決できない場合、`workdir` がワークスペースの外を指す場合、`auto` と `gateway` 以外の実行ホスト（`sandbox` や `node` など）が指定された場合は、fail closed で動作します。
 
-OpenClaw の状態ディレクトリは、`OPENCLAW_STATE_DIR` が設定されていればそのディレクトリ、なければ `OPENCLAW_CONFIG_PATH` があるディレクトリ、どちらもなければ `~/.openclaw` です。設定ファイルは、`OPENCLAW_CONFIG_PATH` が設定されていればそのファイル、なければ状態ディレクトリ内の `openclaw.json` です。どちらの環境変数も、値が `~` で始まるパスの場合はユーザーのホームディレクトリを基準に展開します。インストールと doctor はこれと同じ順序でパスを解決するため、場所を移した OpenClaw を「見つからない」と誤って報告することはありません。
+OpenClaw の各パスを解決する基準は `OPENCLAW_HOME` です。設定されていればその値が実効ホームディレクトリになり、先頭の `~` は OS のホームディレクトリを基準に展開します。未設定であれば、OS のホームディレクトリがそのまま実効ホームディレクトリです。状態ディレクトリは、`OPENCLAW_STATE_DIR` が設定されていればそのディレクトリ、なければ `OPENCLAW_CONFIG_PATH` があるディレクトリ、どちらもなければ実効ホームディレクトリ内の `.openclaw` です。この 2 つの環境変数の先頭の `~` は、OS のホームディレクトリではなく実効ホームディレクトリを基準に展開します。設定ファイルは、`OPENCLAW_CONFIG_PATH` が設定されていればそのファイル、なければ状態ディレクトリ内の `openclaw.json` です。3 つの環境変数はいずれも前後の空白を取り除いて扱い、空の値は未設定とみなします。インストールと doctor も同じ方法でパスを解決するため、場所を移した OpenClaw を「見つからない」と誤って報告することはありません。
 
 この連携は macOS と Linux のみに対応しています。
 
@@ -377,7 +393,9 @@ npx -y cc-safety-net@latest install --opencode
 
 CC Safety Net は、同じ npm パッケージで OpenCode 1.18.29 以降と 2.0.6 以降に対応しています。インストールはまず `opencode --version` を実行し、それ以外のバージョンは `OpenCode 1.18.29+ or 2.0.6+ is required; found <version>.` で拒否します。v1 の古いリリースは統合されたプラグインエントリに対応していないため、CC Safety Net を更新する前に OpenCode を更新してください。
 
-OpenCode の設定ディレクトリは、`OPENCODE_CONFIG_DIR` が設定されていればその値、なければ `$XDG_CONFIG_HOME/opencode`、それもなければ `~/.config/opencode` です。設定ファイルは、そのディレクトリ内の `opencode.json` または `opencode.jsonc` です。インストールの事前確認、検出、アンインストールは、いずれもこの順序でディレクトリを解決します。
+OpenCode の設定ディレクトリは、`OPENCODE_CONFIG_DIR` が設定されていて空でなければその値、なければ `$XDG_CONFIG_HOME/opencode`、それもなければ `~/.config/opencode` です。空の値は、v1 と v2 のどちらでも未設定とみなします。設定ファイルは、そのディレクトリ内の `opencode.json` または `opencode.jsonc` です。
+
+v2 のインストール事前確認が読むのは、このディレクトリだけです。検出とアンインストールは、どちらかのバージョンが読み込むディレクトリをすべて走査します。順序は、上書き用のディレクトリが先、XDG のディレクトリが後です。OpenCode 1.x は `OPENCODE_CONFIG_DIR` の設定有無にかかわらず、常に XDG のディレクトリを読み込むためです。[`doctor`](/ja/reference/cli-commands#doctor) の範囲はさらに狭く、ホストが 2.x を報告した場合、検出は上記の設定ディレクトリだけを読みます。v2 が読むのはそのディレクトリだけだからです。バージョンが不明な場合、つまり `opencode` が `PATH` にない場合や、install と update が対象を検出している場合は、両方のディレクトリを走査します。アンインストールは常に両方を走査します。
 
 OpenCode 1.x では、インストールはキャッシュ内のパッケージを削除してから `opencode plugin -g -f cc-safety-net@latest` を実行します。キャッシュディレクトリは、`XDG_CACHE_HOME` が設定されていて空でなければ `$XDG_CACHE_HOME/opencode`、そうでなければ `~/.cache/opencode` で、削除対象はその下の `packages/cc-safety-net@latest` です。OpenCode は古いキャッシュのプラグインを使い続けることがあるため、先にキャッシュを削除します。その後、キャッシュされたパッケージが存在すること、宣言された `main` エントリが読み込めること、呼び出し可能な `CCSafetyNetPlugin` を export していることを確認します。この確認に失敗した場合、インストールは中止されます。そのまま進めると、OpenCode が保護のない状態で動き続けてしまうためです。
 
@@ -389,13 +407,29 @@ Change the cc-safety-net package spec in <path> to cc-safety-net@latest, preserv
 
 そのエントリのパッケージ指定を、オプションとコメントは残したまま自分で書き換えてから、インストールをやり直してください。
 
-問題がなければ、インストールは `opencode plugin add cc-safety-net@latest` と `opencode plugin update cc-safety-net@latest` を実行し、続いて `opencode plugin list` を読み取り、プラグイン ID `cc-safety-net`、バージョン、ソース `cc-safety-net@latest` の 3 列からなる行（`cc-safety-net  2.4.4  cc-safety-net@latest` のような行）があることを要求します。その行がなければ、次のメッセージで失敗します。
+問題がなければ、インストールは `opencode plugin add cc-safety-net@latest` を実行します。`opencode plugin update cc-safety-net@latest` を実行するのは、`add` の出力に `is already configured in` が含まれる場合だけです。初回インストールでは、OpenCode のバックグラウンドサービスが追加されたエントリをまだ読み込んでおらず、無条件に `update` を実行すると `Plugin is not configured` で失敗するためです。
+
+続いてインストールは、`cc-safety-net` の ID かソース `cc-safety-net@latest` を含む行が現れるまで、`opencode plugin list` を 250 ms 間隔で最大 60 回ポーリングします。待ち時間の上限は約 15 秒です。この一覧には、プラグイン ID `cc-safety-net`、バージョン、ソース `cc-safety-net@latest` の 3 列からなる行（`cc-safety-net  2.4.4  cc-safety-net@latest` のような行）が必要です。その行がなければ、次のメッセージで失敗します。
 
 ```text
 OpenCode did not load cc-safety-net from cc-safety-net@latest. Run `opencode plugin list` for details.
 ```
 
-この一覧でわかるのはプラグインが認識されたことだけで、hook が有効になったことまではわかりません。一覧に出ているのに何もブロックされない場合は、OpenCode 側の診断情報を確認してください。この経路ではキャッシュを削除しません。
+この一覧でわかるのは OpenCode がプラグインを見つけたことだけで、プラグインが有効になったかどうかはわかりません。そのためインストールは、続けてホストに有効化の状態を問い合わせます。まず `opencode api integration.list`、次に `opencode api plugin.list` を実行し、どちらにも `--param location[directory]=<cwd>` を付けます。1 つ目の呼び出しは、ホスト側でプラグインが有効になるのを待ちます。2 つ目は一覧をすぐに返すため、これだけではまだ処理待ちの失敗を見落とすことがあります。
+
+一覧に failed 状態の `cc-safety-net` の行があり、active な行が 1 つもない場合、インストールはホストのエラーの 1 行目を添えて失敗します。
+
+```text
+OpenCode reports cc-safety-net failed: <first line of OpenCode's error>
+```
+
+一覧に active な `cc-safety-net` の行がまったくない場合、つまり一覧が空、読み取れない、他のプラグインだけが active といった場合も、インストールは失敗します。
+
+```text
+OpenCode lists no active cc-safety-net for this directory. Run `opencode api plugin.list` for details.
+```
+
+この経路ではキャッシュを削除しません。ダッシュボードの `Enable` ボタンも、この同じインストールを実行します。
 
 ```bash
 npx -y cc-safety-net@latest uninstall --opencode
@@ -415,7 +449,7 @@ OpenCode 2.x では、アナライザーの方言はプラグインの `shell` �
 npx -y cc-safety-net@latest install --pi
 ```
 
-`pi install npm:cc-safety-net` を実行します。Pi の設定に、CC Safety Net が無効になってしまう `extensions` フィルターが固定されている場合は、`~/.pi/agent/settings.json` でそのフィルターを解除します。
+`pi install npm:cc-safety-net` を実行します。Pi の設定に、CC Safety Net が無効になってしまう `extensions` フィルターが固定されている場合は、Pi のエージェントディレクトリにある `settings.json` でそのフィルターを解除します。このディレクトリは、`PI_CODING_AGENT_DIR` が設定されていればその値（先頭の `~` はホームディレクトリを基準に展開）、未設定であれば `~/.pi/agent` です。検出も同じファイルを読み取ります。
 
 ```bash
 npx -y cc-safety-net@latest uninstall --pi

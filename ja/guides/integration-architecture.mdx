@@ -26,14 +26,16 @@ CC Safety Net は 13 のコーディングエージェントに対応し、接�
 | エージェント | 実行時フラグ | hook イベント | コマンド用ツール | 拒否時の出力形式 |
 | --- | --- | --- | --- | --- |
 | Antigravity CLI | `-ac` / `--agy-cli` | `PreToolUse` | `run_command` | `{ "decision": "deny", "reason": … }` |
-| Claude Code | `-cc` / `--coding-cli` | `PreToolUse` | `Bash`, `PowerShell` | `hookSpecificOutput.permissionDecision: "deny"`。[standard モードで検証できなかったコマンド](#when-claude-code-asks-instead-of-denying)では `"ask"` |
+| Claude Code | `-cc` / `--coding-cli` | `PreToolUse` | `Bash`, `PowerShell`, `Monitor` | `hookSpecificOutput.permissionDecision: "deny"`。[standard モードで検証できなかったコマンド](#when-claude-code-asks-instead-of-denying)では `"ask"` |
 | Codex | `-cx` / `--codex` | `PreToolUse` | `Bash` | `hookSpecificOutput.permissionDecision: "deny"` |
 | Cursor | `-cu` / `--cursor` | `preToolUse` | `Shell` | `{ "permission": "deny", "user_message": …, "agent_message": … }` |
 | Gemini CLI | `-gc` / `--gemini-cli` | `BeforeTool` | `run_shell_command` | `{ "decision": "deny", "reason": …, "systemMessage": … }` |
 | GitHub Copilot CLI | `-cp` / `--copilot-cli` | `PreToolUse` | `bash`, `Bash`, `powershell`, `PowerShell` | `{ "permissionDecision": "deny", "permissionDecisionReason": … }` |
-| Grok Build | `-gb` / `--grok-build` | `PreToolUse` | `run_terminal_command` | `{ "decision": "deny", "reason": … }` |
+| Grok Build | `-gb` / `--grok-build` | `PreToolUse` | `run_terminal_command`, `monitor` | `{ "decision": "deny", "reason": … }` |
 | Hermes Agent | `-ha` / `--hermes-agent` | `pre_tool_call` | `terminal` | `{ "action": "block", "message": … }` |
 | Kimi Code | `-kc` / `--kimi-code` | `PreToolUse` | `Bash` | `hookSpecificOutput.permissionDecision: "deny"` |
+
+Claude Code の `Monitor` と Grok Build の `monitor` もシェルコマンドを実行するため、どちらもコマンド用ツールとして扱います。`Monitor` は POSIX のアナライザーを、`monitor` は方言の自動判定を使います。ただし `command` フィールドを持たない `Monitor` の呼び出しだけは、コマンド用ツールとして扱いません。これは `ws: { url, protocols? }` を送る WebSocket 版です。コマンド用ツールとして扱うとコマンドが見つからずに fail closed となり、WebSocket の監視をすべて拒否してしまいます。
 
 <Note>
   エージェントごとにイベント名も拒否の形式も異なるため、CC Safety Net はそれぞれに合った形式で出力します。たとえば Gemini CLI は、Claude Code の `hookSpecificOutput` ではなく、終了コード 0 と `decision`／`systemMessage` を持つオブジェクトを求めます。出力形式を自分で設定する必要はありません。指定したフラグによって自動的に決まります。
@@ -83,10 +85,20 @@ CC Safety Net は 13 のコーディングエージェントに対応し、接�
 | Gemini CLI | `gemini-safety-net` リポジトリから読み込む拡張機能 `gemini-safety-net`。`cc-marketplace` のプラグインではない |
 | GitHub Copilot CLI | プラグイン `cc-safety-net@cc-marketplace`、または `~/.copilot/hooks` 配下の hook ファイルや Copilot の設定内のインライン hook。hook 対応にはバージョン条件があるため、使える取得元は Copilot CLI のバージョンによって異なる（[インストール](/ja/installation#github-copilot-cli-installation)を参照）。`disableAllHooks: true` はすべての hook を無効にする |
 | Grok Build | 直接書き込み。`npx -y cc-safety-net hook --grok-build` を実行する管理対象の `PreToolUse` エントリを、`timeout: 30` を付けて `~/.grok/hooks/cc-safety-net.json`（または `$GROK_HOME/hooks/cc-safety-net.json`）に追加する。このエントリにマッチャーはないため、`run_terminal_command` だけでなくファイル系ツールやパッチ系ツールも hook に届く。インストールもアンインストールも管理対象のハンドラーだけを操作するため、同じファイル内の管理対象外のエントリや、同じエントリ内の管理対象外のハンドラーはそのまま残る |
-| Hermes Agent | 直接書き込み。`~/.hermes/plugins/cc-safety-net/` に管理対象の Python プラグイン（`__init__.py` と `plugin.yaml`。設定時の Hermes ホームは `$HERMES_HOME`）を追加し、`hermes plugins enable cc-safety-net --no-allow-tool-override` で有効化する。有効化の状態は Hermes 自身の `config.yaml` の `plugins.enabled` に記録される |
+| Hermes Agent | 直接書き込み。`<Hermes home>/plugins/cc-safety-net/` に管理対象の Python プラグイン（`__init__.py` と `plugin.yaml`）を追加し、`hermes plugins enable cc-safety-net --no-allow-tool-override` で有効化する。有効化の状態は Hermes 自身の `config.yaml` の `plugins.enabled` に記録される |
 | Kimi Code | 直接書き込み。`npx -y cc-safety-net hook --kimi-code` を実行する `[[hooks]]` ブロックを `~/.kimi-code/config.toml`（または `$KIMI_CODE_HOME/config.toml`）に追加する。もう 1 つの方法として、Kimi Code 内で `/plugins install https://github.com/kenryu42/cc-safety-net` を実行し、ネイティブのプラグインをインストールすることもできる。そのマニフェストは同じ hook エントリ（`node ./dist/bin/cc-safety-net.js hook --kimi-code`、`PreToolUse` イベント、タイムアウト 30 秒）をマッチャーなしで実行するため、ファイル系ツールも hook に届く |
 
-Kimi Code の `Bash` 呼び出しでは、`tool_input.cwd` があればその値を実行ディレクトリとして使います。値は空でない文字列で、セッションの `cwd` の内側に解決できる必要があります。無効な値や外側を指す値は fail closed になります。GitHub Copilot CLI では、`powershell` と `PowerShell` の呼び出しを PowerShell のアナライザーに振り分けます。
+Kimi Code の `Bash` 呼び出しでは、`tool_input.cwd` があればその値を実行ディレクトリとして使います。値は空でない文字列で、セッションの `cwd` の内側に解決できる必要があります。無効な値や外側を指す値は fail closed になります。
+
+Gemini CLI の `run_shell_command` 呼び出しでは、文字列の `dir_path` が実行ディレクトリになります。Gemini 自身がコマンドを `path.resolve(targetDir, dir_path)` で実行するためです。CC Safety Net はこの値をペイロードの `cwd` を基準に解決し、絶対パスはそのまま使います。設定ディレクトリはセッションのカレントディレクトリのままなので、プロジェクト自身のルール設定が引き続き適用されます。
+
+解決先は実在するディレクトリである必要があります。存在しない場合は拒否し、要求された作業ディレクトリが原因であることを示します。空白だけの値や文字列以外の値は fail closed になります。`""` は `dir_path` の指定がないことを意味し、これは Gemini 自身の判定と同じです。この場合はセッションのカレントディレクトリで解析します。
+
+Kimi Code の `cwd` とは異なり、解決後のディレクトリがセッションのカレントディレクトリの内側に収まっている必要はありません。`BeforeTool` の hook が発火する前に、Gemini 側がワークスペース、`--include-directories` のルート、プロジェクトの一時ディレクトリと照らして `dir_path` を検証済みだからです。Amp の `dir` も同じように解決します。
+
+GitHub Copilot CLI の呼び出しでは、`toolArgs` はオブジェクトか文字列で届きます。オブジェクトはそのまま使います。文字列は JSON としてパースし、JSON でない文字列は `Failed to parse toolArgs JSON.` という理由で拒否します。例外は 1 つだけです。patch の経路では、先頭の空白を除いて `*** Begin Patch` で始まる文字列を、パッチのテキストとしてそのまま渡します。`powershell` と `PowerShell` の呼び出しは PowerShell のアナライザーに、`bash` と `Bash` の呼び出しは方言の自動判定に振り分けます。
+
+プラグイン経由の場合、Copilot は Windows の `powershell` ツールを `Bash` という名前で送ります。そのままでは Claude 形式のアダプターが POSIX のコマンドとして扱ってしまいます。そこでアダプターは環境変数 `COPILOT_CLI` を読み、値が `1` であれば `Bash` を `auto` の方言に振り分けます。これにより PowerShell の削除ルールが引き続き適用されます。[PowerShell `Remove-Item`](/ja/guides/analysis-engine#powershell-remove-item) を参照してください。
 
 Grok Build の呼び出しでは、信頼するルートは `workspaceRoot` で、`workspaceRoot` がない場合は `cwd` をルートとします。`cwd` はそのルートの内側のディレクトリとして正規化できる必要があり、`cwd` がないか空の場合は `.` として扱います。ルートを正規化できない場合や、`cwd` がルートの外を指す場合は fail closed になります。`toolInputTruncated: true` も fail closed になります。Grok Build はツール入力を 128 KB で切り詰めるため、途中で切れたコマンドは解析できません。
 
@@ -102,9 +114,25 @@ Hermes は、hook の設定ファイルから hook コマンドを実行する�
 
 プラグインが渡すツールは 4 つです。コマンド解析用の `terminal`、書き込み保護用の `write_file` と `patch`、読み取り保護用の `read_file` です。それ以外の Hermes のツール呼び出しは渡されず、判定も行われません。
 
-Hermes は例外を投げたプラグインのコールバックを無視するため、プラグイン自身がすべての失敗を明示的なブロックに変換します。対象は、PATH に `npx` がない、プロセスの起動に失敗する、タイムアウトする（30 秒でアナライザーのプロセスグループ全体を kill）、終了コードが 0 以外になる、出力が読み取れないか想定外である、といった場合です。Hermes のセッションディレクトリを読み取れない場合もブロックします。誤ったディレクトリを基準に解析すると、パスに基づく保護がすべて失われてしまうためです。
+プラグインは、すべての失敗を原因を明示したブロックに変換します。対象は、PATH に `npx` がない、プロセスの起動に失敗する、タイムアウトする（30 秒でアナライザーのプロセスグループ全体を kill）、終了コードが 0 以外になる、出力が読み取れないか想定外である、といった場合です。Hermes 側のディレクトリ解決の仕組みを読み込めない場合もブロックします。誤ったディレクトリを基準に解析すると、パスに基づく保護がすべて失われてしまうためです。
 
-ここでは、ディレクトリに関する 2 点が重要です。`terminal` の呼び出しでは、プラグインはまず Hermes がセッションごとに保持する作業ディレクトリの記録を読み取ります。この記録には、そのセッションでの `cd` の状態が反映されています。最初のコマンドでまだ記録がない場合は、`TERMINAL_CWD`、次に Hermes のプロセスのディレクトリを使います。使用できない `workdir` を持つ `terminal` の呼び出しは fail closed になります。また、アナライザーの subprocess は Hermes の作業ディレクトリではなくホームディレクトリから起動します。これにより、`npx` が正規のパッケージの代わりにリポジトリ内の `cc-safety-net` を解決してしまうのを防ぎます。
+プラグインは、Hermes 自身が使うディレクトリを基準に各ツールを解析します。`terminal` の呼び出しでは、プラグインはまず Hermes がセッションごとに保持する作業ディレクトリの記録を読み取ります。この記録には、そのセッションでの `cd` の状態が反映されています。最初のコマンドでまだ記録がない場合は、`TERMINAL_CWD`、次に Hermes のプロセスのディレクトリを使います。使用できない `workdir` を持つ `terminal` の呼び出しは fail closed になります。
+
+`read_file`、`write_file`、`patch` の呼び出しでは、プラグインは `_resolve_base_dir(task_id or "default")` を呼び出します。Hermes もこれらのツールの相対パスを同じ仕組みで解決します。この解決は、セッションの作業ディレクトリの記録、タスクごとの作業ディレクトリの上書き、`TERMINAL_CWD`、最後に Hermes のプロセスのディレクトリの順にたどります。import 元は `tools.file_tools` です。Hermes v2026.8.31 までは `tools.file_tools` が `_resolve_base_dir` を定義し、v2026.9.7 以降は `tools.file_tools_paths` から再エクスポートしています。import に失敗した場合、プラグインは呼び出しをブロックし、どの解決に失敗したかを示します。
+
+```text
+CC Safety Net failed closed: the Hermes file tool directory could not be read (<error>). Update cc-safety-net and reinstall the plugin with: npx -y cc-safety-net install --hermes-agent.
+```
+
+`terminal` の解決に失敗した場合も同じメッセージで、`file tool` の部分が `session` になります。
+
+アナライザーの subprocess は Hermes の作業ディレクトリではなくホームディレクトリから起動します。これにより、`npx` が正規のパッケージの代わりにリポジトリ内の `cc-safety-net` を解決してしまうのを防ぎます。
+
+管理対象プラグインの配置先は Hermes のホームで決まります。Hermes の CLI は、プロファイルのディレクトリをホームとして使います。親ディレクトリ名が `profiles` である `HERMES_HOME` はすでにプロファイルのディレクトリなので、CC Safety Net はその値をそのまま使います。そうでない場合、ルートは `HERMES_HOME`、未設定なら `~/.hermes` です。CC Safety Net はそのルートにある `active_profile` ファイルを読み取り、前後の空白を除いて小文字に変換します。得られた名前で `<root>/profiles/<name>` を選びます。名前が空の場合、名前が `default` の場合、ファイルが存在しないか読み取れない場合は、いずれもルートのままです。Hermes のプロファイル ID のパターンに合わない名前の場合は、次のエラーで処理を中止します。
+
+```text
+Invalid Hermes profile name "<profile>" in <root>/active_profile; run `hermes profile use <name>` with a valid profile.
+```
 
 管理対象のファイルはいずれも、CC Safety Net のファイルであることを示すヘッダー行で始まります。インストーラーは、このヘッダーがないファイルを上書きしません。Hermes はディスク上に存在しないプラグインを解決しないため、アンインストールではファイルを削除する前に `hermes plugins disable cc-safety-net` を実行します。インストール・アンインストールのいずれの場合も、Hermes を再起動するまでプラグインの変更は反映されません。設定と削除のコマンドは[インストール](/ja/installation#hermes-agent-installation)を参照してください。
 
@@ -130,9 +158,17 @@ OpenClaw は、ネイティブの OpenClaw プラグインとして CC Safety Ne
 
 プラグインの状態は OpenClaw が管理しているため、インストールには OpenClaw 自身の CLI を使います。実行するコマンドは `openclaw plugins install <packaged dir> --force --accept-capabilities` の 1 つだけです。OpenClaw 2026.8.1 以降では、`--no-enable` を指定しないかぎり install がプラグインの有効化まで行うため、`openclaw plugins enable` を別に実行する必要はありません。`openclaw.json` で手動で無効にしている場合は無効のままで、下記のランタイム確認が読み込まれていない状態をそのまま報告します。CC Safety Net が黙って有効に戻すことはありません。`--accept-capabilities` は 2026.8.1 より前には存在しないため、それ以前の OpenClaw では unknown-option エラーでインストールが失敗します。バージョンの判定もフォールバックもありません。
 
-`--force` を使うコマンドの前に、CC Safety Net は対象の拡張機能ディレクトリが自身の管理対象ファイルだけを含むことを確認します。これにより、自分のものだと確認できないプラグインを上書きしたり削除したりすることはありません。インストール後には `openclaw plugins inspect cc-safety-net --runtime --json` を実行し、状態が `loaded` の場合だけ成功とみなします。バンドルが壊れたまま有効になっているプラグインは、インストール自体は問題なく完了しても、何も保護しないまま終わってしまうためです。
+`openclaw plugins uninstall` は `enabled: false` のマーカーを残し、`plugins install` は明示的に無効化されたエントリを有効化しません。そのため、インストール、アンインストール、インストールの順に実行すると、以前は状態が `disabled` のままになっていました。CC Safety Net はこの 1 ケースだけを補います。インストール前に管理対象プラグインのエントリファイルが存在せず、かつランタイム確認の結果が `disabled` の場合にかぎり、`openclaw plugins enable cc-safety-net` を 1 回だけ実行し、もう一度確認します。すでにインストール済みでユーザーが無効にしたプラグインは、インストールでもアップデートでも無効のままです。つまり通常のインストールやアップデートで enable を実行することはありません。
 
-インストールされたファイルは `<state dir>/extensions/cc-safety-net/` にあります。state dir は、設定されていれば `OPENCLAW_STATE_DIR`、次に `OPENCLAW_CONFIG_PATH` があるディレクトリ、いずれもなければ `~/.openclaw` です。有効・無効の状態は OpenClaw 自身の設定（state dir の `openclaw.json`、または `OPENCLAW_CONFIG_PATH`）にあります。全体の `plugins.enabled` スイッチ、`plugins.allow` / `plugins.deny` の一覧、プラグインごとの `plugins.entries.cc-safety-net.enabled` の項目が、いずれも影響します。`plugins.allow` を設定している場合は、そこに `cc-safety-net` も記載する必要があります。
+Gateway が動作している場合、この enable は `config reload superseded by a newer runtime config source` で失敗することがあります。OpenClaw は、上書きされることになるランタイムへの反映より先に `plugins.entries.cc-safety-net.enabled=true` を保存し、その書き込みを巻き戻すことはありません。そのため CC Safety Net は enable を再試行せず、これを理由にインストールを失敗させることもありません。結果を決めるのは 2 回目のランタイム確認です。それ以外の理由で enable が失敗した場合は、これまでどおりインストールが失敗します。保存された設定は、Gateway 自身の後続の reload か、次回の起動時に反映されます。
+
+`--force` を使うコマンドの前に、CC Safety Net は対象の拡張機能ディレクトリが自身の管理対象ファイルだけを含むことを確認します。これにより、自分のものだと確認できないプラグインを上書きしたり削除したりすることはありません。インストール後には `openclaw plugins inspect cc-safety-net --runtime --json` を実行し、状態が `loaded` の場合だけ成功とみなします。バンドルが壊れたまま有効になっているプラグインは、インストール自体は問題なく完了しても、何も保護しないまま終わってしまうためです。状態が `disabled` の場合は、実行すべきコマンドをメッセージに含めます。
+
+```text
+OpenClaw reports the cc-safety-net plugin with status "disabled"; run `openclaw plugins enable cc-safety-net`. Run `openclaw plugins inspect cc-safety-net --runtime` for details.
+```
+
+インストールされたファイルは `<state dir>/extensions/cc-safety-net/` にあります。実効ホームは、`OPENCLAW_HOME` が空でない値に設定されていればその値、設定されていなければ OS のホームディレクトリです。`OPENCLAW_HOME` の先頭の `~` は OS のホームディレクトリを基準に展開します。状態ディレクトリは `OPENCLAW_STATE_DIR`、なければ `OPENCLAW_CONFIG_PATH` があるディレクトリ、いずれもなければ `<effective home>/.openclaw` です。この 2 つの環境変数の先頭の `~` は、実効ホームを基準に展開します。有効・無効の状態は OpenClaw 自身の設定（状態ディレクトリの `openclaw.json`、または `OPENCLAW_CONFIG_PATH`）にあります。全体の `plugins.enabled` スイッチ、`plugins.allow` / `plugins.deny` の一覧、プラグインごとの `plugins.entries.cc-safety-net.enabled` の項目が、いずれも影響します。`plugins.allow` を設定している場合は、そこに `cc-safety-net` も記載する必要があります。
 
 インストールまたはアンインストールの後は、OpenClaw Gateway を再起動してください。マニフェストは起動時にプラグインを有効化する設定（`activation: { onStartup: true }`）になっているため、実行中の Gateway には変更が反映されません。設定と削除のコマンドは[インストール](/ja/installation#openclaw-installation)を参照してください。
 
@@ -148,6 +184,8 @@ OpenCode 1.x では、プラグインは `@opencode-ai/plugin` の仕様を実�
 `bash` ツールでは、プラグインは OpenCode の `shell` の設定からアナライザーの方言を選びます。この設定が文字列でない場合、Windows では PowerShell を既定とし、それ以外では `SHELL` を参照します。認識できる `powershell` と `pwsh` の実行ファイルなら PowerShell を、認識できる POSIX シェルなら POSIX を選びます。それ以外の値の場合は自動判定に任せます。指定された `workdir` は、読み取りと検索ができるディレクトリとして解決できた場合にかぎり、実行ディレクトリになります。Windows では、`/C:`、`/C`、`/cygdrive/C`、`/mnt/C` という文書化された形式を正規化し、それ以外のスラッシュ始まりのパスは OpenCode 側で解決できるようそのまま渡します。
 
 OpenCode 2.x では、プラグインは `cc-safety-net` という ID で登録され、`tool.execute.before` を hook して、型付きの `Tool.Error` で拒否を返します。`shell` ツールはコマンドとして検査し、read、edit、write、patch、grep、glob と未知のツールは v1 と同じ入力経路で検査します。Code Mode から呼ばれる子ツールもこの hook を通りますが、CC Safety Net は外側の Code Mode の JavaScript 自体は解釈しません。プラグインはさらに command API 経由で `/cc-safety-net` を登録し、同名のコマンドがすでにある場合はそれをそのまま残します。
+
+v2 の `shell` ツールは、ホストの `FileAccess.resolvePath` で `workdir` を解決します。これは `~` をホームディレクトリに、`~/x` を `<home>/x` に対応付けます。v2 のプラグインも、上記の Windows のドライブ正規化の後に同じ解決を行います。`~` だけならホームディレクトリ、`~/` で始まればその下に結合し、win32 では `~\` も同様に扱います。`~other` や `~x` のようなそれ以外の形式は、プロジェクトからの相対パスのままです。v1 はチルダを展開しません。OpenCode v1 が `path.resolve` で `workdir` を解決するためです。
 
 #### v2 のシェル方言
 
@@ -178,18 +216,19 @@ OpenCode 1.x は古いキャッシュのプラグインを使い続けること�
 
 ## Pi の拡張機能
 
-Pi は、パッケージの `pi.extensions` フィールドで宣言され、`~/.pi/agent/settings.json` にパッケージの取得元 `npm:cc-safety-net` として記録された、プロセス内の拡張機能として CC Safety Net を読み込みます。拡張機能が行うことは 2 つです。
+Pi は、パッケージの `pi.extensions` フィールドで宣言され、Pi のエージェントディレクトリにある `settings.json` にパッケージの取得元 `npm:cc-safety-net` として記録された、プロセス内の拡張機能として CC Safety Net を読み込みます。このディレクトリは、`PI_CODING_AGENT_DIR` が設定されていればその値（先頭の `~` は展開されます）、設定されていなければ `~/.pi/agent` です。拡張機能が行うことは 2 つです。
 
 1. **`tool_call` イベントのハンドラーを登録します**（`pi.on('tool_call')`）。ハンドラーは Pi のツール呼び出しを実行前に検査し、コマンドやパスがポリシーに違反していればブロックの結果を返します。プロセスの境界を越えるやり取りは一切ありません。
 2. Pi 内から rulebook を対話的に管理するための、**組み込みコマンド `/cc-safety-net` を登録します**。
 
 ### Pi で保護されるツール
 
-Pi でコマンド用ツールとして扱われるのは、組み込みの **`bash`** ツールだけです。その `command` はセッションのカレントディレクトリを基準に実行されます。以前のカスタム `Shell` ツールには対応していません。Pi のコマンド以外のツールも、引き続きパスの保護とシークレット保護の対象になります。特に `find` は読み取り専用の glob ツールとして分類されるため、検索自体を書き込みとして扱うことなく、`pattern` とパスの値を検査します。コマンドの呼び出し内容やセッションのカレントディレクトリが不正な場合、CC Safety Net は fail closed になります。
+Pi でコマンド用ツールとして扱うのは、組み込みの `bash` と `powershell` の 2 つです。どちらも `command` フィールドを読み取り、そのコマンドはセッションのカレントディレクトリを基準に実行されます。`bash` は POSIX のアナライザー、`powershell` は PowerShell のアナライザーに振り分けます。以前のカスタム `Shell` ツールには対応していません。Pi のコマンド以外のツールも、引き続きパスの保護とシークレット保護の対象になります。特に `find` は読み取り専用の glob ツールとして分類されるため、検索自体を書き込みとして扱うことなく、`pattern` とパスの値を検査します。コマンドの呼び出し内容やセッションのカレントディレクトリが不正な場合、CC Safety Net は fail closed になります。
 
 | ツール | コマンドのフィールド | 作業ディレクトリ |
 | --- | --- | --- |
 | `bash` | `command` | セッションのカレントディレクトリ |
+| `powershell` | `command` | セッションのカレントディレクトリ |
 
 ### Pi の検出
 

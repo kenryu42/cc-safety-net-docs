@@ -8,7 +8,7 @@ CC Safety Net 以插件、扩展或 hook 的形式安装在编码智能体内，
 
 大多数集成支持 **Windows、macOS 和 Linux**。它们会检测主机操作系统，并按系统规则处理路径和解析命令。在 Windows 上，它们会按不区分大小写的方式处理路径，并通过 `COMSPEC` 和 `PATHEXT` 解析 `cmd.exe` 或 PowerShell。安装命令和交互式选择器也能识别 npm 在 Windows 上安装的 `.cmd` shim，因此 `install --codex` 这类命令可以找到智能体 CLI。CI 在 `windows-latest` 上运行与 Linux、macOS 相同的完整检查：lint、类型检查和整个测试套件，其中有 3 个测试用例在 Windows 上跳过。这些测试覆盖的是分析器和集成代码，而不是各个编码智能体在 Windows 上的实际运行情况。Amp 官方手册仅列出 macOS、Linux 和 WSL，不包括原生 Windows。
 
-**Hermes Agent** 和 **OpenClaw** 集成仅支持 macOS 和 Linux。它们使用 POSIX 主目录路径 `~/.hermes` 和 `~/.openclaw`，不支持 Windows 路径。
+**Hermes Agent** 和 **OpenClaw** 集成仅支持 macOS 和 Linux。两者都假定 POSIX 状态布局，默认为 `~/.hermes` 和 `~/.openclaw`，不支持 Windows 的默认路径。这两个宿主都可以改变状态目录的位置，各自读取哪些目录见 [Hermes Agent 安装](#hermes-agent-installation)和 [OpenClaw 安装](#openclaw-installation)。
 
 开始前请安装 **Node.js 18 或更高版本**。示例使用 `npx` 运行 CLI 子命令。
 
@@ -143,7 +143,7 @@ npx skill add kenryu42/cc-safety-net
 npx -y cc-safety-net@latest install --claude-code
 ```
 
-此命令从 `kenryu42/cc-marketplace` 添加 `cc-marketplace`，并安装 `cc-safety-net@cc-marketplace` 插件；如果已有已禁用的副本，则会将其启用。
+此命令从 `kenryu42/cc-marketplace` 添加 `cc-marketplace`，并安装 `cc-safety-net@cc-marketplace` 插件；如果已有已禁用的副本，则会将其启用。设置了 `CLAUDE_CONFIG_DIR` 时，`claude plugin install` 写入该目录，否则写入 `~/.claude`；CC Safety Net 也从同一目录读取安装记录和 `settings.json`。与 Claude Code 一样，该值按原样使用，不展开开头的 `~`。
 
 ```bash
 npx -y cc-safety-net@latest uninstall --claude-code
@@ -275,7 +275,15 @@ npx -y cc-safety-net@latest uninstall --grok-build
 npx -y cc-safety-net@latest install --hermes-agent
 ```
 
-此命令将托管的 Python 插件（`__init__.py` 和 `plugin.yaml`）写入 `$HERMES_HOME/plugins/cc-safety-net/`（未设置 `HERMES_HOME` 时为 `~/.hermes/plugins/cc-safety-net/`），然后运行 `hermes plugins enable cc-safety-net --no-allow-tool-override`。仅有这些文件并不会生效：Hermes 只在自己的配置将用户插件列为已启用时加载它，因此即使文件已是最新版本，安装也会运行启用命令。
+此命令将托管的 Python 插件（`__init__.py` 和 `plugin.yaml`）写入 Hermes 主目录下的 `plugins/cc-safety-net/`，然后运行 `hermes plugins enable cc-safety-net --no-allow-tool-override`。仅有这些文件并不会生效：Hermes 只在自己的配置将用户插件列为已启用时加载它，因此即使文件已是最新版本，安装也会运行启用命令。
+
+Hermes CLI 会把主目录切换到 profile 目录，所以主目录不一定是 `~/.hermes`。如果 `HERMES_HOME` 的父目录名为 `profiles`，就直接使用该值。否则根目录取 `HERMES_HOME`，未设置时取 `~/.hermes`，再由根目录下的 `active_profile` 文件决定主目录：文件内容去掉首尾空白并转成小写后，指向 `<root>/profiles/<name>`。内容为空或为 `default`（不区分大小写）时保持根目录，`active_profile` 缺失或无法读取时同样保持根目录。名称不符合 Hermes 自身的 profile id 模式 `^[a-z0-9][a-z0-9_-]{0,63}$` 时，命令会中止，并在错误信息中指出对应文件：
+
+```text
+Invalid Hermes profile name "<profile>" in <root>/active_profile; run `hermes profile use <name>` with a valid profile.
+```
+
+安装、卸载和检测都使用这一套解析规则。
 
 由于插件要通过 `npx` 调用外部命令，安装会先清除 npm `_npx` 缓存中缓存的 `cc-safety-net` 副本，以便插件解析到当前版本；卸载不会修改缓存。缓存位置见 [Antigravity CLI 部分](#antigravity-cli-安装)。
 
@@ -349,7 +357,15 @@ CC Safety Net 要求 OpenClaw 2026.8.1 或更高版本。安装程序会用 `--a
 
 该命令通过 OpenClaw CLI 安装插件，全过程只执行一条命令：`openclaw plugins install <packaged plugin dir> --force --accept-capabilities`；其中打包的插件目录包含在 npm 软件包中。自 2026.8.1 起，只要不传 `--no-enable`，install 本身就会启用插件，因此不再单独运行 `openclaw plugins enable`。你在 `openclaw.json` 中手动禁用的插件会保持禁用，下面的加载检查也会如实报告该状态；CC Safety Net 不会替你重新启用，需要时请自行运行 `openclaw plugins enable cc-safety-net`。
 
-随后，安装程序运行 `openclaw plugins inspect cc-safety-net --runtime --json`，确认插件已加载。插件可能安装并启用成功，但因运行时损坏而不提供保护。为避免这种静默故障，状态不是 `loaded` 时安装会失败，并提示运行 `openclaw plugins inspect cc-safety-net --runtime` 查看详情。
+随后，安装程序运行 `openclaw plugins inspect cc-safety-net --runtime --json`，确认插件已加载。插件可能安装并启用成功，但因运行时损坏而不提供保护。为避免这种静默故障，状态不是 `loaded` 时安装会失败，并提示运行 `openclaw plugins inspect cc-safety-net --runtime` 查看详情。状态为 `disabled` 时，消息还会给出启用命令：
+
+```text
+OpenClaw reports the cc-safety-net plugin with status "disabled"; run `openclaw plugins enable cc-safety-net`. Run `openclaw plugins inspect cc-safety-net --runtime` for details.
+```
+
+只有一种情况下安装会替你启用插件。`openclaw plugins uninstall` 会留下 `enabled: false` 标记，而 `plugins install` 不会启用被显式禁用的条目，因此按安装、卸载、再安装的顺序执行，以前会停在 `disabled` 状态。现在，只有当安装前托管插件的入口文件不存在，且第一次 inspect 报告 `disabled` 时，安装才会运行一次 `openclaw plugins enable cc-safety-net`，然后再次 inspect。已经安装、并被你手动禁用的插件，在安装和更新时都保持禁用。
+
+Gateway 正在运行时，这次启用可能以 `config reload superseded by a newer runtime config source` 失败。OpenClaw 先把启用写入配置，之后的运行时应用才被更新的配置源取代，而这次写入不会回滚，因此安装接受这一种失败：既不重试启用，也不让安装失败。结果由第二次 `openclaw plugins inspect cc-safety-net --runtime --json` 决定。其他启用失败仍然会让安装失败。保存下来的配置会在 Gateway 下次重新加载或启动时生效，这也是下面仍需重启 Gateway 的原因。
 
 由于 `--force` 会覆盖（卸载时会删除）占用 `cc-safety-net` 扩展 id 的内容，两条命令都会先确认扩展目录中只有 CC Safety Net 的托管插件，或者什么都没有，否则拒绝运行。请移动或删除该目录，然后重新运行命令。
 
@@ -363,7 +379,7 @@ npx -y cc-safety-net@latest uninstall --openclaw
 
 OpenClaw 将 CC Safety Net 作为进程内插件加载，而不是 hook 子进程，因此没有运行时 hook 参数。插件只为没有 tag 的 `exec` 工具注册 `before_tool_call` 处理程序。OpenClaw 的文件工具和带 tag 的 `exec` 变体不受保护。每次受支持的 `exec` 调用都会以智能体的 workspace 目录为基准分析；如果无法解析该 workspace、`workdir` 解析到该目录之外，或调用指定的执行 host 不是 `auto` 或 `gateway`（例如 `sandbox` 或 `node`），插件会 fail closed。
 
-设置 `OPENCLAW_STATE_DIR` 时，OpenClaw 状态目录使用该值；否则使用 `OPENCLAW_CONFIG_PATH` 所在目录；再否则使用 `~/.openclaw`。设置 `OPENCLAW_CONFIG_PATH` 时，配置文件使用该值；否则使用状态目录中的 `openclaw.json`。如果任一环境变量的路径以 `~` 开头，则会基于用户的主目录展开。安装和 doctor 按相同顺序解析路径，因此移动过位置的 OpenClaw 安装同样能被正确处理，而不会报告为不存在。
+OpenClaw 各路径的解析基准由 `OPENCLAW_HOME` 决定。设置了该变量时，它的值就是生效的主目录，开头的 `~` 按操作系统主目录展开；未设置时，生效的主目录就是操作系统主目录。状态目录依次取 `OPENCLAW_STATE_DIR`、`OPENCLAW_CONFIG_PATH` 所在目录、生效主目录下的 `.openclaw`。这两个变量开头的 `~` 按生效的主目录展开，而不是操作系统主目录。设置 `OPENCLAW_CONFIG_PATH` 时，配置文件使用该值；否则使用状态目录中的 `openclaw.json`。这三个变量的值都会先去掉首尾空白，空值视为未设置。安装和 doctor 也按同样的方式解析路径，因此移动过位置的 OpenClaw 安装同样能被正确处理，而不会报告为不存在。
 
 此集成仅支持 macOS 和 Linux。
 
@@ -377,7 +393,9 @@ npx -y cc-safety-net@latest install --opencode
 
 CC Safety Net 用同一个 npm 包支持 OpenCode 1.18.29+ 和 2.0.6+。安装会先运行 `opencode --version`，其他版本一律以 `OpenCode 1.18.29+ or 2.0.6+ is required; found <version>.` 拒绝。更早的 v1 版本不支持合并后的插件入口，因此请先升级 OpenCode，再更新 CC Safety Net。
 
-OpenCode 的配置目录依次取 `OPENCODE_CONFIG_DIR`（已设置时）、`$XDG_CONFIG_HOME/opencode`、`~/.config/opencode`。配置文件是该目录下的 `opencode.json` 或 `opencode.jsonc`。安装前的预检、检测和卸载都按同一顺序解析该目录。
+OpenCode 的配置目录依次取 `OPENCODE_CONFIG_DIR`（已设置且非空时）、`$XDG_CONFIG_HOME/opencode`、`~/.config/opencode`。空值在 v1 和 v2 下都视为未设置。配置文件是该目录下的 `opencode.json` 或 `opencode.jsonc`。
+
+v2 安装前的预检只读取这一个目录。检测和卸载会扫描任一版本会加载的所有目录，先是覆盖用的目录，再是 XDG 目录，因为无论是否设置 `OPENCODE_CONFIG_DIR`，OpenCode 1.x 始终加载 XDG 目录。[`doctor`](/zh-Hans/reference/cli-commands#doctor) 的范围更窄：宿主报告 2.x 版本时，检测只读取上面那个配置目录，因为 v2 也只读取它。版本未知时，也就是 `opencode` 不在 `PATH` 中，或 install 和 update 正在检测目标时，检测会扫描两个目录。卸载始终扫描两个目录。
 
 在 OpenCode 1.x 上，安装会先清除缓存的软件包，再运行 `opencode plugin -g -f cc-safety-net@latest`。当 `XDG_CACHE_HOME` 已设置且非空时，缓存目录是 `$XDG_CACHE_HOME/opencode`，否则是 `~/.cache/opencode`；清除的是其下的 `packages/cc-safety-net@latest`。OpenCode 可能会一直沿用缓存中过期的插件版本，所以先清缓存。然后，安装会验证缓存的软件包存在、其声明的 `main` 入口可以加载，并且导出可调用的 `CCSafetyNetPlugin`。如果验证失败，安装会停止，因为 OpenCode 否则会在没有保护的情况下继续运行。
 
@@ -389,13 +407,29 @@ Change the cc-safety-net package spec in <path> to cc-safety-net@latest, preserv
 
 请自行把该条目的包规格改成 `cc-safety-net@latest`，保留它的选项和注释，然后重新安装。
 
-否则，安装会运行 `opencode plugin add cc-safety-net@latest` 和 `opencode plugin update cc-safety-net@latest`，再读取 `opencode plugin list`，要求其中有一行由三列组成：插件 ID `cc-safety-net`、版本号、来源 `cc-safety-net@latest`，例如 `cc-safety-net  2.4.4  cc-safety-net@latest`。缺少该行则失败：
+否则，安装会运行 `opencode plugin add cc-safety-net@latest`；只有当 `add` 的输出包含 `is already configured in` 时，才运行 `opencode plugin update cc-safety-net@latest`。首次安装时，OpenCode 的后台服务还没有加载新增的条目，无条件运行 `update` 会以 `Plugin is not configured` 失败。
+
+接着，安装每 250 ms 轮询一次 `opencode plugin list`，最多 60 次，直到出现带 `cc-safety-net` id 或 `cc-safety-net@latest` 来源的行，等待上限约 15 秒。该列表中必须有一行由三列组成：插件 ID `cc-safety-net`、版本号、来源 `cc-safety-net@latest`，例如 `cc-safety-net  2.4.4  cc-safety-net@latest`。缺少该行则失败：
 
 ```text
 OpenCode did not load cc-safety-net from cc-safety-net@latest. Run `opencode plugin list` for details.
 ```
 
-该列表只能确认插件被发现，不代表 hook 已激活。如果插件出现在列表里却什么都没拦住，请查看 OpenCode 自身的诊断信息。这条路径不清除缓存。
+该列表只能说明 OpenCode 找到了插件，不代表插件已激活，因此安装接着向宿主查询激活状态。它先运行 `opencode api integration.list`，再运行 `opencode api plugin.list`，两条命令都带 `--param location[directory]=<cwd>`。第一条会等待宿主完成插件激活；第二条立即返回清单，单独使用时可能漏掉仍在排队的失败。
+
+如果清单中 `cc-safety-net` 的行处于 failed，且没有对应的 active 行，安装会带上宿主的第一行错误信息失败：
+
+```text
+OpenCode reports cc-safety-net failed: <first line of OpenCode's error>
+```
+
+如果清单中根本没有处于 active 的 `cc-safety-net` 行，无论是清单为空、无法读取，还是只有其他插件处于 active，安装同样失败：
+
+```text
+OpenCode lists no active cc-safety-net for this directory. Run `opencode api plugin.list` for details.
+```
+
+这条路径不清除缓存。仪表板中的 `Enable` 按钮运行的也是这套安装流程。
 
 ```bash
 npx -y cc-safety-net@latest uninstall --opencode
@@ -415,7 +449,7 @@ npx -y cc-safety-net@latest uninstall --opencode
 npx -y cc-safety-net@latest install --pi
 ```
 
-此命令运行 `pi install npm:cc-safety-net`；如果 Pi 设置中固定了会让 CC Safety Net 处于禁用状态的 `extensions` 过滤器，则会在 `~/.pi/agent/settings.json` 中清除该过滤器。
+此命令运行 `pi install npm:cc-safety-net`；如果 Pi 设置中固定了会让 CC Safety Net 处于禁用状态的 `extensions` 过滤器，则会在 Pi 智能体目录下的 `settings.json` 中清除该过滤器。设置了 `PI_CODING_AGENT_DIR` 时，该目录取这个值，开头的 `~` 按主目录展开；未设置时为 `~/.pi/agent`。检测读取的是同一个文件。
 
 ```bash
 npx -y cc-safety-net@latest uninstall --pi

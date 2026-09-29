@@ -73,7 +73,7 @@ A disabled Claude Code plugin is no longer a verdict of its own. It is reported 
 plugin cc-safety-net@cc-marketplace is disabled in Claude Code; nothing is enforced in Claude Code until it is re-enabled. Other integrations are not affected.
 ```
 
-The plugin counts as disabled whenever `~/.claude/settings.json` is missing, fails to parse, has no `enabledPlugins`, or does not set `cc-safety-net@cc-marketplace` to `true`. The check defaults to disabled, so an unreadable settings file does not report the plugin as enabled.
+The plugin counts as disabled whenever the Claude settings file is missing, fails to parse, has no `enabledPlugins`, or does not set `cc-safety-net@cc-marketplace` to `true`. That file is `CLAUDE_SETTINGS_PATH` when set, otherwise `settings.json` in the Claude config directory (`CLAUDE_CONFIG_DIR`, or `<home>/.claude`). The check defaults to disabled, so an unreadable settings file does not report the plugin as enabled.
 
 The verdict is taken from the policy snapshot and is never re-derived from your configuration; the plugin check only adds that bullet, never changes the verdict.
 
@@ -132,7 +132,25 @@ bunx cc-safety-net doctor
 
 `doctor` reads Codex state from `codex plugin list`. A matching CC Safety Net row with `installed, enabled` is `Detected` and `Configured`; any other matching `installed,` row is `Detected` and `Not configured`. A registered marketplace row that says `not installed` is `Not detected`, not disabled.
 
+A Codex row that reads `Configured` also prints a trust reminder under the Hook Integration table:
+
+```text
+Warning (Codex): Codex runs only trusted hooks, and doctor cannot check trust. Start Codex, open `/hooks`, select the cc-safety-net PreToolUse hook, and press `t` to trust it.
+```
+
+`doctor` never asks Codex whether the hook is trusted, so the reminder prints on every run. It does not report that trust is missing. Inspection stays `Verified`, the run raises no finding, and the exit code does not change. `doctor --json` repeats the same text in the `errors` array of the `codex` entry under `hooks`.
+
 For GitHub Copilot CLI, `doctor` checks the plugin checkout and hook definitions. For inline settings, the precedence is `<repo>/.github/copilot/settings.local.json`, `<repo>/.github/copilot/settings.json`, `<repo>/.claude/settings.local.json`, `<repo>/.claude/settings.json`, `$COPILOT_HOME/settings.json`, then `$COPILOT_HOME/config.json` (`COPILOT_HOME` defaults to `~/.copilot`). It also scans `<repo>/.github/hooks/*.json` and `$COPILOT_HOME/hooks/*.json`. An entry in a `.claude` file counts only when its command includes `hook --copilot-cli` or `hook -cp`; a Claude Code hook alone does not count. Inline settings require GitHub Copilot CLI `1.0.8+`, and user hook files require `0.0.422+`.
+
+`doctor` reads Copilot's plugin switch one entry at a time, the way Copilot applies it. The first repository file that sets `cc-safety-net@cc-marketplace` in `enabledPlugins` to a boolean decides. `doctor` searches those files in the `disableAllHooks` order: `<repo>/.github/copilot/settings.local.json`, `<repo>/.github/copilot/settings.json`, `<repo>/.claude/settings.local.json`, then `<repo>/.claude/settings.json`. If none of them sets it, `$COPILOT_HOME/settings.json` decides, and `config.json` is not read for this switch. A repository `true` therefore re-enables a user `false`. When the plugin checkout exists and `$COPILOT_HOME/settings.json` will not parse, `doctor` reports `Not inspected`, unless a repository file already decided the switch.
+
+`doctor` reports a switched-off Copilot plugin as `Not configured` only when no CC Safety Net hook config is active. When a hook file or an inline hook entry still runs the guard, `doctor` reports that hook instead, with the method `hook config`, because Copilot loads hook configs separately from plugin hooks.
+
+A `hooks.preToolUse` entry counts when its `type` is absent or `command`, because Copilot treats an absent `type` as `command`. `doctor` takes the command from `command`, `bash`, `powershell`, or `exec` joined with `args`. `exec` must be a string and `args` an array of strings. A file that breaks any of those shapes prints `Invalid hook config <path>: hooks.preToolUse must be an array of hook objects`, and a file that will not parse prints `Failed to parse <path>: <reason>`.
+
+On a host that reports OpenCode 2.x, `doctor` checks more than the config file. When the loaded config has a `cc-safety-net` entry, `doctor` asks OpenCode whether that plugin activated. It runs `opencode api integration.list`, then `opencode api plugin.list`, both with `--param location[directory]=<dir>` and a 30-second bound. `<dir>` is the directory you ran `doctor` in. `integration.list` waits for the host to finish activating plugins, and `plugin.list` does not wait.
+
+A `cc-safety-net` row whose state is `failed`, with no matching row `active`, makes OpenCode `Detected` and `Not configured` and prints `Error (OpenCode): OpenCode reports cc-safety-net failed: <the host's first error line>`. An active row, no row, no output, and output that will not parse all keep the answer the config gave, so a failed reload that left the running plugin in place still reads `Configured`. The probe runs only when a `cc-safety-net` entry exists, so a 2.x user without one is never asked. OpenCode 1.x has no `api` command, so `doctor` reads only the config there.
 
 `doctor` exits `1` when the engine self-test reports a failure, or when any finding in the Findings section has `error` severity. Otherwise it exits `0`. Warnings never change the exit code. These findings carry `error` severity:
 
@@ -167,6 +185,22 @@ A hook config that will not parse is a different outcome for all three. Detectio
 - `Error (Grok Build): Failed to parse Grok Build hooks config <path>: <reason>`
 
 Each one also raises an `<Agent> inspection failed` finding with `error` severity, so `doctor` exits `1`.
+
+### Host configuration paths
+
+Several hosts let you move their configuration elsewhere. `doctor` follows the same overrides each host follows, so a relocated config is still found.
+
+- **Claude Code.** `CLAUDE_CONFIG_DIR` when set, otherwise `<home>/.claude`. The value is used as written, with no `~` expansion, which is what Claude Code does. `install`, `update`, legacy plugin cleanup, and the `enabledPlugins` check behind `status` and `statusline` all use the same directory.
+- **Hermes Agent.** A `HERMES_HOME` whose parent directory is named `profiles` is the Hermes home as written. Otherwise the root is `HERMES_HOME`, or `<home>/.hermes` when that is unset, and the `active_profile` file in the root selects `<root>/profiles/<name>`. The name is trimmed and lowercased. An `active_profile` that is empty, `default`, missing, or unreadable keeps the root. The plugin files sit at `<Hermes home>/plugins/cc-safety-net`.
+- **OpenClaw.** The OpenClaw home is `OPENCLAW_HOME` when it is set and not blank, otherwise your OS home, and a leading `~` in it expands against the OS home. The state directory is `OPENCLAW_STATE_DIR`, or the directory holding `OPENCLAW_CONFIG_PATH`, or `<OpenClaw home>/.openclaw`. Both of those variables expand a leading `~` against the OpenClaw home.
+- **OpenCode.** On a host that reports 2.x, `doctor` reads only `OPENCODE_CONFIG_DIR`, because 2.x reads only that directory when it is set. For any other version, `doctor` reads that directory and the XDG one, `$XDG_CONFIG_HOME/opencode` or `<home>/.config/opencode`, because 1.x always loads the XDG directory. An empty `OPENCODE_CONFIG_DIR` counts as unset, and `uninstall` always reads both.
+- **Pi.** `PI_CODING_AGENT_DIR` when set, otherwise `<home>/.pi/agent`. A leading `~` expands against your home directory, and the file is `settings.json` there.
+
+An `active_profile` naming a profile that Hermes' profile-id pattern rejects does not stop the run. The Hermes Agent row reports the error, and `doctor` checks every other host as usual:
+
+```text
+Invalid Hermes profile name "<profile>" in <root>/active_profile; run `hermes profile use <name>` with a valid profile.
+```
 
 ## logs
 
@@ -604,7 +638,7 @@ Thirteen targets are accepted, listed here in the order they are installed:
 | `--gemini-cli` | Gemini CLI | Runs Gemini CLI's extension install command |
 | `--copilot-cli` | GitHub Copilot CLI | Runs Copilot CLI's own plugin marketplace commands |
 | `--grok-build` | Grok Build | Writes the hook entry into `~/.grok/hooks/cc-safety-net.json` (or `$GROK_HOME/hooks/cc-safety-net.json`) |
-| `--hermes-agent` | Hermes Agent | Writes a managed Python plugin to `~/.hermes/plugins/cc-safety-net` (or under `$HERMES_HOME`) and enables it with `hermes plugins enable` |
+| `--hermes-agent` | Hermes Agent | Writes a managed Python plugin to `<Hermes home>/plugins/cc-safety-net` and enables it with `hermes plugins enable`. The Hermes home is `$HERMES_HOME` or `~/.hermes`, moved to `profiles/<name>` when `active_profile` names one |
 | `--kimi-code` | Kimi Code | Writes a `[[hooks]]` block into `~/.kimi-code/config.toml` (or `$KIMI_CODE_HOME/config.toml`), after a method prompt in a terminal |
 | `--openclaw` | OpenClaw | Runs `openclaw plugins install <plugin dir> --force --accept-capabilities`, which also enables the plugin. Requires OpenClaw 2026.8.1 or later |
 | `--opencode` | OpenCode | Runs OpenCode's own plugin commands: `opencode plugin -g -f` on 1.x, `opencode plugin add` and `opencode plugin update` on 2.x |

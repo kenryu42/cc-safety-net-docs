@@ -1,7 +1,7 @@
 ---
 title: "已知限制和易错点"
 sidebarTitle: "已知限制"
-description: "CC Safety Net 无法捕获的内容：不透明命令代理、二进制文件内部行为、文件系统隔离和网络、符号链接 TOCTOU、解释器标志、解释器注释中的引号、基于 eval 的执行、Codex 交互会话缺口、fail-open 的宿主 Grok Build，以及 Hermes Agent 和 OpenClaw 的覆盖边界。"
+description: "CC Safety Net 无法捕获的内容：不透明命令代理、二进制文件内部行为、文件系统隔离和网络、符号链接 TOCTOU、解释器标志、解释器注释中的引号、基于 eval 的执行、Codex 的交互会话缺口和 workdir 缺口、fail-open 的宿主 Grok Build、OpenClaw 的会话工作目录，以及 Hermes Agent 和 OpenClaw 的覆盖边界。"
 ---
 
 CC Safety Net 分析智能体尝试运行的命令字符串。它能阻止已知的破坏性 Git 和文件系统操作，降低意外丢失数据的风险，但不是完整的安全方案。本页列出仍存在的**残余**限制，并说明何时应改用<a href="/zh-Hans/guides/vs-sandboxing">沙箱</a>。
@@ -136,21 +136,33 @@ OpenClaw 插件只为规范的 `exec` 工具注册 `before_tool_call`。`apply_p
 - 显式指定 `host: "sandbox"` 或 `host: "node"` 的调用不会被分析，而是作为不受支持的形式直接阻止，因为没有测试能证明这些主机的路径映射是正确的。
 - 配置中的 `tools.exec.host` 默认值不会改变分析：插件只读取调用自身的 `host` 参数，因此即使默认值把调用路由到 `node` 或 `sandbox`，没有 `host` 的调用仍按本地 Gateway 调用分析。
 
-残余缺口出在 `auto` 上：sandbox runtime 处于活动状态时，`auto` 调用在沙箱文件系统中运行，而路径规则仍然按 Gateway workspace 判定。命令规则不受影响；路径规则则可能针对错误的文件系统判定。
+残余缺口之一出在 `auto` 上：sandbox runtime 处于活动状态时，`auto` 调用在沙箱文件系统中运行，而路径规则仍然按 Gateway workspace 判定。命令规则不受影响；路径规则则可能针对错误的文件系统判定。
+
+另一处残余缺口是执行目录。OpenClaw 在会话的工作目录中运行 `exec`，而这个目录未必就是智能体 workspace。使用托管 worktree 的会话在自己的 checkout 中运行，默认位于 `<state>/worktrees` 下；创建时指定了 `cwd` 的会话则在该目录中运行。`before_tool_call` 的 hook 上下文不带工作目录，因此插件始终以智能体 workspace 作为每次 `exec` 调用的基准目录。当会话目录与 workspace 不同时：
+
+- 没有 `workdir` 的命令按 workspace 分析，实际却在会话目录中运行。
+- 相对路径的 `workdir` 按 workspace 解析，而不是按会话目录。
+- 指向 workspace 之外的绝对 `workdir`（例如会话自己的 worktree）会被阻止。
+
+要填补这个缺口，需要宿主暴露执行目录。
 
 Codex-native relay 未经测试，因此不作任何保证：端到端实测驱动的是 OpenClaw 自己的智能体 runtime，无法证明 Codex-native 的 shell、patch 或 MCP 调用会如何处理。
 
 ### 两种集成都不支持 Windows
 
-两种集成都假定 POSIX 状态布局。被移动过的状态目录按各宿主自身的解析方式处理：Hermes 使用 `HERMES_HOME`；OpenClaw 依次使用 `OPENCLAW_STATE_DIR` 和 `OPENCLAW_CONFIG_PATH` 所在目录；最后回退到 `~/.hermes` 和 `~/.openclaw`。Windows 的默认位置则不在此列：安装和检测在 Windows 上仍指向 POSIX 路径，因此 Hermes 安装会把插件写入 Hermes 不会读取的目录；OpenClaw 自己的 CLI 可以正确安装，但 `doctor` 会误报状态。
+两种集成都假定 POSIX 状态布局。Hermes 的根目录取自 `HERMES_HOME`，未设置时为 `~/.hermes`；根目录下的 `active_profile` 文件再选出 `<root>/profiles/<name>`，该文件缺失、为空或内容是 `default` 时则保持根目录。如果 `HERMES_HOME` 本身就指向 `profiles` 下的目录，则原样使用。OpenClaw 的主目录取自 `OPENCLAW_HOME`，未设置时为操作系统的主目录；状态目录依次取 `OPENCLAW_STATE_DIR`、`OPENCLAW_CONFIG_PATH` 所在目录、`<home>/.openclaw`。详见 [Hermes Agent](/zh-Hans/installation#hermes-agent-installation) 和 [OpenClaw](/zh-Hans/installation#openclaw-installation) 的安装步骤。Windows 的默认位置则不在此列：安装和检测在 Windows 上仍指向 POSIX 路径，因此 Hermes 安装会把插件写入 Hermes 不会读取的目录；OpenClaw 自己的 CLI 可以正确安装，但 `doctor` 会误报状态。
 
 <span id="codex-coverage-boundary"></span>
 
 ## Codex 覆盖边界
 
-Codex 的统一 exec 路径（在 macOS 和 Linux 上是默认的 shell 路径）会在命令打开会话时发送 `PreToolUse` 负载，但对 `write_stdin` 不发送任何负载。只有打开该会话的那条命令会被评估。模型随后输入到这个已在运行的交互式会话中的文本，会不经检查、也不留审计记录地直接到达 shell。
+Codex 的统一 exec 路径（在所有平台上都是默认的 shell 路径）会在命令打开会话时发送 `PreToolUse` 负载，但对 `write_stdin` 不发送任何负载。只有打开该会话的那条命令会被评估。模型随后输入到这个已在运行的交互式会话中的文本，会不经检查、也不留审计记录地直接到达 shell。
 
-这个缺口无法从 hook 一侧填补：宿主不会为该调用发出事件，因此根本没有可供分析的内容。如果在你的环境中需要防范向运行中的会话注入，请用[沙箱](/zh-Hans/guides/vs-sandboxing)作为隔离层。
+这个缺口无法从 hook 一侧填补：宿主不会为该调用发出事件，因此根本没有可供分析的内容。
+
+这个负载还省略了调用的 `workdir`。它只携带 `{command}`，其 `cwd` 是该轮次的工作目录。Codex 实际在 `workdir` 中运行命令，而 CC Safety Net 只能按轮次目录来分析它。相对路径按这个目录解析，判断路径是否位于工作目录之外的规则也一样。结果既可能阻止本来安全的命令，也可能放过本该阻止的命令。要填补这个缺口，需要宿主在负载中包含 `workdir`。
+
+这两个缺口只要有一个在你的环境中值得关注，就请用[沙箱](/zh-Hans/guides/vs-sandboxing)作为隔离层。
 
 ## Grok Build 是 fail-open 的宿主
 

@@ -8,7 +8,7 @@ CC Safety Net installs as a plugin, extension, or hook inside your coding agent.
 
 Most integrations run on **Windows, macOS, and Linux**. They detect the host operating system for path handling and command resolution. On Windows, this includes case-insensitive paths and `cmd.exe` or PowerShell resolution through `COMSPEC` and `PATHEXT`. The install commands and the interactive picker also resolve agent CLIs that npm installs as `.cmd` shims on Windows, so commands like `install --codex` find them. CI runs the same full check on `windows-latest` that it runs on Linux and macOS: lint, type checks, and the whole test suite, with three test cases skipped on Windows. Those tests exercise the analyzer and the integration code, not each coding agent running on Windows. Amp's own manual documents macOS, Linux, and WSL rather than native Windows.
 
-The **Hermes Agent** and **OpenClaw** integrations run only on macOS and Linux. They use the POSIX home-directory paths `~/.hermes` and `~/.openclaw` and do not support Windows paths.
+The **Hermes Agent** and **OpenClaw** integrations run only on macOS and Linux. They assume the POSIX state layout, which defaults to `~/.hermes` and `~/.openclaw`, and they do not support the Windows defaults. Both hosts can relocate that state, so see [Hermes Agent installation](#hermes-agent-installation) and [OpenClaw installation](#openclaw-installation) for the directories each one reads.
 
 Install **Node.js 18 or later** before you start. The examples use `npx` to run CLI subcommands.
 
@@ -135,7 +135,7 @@ npx skill add kenryu42/cc-safety-net
 npx -y cc-safety-net@latest install --claude-code
 ```
 
-This adds the `cc-marketplace` marketplace from `kenryu42/cc-marketplace` and installs the `cc-safety-net@cc-marketplace` plugin, enabling it if a disabled copy is already present.
+This adds the `cc-marketplace` marketplace from `kenryu42/cc-marketplace` and installs the `cc-safety-net@cc-marketplace` plugin, enabling it if a disabled copy is already present. `claude plugin install` writes under `$CLAUDE_CONFIG_DIR` when that variable is set and under `~/.claude` otherwise, and CC Safety Net reads the install record and `settings.json` from that same directory. Neither Claude Code nor CC Safety Net expands a leading `~` in that value.
 
 ```bash
 npx -y cc-safety-net@latest uninstall --claude-code
@@ -255,7 +255,15 @@ Both commands only ever touch the managed handler. Install strips managed handle
 npx -y cc-safety-net@latest install --hermes-agent
 ```
 
-This writes the managed Python plugin files `__init__.py` and `plugin.yaml` to `$HERMES_HOME/plugins/cc-safety-net/` (`~/.hermes/plugins/cc-safety-net/` when `HERMES_HOME` is unset). It then runs `hermes plugins enable cc-safety-net --no-allow-tool-override`. The files alone are inert. Hermes loads a user plugin only when its own config lists it as enabled, so install runs the enable command even when the files are already current.
+This writes the managed Python plugin files `__init__.py` and `plugin.yaml` to `plugins/cc-safety-net/` inside the Hermes home directory. It then runs `hermes plugins enable cc-safety-net --no-allow-tool-override`. The files alone are inert. Hermes loads a user plugin only when its own config lists it as enabled, so install runs the enable command even when the files are already current.
+
+The Hermes CLI re-homes itself to a profile directory, so the home directory is not always `~/.hermes`. A `HERMES_HOME` whose parent directory is named `profiles` is used as is. Otherwise the root is `HERMES_HOME`, or `~/.hermes` when that is unset, and the root's `active_profile` file selects the home directory. Its contents, trimmed and lowercased, name `<root>/profiles/<name>`. An empty value or `default` in any casing keeps the root, and so does an `active_profile` that is missing or unreadable. A profile name that does not match Hermes' own profile-id pattern, `^[a-z0-9][a-z0-9_-]{0,63}$`, stops the command and names the file:
+
+```text
+Invalid Hermes profile name "<profile>" in <root>/active_profile; run `hermes profile use <name>` with a valid profile.
+```
+
+Install, uninstall, and detection all use this one lookup.
 
 Because the plugin shells out through `npx`, install first clears cached `cc-safety-net` copies from the npm `_npx` cache so the plugin resolves the current release; uninstall does not touch the cache. The cache locations are listed in the [Antigravity CLI section](#antigravity-cli-installation).
 
@@ -325,7 +333,15 @@ CC Safety Net requires OpenClaw 2026.8.1 or later. The installer accepts the plu
 
 This installs the plugin through OpenClaw's own CLI. It runs one command, `openclaw plugins install <packaged plugin dir> --force --accept-capabilities`, where the packaged plugin directory ships inside the npm package. Since 2026.8.1 that install also enables the plugin unless you pass `--no-enable`, so there is no separate `openclaw plugins enable` step. A plugin you disabled by hand in `openclaw.json` stays disabled, and the load check below reports that rather than re-enabling it for you; run `openclaw plugins enable cc-safety-net` yourself if that is what you want.
 
-The install then verifies the plugin actually loaded by running `openclaw plugins inspect cc-safety-net --runtime --json`: an enabled plugin whose runtime is broken installs cleanly and then silently protects nothing, so anything other than a `loaded` status fails the install and points you at `openclaw plugins inspect cc-safety-net --runtime` for details.
+The install then verifies the plugin actually loaded by running `openclaw plugins inspect cc-safety-net --runtime --json`. An enabled plugin whose runtime is broken installs cleanly and then protects nothing, so any status other than `loaded` fails the install and points you at `openclaw plugins inspect cc-safety-net --runtime` for details. A `disabled` status also names the enable command:
+
+```text
+OpenClaw reports the cc-safety-net plugin with status "disabled"; run `openclaw plugins enable cc-safety-net`. Run `openclaw plugins inspect cc-safety-net --runtime` for details.
+```
+
+Install enables the plugin for you in one case. `openclaw plugins uninstall` leaves an `enabled: false` marker behind, and `plugins install` skips enabling an entry that is explicitly disabled, so running install, then uninstall, then install again used to end at status `disabled`. Now, when the managed plugin's entry file was absent before the install and the first inspect reports `disabled`, install runs `openclaw plugins enable cc-safety-net` once and inspects again. A plugin that was already installed and that you disabled by hand stays disabled, on install and on update alike.
+
+With the Gateway running, that enable can fail with `config reload superseded by a newer runtime config source`. OpenClaw saves the enable to config before the runtime apply that gets superseded, and it never rolls that write back, so install accepts this one failure. Install does not retry the enable and does not fail on it. The second `openclaw plugins inspect cc-safety-net --runtime --json` decides the result. Any other enable failure still fails the install. The Gateway applies the saved config at its next reload or start, which is why the restart below still matters.
 
 Because `--force` overwrites the entry with the `cc-safety-net` extension id and uninstall deletes that entry, both commands first inspect the extension directory. They continue only if the directory contains only a managed CC Safety Net plugin or is empty. Otherwise, they refuse to run. Move or remove the directory and run the command again.
 
@@ -339,7 +355,7 @@ npx -y cc-safety-net@latest uninstall --openclaw
 
 OpenClaw loads CC Safety Net as an in-process plugin rather than a hook subprocess, so there is no runtime hook flag. The plugin registers a `before_tool_call` handler for the untagged `exec` tool only. OpenClaw's file tools and tagged `exec` variants are not covered. Each supported `exec` call is analyzed against the agent's workspace directory, and the plugin fails closed when that workspace cannot be resolved, when `workdir` resolves outside it, or when the call names an execution host other than `auto` or `gateway` (for example `sandbox` or `node`).
 
-OpenClaw's state directory is `OPENCLAW_STATE_DIR` when set, otherwise the directory holding `OPENCLAW_CONFIG_PATH`, otherwise `~/.openclaw`; the config file is `OPENCLAW_CONFIG_PATH` when set, otherwise `openclaw.json` in the state directory. A leading `~` path in either environment variable expands against the user's home directory. Install and doctor resolve paths in that same order, so a relocated OpenClaw install is handled instead of reported as absent.
+`OPENCLAW_HOME` sets the home directory the other OpenClaw paths resolve against. When it is set, that value is the effective home, with a leading `~` expanded against your operating-system home directory. Otherwise the effective home is your operating-system home directory. The state directory is `OPENCLAW_STATE_DIR` when set, otherwise the directory holding `OPENCLAW_CONFIG_PATH`, otherwise `.openclaw` inside the effective home. A leading `~` in those two variables expands against the effective home, not the operating-system home. The config file is `OPENCLAW_CONFIG_PATH` when set, otherwise `openclaw.json` in the state directory. CC Safety Net trims all three variables and treats a blank value as unset. Install and doctor resolve paths the same way, so `doctor` finds a relocated OpenClaw install instead of reporting it as absent.
 
 This integration is macOS and Linux only.
 
@@ -351,7 +367,9 @@ npx -y cc-safety-net@latest install --opencode
 
 CC Safety Net supports OpenCode 1.18.29+ and 2.0.6+ from the same npm package. Install runs `opencode --version` first and refuses anything else with `OpenCode 1.18.29+ or 2.0.6+ is required; found <version>.` Older v1 releases do not support the combined plugin entry, so upgrade OpenCode before you update CC Safety Net.
 
-OpenCode's config directory is `OPENCODE_CONFIG_DIR` when set, otherwise `$XDG_CONFIG_HOME/opencode`, otherwise `~/.config/opencode`. The config file is `opencode.json` or `opencode.jsonc` there. Install preflight, detection, and uninstall all resolve the directory in that order.
+OpenCode's config directory is `OPENCODE_CONFIG_DIR` when that variable is set and non-empty, otherwise `$XDG_CONFIG_HOME/opencode`, otherwise `~/.config/opencode`. An empty value counts as unset on both OpenCode 1.x and 2.x. The config file is `opencode.json` or `opencode.jsonc` there.
+
+The v2 install preflight reads only that directory. Detection and uninstall scan every directory either version loads, the override directory first and then the XDG directory, because OpenCode 1.x always loads the XDG directory whether or not `OPENCODE_CONFIG_DIR` is set. [`doctor`](/reference/cli-commands#doctor) is narrower. On a host that reports a 2.x version, detection reads only the config directory above, because that is the only directory v2 reads. When the version is unknown, because `opencode` is off your `PATH` or because install and update are detecting targets, detection scans both directories. Uninstall always scans both.
 
 On OpenCode 1.x, install clears the cached package and runs `opencode plugin -g -f cc-safety-net@latest`. The cache directory is `$XDG_CACHE_HOME/opencode` when `XDG_CACHE_HOME` is set and non-empty, otherwise `~/.cache/opencode`, and the package cleared under it is `packages/cc-safety-net@latest`. OpenCode can keep serving a stale cached plugin version, which is why the cache goes first. Install then proves that the cached package exists, its declared `main` entry loads, and it exports a callable `CCSafetyNetPlugin`; a failed proof stops the install because OpenCode would otherwise continue without protection.
 
@@ -363,13 +381,29 @@ Change the cc-safety-net package spec in <path> to cc-safety-net@latest, preserv
 
 Edit that entry yourself, keep its options and comments, and run the install again.
 
-Otherwise install runs `opencode plugin add cc-safety-net@latest` and `opencode plugin update cc-safety-net@latest`, then reads `opencode plugin list` and requires a row whose three columns are the plugin id `cc-safety-net`, its version, and the source `cc-safety-net@latest`, as in `cc-safety-net  2.4.4  cc-safety-net@latest`. Without that row it fails:
+Otherwise install runs `opencode plugin add cc-safety-net@latest`. It runs `opencode plugin update cc-safety-net@latest` only when the output of `add` contains `is already configured in`. On a first install, OpenCode's background service has not loaded the new entry yet, and an unconditional `update` fails there with `Plugin is not configured`.
+
+Install then polls `opencode plugin list` every 250 ms, up to 60 times, until a row carries the `cc-safety-net` id or the `cc-safety-net@latest` source. That bounds the wait at about 15 seconds. The listing must hold a row whose three columns are the plugin id `cc-safety-net`, its version, and the source `cc-safety-net@latest`, as in `cc-safety-net  2.4.4  cc-safety-net@latest`. Without that row it fails:
 
 ```text
 OpenCode did not load cc-safety-net from cc-safety-net@latest. Run `opencode plugin list` for details.
 ```
 
-That listing confirms discovery, not that the hooks activated. If the plugin is listed but nothing is blocked, check OpenCode's own diagnostics. This path clears no cache.
+The listing proves that OpenCode found the plugin, not that the plugin activated, so install then asks the host for the activation state. It runs `opencode api integration.list` and then `opencode api plugin.list`, both with `--param location[directory]=<cwd>`. The first call waits on the host's plugin activation. The second returns the inventory right away, so on its own it can miss a failure that is still queued.
+
+If the inventory reports a failed `cc-safety-net` row and no active copy of it, install fails with the host's first error line:
+
+```text
+OpenCode reports cc-safety-net failed: <first line of OpenCode's error>
+```
+
+If the inventory lists no active `cc-safety-net` row at all, because it is empty, unreadable, or lists only other plugins as active, install fails too:
+
+```text
+OpenCode lists no active cc-safety-net for this directory. Run `opencode api plugin.list` for details.
+```
+
+This path clears no cache. The dashboard's `Enable` button runs this same install.
 
 ```bash
 npx -y cc-safety-net@latest uninstall --opencode
@@ -387,7 +421,7 @@ Restart OpenCode after installing or updating so the change takes effect.
 npx -y cc-safety-net@latest install --pi
 ```
 
-This runs `pi install npm:cc-safety-net` and, if your Pi settings pin an `extensions` filter that would leave CC Safety Net disabled, clears that filter in `~/.pi/agent/settings.json`.
+This runs `pi install npm:cc-safety-net` and, if your Pi settings pin an `extensions` filter that would leave CC Safety Net disabled, clears that filter in `settings.json` under your Pi agent directory. That directory is `PI_CODING_AGENT_DIR` when it is set, with a leading `~` expanded against your home directory, and `~/.pi/agent` otherwise. Detection reads the same file.
 
 ```bash
 npx -y cc-safety-net@latest uninstall --pi
