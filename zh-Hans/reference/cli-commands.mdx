@@ -754,6 +754,8 @@ Amp Code、OpenClaw、OpenCode 和 Pi 没有各自的 `hook` 标志。它们把 
 
 运行时，hook 读取 Cursor 的 `Shell` 工具调用，从 `conversation_id` 取得会话 ID，并以 `{ "permission": "deny", … }` 或 `{ "permission": "allow" }` 回应。Cursor 的 `working_directory` 字段会与工作区根目录做包含性检查；该字段已声明却缺失、或指向工作区之外时，会按 fail closed 处理。
 
+在 Windows 上，Cursor 传入的路径采用 VS Code 的 URI 形式，例如 `/C:/Users/you`。在解析 `workspace_roots`、`cwd` 和 `working_directory` 之前，开头的 `/<drive-letter>:` 若后接 `/`、`\` 或已到字符串结尾，就会改写为 `<drive-letter>:/`。改写会一并替换掉分隔符，因此 `/C:/Users/you` 会解析为 `C:/Users/you`，`/C:\Users` 会解析为 `C:/Users`，只写 `/C:` 则解析为盘符根目录 `C:/`。改写只影响开头这一段，盘符字母的大小写保持不变。`/c/x` 这类 MSYS 形式、POSIX 路径和 Windows 原生盘符路径都原样保留；其他平台上的所有路径也不做改写。
+
 ### Grok Build 入口点
 
 `install --grok-build` 将命令 `npx -y cc-safety-net hook --grok-build` 写入 `~/.grok/hooks/cc-safety-net.json`（设置了 `GROK_HOME` 时则写入 `$GROK_HOME/hooks/cc-safety-net.json`）。这是一个超时 30 秒、不带 matcher 的 `PreToolUse` 条目，因此每一次工具调用都会到达 hook，而不只是 `run_terminal_command`。安装只改写托管条目，其他条目、同一条目中的其他 handler 以及其他 hook 事件都原样保留。它还会把无法解析的文件修复成规范形式：Grok Build 会整个跳过无法解析的 hook 文件，这样的文件不可能承载可用的其他 hook。卸载只移除托管 handler，只有文件中不再剩下任何内容时才删除该文件。

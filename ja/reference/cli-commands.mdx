@@ -754,6 +754,8 @@ Amp Code、OpenClaw、OpenCode、Pi には、独自の `hook` フラグがあり
 
 実行時、hook は Cursor の `Shell` ツール呼び出しを読み取り、`conversation_id` からセッション ID を取得して、`{ "permission": "deny", … }` または `{ "permission": "allow" }` を返します。Cursor の `working_directory` フィールドは、ワークスペースのルート内に収まっているかを検査されます。宣言されているのに値がない場合、またはワークスペースのルートの外を指す場合は fail closed になります。
 
+Windows では、Cursor が `/C:/Users/you` のような VS Code の URI 形式でパスを渡します。そこで hook は、`workspace_roots`、`cwd`、`working_directory` を解決する前に、先頭の `/<drive-letter>:` の後ろに `/`、`\`、文字列の終端のいずれかが続く場合、その部分を `<drive-letter>:/` へ書き換えます。後ろに続く区切り文字も書き換えの対象に含まれます。そのため `/C:/Users/you` は `C:/Users/you`、`/C:\Users` は `C:/Users` として解決され、`/C:` だけならドライブのルート `C:/` になります。書き換わるのは先頭のこの部分だけで、ドライブレターの大文字小文字はそのままです。`/c/x` のような MSYS 形式のパス、POSIX パス、Windows 本来のドライブレター表記は変わりません。Windows 以外のプラットフォームでは、どのパスも書き換えません。
+
 ### Grok Build エントリーポイント
 
 `install --grok-build` は、コマンド `npx -y cc-safety-net hook --grok-build` を `~/.grok/hooks/cc-safety-net.json`（`GROK_HOME` が設定されている場合は `$GROK_HOME/hooks/cc-safety-net.json`）に書き込みます。30 秒のタイムアウトを持ち、マッチャーのない `PreToolUse` エントリです。そのため `run_terminal_command` だけでなく、すべてのツール呼び出しが hook に届きます。install が書き換えるのは管理対象のエントリだけです。管理対象外のエントリ、同じエントリ内の管理対象外のハンドラー、ほかの hook イベントはそのまま残ります。パースできないファイルは、正規の内容に修復します。Grok Build はパースできない hook ファイルを丸ごと読み飛ばすため、そのようなファイルが動作する管理対象外の hook を保持していることはないからです。uninstall は管理対象のハンドラーだけを取り除き、ファイルを削除するのは、ほかに何も残らない場合だけです。
