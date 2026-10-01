@@ -20,20 +20,20 @@ If a command does not visibly contain a destructive operation, command-string an
 
 ### Unconfigured or opaque command proxies
 
-A tool that runs a shell command on your behalf (for example `rtk git reset --hard`) is analyzed only when you declare it as a transparent wrapper:
+A tool that runs a shell command on your behalf (for example `rtk git reset --hard`) is analyzed once you declare it as a transparent wrapper:
 
 ```bash
 npx -y cc-safety-net rule wrapper add rtk
 ```
 
-Once configured, analysis looks through the wrapper to the visible child command, so both built-in rules and [custom rules](/configuration/custom-rules) apply to `rtk git reset --hard` as they would to `git reset --hard`. There are no built-in defaults. Configure only wrappers you trust. Reserved commands (`git`, `busybox`, the built-in analyzed commands, shell wrappers, and interpreters) cannot be registered as wrappers.
+Once configured, analysis looks through the wrapper to the visible child command, so both built-in rules and [custom rules](/configuration/custom-rules) apply to `rtk git reset --hard` as they would to `git reset --hard`. Seven commands need no such declaration, because they always run a visible child: `exec`, `nice`, `nohup`, `setsid`, `stdbuf`, `time`, and `timeout`. Configure only the other wrappers you trust. Reserved commands (`git`, `busybox`, the built-in analyzed commands, shell wrappers, and interpreters) cannot be registered as wrappers.
 
 The residual limit is narrower than "every proxy":
 
-- A proxy that is **not** listed in `transparent_wrappers` is not unwrapped.
+- A proxy that is neither one of those seven nor listed in `transparent_wrappers` is not unwrapped.
 - A proxy that **rewrites or hides** its child command, rather than executing a visible one, cannot be unwrapped even when it is configured.
 
-In both cases only the top-level fallback dangerous-text scan may catch the command, and that scan is incomplete. `transparent_wrappers` lives in `rule.json`, so a scope whose `rule.json` is unreadable loses that scope's wrappers until it is fixed. See [Configuration recovery](/configuration/recovery).
+In both cases only the top-level fallback dangerous-text scan may catch the command, and that scan is incomplete. `transparent_wrappers` lives in `rule.json`, so a scope whose `rule.json` is unreadable loses that scope's declared wrappers until it is fixed. The seven built-in wrappers are not affected. See [Configuration recovery](/configuration/recovery).
 
 ### eval and dynamic execution
 

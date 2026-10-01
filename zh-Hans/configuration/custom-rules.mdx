@@ -139,6 +139,8 @@ rulebook 文件本身也有上限，且在 schema 校验之前检查。超出其
 
 如果团队通过 `rtk` 之类的包装器运行命令，分析器默认只能看到包装器。把包装器列入 `transparent_wrappers` 后，CC Safety Net 会提取其中可见的受保护子命令。内置分析和自定义规则便能像处理裸命令一样，处理 `rtk git reset --hard` 和 `rtk docker system prune`。
 
+`exec`、`nice`、`nohup`、`setsid`、`stdbuf`、`time` 和 `timeout` 无需列入就是包装器，因此 `timeout 5 docker system prune` 会命中与裸命令相同的自定义规则。
+
 用 `rule wrapper` 子命令来配置包装器，不要手动编辑 `rule.json`：
 
 ```bash
@@ -155,14 +157,14 @@ npx -y cc-safety-net rule wrapper add rtk --global
 
 这个字段的规则：
 
-- **没有内置默认值。** 只配置你有意信任的包装器。
+- **有七个包装器是内置的。** `exec`、`nice`、`nohup`、`setsid`、`stdbuf`、`time` 和 `timeout` 总会执行一个可见的子命令，因此无论文件中是否列出，分析都会穿透它们。其余包装器中，只配置你有意信任的那些。
 - 包装器名称必须匹配 `^[a-zA-Z][a-zA-Z0-9_-]*$`，并且在文件内必须唯一。
 - **保留命令不能作为包装器**：`git`、`busybox`、内置分析的命令 `rm`、`find`、`xargs` 和 `parallel`、所有 shell 包装器、所有解释器以及 awk 解释器。
 - 解包时，会取包装器标志和 `VAR=value` 赋值之后的第一个*可保护*子命令，或者显式 `--` 之后紧跟的那个 token。本身不可保护的子命令不会被解包。
-- 这里**未**列出的包装器，以及重写或隐藏子命令而不是 exec 一个可见子命令的包装器，仍然不会被解包。这类命令只有顶层危险文本 fallback 扫描才可能捕获。
+- 既不是内置、这里也**未**列出的包装器，以及重写或隐藏子命令而不是 exec 一个可见子命令的包装器，仍然不会被解包。这类命令只有顶层危险文本 fallback 扫描才可能捕获。
 
 <Warning>
-`transparent_wrappers` 位于 `rule.json` 中。如果某个范围的 `rule.json` 变得不可读，该范围的包装器就不再生效。这是配置被丢弃会削弱内置覆盖范围的唯一情况。**rulebook** 加载失败不影响 `rule.json` 的可读性，因此包装器不受影响。
+`transparent_wrappers` 位于 `rule.json` 中。如果某个范围的 `rule.json` 变得不可读，该范围声明的包装器就不再生效，内置的七个仍然有效。这是配置被丢弃会削弱内置覆盖范围的唯一情况。**rulebook** 加载失败不影响 `rule.json` 的可读性，因此声明的包装器不受影响。
 </Warning>
 
 ## 创建你的第一个自定义规则
@@ -260,7 +262,7 @@ rulebook 来源字符串列表。默认为空数组。文件内的来源名称�
 </ParamField>
 
 <ParamField body="transparent_wrappers" type="array">
-会透明执行可见受保护子命令的命令名称，让分析能够看穿它们。默认为空数组。条目必须唯一，且不能是保留命令。见[透明包装器](#透明包装器)。
+会透明执行可见受保护子命令的命令名称，让分析能够看穿它们。默认为空数组，此时内置的七个包装器依然生效。条目必须唯一，且不能是保留命令。见[透明包装器](#透明包装器)。
 </ParamField>
 
 同时替换消息和面向智能体的意图的覆盖如下所示：

