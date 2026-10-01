@@ -1,12 +1,12 @@
 ---
 title: "CC Safety Net 如何与各智能体集成"
 sidebarTitle: "集成架构"
-description: "CC Safety Net 的十三种智能体使用的四种集成模型：stdin hook 子进程、智能体加载的插件、进程内 Pi 扩展和 Amp Code 事件插件。"
+description: "CC Safety Net 的十四种智能体使用的四种集成模型：stdin hook 子进程、智能体加载的插件、进程内 Pi 扩展和 Amp Code 事件插件。"
 ---
 
 配置或调试集成时请查阅本页。这里说明各智能体如何调用 CC Safety Net 并接收判定。用户看到的完整流程见<a href="/zh-Hans/guides/how-it-works">工作原理</a>。
 
-CC Safety Net 支持十三种编码智能体，它们通过四种模型接入。先确认智能体采用哪种模型，再排查未触发的 hook 或查找配置位置。
+CC Safety Net 支持十四种编码智能体，它们通过四种模型接入。先确认智能体采用哪种模型，再排查未触发的 hook 或查找配置位置。
 
 各集成的安装和删除命令见<a href="/zh-Hans/installation">安装</a>。四种模型都接入同一个防护，完整定义见<a href="/zh-Hans/guides/architecture">架构</a>。
 
@@ -15,7 +15,7 @@ CC Safety Net 支持十三种编码智能体，它们通过四种模型接入。
 | 模型 | 智能体 | 工作方式 |
 | --- | --- | --- |
 | **Stdin hook 子进程** | Antigravity CLI、Claude Code、Codex、Cursor、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code | 每次工具调用时，智能体都会以短生命周期进程运行 `cc-safety-net hook <flag>`，并把该调用作为 JSON 写入其 stdin。CC Safety Net 分析调用，在 stdout 打印智能体专用 deny 对象，并以 0 退出。 |
-| **智能体加载的插件** | OpenClaw、OpenCode | 智能体按自己的软件包格式加载 CC Safety Net 插件。这些智能体没有 `hook` 标志。 |
+| **智能体加载的插件** | DeepSeek Harness、OpenClaw、OpenCode | 智能体按自己的软件包格式加载 CC Safety Net 插件。这些智能体没有 `hook` 标志。 |
 | **进程内扩展** | Pi | Pi 直接在 Pi 进程中加载 CC Safety Net 扩展并在内存中调用，无子进程、stdin 或 stdout。 |
 | **事件插件** | Amp Code | Amp 从账户的 Personal Plugins 仓库加载托管的个人插件，并在进程内向其发送每个 `tool.call` 事件。 |
 
@@ -136,6 +136,35 @@ Invalid Hermes profile name "<profile>" in <root>/active_profile; run `hermes pr
 
 ## 智能体加载的插件
 
+### DeepSeek Harness
+
+DeepSeek Harness 把 CC Safety Net 作为 profile 的插件 bundle **进程内**加载。软件包的 `dsh.bundle.patch` 字段指向 `dist/deepseek-harness/cordis.patch.yml`，该文件插入一个 `cc-safety-net` 行，其中写明 bundle 入口 `./index.js`。入口请求宿主的 `tools` 服务，并通过 `ctx.tools.guard` 注册一个 guard。没有 `hook` 标志，也没有 JSON-over-stdio。
+
+这个 guard 只能拒绝。不返回任何值表示允许调用，返回字符串则以该文本为理由阻止调用。DeepSeek Harness 在所有 `tools/pre-execute` 监听器之后运行它，因此 CC Safety Net 看到调用时，审批和 Auto review 都已经运行过。
+
+guard 按 shell 命令分析两个工具，两者的命令都读自执行对象的 `arguments.command`：
+
+| 工具 | 分析器方言 |
+| --- | --- |
+| `bash` | POSIX |
+| `pwsh` | PowerShell |
+
+其他工具名走非命令输入路径，因此文件类、patch 类和搜索类工具仍受路径与机密保护。
+
+会话的工作目录同时作为配置目录和执行目录，取自 `agent.session.header.cwd`；执行对象没有会话标头时，退回到加载插件时所在的目录。会话 ID 取自 `agent.session.header.id`。`bash` 和 `pwsh` 调用带 `workdir` 参数时，该参数相对这个工作目录解析，并成为执行目录；它必须是已存在的目录，否则拒绝消息会指出请求的目录。与 OpenClaw 的 `workdir` 不同，它不必留在会话目录内。
+
+以下情况下 guard 会 fail closed：执行对象格式不正确、工具名不是非空字符串、`command` 缺失或为空、`arguments` 不是对象、`workdir` 存在但不是非空字符串、会话目录无法解析。
+
+安装过程驱动 DeepSeek Harness 自己的 `dsh plugin ... add` 命令：`web` profile 通过 `npx -y @deepseek-ai/dsh` 执行一次，`desktop` profile 通过桌面应用自带的 `dsh` 执行一次。安装和删除命令见<a href="/zh-Hans/installation#deepseek-harness-installation">安装</a>。
+
+和 Hermes Agent 一样，但与 Pi 不同，`doctor` 完全从磁盘检测 DeepSeek Harness。它读取 `~/.dsh/profiles`（或 `$DSH_HOME/profiles`）下每个 `<profiles>/<name>/package.json`，检查两件事：`dependencies` 是否列出 `cc-safety-net`，以及 `dsh.profile.bundles` 是否包含它。有依赖但没有 bundle 的 profile 属于已安装但未启用，该行会带上这条错误：
+
+```text
+cc-safety-net is installed in the <name> profile but its bundle is disabled
+```
+
+只要有一个已启用的 profile，宿主就显示 `Configured`，方式为 `dsh bundle`，同时仍会打印任何未启用 profile 的错误。只有未启用的 profile 时，宿主显示为已禁用。某个 profile 的 manifest 无法读取时，宿主为 `Not inspected`；没有任何 profile 带该依赖时为 `n/a`。
+
 ### OpenClaw
 
 OpenClaw 把 CC Safety Net 作为原生插件**进程内**加载。插件以包含三个文件的打包目录形式分发：运行时入口 `index.js`（所有依赖内联的自包含 bundle，因为本地目录安装没有 `node_modules`）、OpenClaw 在加载任何代码前验证的 `openclaw.plugin.json` manifest，以及 `openclaw.extensions` 指向该入口的 `package.json`。没有 `hook` 标志，也没有 JSON-over-stdio。
@@ -224,7 +253,7 @@ Pi 有两个命令工具适配器：内置的 `bash` 和 `powershell` 工具。�
 
 ## Amp Code 事件插件
 
-Amp Code 把 CC Safety Net 作为**个人插件**加载：Amp 账户托管的 Personal Plugins 仓库中一个名为 `cc-safety-net` 的目录，里面是自包含的入口文件 `index.ts`。插件通过 `@ampcode/plugin` API 订阅 Amp 的 `tool.call` 事件，返回 `allow` 或带消息的 `reject-and-continue`。它和 Pi、OpenClaw、OpenCode 一样在进程内运行。个人插件跟随账户而不是单台机器，因此也覆盖在 Amp Orb 等远程执行器上运行的线程。
+Amp Code 把 CC Safety Net 作为**个人插件**加载：Amp 账户托管的 Personal Plugins 仓库中一个名为 `cc-safety-net` 的目录，里面是自包含的入口文件 `index.ts`。插件通过 `@ampcode/plugin` API 订阅 Amp 的 `tool.call` 事件，返回 `allow` 或带消息的 `reject-and-continue`。它和 DeepSeek Harness、Pi、OpenClaw、OpenCode 一样在进程内运行。个人插件跟随账户而不是单台机器，因此也覆盖在 Amp Orb 等远程执行器上运行的线程。
 
 Amp 的 workspace 根目录（`amp.system.workspaceRoot`）就是配置目录。shell 工具调用带有字符串 `dir` 时，该值成为执行目录：相对路径基于 workspace 根目录解析，结果再经过 `realpath`，并且必须是已存在的目录。Windows 命名空间路径会被拒绝。无法解析的 `dir` 会 fail closed，也不会再对该调用做破坏性命令分析。拒绝原因不再报告分析器的意外失败，而是指明起因是工作目录，并让智能体改用已存在且可访问的目录，或先创建缺失的目录。与 OpenClaw 的 `workdir` 不同，解析结果不要求留在 workspace 内：Amp 把它指向自己的技能缓存或同级仓库都是正当用法，而同样的操作写成 `cd <dir> && …` 本来就在那里执行。配置目录仍是 workspace 根目录，因此项目自身的规则配置照常生效。Git 元数据防护同时以执行目录和配置目录为锚点，所以命令在别处执行时，workspace 自身的 `.git` 仍受保护。见<a href="/zh-Hans/reference/blocked-commands#git-metadata">Git 元数据</a>。
 

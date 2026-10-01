@@ -112,7 +112,7 @@ bunx cc-safety-net doctor
 
 | セクション | 説明 |
 | --- | --- |
-| Hook Integration | サポート対象の各エージェントの設定を確認する。Claude Code、Amp Code、Antigravity CLI、Codex、Cursor、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code、OpenClaw、OpenCode、Pi が対象 |
+| Hook Integration | サポート対象の各エージェントの設定を確認する。Claude Code、Amp Code、Antigravity CLI、Codex、Cursor、DeepSeek Harness、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code、OpenClaw、OpenCode、Pi が対象 |
 | Guard Engine Verification | ブロックが動作することを確認する合成セルフテストを実行する（`git reset --hard` と `rm -rf /` はブロック、`rm -rf ./node_modules` は許可） |
 | Configuration | ユーザーとプロジェクトのルール設定を検証し、有効なルールを表示する |
 | Environment | CC Safety Net の環境変数の状態を表示する |
@@ -191,6 +191,7 @@ hook の設定ファイルをパースできない場合は、3 つとも結果�
 設定の場所を移動できるホストがいくつかあります。`doctor` は各ホストと同じ上書きルールに従うため、移動した設定でも見つけられます。
 
 - **Claude Code**：`CLAUDE_CONFIG_DIR` が設定されていればその値、なければ `<home>/.claude` です。Claude Code 自身と同じく、値は `~` を展開せずそのまま使います。`install`、`update`、レガシープラグインの後始末、`status` と `statusline` の裏側で行う `enabledPlugins` の確認も、同じディレクトリを使います。
+- **DeepSeek Harness**：`DSH_HOME` が設定されていれば `$DSH_HOME/profiles`、なければ `<home>/.dsh/profiles` です。値の先頭の `~` はホームディレクトリに展開されます。`doctor` は、その配下の各プロファイルディレクトリにある `package.json` を読み取ります。`node_modules` は対象外です。
 - **Hermes Agent**：`HERMES_HOME` の親ディレクトリ名が `profiles` の場合、その値がそのまま Hermes のホームです。それ以外の場合、ルートは `HERMES_HOME`（未設定なら `<home>/.hermes`）で、ルートにある `active_profile` ファイルが `<root>/profiles/<name>` を選びます。この名前は前後の空白を取り除き、小文字に変換して使います。`active_profile` が空、`default`、ファイルなし、読み取り不能のいずれかであれば、ルートのままです。プラグインファイルは `<Hermes home>/plugins/cc-safety-net` に置かれます。
 - **OpenClaw**：OpenClaw のホームは、`OPENCLAW_HOME` が設定されていて空でなければその値、それ以外は OS のホームです。先頭の `~` は OS のホームを基準に展開します。状態ディレクトリは `OPENCLAW_STATE_DIR`、なければ `OPENCLAW_CONFIG_PATH` があるディレクトリ、それもなければ `<OpenClaw home>/.openclaw` です。この 2 つの環境変数では、先頭の `~` を OpenClaw のホームを基準に展開します。
 - **OpenCode**：2.x を報告するホストでは、`doctor` は `OPENCODE_CONFIG_DIR` だけを読み取ります。2.x は、この変数が設定されているとそのディレクトリしか読まないためです。それ以外のバージョンでは、そのディレクトリと XDG のディレクトリ（`$XDG_CONFIG_HOME/opencode`、なければ `<home>/.config/opencode`）の両方を読み取ります。1.x は常に XDG のディレクトリを読み込むためです。`OPENCODE_CONFIG_DIR` が空文字列の場合は未設定と同じ扱いです。`uninstall` は常に両方を読み取ります。
@@ -626,7 +627,7 @@ npx -y cc-safety-net install --claude-code
 
 ### ターゲット
 
-13 個のターゲットを使用できます。次の順序はインストールされる順序です。
+14 個のターゲットを使用できます。次の順序はインストールされる順序です。
 
 | フラグ | エージェント | インストール方法 |
 | --- | --- | --- |
@@ -635,6 +636,7 @@ npx -y cc-safety-net install --claude-code
 | `--claude-code` | Claude Code | Claude Code 自身のプラグインマーケットプレイスコマンドを実行する |
 | `--codex` | Codex | Codex 自身のプラグインマーケットプレイスコマンドを実行する |
 | `--cursor` | Cursor | `~/.cursor/hooks.json` に hook エントリを書き込む |
+| `--deepseek-harness` | DeepSeek Harness | マシン上の各プロファイルに対して `dsh plugin --profile <name> add cc-safety-net` を実行する。`web` プロファイルには `npx -y @deepseek-ai/dsh` 経由、`desktop` プロファイルにはデスクトップアプリ同梱の `dsh` 経由。プロファイルの置き場所は `$DSH_HOME/profiles` または `~/.dsh/profiles` |
 | `--gemini-cli` | Gemini CLI | Gemini CLI の拡張機能インストールコマンドを実行する |
 | `--copilot-cli` | GitHub Copilot CLI | Copilot CLI 自身のプラグインマーケットプレイスコマンドを実行する |
 | `--grok-build` | Grok Build | `~/.grok/hooks/cc-safety-net.json`（または `$GROK_HOME/hooks/cc-safety-net.json`）に hook エントリを書き込む |
@@ -648,7 +650,7 @@ npx -y cc-safety-net install --claude-code
 
 CC Safety Net は、3 つのインストール方法を使います。
 
-- **ネイティブのプラグインまたは拡張機能のコマンド**：Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、OpenClaw、OpenCode、Pi。CC Safety Net はエージェント自身のプラグインマネージャーを実行し、置き換えられた古いプラグイン ID を削除します。OpenClaw のインストールは、その後に OpenClaw がプラグインを読み込み済みと報告することも確認し、OpenClaw Gateway の再起動を求めます。OpenCode 1.x のインストールは、キャッシュ済みパッケージのエントリを import し、呼び出し可能な `CCSafetyNetPlugin` を export することを確認します。2.x では `opencode plugin list` を読み取り、ソースが `cc-safety-net@latest` の `cc-safety-net` の行があることを要求します。どちらの確認も、失敗すればインストールは中止されます。そのまま進めると、OpenCode が何も読み込まず fail open になるためです。
+- **ネイティブのプラグインまたは拡張機能のコマンド**：Claude Code、Codex、DeepSeek Harness、GitHub Copilot CLI、Gemini CLI、OpenClaw、OpenCode、Pi。CC Safety Net はエージェント自身のプラグインマネージャーを実行し、置き換えられた古いプラグイン ID を削除します。DeepSeek Harness のインストールは、プロファイルごとに `dsh plugin ... add` を実行し、その後プロファイルのマニフェストを読み直します。ホストがバンドルをインストールしても有効にしていない場合は失敗します。OpenClaw のインストールは、その後に OpenClaw がプラグインを読み込み済みと報告することも確認し、OpenClaw Gateway の再起動を求めます。OpenCode 1.x のインストールは、キャッシュ済みパッケージのエントリを import し、呼び出し可能な `CCSafetyNetPlugin` を export することを確認します。2.x では `opencode plugin list` を読み取り、ソースが `cc-safety-net@latest` の `cc-safety-net` の行があることを要求します。どちらの確認も、失敗すればインストールは中止されます。そのまま進めると、OpenCode が何も読み込まず fail open になるためです。
 - **設定ファイルへの書き込み**：Antigravity CLI、Cursor、Grok Build、Kimi Code。CC Safety Net がエージェントの設定を直接編集するのは、この 4 つだけです。
 - **管理対象プラグイン成果物**：Amp Code と Hermes Agent。Amp のプラグインは、amp CLI を通じてアカウントのホスト型 Amp Personal Plugins リポジトリに公開されます（事前確認は `amp plugins repositories --json`）。そのため、インストールには amp CLI と `amp login` が必要です。公開されたプラグインは、Orb スレッドを含むすべての Amp セッションに適用されます。`~/.config/amp/plugins/cc-safety-net.ts` に管理対象のローカルコピーが残っているとパーソナルプラグインを覆い隠すため、インストール時に削除されます。変更後は Amp を再起動するか `plugins: reload` を実行します。Hermes Agent では、インストール時にプラグインをディスクに書き込んで `hermes plugins enable` も実行し、変更後に Hermes の再起動が必要です。
 
@@ -683,7 +685,7 @@ TTY で `update` を直接実行すると、インストールバナーを表示
 
 ターゲットは、各エージェントの設定ファイルと状態ファイルを読み取って検出します。現在無効な場合でも、インストール済みと検出される連携が対象です。Amp Code は `amp plugins list` の出力によって対象になります。この出力は、`codex plugin list` と同じく 30 秒のタイムアウトで取得します。コールドラン時は checkout をネットワーク経由で更新するため、既定の 5 秒を超えることがあるからです。GitHub Copilot CLI は例外です。Copilot の `installed-plugins` ディレクトリに CC Safety Net プラグインの checkout がある場合だけ対象になります。無効状態と、何もインストールされていない kill-switch 状態を区別できず、update が install になることを防ぐためです。改名前の `safety-net@cc-marketplace` プラグイン ID を使うインストール（Claude Code、Codex、および GitHub Copilot CLI のプラグイン checkout `cc-marketplace/safety-net`）も検出されます。更新時に現在の ID へ移行し、レガシーコピーをベストエフォートで削除します。レガシーコピーの削除に失敗しても、ターゲットは失敗せず警告になります。
 
-すべてのターゲットは、1 つの `Updating <n> integration…` または `Updating <n> integrations…` スピナーの後ろで、`install` と同じ操作を並列に実行します。すべてのターゲットが完了した後、レポートを安定したカタログ順でまとめて出力します。メッセージだけが `Updated …` または `… up to date` に変わります。インストール時にエージェント自身の CLI を使うターゲットでは、先にベンダーバイナリを調べます。対象は Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、Hermes Agent、OpenClaw、OpenCode、Pi です。バイナリがない場合は `<Agent> not found; skipped`（例は `Codex not found; skipped`）を出力して処理を続けます。設定ファイルを使うターゲット、つまり Antigravity CLI、Cursor、Grok Build、Kimi Code にはバイナリが不要で、常に更新されます。Amp Code には別途の検査は不要です。`amp plugins list` がパーソナルプラグインを表示する場合にのみ検出され、その更新は amp CLI を実行して現在の成果物を公開します。Claude Code、Codex、GitHub Copilot CLI では、登録済みのマーケットプレイスをプラグイン処理の前に更新します（例は `claude plugin marketplace update cc-marketplace`）。何もしない `add` に頼らないため、古いカタログ checkout が更新を失敗させることはありません。
+すべてのターゲットは、1 つの `Updating <n> integration…` または `Updating <n> integrations…` スピナーの後ろで、`install` と同じ操作を並列に実行します。すべてのターゲットが完了した後、レポートを安定したカタログ順でまとめて出力します。メッセージだけが `Updated …` または `… up to date` に変わります。インストール時にエージェント自身の CLI を使うターゲットでは、先にベンダーバイナリを調べます。対象は Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、Hermes Agent、OpenClaw、OpenCode、Pi です。バイナリがない場合は `<Agent> not found; skipped`（例は `Codex not found; skipped`）を出力して処理を続けます。設定ファイルを使うターゲット、つまり Antigravity CLI、Cursor、Grok Build、Kimi Code にはバイナリが不要で、常に更新されます。DeepSeek Harness もバイナリは調べません。更新では install を再実行し、プロファイルごとに `dsh` を動かします。デスクトップアプリが起動中の場合は失敗します。Amp Code には別途の検査は不要です。`amp plugins list` がパーソナルプラグインを表示する場合にのみ検出され、その更新は amp CLI を実行して現在の成果物を公開します。Claude Code、Codex、GitHub Copilot CLI では、登録済みのマーケットプレイスをプラグイン処理の前に更新します（例は `claude plugin marketplace update cc-marketplace`）。何もしない `add` に頼らないため、古いカタログ checkout が更新を失敗させることはありません。
 
 並列処理の前に、キャッシュに依存するターゲット（Antigravity CLI、Cursor、Grok Build、Hermes Agent、Kimi Code）が 1 つでもある場合、`update` は `npx` キャッシュを 1 回消去します。消去に失敗した場合、そのキャッシュに依存するターゲットだけが失敗し、ほかのターゲットは実行を続けます。
 
@@ -707,7 +709,7 @@ Update available: cc-safety-net <current> → <latest>. Update this CLI with you
 
 ## uninstall
 
-`uninstall` は、`install` と同じ 13 個のターゲットフラグを受け取り、同じ選択ルールとターゲット順序を使います。
+`uninstall` は、`install` と同じ 14 個のターゲットフラグを受け取り、同じ選択ルールとターゲット順序を使います。
 
 ```bash
 npx -y cc-safety-net uninstall
@@ -736,7 +738,7 @@ npx -y cc-safety-net uninstall --cursor
 
 Coding CLI の hook だけは、許可と拒否以外の答えを返せます。Claude Code の `default`、`acceptEdits`、`plan` の permission mode では、standard レベルで検証できなかったコマンドに対して `hookSpecificOutput.permissionDecision: "ask"` を出力し、Claude Code がユーザーに確認します。それ以外のフラグと、それ以外の permission mode では拒否の形式を出力します。[Claude Code が拒否ではなく確認を求める場合](/ja/guides/integration-architecture#when-claude-code-asks-instead-of-denying)を参照してください。
 
-Amp Code、OpenClaw、OpenCode、Pi には、独自の `hook` フラグがありません。いずれも、プラグインまたは拡張機能として CC Safety Net をプロセス内に読み込みます。各エージェントの接続方法については、[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
+Amp Code、DeepSeek Harness、OpenClaw、OpenCode、Pi には、独自の `hook` フラグがありません。いずれも、プラグインまたは拡張機能として CC Safety Net をプロセス内に読み込みます。各エージェントの接続方法については、[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
 
 <Note>
   `hook install` または `hook uninstall` サブコマンドはありません。インストールは最上位の [`install`](#install) と [`uninstall`](#uninstall) コマンドが処理します。

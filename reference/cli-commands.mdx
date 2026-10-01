@@ -112,7 +112,7 @@ bunx cc-safety-net doctor
 
 | Section | Description |
 | --- | --- |
-| Hook Integration | Verifies configuration for each supported agent: Claude Code, Amp Code, Antigravity CLI, Codex, Cursor, Gemini CLI, GitHub Copilot CLI, Grok Build, Hermes Agent, Kimi Code, OpenClaw, OpenCode, and Pi |
+| Hook Integration | Verifies configuration for each supported agent: Claude Code, Amp Code, Antigravity CLI, Codex, Cursor, DeepSeek Harness, Gemini CLI, GitHub Copilot CLI, Grok Build, Hermes Agent, Kimi Code, OpenClaw, OpenCode, and Pi |
 | Guard Engine Verification | Runs a synthetic self-test to confirm blocking works (`git reset --hard` and `rm -rf /` blocked; `rm -rf ./node_modules` allowed) |
 | Configuration | Validates user and project rule config and lists the effective rules |
 | Environment | Shows the state of the CC Safety Net environment variables |
@@ -191,6 +191,7 @@ Each one also raises an `<Agent> inspection failed` finding with `error` severit
 Several hosts let you move their configuration elsewhere. `doctor` follows the same overrides each host follows, so a relocated config is still found.
 
 - **Claude Code.** `CLAUDE_CONFIG_DIR` when set, otherwise `<home>/.claude`. The value is used as written, with no `~` expansion, which is what Claude Code does. `install`, `update`, legacy plugin cleanup, and the `enabledPlugins` check behind `status` and `statusline` all use the same directory.
+- **DeepSeek Harness.** `$DSH_HOME/profiles` when `DSH_HOME` is set, otherwise `<home>/.dsh/profiles`. A leading `~` in the value expands against your home directory. `doctor` reads the `package.json` in each profile directory under it, skipping `node_modules`.
 - **Hermes Agent.** A `HERMES_HOME` whose parent directory is named `profiles` is the Hermes home as written. Otherwise the root is `HERMES_HOME`, or `<home>/.hermes` when that is unset, and the `active_profile` file in the root selects `<root>/profiles/<name>`. The name is trimmed and lowercased. An `active_profile` that is empty, `default`, missing, or unreadable keeps the root. The plugin files sit at `<Hermes home>/plugins/cc-safety-net`.
 - **OpenClaw.** The OpenClaw home is `OPENCLAW_HOME` when it is set and not blank, otherwise your OS home, and a leading `~` in it expands against the OS home. The state directory is `OPENCLAW_STATE_DIR`, or the directory holding `OPENCLAW_CONFIG_PATH`, or `<OpenClaw home>/.openclaw`. Both of those variables expand a leading `~` against the OpenClaw home.
 - **OpenCode.** On a host that reports 2.x, `doctor` reads only `OPENCODE_CONFIG_DIR`, because 2.x reads only that directory when it is set. For any other version, `doctor` reads that directory and the XDG one, `$XDG_CONFIG_HOME/opencode` or `<home>/.config/opencode`, because 1.x always loads the XDG directory. An empty `OPENCODE_CONFIG_DIR` counts as unset, and `uninstall` always reads both.
@@ -626,7 +627,7 @@ npx -y cc-safety-net install --claude-code
 
 ### Targets
 
-Thirteen targets are accepted, listed here in the order they are installed:
+Fourteen targets are accepted, listed here in the order they are installed:
 
 | Flag | Agent | How it installs |
 | --- | --- | --- |
@@ -635,6 +636,7 @@ Thirteen targets are accepted, listed here in the order they are installed:
 | `--claude-code` | Claude Code | Runs Claude Code's own plugin marketplace commands |
 | `--codex` | Codex | Runs Codex's own plugin marketplace commands |
 | `--cursor` | Cursor | Writes the hook entry into `~/.cursor/hooks.json` |
+| `--deepseek-harness` | DeepSeek Harness | Runs `dsh plugin --profile <name> add cc-safety-net` for each profile on the machine: the `web` profile through `npx -y @deepseek-ai/dsh`, the `desktop` profile through Desktop's bundled `dsh`. Profiles live in `$DSH_HOME/profiles` or `~/.dsh/profiles` |
 | `--gemini-cli` | Gemini CLI | Runs Gemini CLI's extension install command |
 | `--copilot-cli` | GitHub Copilot CLI | Runs Copilot CLI's own plugin marketplace commands |
 | `--grok-build` | Grok Build | Writes the hook entry into `~/.grok/hooks/cc-safety-net.json` (or `$GROK_HOME/hooks/cc-safety-net.json`) |
@@ -648,7 +650,7 @@ Thirteen targets are accepted, listed here in the order they are installed:
 
 CC Safety Net uses three installation mechanisms:
 
-- **Native plugin or extension commands.** Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, OpenClaw, OpenCode, and Pi. CC Safety Net uses the agent's plugin manager and removes superseded plugin ids. OpenClaw installation verifies that OpenClaw reports the plugin as loaded, then asks you to restart the Gateway. On OpenCode 1.x, installation imports the cached package entry and verifies that it exports a callable `CCSafetyNetPlugin`. On 2.x, it reads `opencode plugin list` and requires a `cc-safety-net` row sourced from `cc-safety-net@latest`. Either check failing stops the install, because OpenCode would otherwise load nothing and fail open.
+- **Native plugin or extension commands.** Claude Code, Codex, DeepSeek Harness, GitHub Copilot CLI, Gemini CLI, OpenClaw, OpenCode, and Pi. CC Safety Net uses the agent's plugin manager and removes superseded plugin ids. DeepSeek Harness installation runs `dsh plugin ... add` once per profile, then rereads the profile manifests and fails when the host installed the bundle without enabling it. OpenClaw installation verifies that OpenClaw reports the plugin as loaded, then asks you to restart the Gateway. On OpenCode 1.x, installation imports the cached package entry and verifies that it exports a callable `CCSafetyNetPlugin`. On 2.x, it reads `opencode plugin list` and requires a `cc-safety-net` row sourced from `cc-safety-net@latest`. Either check failing stops the install, because OpenCode would otherwise load nothing and fail open.
 - **Config-file writes.** Antigravity CLI, Cursor, Grok Build, and Kimi Code. These are the only agent configurations that CC Safety Net edits directly.
 - **Managed plugin artifacts.** Amp Code and Hermes Agent. CC Safety Net publishes the Amp plugin to your account's hosted Personal Plugins repository through the Amp CLI. The preflight is `amp plugins repositories --json`, so installation requires the Amp CLI and `amp login`. The published plugin applies to every Amp session, including Orb threads. Install removes a managed local copy at `~/.config/amp/plugins/cc-safety-net.ts` because it would mask the personal plugin. After a change, restart Amp or run `plugins: reload`. For Hermes Agent, installation writes the plugin to disk and runs `hermes plugins enable`. Restart Hermes after a change.
 
@@ -683,7 +685,7 @@ In a TTY, a direct `update` starts detection before it shows the install banner,
 
 `update` reads each agent's configuration and state files. An integration qualifies when it is installed, **even when it is disabled**. Amp Code qualifies through `amp plugins list`, which uses a 30-second timeout like `codex plugin list` because a cold run refreshes checkouts over the network and can outlast the default 5 seconds. GitHub Copilot CLI is the exception. It qualifies only when a CC Safety Net checkout exists in Copilot's `installed-plugins` directory, because its disabled state is indistinguishable from a bare kill switch with nothing installed and `update` must never install something new. Installations that still use the old `safety-net@cc-marketplace` id in Claude Code or Codex also qualify. The GitHub Copilot CLI checkout `cc-marketplace/safety-net` also qualifies. Updating migrates them to the current id and removes the legacy copy on a best-effort basis, so a failed removal warns without failing the target.
 
-All targets run the same operation as `install` concurrently behind one `Updating <n> integration…` or `Updating <n> integrations…` spinner. The command waits for every target to settle, then prints all reports in stable catalog order, with messages changed to `Updated …` or `… up to date`. For the targets whose install drives the agent's own CLI, Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Hermes Agent, OpenClaw, OpenCode, and Pi, the vendor binary is probed first: a missing binary prints `<Agent> not found; skipped` (for example `Codex not found; skipped`) and the run continues. The config-file targets, Antigravity CLI, Cursor, Grok Build, and Kimi Code, need no binary and always refresh. Amp Code needs no separate probe: it is detected only when `amp plugins list` shows the personal plugin, and its refresh drives the amp CLI to publish the current artifact. On Claude Code, Codex, and GitHub Copilot CLI, an already-registered marketplace is refreshed before the plugin step (for example `claude plugin marketplace update cc-marketplace`) instead of relying on a no-op `add`, so a stale catalog checkout cannot fail the update.
+All targets run the same operation as `install` concurrently behind one `Updating <n> integration…` or `Updating <n> integrations…` spinner. The command waits for every target to settle, then prints all reports in stable catalog order, with messages changed to `Updated …` or `… up to date`. For the targets whose install drives the agent's own CLI, Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Hermes Agent, OpenClaw, OpenCode, and Pi, the vendor binary is probed first: a missing binary prints `<Agent> not found; skipped` (for example `Codex not found; skipped`) and the run continues. The config-file targets, Antigravity CLI, Cursor, Grok Build, and Kimi Code, need no binary and always refresh. DeepSeek Harness is not probed either. Its update re-runs the install, which drives `dsh` for each profile and fails while the Desktop app is open. Amp Code needs no separate probe: it is detected only when `amp plugins list` shows the personal plugin, and its refresh drives the amp CLI to publish the current artifact. On Claude Code, Codex, and GitHub Copilot CLI, an already-registered marketplace is refreshed before the plugin step (for example `claude plugin marketplace update cc-marketplace`) instead of relying on a no-op `add`, so a stale catalog checkout cannot fail the update.
 
 Before the concurrent phase, `update` clears the `npx` cache once when any cache-dependent target is present: Antigravity CLI, Cursor, Grok Build, Hermes Agent, or Kimi Code. If that clear fails, only those cache-dependent targets fail; the other targets still run.
 
@@ -707,7 +709,7 @@ You can also reach the update flow from the interactive `install` selector by pr
 
 ## uninstall
 
-`uninstall` accepts the same thirteen target flags and uses the same selection rules and target order as `install`.
+`uninstall` accepts the same fourteen target flags and uses the same selection rules and target order as `install`.
 
 ```bash
 npx -y cc-safety-net uninstall
@@ -736,7 +738,7 @@ For the config-file targets, uninstall removes only the entries CC Safety Net ma
 
 The Coding CLI hook is the only one that can answer something other than allow or deny. In Claude Code's `default`, `acceptEdits`, and `plan` permission modes, a command the standard level could not verify emits `hookSpecificOutput.permissionDecision: "ask"` and Claude Code prompts you. Every other flag, and every other permission mode, emits the deny format. See [When Claude Code asks instead of denying](/guides/integration-architecture#when-claude-code-asks-instead-of-denying).
 
-Amp Code, OpenClaw, OpenCode, and Pi have no `hook` flag of their own. They load CC Safety Net in process as a plugin or extension. See [Integration architecture](/guides/integration-architecture) for how each agent plugs in.
+Amp Code, DeepSeek Harness, OpenClaw, OpenCode, and Pi have no `hook` flag of their own. They load CC Safety Net in process as a plugin or extension. See [Integration architecture](/guides/integration-architecture) for how each agent plugs in.
 
 <Note>
   There is no `hook install` or `hook uninstall` subcommand. Installation is handled by the top-level [`install`](#install) and [`uninstall`](#uninstall) commands.

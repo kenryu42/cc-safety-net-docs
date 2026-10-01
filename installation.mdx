@@ -1,7 +1,7 @@
 ---
 title: "Install CC Safety Net for your coding agent"
 sidebarTitle: "Installation"
-description: "Install and uninstall CC Safety Net across all thirteen supported coding agents: Amp Code, Antigravity CLI, Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot CLI, Grok Build, Hermes Agent, Kimi Code, OpenClaw, OpenCode, and Pi."
+description: "Install and uninstall CC Safety Net across all fourteen supported coding agents: Amp Code, Antigravity CLI, Claude Code, Codex, Cursor, DeepSeek Harness, Gemini CLI, GitHub Copilot CLI, Grok Build, Hermes Agent, Kimi Code, OpenClaw, OpenCode, and Pi."
 ---
 
 CC Safety Net installs as a plugin, extension, or hook inside your coding agent. You do not need a persistent service or daemon. Some integrations start a short-lived hook subprocess for each check.
@@ -9,6 +9,8 @@ CC Safety Net installs as a plugin, extension, or hook inside your coding agent.
 Most integrations run on **Windows, macOS, and Linux**. They detect the host operating system for path handling and command resolution. On Windows, this includes case-insensitive paths and `cmd.exe` or PowerShell resolution through `COMSPEC` and `PATHEXT`. The install commands and the interactive picker also resolve agent CLIs that npm installs as `.cmd` shims on Windows, so commands like `install --codex` find them. CI runs the same full check on `windows-latest` that it runs on Linux and macOS: lint, type checks, and the whole test suite, with three test cases skipped on Windows. Those tests exercise the analyzer and the integration code, not each coding agent running on Windows. Amp's own manual documents macOS, Linux, and WSL rather than native Windows.
 
 The **Hermes Agent** and **OpenClaw** integrations run only on macOS and Linux. They assume the POSIX state layout, which defaults to `~/.hermes` and `~/.openclaw`, and they do not support the Windows defaults. Both hosts can relocate that state, so see [Hermes Agent installation](#hermes-agent-installation) and [OpenClaw installation](#openclaw-installation) for the directories each one reads.
+
+CC Safety Net supports the **DeepSeek Harness** web profile on Windows, macOS, and Linux. It looks for the Desktop app only on macOS and Windows, so a Linux install covers the web profile alone. See [DeepSeek Harness installation](#deepseek-harness-installation).
 
 Install **Node.js 18 or later** before you start. The examples use `npx` to run CLI subcommands.
 
@@ -64,6 +66,7 @@ For scripted, non-interactive installs, pass exactly one target flag. Passing ze
 | [Claude Code](#claude-code-installation) | `npx -y cc-safety-net@latest install --claude-code` | `npx -y cc-safety-net@latest uninstall --claude-code` |
 | [Codex](#codex-installation) | `npx -y cc-safety-net@latest install --codex` | `npx -y cc-safety-net@latest uninstall --codex` |
 | [Cursor](#cursor-installation) | `npx -y cc-safety-net@latest install --cursor` | `npx -y cc-safety-net@latest uninstall --cursor` |
+| [DeepSeek Harness](#deepseek-harness-installation) | `npx -y cc-safety-net@latest install --deepseek-harness` | `npx -y cc-safety-net@latest uninstall --deepseek-harness` |
 | [Gemini CLI](#gemini-cli-installation) | `npx -y cc-safety-net@latest install --gemini-cli` | `npx -y cc-safety-net@latest uninstall --gemini-cli` |
 | [GitHub Copilot CLI](#github-copilot-cli-installation) | `npx -y cc-safety-net@latest install --copilot-cli` | `npx -y cc-safety-net@latest uninstall --copilot-cli` |
 | [Grok Build](#grok-build-installation) | `npx -y cc-safety-net@latest install --grok-build` | `npx -y cc-safety-net@latest uninstall --grok-build` |
@@ -190,6 +193,66 @@ Because the hook runs through `npx`, install first clears cached `cc-safety-net`
 ```bash
 npx -y cc-safety-net@latest uninstall --cursor
 ```
+
+## DeepSeek Harness installation
+
+```bash
+npx -y cc-safety-net@latest install --deepseek-harness
+```
+
+DeepSeek Harness loads CC Safety Net as a profile plugin bundle rather than a hook subprocess, so there is no `hook` flag for it. One install covers every DeepSeek Harness profile on the machine: the `web` profile that `npx @deepseek-ai/dsh web` and a global install share, and the `desktop` profile the Desktop app uses.
+
+Profiles live in `~/.dsh/profiles`, or in `$DSH_HOME/profiles` when `DSH_HOME` is set, with a leading `~` expanded against your home directory. Each profile's `package.json` records both the `cc-safety-net` dependency and the bundle list that enables it. Install, uninstall, and `doctor` all read those manifests.
+
+For the web profile, install runs DeepSeek Harness's own plugin command through `npx`:
+
+```bash
+npx -y @deepseek-ai/dsh plugin --profile web add cc-safety-net
+```
+
+This reuses the DeepSeek Harness that `npx @deepseek-ai/dsh web` or a global install runs, and DeepSeek Harness needs `pnpm` on your `PATH` to add the bundle. Install targets the web profile when Desktop is absent, when a `web` profile manifest already exists, or when `npx --offline --no-install @deepseek-ai/dsh --version` finds a cached copy. The second case covers a web profile whose npx cache you cleared, which would otherwise be skipped.
+
+For the `desktop` profile, install runs the same command through Desktop's own bundled `dsh`. On macOS it looks for that binary under `~/Applications` and then `/Applications`, at `DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh`. On Windows it looks at `%LOCALAPPDATA%\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd`. It looks there only when a `desktop` profile already exists, so open Desktop once before you install.
+
+Desktop plugins can change only while Desktop is closed, so install and uninstall both stop when it is running:
+
+```text
+Quit DeepSeek Harness Desktop, then run this command again: Desktop plugins can only change while it is closed.
+```
+
+When a `desktop` profile exists but Desktop itself is somewhere else, install covers the web profile and tells you to finish the Desktop half yourself:
+
+```text
+DeepSeek Harness Desktop is not in its default location, so add cc-safety-net from its Plugins page.
+```
+
+A bundle that DeepSeek Harness installed but did not enable protects nothing, so install reads the profile manifests afterwards and fails when the bundle is off:
+
+```text
+DeepSeek Harness installed cc-safety-net in the web profile but did not enable it. Enable it from the Plugins page, or update cc-safety-net if your registry served a release without DeepSeek Harness support.
+```
+
+A successful install reports `Added cc-safety-net to the DeepSeek Harness Desktop and web profiles.` Both that message and the enable failure above name whichever profiles they cover, so a web-only run says `the web profile` in place of `the Desktop and web profiles`.
+
+```bash
+npx -y cc-safety-net@latest uninstall --deepseek-harness
+```
+
+Uninstall removes the bundle from each profile whose manifest lists it. When neither profile carries it, uninstall runs no command and stops:
+
+```text
+cc-safety-net is not installed in the DeepSeek Harness web or Desktop profile
+```
+
+If Desktop holds the bundle but is not in its default location, uninstall removes the web copy first and then exits `1`, because a success would leave the dashboard offering `Install` while Desktop keeps the bundle active:
+
+```text
+Removed cc-safety-net from the DeepSeek Harness web profile, but DeepSeek Harness Desktop is not in its default location, so remove cc-safety-net from its Plugins page.
+```
+
+When Desktop is the only profile with the bundle, uninstall removes nothing and prints the same instruction on its own.
+
+At runtime the bundle registers a deny-only tool guard that DeepSeek Harness runs after every `tools/pre-execute` listener, including approvals and Auto review. `bash` goes to the POSIX analyzer and `pwsh` to the PowerShell analyzer, and file and search tools reach path and secret protection. Several DeepSeek Harness tools stay outside that guard; see [DeepSeek Harness coverage boundaries](/guides/known-limitations#deepseek-harness-coverage-boundaries) and [DeepSeek Harness](/guides/integration-architecture#deepseek-harness).
 
 ## Gemini CLI installation
 

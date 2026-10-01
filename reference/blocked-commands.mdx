@@ -196,7 +196,7 @@ PowerShell support is a conservative subset: `Remove-Item` and its aliases, the 
 
 | Command pattern | Why it's blocked | Level |
 | --- | --- | --- |
-| `Remove-Item C:\`, `~`, `$HOME`, `$env:USERPROFILE`, `$env:HOME` | Root/home removal, including trailing `\`, `\*`, and `/` variants | All (catastrophic) |
+| `Remove-Item C:\`, `~`, `$HOME`, `${HOME}`, `$env:USERPROFILE`, `$env:HOME` | Root/home removal, including trailing `\`, `\*`, and `/` variants | All (catastrophic) |
 | `Remove-Item .git -Recurse -Force` | Protected Git metadata; PowerShell wildcards *do* match dot-entries | All (catastrophic) |
 | `Remove-Item . -Recurse -Force` | The current directory itself, including after the `--` end-of-parameters marker | All |
 | `Remove-Item ../other -Recurse -Force` | Outside the cwd, including `..\other`, `../{other}`, comma-separated arrays containing an outside element, and Windows UNC/namespace targets | All |
@@ -211,6 +211,8 @@ Aliases and abbreviated parameters are resolved, so `ri . -r -fo` blocks. Invoca
 
 <Note>
   `-WhatIf` neutralizes the block, because PowerShell will not actually delete anything. `-WhatIf`, `-WhatIf:$true`, and the `-wi` abbreviation all allow an otherwise-blocked `Remove-Item . -Recurse -Force`. Explicit `-WhatIf:$false` blocks again. One exception to the strict-only rows above: `Remove-Item $HOME -Recurse -Force` blocks in **standard**, because it classifies as a root/home target rather than a dynamic one.
+
+  PowerShell variable names are case-insensitive, and so are the home variables in the root/home row above. `Remove-Item -Recurse -Force $home`, `$Home\*`, and `${home}` all classify as root/home targets rather than dynamic ones. An assignment earlier in the script does not change that. `$HOME` is read-only in PowerShell, so `$home = 'D:\temp'; Remove-Item -Recurse -Force $home` still deletes home, and the rule still blocks it.
 </Note>
 
 ## Sensitive paths

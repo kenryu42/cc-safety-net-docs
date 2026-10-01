@@ -1,12 +1,12 @@
 ---
 title: "CC Safety Net と各エージェントの連携方法"
 sidebarTitle: "連携アーキテクチャ"
-description: "CC Safety Net が 13 のエージェントに接続する 4 つの方式です。標準入力を使う hook subprocess、エージェントが読み込むプラグイン、プロセス内で動く Pi の拡張機能、Amp Code のイベントプラグインを扱います。"
+description: "CC Safety Net が 14 のエージェントに接続する 4 つの方式です。標準入力を使う hook subprocess、エージェントが読み込むプラグイン、プロセス内で動く Pi の拡張機能、Amp Code のイベントプラグインを扱います。"
 ---
 
 このページは、連携の設定や不具合の調査に使います。各エージェントが CC Safety Net を呼び出し、判定を受け取るまでの流れを示します。ユーザー向けのライフサイクルは[仕組み](/ja/guides/how-it-works)を参照してください。
 
-CC Safety Net は 13 のコーディングエージェントに対応し、接続方式は 4 種類あります。方式が分かれば、hook が動かない原因や設定ファイルの場所を絞り込めます。
+CC Safety Net は 14 のコーディングエージェントに対応し、接続方式は 4 種類あります。方式が分かれば、hook が動かない原因や設定ファイルの場所を絞り込めます。
 
 各連携のインストール／削除コマンドは[インストール](/ja/installation)を参照してください。このページで扱うどの方式も、[アーキテクチャ](/ja/guides/architecture)で一度だけ規定した同じガードに接続します。
 
@@ -15,7 +15,7 @@ CC Safety Net は 13 のコーディングエージェントに対応し、接�
 | 方式 | エージェント | 仕組み |
 | --- | --- | --- |
 | **標準入力の hook subprocess** | Antigravity CLI、Claude Code、Codex、Cursor、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code | エージェントはツール呼び出しのたびに `cc-safety-net hook <flag>` を短命のプロセスとして実行し、呼び出し内容を JSON で標準入力に書き込みます。CC Safety Net は解析結果として、エージェントごとの拒否オブジェクトを標準出力に返し、終了コード 0 で終了します。 |
-| **エージェントが読み込むプラグイン** | OpenClaw、OpenCode | エージェントが、自身のパッケージ形式のプラグインとして CC Safety Net を読み込みます。これらのエージェントに `hook` フラグはありません。 |
+| **エージェントが読み込むプラグイン** | DeepSeek Harness、OpenClaw、OpenCode | エージェントが、自身のパッケージ形式のプラグインとして CC Safety Net を読み込みます。これらのエージェントに `hook` フラグはありません。 |
 | **プロセス内の拡張機能** | Pi | Pi は CC Safety Net の拡張機能を自身のプロセスに直接読み込み、メモリ内で呼び出します。subprocess も標準入出力も使いません。 |
 | **イベントプラグイン** | Amp Code | Amp は、アカウントの Personal Plugins リポジトリから管理対象の personal plugin を読み込み、`tool.call` の各イベントをプロセス内で渡します。 |
 
@@ -140,6 +140,35 @@ Pi の場合と違い、`doctor` は管理対象プラグインのディレク�
 
 ## エージェントが読み込むプラグイン
 
+### DeepSeek Harness
+
+DeepSeek Harness は、プロファイルのプラグインバンドルとして CC Safety Net を**プロセス内**に読み込みます。パッケージの `dsh.bundle.patch` フィールドが `dist/deepseek-harness/cordis.patch.yml` を指しており、このファイルが、バンドルのエントリとして `./index.js` を指定する `cc-safety-net` の行を 1 つ挿入します。エントリはホストの `tools` サービスを要求し、`ctx.tools.guard` でガードを 1 つ登録します。`hook` フラグも、標準入出力を経由する JSON のやり取りもありません。
+
+このガードは拒否しかできません。何も返さなければ呼び出しは許可され、文字列を返すとその内容を理由としてブロックします。DeepSeek Harness はこのガードを、すべての `tools/pre-execute` リスナーの後に実行します。したがって、CC Safety Net が呼び出しを見る時点で、承認と Auto review はすでに処理を終えています。
+
+ガードがシェルコマンドとして解析するのは次の 2 つのツールです。どちらもコマンドを実行オブジェクトの `arguments.command` から読み取ります。
+
+| ツール | アナライザーの方言 |
+| --- | --- |
+| `bash` | POSIX |
+| `pwsh` | PowerShell |
+
+それ以外のツール名はコマンド以外の入力経路を通るため、ファイル系、パッチ系、検索系のツールもパスとシークレットの保護を受けます。
+
+セッションの作業ディレクトリが、設定ディレクトリと実行ディレクトリの両方になります。この値は `agent.session.header.cwd` から取得し、実行オブジェクトにセッションヘッダーがない場合は、プラグインが読み込まれたディレクトリを使います。セッション ID は `agent.session.header.id` から取得します。`bash` または `pwsh` の呼び出しに `workdir` 引数がある場合は、その作業ディレクトリを基準に解決し、実行ディレクトリとして使います。この値はディレクトリとして実在していなければならず、実在しない場合は、要求されたディレクトリを示して拒否します。OpenClaw の `workdir` とは違い、セッションのディレクトリ内に収まっている必要はありません。
+
+ガードが fail closed になるのは、実行オブジェクトが不正な場合、ツール名が空でない文字列でない場合、`command` がない、または空の場合、`arguments` がオブジェクトでない場合、`workdir` があるのに空でない文字列でない場合、セッションのディレクトリを解決できない場合です。
+
+インストールでは、DeepSeek Harness 自身の `dsh plugin ... add` コマンドを実行します。`web` プロファイルには `npx -y @deepseek-ai/dsh` 経由で、`desktop` プロファイルにはデスクトップアプリ同梱の `dsh` 経由で、それぞれ 1 回実行します。導入と削除のコマンドは[インストール](/ja/installation#deepseek-harness-installation)を参照してください。
+
+Hermes Agent と同じく、Pi の場合とは違い、`doctor` は DeepSeek Harness をすべてディスク上の情報から検出します。`~/.dsh/profiles`（または `$DSH_HOME/profiles`）配下の各 `<profiles>/<name>/package.json` を読み、2 点を確認します。`dependencies` に `cc-safety-net` が入っているか、そして `dsh.profile.bundles` に含まれているかです。依存関係はあるのにバンドルがない場合、インストール済みだが有効になっていない状態であり、その行には次のエラーが付きます。
+
+```text
+cc-safety-net is installed in the <name> profile but its bundle is disabled
+```
+
+有効なプロファイルが 1 つ以上あれば、ホストは `Configured`、方式は `dsh bundle` と表示されます。無効なプロファイルがあれば、そのエラーもあわせて表示されます。無効なプロファイルしかない場合は、無効として表示されます。プロファイルのマニフェストを読み取れない場合は `Not inspected`、依存関係を持つプロファイルが 1 つもない場合は `n/a` になります。
+
 ### OpenClaw
 
 OpenClaw は、ネイティブの OpenClaw プラグインとして CC Safety Net を**プロセス内**に読み込みます。プラグインは 3 つのファイルからなるパッケージ済みディレクトリとして提供されます。実行エントリの `index.js` は、ローカルディレクトリからのインストールでは `node_modules` が存在しないため、依存関係をすべてインライン展開した自己完結型のバンドルになっています。`openclaw.plugin.json` のマニフェストは、コードを読み込む前に OpenClaw が検証します。`package.json` の `openclaw.extensions` がエントリを指しています。`hook` フラグも、標準入出力を経由する JSON のやり取りもありません。
@@ -236,7 +265,7 @@ Pi でコマンド用ツールとして扱うのは、組み込みの `bash` と
 
 ## Amp Code のイベントプラグイン
 
-Amp Code は CC Safety Net を **personal plugin** として読み込みます。実体は、Amp アカウントがホストする Personal Plugins リポジトリ内の `cc-safety-net` ディレクトリで、自己完結したエントリファイル `index.ts` を収めています。このプラグインは `@ampcode/plugin` の API を使って Amp の `tool.call` イベントを購読し、`allow` か、メッセージを添えた `reject-and-continue` を返します。Pi、OpenClaw、OpenCode と同様、プロセス内で動作します。personal plugin は 1 台のマシンではなくアカウントに紐づくため、Amp Orb のようなリモート環境で実行されるスレッドも保護できます。
+Amp Code は CC Safety Net を **personal plugin** として読み込みます。実体は、Amp アカウントがホストする Personal Plugins リポジトリ内の `cc-safety-net` ディレクトリで、自己完結したエントリファイル `index.ts` を収めています。このプラグインは `@ampcode/plugin` の API を使って Amp の `tool.call` イベントを購読し、`allow` か、メッセージを添えた `reject-and-continue` を返します。DeepSeek Harness、Pi、OpenClaw、OpenCode と同様、プロセス内で動作します。personal plugin は 1 台のマシンではなくアカウントに紐づくため、Amp Orb のようなリモート環境で実行されるスレッドも保護できます。
 
 Amp のワークスペースルート（`amp.system.workspaceRoot`）が設定ディレクトリになります。シェルのツール呼び出しに文字列の `dir` が含まれる場合は、その値が実行ディレクトリになります。相対パスはワークスペースルートを基準に解決し、その結果を `realpath` で正規化します。実在するディレクトリであることも必要です。Windows の名前空間パスは拒否します。解決できない `dir` は fail closed になり、このときコマンドが破壊的かどうかは解析しません。この拒否は、アナライザーの想定外の失敗としては報告しなくなりました。作業ディレクトリが原因であることを示し、すでに存在してアクセスできるディレクトリを使うか、存在しないディレクトリであれば先に作成するよう、エージェントに伝えます。OpenClaw の `workdir` とは異なり、解決後のディレクトリがワークスペースの内側に収まっている必要はありません。Amp は自身のスキルのキャッシュや隣接するリポジトリを指定することがあり、これは正当な使い方です。同じ作業を `cd <dir> && …` と書いた場合も、もともとそこで実行されます。設定ディレクトリはワークスペースルートのままなので、プロジェクト自身のルール設定は引き続き適用されます。さらに、Git メタデータのガードは実行ディレクトリと設定ディレクトリの両方を起点とするため、コマンドを別の場所で実行しても、ワークスペース自身の `.git` は保護されたままです。[Git メタデータ](/ja/reference/blocked-commands#git-metadata)を参照してください。
 

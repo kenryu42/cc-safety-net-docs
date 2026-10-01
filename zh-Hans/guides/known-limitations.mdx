@@ -1,7 +1,7 @@
 ---
 title: "已知限制和易错点"
 sidebarTitle: "已知限制"
-description: "CC Safety Net 无法捕获的内容：不透明命令代理、二进制文件内部行为、文件系统隔离和网络、符号链接 TOCTOU、解释器标志、解释器注释中的引号、基于 eval 的执行、Codex 的交互会话缺口和 workdir 缺口、fail-open 的宿主 Grok Build、OpenClaw 的会话工作目录，以及 Hermes Agent 和 OpenClaw 的覆盖边界。"
+description: "CC Safety Net 无法捕获的内容：不透明命令代理、二进制文件内部行为、文件系统隔离和网络、符号链接 TOCTOU、解释器标志、解释器注释中的引号、基于 eval 的执行、Codex 的交互会话缺口和 workdir 缺口、fail-open 的宿主 Grok Build、DeepSeek Harness 的可选 bundle 与 run_code 缺口、OpenClaw 的会话工作目录，以及 Hermes Agent 和 OpenClaw 的覆盖边界。"
 ---
 
 CC Safety Net 分析智能体尝试运行的命令字符串。它能阻止已知的破坏性 Git 和文件系统操作，降低意外丢失数据的风险，但不是完整的安全方案。本页列出仍存在的**残余**限制，并说明何时应改用<a href="/zh-Hans/guides/vs-sandboxing">沙箱</a>。
@@ -151,6 +151,28 @@ Codex-native relay 未经测试，因此不作任何保证：端到端实测驱�
 ### 两种集成都不支持 Windows
 
 两种集成都假定 POSIX 状态布局。Hermes 的根目录取自 `HERMES_HOME`，未设置时为 `~/.hermes`；根目录下的 `active_profile` 文件再选出 `<root>/profiles/<name>`，该文件缺失、为空或内容是 `default` 时则保持根目录。如果 `HERMES_HOME` 本身就指向 `profiles` 下的目录，则原样使用。OpenClaw 的主目录取自 `OPENCLAW_HOME`，未设置时为操作系统的主目录；状态目录依次取 `OPENCLAW_STATE_DIR`、`OPENCLAW_CONFIG_PATH` 所在目录、`<home>/.openclaw`。详见 [Hermes Agent](/zh-Hans/installation#hermes-agent-installation) 和 [OpenClaw](/zh-Hans/installation#openclaw-installation) 的安装步骤。Windows 的默认位置则不在此列：安装和检测在 Windows 上仍指向 POSIX 路径，因此 Hermes 安装会把插件写入 Hermes 不会读取的目录；OpenClaw 自己的 CLI 可以正确安装，但 `doctor` 会误报状态。
+
+<span id="deepseek-harness-coverage-boundaries"></span>
+
+## DeepSeek Harness 覆盖边界
+
+CC Safety Net 在 DeepSeek Harness 中是 profile 的一个可选插件 bundle，它的 guard 只能拒绝。宿主的若干部分不在它的覆盖范围内。
+
+### 可选 bundle 加载失败只会警告
+
+DeepSeek Harness 把可选插件的 import 或 `apply()` 失败当作警告并继续运行，因此 bundle 没有加载成功的 profile 会在无保护的状态下运行。`doctor` 读的是磁盘上的 profile manifest，不是运行中的宿主，所以仍会把该 profile 报告为已配置。桌面应用还有另一种情况：它的崩溃恢复操作会禁用第三方 bundle，直到你在 Plugins 页面重新启用它们。
+
+### PTC 模式下的 run_code 不做分析
+
+PTC 模式默认关闭。启用后，`run_code` 工具会执行模型写出的 TypeScript，这段代码可以直接调用 Node.js API。只有这段代码发出的工具子调用才会到达 guard，所以它通过 `node:fs` 做的文件写入得不到判定。
+
+### terminal_send 的文本未经分析就进入 shell
+
+选择启用的终端类工具会把 `terminal_send` 的文本不经分析直接写进常驻 shell。常驻的 `bash` 或 `pwsh` 工具每次调用都会分析，但它跨调用保留目录变更，而 CC Safety Net 按会话工作区评估每次调用，两者可能逐渐不一致。
+
+### Windows 上桌面应用的路径未经测试
+
+在 Windows 上，CC Safety Net 在 `%LOCALAPPDATA%\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd` 查找桌面应用，并读取 `%APPDATA%\@deepseek-ai\dsh-desktop\lockfile` 判断它是否正在运行。没有任何测试针对真实的 Windows 桌面应用验证过这两个路径。web profile 不受影响，Linux 上则完全不会去查找桌面应用。详见 [DeepSeek Harness 安装](/zh-Hans/installation#deepseek-harness-installation)。
 
 <span id="codex-coverage-boundary"></span>
 

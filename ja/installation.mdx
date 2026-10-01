@@ -1,7 +1,7 @@
 ---
 title: "コーディングエージェントに CC Safety Net をインストールする"
 sidebarTitle: "インストール"
-description: "Amp Code、Antigravity CLI、Claude Code、Codex、Cursor、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code、OpenClaw、OpenCode、Pi に CC Safety Net をインストールまたはアンインストールします。"
+description: "Amp Code、Antigravity CLI、Claude Code、Codex、Cursor、DeepSeek Harness、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code、OpenClaw、OpenCode、Pi に CC Safety Net をインストールまたはアンインストールします。"
 ---
 
 CC Safety Net は、コーディングエージェント内のプラグイン、拡張機能、または hook として動作します。常駐サービスやデーモンは不要です。連携によっては、チェックのたびに短命の hook subprocess を起動します。
@@ -9,6 +9,8 @@ CC Safety Net は、コーディングエージェント内のプラグイン、
 ほとんどの連携は **Windows、macOS、Linux** で動作します。パスとコマンドを正しく解決するため、ホスト OS を検出します。Windows では、大文字と小文字を区別しないパスのほか、`COMSPEC` と `PATHEXT` を使って `cmd.exe` または PowerShell を解決します。インストールコマンドと対話式インストーラーは、npm が Windows 上で `.cmd` shim としてインストールしたエージェント CLI も検出します。このため、`install --codex` などのコマンドでも対象の CLI を見つけられます。CI では、Linux や macOS と同じフルチェック（lint、型チェック、テストスイート全体）を `windows-latest` でも実行しています。Windows でスキップするテストは 3 件です。ただし、これらのテストが検証するのはアナライザーと連携部分のコードであり、各コーディングエージェント自体を Windows 上で動かして確認しているわけではありません。Amp のマニュアルが対応対象として挙げているのも macOS、Linux、WSL であり、Windows ネイティブではありません。
 
 **Hermes Agent** と **OpenClaw** の連携は、macOS と Linux でのみ動作します。どちらも POSIX の状態ディレクトリ構成を前提としており、既定は `~/.hermes` と `~/.openclaw` です。Windows の既定のパスには対応していません。状態ディレクトリはどちらのホストでも移動できます。各ホストが読み取るディレクトリは、[Hermes Agent のインストール](#hermes-agent-installation)と [OpenClaw のインストール](#openclaw-installation)を参照してください。
+
+CC Safety Net は **DeepSeek Harness** の web プロファイルを Windows、macOS、Linux で対応しています。デスクトップアプリを探すのは macOS と Windows だけなので、Linux でのインストール対象は web プロファイルのみです。[DeepSeek Harness のインストール](#deepseek-harness-installation)を参照してください。
 
 始める前に **Node.js 18 以降**をインストールしてください。以降の例では、`npx` で CLI のサブコマンドを実行します。
 
@@ -66,6 +68,7 @@ npx -y cc-safety-net@latest update
 | [Claude Code](#claude-code-installation) | `npx -y cc-safety-net@latest install --claude-code` | `npx -y cc-safety-net@latest uninstall --claude-code` |
 | [Codex](#codex-installation) | `npx -y cc-safety-net@latest install --codex` | `npx -y cc-safety-net@latest uninstall --codex` |
 | [Cursor](#cursor-installation) | `npx -y cc-safety-net@latest install --cursor` | `npx -y cc-safety-net@latest uninstall --cursor` |
+| [DeepSeek Harness](#deepseek-harness-installation) | `npx -y cc-safety-net@latest install --deepseek-harness` | `npx -y cc-safety-net@latest uninstall --deepseek-harness` |
 | [Gemini CLI](#gemini-cli-installation) | `npx -y cc-safety-net@latest install --gemini-cli` | `npx -y cc-safety-net@latest uninstall --gemini-cli` |
 | [GitHub Copilot CLI](#github-copilot-cli-installation) | `npx -y cc-safety-net@latest install --copilot-cli` | `npx -y cc-safety-net@latest uninstall --copilot-cli` |
 | [Grok Build](#grok-build-installation) | `npx -y cc-safety-net@latest install --grok-build` | `npx -y cc-safety-net@latest uninstall --grok-build` |
@@ -202,6 +205,68 @@ hook は `npx` 経由で動作するため、インストール時にはまず n
 ```bash
 npx -y cc-safety-net@latest uninstall --cursor
 ```
+
+<span id="deepseek-harness-installation"></span>
+
+## DeepSeek Harness
+
+```bash
+npx -y cc-safety-net@latest install --deepseek-harness
+```
+
+DeepSeek Harness は、hook subprocess ではなくプロファイルのプラグインバンドルとして CC Safety Net を読み込みます。そのため、このホストには `hook` フラグがありません。1 回のインストールで、マシン上のすべての DeepSeek Harness プロファイルを保護します。対象は、`npx @deepseek-ai/dsh web` とグローバルインストールが共有する `web` プロファイルと、デスクトップアプリが使う `desktop` プロファイルです。
+
+プロファイルの置き場所は `~/.dsh/profiles`、`DSH_HOME` が設定されている場合は `$DSH_HOME/profiles` です。先頭の `~` はホームディレクトリに展開されます。各プロファイルの `package.json` には、`cc-safety-net` の依存関係と、それを有効にするバンドルの一覧の両方が記録されます。インストール、アンインストール、`doctor` はいずれもこのマニフェストを読み取ります。
+
+web プロファイルに対しては、DeepSeek Harness 自身のプラグインコマンドを `npx` 経由で実行します。
+
+```bash
+npx -y @deepseek-ai/dsh plugin --profile web add cc-safety-net
+```
+
+これは `npx @deepseek-ai/dsh web` やグローバルインストールが動かすのと同じ DeepSeek Harness を使います。また、バンドルを追加するには、DeepSeek Harness 側で `PATH` 上に `pnpm` が必要です。web プロファイルが対象になるのは、デスクトップアプリが見つからない場合、`web` プロファイルのマニフェストがすでに存在する場合、`npx --offline --no-install @deepseek-ai/dsh --version` がキャッシュ済みのコピーを見つけた場合のいずれかです。2 番目の条件があるため、npx のキャッシュを消した web プロファイルも対象から漏れません。
+
+`desktop` プロファイルに対しては、同じコマンドをデスクトップアプリ同梱の `dsh` 経由で実行します。macOS では `~/Applications`、次に `/Applications` の下の `DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh` を探します。Windows では `%LOCALAPPDATA%\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd` を探します。探しに行くのは `desktop` プロファイルがすでに存在するときだけなので、インストールの前にデスクトップアプリを一度起動しておいてください。
+
+デスクトップアプリのプラグインは、アプリを終了している間しか変更できません。そのため、起動中はインストールもアンインストールも次のメッセージを表示して中止します。
+
+```text
+Quit DeepSeek Harness Desktop, then run this command again: Desktop plugins can only change while it is closed.
+```
+
+`desktop` プロファイルはあるものの、デスクトップアプリ自体が既定の場所にない場合は、web プロファイルだけを処理し、デスクトップ側は手動で追加するよう案内します。
+
+```text
+DeepSeek Harness Desktop is not in its default location, so add cc-safety-net from its Plugins page.
+```
+
+DeepSeek Harness がバンドルをインストールしても有効にしなければ、何も保護されません。そのためインストール後にプロファイルのマニフェストを読み直し、バンドルが無効なままなら失敗します。
+
+```text
+DeepSeek Harness installed cc-safety-net in the web profile but did not enable it. Enable it from the Plugins page, or update cc-safety-net if your registry served a release without DeepSeek Harness support.
+```
+
+インストールが成功すると `Added cc-safety-net to the DeepSeek Harness Desktop and web profiles.` と報告されます。このメッセージも、上の有効化失敗のメッセージも、対象となったプロファイルだけを並べます。web プロファイルだけを処理した場合は、`the Desktop and web profiles` ではなく `the web profile` になります。
+
+```bash
+npx -y cc-safety-net@latest uninstall --deepseek-harness
+```
+
+アンインストールは、マニフェストにバンドルが記載されている各プロファイルから、そのバンドルを削除します。どちらのプロファイルにもない場合は、コマンドを 1 つも実行せずに中止します。
+
+```text
+cc-safety-net is not installed in the DeepSeek Harness web or Desktop profile
+```
+
+デスクトップ側にバンドルがあるものの、デスクトップアプリが既定の場所にない場合は、まず web 側を削除したうえで終了コード `1` で終わります。成功として報告すると、デスクトップ側でバンドルが動いたままダッシュボードが `Install` を表示してしまうためです。
+
+```text
+Removed cc-safety-net from the DeepSeek Harness web profile, but DeepSeek Harness Desktop is not in its default location, so remove cc-safety-net from its Plugins page.
+```
+
+バンドルがデスクトップ側だけにある場合は、何も削除せず、同じ案内だけを表示します。
+
+実行時には、バンドルが拒否専用のツールガードを登録します。DeepSeek Harness はこのガードを、承認や Auto review を含むすべての `tools/pre-execute` リスナーの後に実行します。`bash` は POSIX アナライザー、`pwsh` は PowerShell アナライザーに渡され、ファイル系・検索系のツールはパスとシークレットの保護を通ります。DeepSeek Harness のツールのうち、このガードの対象外になるものがいくつかあります。[DeepSeek Harness の対象境界](/ja/guides/known-limitations#deepseek-harness-coverage-boundaries)と [DeepSeek Harness](/ja/guides/integration-architecture#deepseek-harness)を参照してください。
 
 <span id="gemini-cli-installation"></span>
 

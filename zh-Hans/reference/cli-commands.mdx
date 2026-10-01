@@ -112,7 +112,7 @@ bunx cc-safety-net doctor
 
 | 部分 | 描述 |
 | --- | --- |
-| Hook Integration | 验证每个受支持智能体的配置：Claude Code、Amp Code、Antigravity CLI、Codex、Cursor、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code、OpenClaw、OpenCode 和 Pi |
+| Hook Integration | 验证每个受支持智能体的配置：Claude Code、Amp Code、Antigravity CLI、Codex、Cursor、DeepSeek Harness、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code、OpenClaw、OpenCode 和 Pi |
 | Guard Engine Verification | 运行合成自检，确认阻止确实生效（`git reset --hard` 和 `rm -rf /` 被阻止；`rm -rf ./node_modules` 被允许） |
 | Configuration | 验证用户和项目规则配置，并列出生效的规则 |
 | Environment | 显示 CC Safety Net 环境变量的状态 |
@@ -191,6 +191,7 @@ hook 配置无法解析则是另一种结果，三个智能体都一样：检测
 有几个宿主允许把配置挪到别处。`doctor` 遵循与各宿主相同的覆盖规则，因此挪过位置的配置仍能找到。
 
 - **Claude Code**。已设置时取 `CLAUDE_CONFIG_DIR`，否则取 `<home>/.claude`。与 Claude Code 本身一样，该值按原样使用，不展开 `~`。`install`、`update`、遗留插件清理，以及 `status` 和 `statusline` 背后的 `enabledPlugins` 检查，都使用同一个目录。
+- **DeepSeek Harness**。设置了 `DSH_HOME` 时取 `$DSH_HOME/profiles`，否则取 `<home>/.dsh/profiles`；值开头的 `~` 会展开为主目录。`doctor` 读取其下每个 profile 目录中的 `package.json`，跳过 `node_modules`。
 - **Hermes Agent**。若 `HERMES_HOME` 的父目录名为 `profiles`，该值就是 Hermes 主目录本身。否则根目录取 `HERMES_HOME`（未设置时为 `<home>/.hermes`），再由根目录下的 `active_profile` 文件选出 `<root>/profiles/<name>`。该名称会去掉首尾空白并转为小写。`active_profile` 为空、为 `default`、缺失或读不到时，仍用根目录。插件文件位于 `<Hermes home>/plugins/cc-safety-net`。
 - **OpenClaw**。OpenClaw 主目录取 `OPENCLAW_HOME`（已设置且非空时），否则取操作系统主目录；`OPENCLAW_HOME` 开头的 `~` 按操作系统主目录展开。状态目录取 `OPENCLAW_STATE_DIR`，否则取 `OPENCLAW_CONFIG_PATH` 所在的目录，再否则为 `<OpenClaw home>/.openclaw`。这两个环境变量开头的 `~` 都按 OpenClaw 主目录展开。
 - **OpenCode**。在报告为 2.x 的宿主上，`doctor` 只读取 `OPENCODE_CONFIG_DIR`，因为 2.x 在该变量已设置时只读那一个目录。其他版本下，`doctor` 会同时读取该目录和 XDG 目录（`$XDG_CONFIG_HOME/opencode`，否则 `<home>/.config/opencode`），因为 1.x 总会加载 XDG 目录。`OPENCODE_CONFIG_DIR` 为空字符串等同于未设置。`uninstall` 始终读取两者。
@@ -626,7 +627,7 @@ npx -y cc-safety-net install --claude-code
 
 ### 目标
 
-接受十三个目标，这里按安装顺序列出：
+接受十四个目标，这里按安装顺序列出：
 
 | 标志 | 智能体 | 安装方式 |
 | --- | --- | --- |
@@ -635,6 +636,7 @@ npx -y cc-safety-net install --claude-code
 | `--claude-code` | Claude Code | 运行 Claude Code 自带的插件市场命令 |
 | `--codex` | Codex | 运行 Codex 自带的插件市场命令 |
 | `--cursor` | Cursor | 将 hook 条目写入 `~/.cursor/hooks.json` |
+| `--deepseek-harness` | DeepSeek Harness | 对机器上的每个 profile 运行 `dsh plugin --profile <name> add cc-safety-net`：`web` profile 通过 `npx -y @deepseek-ai/dsh`，`desktop` profile 通过桌面应用自带的 `dsh`。profile 位于 `$DSH_HOME/profiles` 或 `~/.dsh/profiles` |
 | `--gemini-cli` | Gemini CLI | 运行 Gemini CLI 的扩展安装命令 |
 | `--copilot-cli` | GitHub Copilot CLI | 运行 Copilot CLI 自带的插件市场命令 |
 | `--grok-build` | Grok Build | 将 hook 条目写入 `~/.grok/hooks/cc-safety-net.json`（或 `$GROK_HOME/hooks/cc-safety-net.json`） |
@@ -648,7 +650,7 @@ npx -y cc-safety-net install --claude-code
 
 CC Safety Net 使用三种安装机制：
 
-- **原生插件或扩展命令**：Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、OpenClaw、OpenCode 和 Pi。CC Safety Net 调用智能体自带的插件管理器，并顺带清理已被取代的插件 ID。OpenClaw 的安装在完成后还会验证 OpenClaw 是否报告插件已加载，然后请你重启 OpenClaw Gateway。在 OpenCode 1.x 上，安装会导入缓存的包条目，并验证它导出了可调用的 `CCSafetyNetPlugin`；在 2.x 上，安装会读取 `opencode plugin list`，要求其中有一行 `cc-safety-net` 且来源为 `cc-safety-net@latest`。任一检查失败都会中止安装，因为 OpenCode 否则会什么都不加载并 fail open。
+- **原生插件或扩展命令**：Claude Code、Codex、DeepSeek Harness、GitHub Copilot CLI、Gemini CLI、OpenClaw、OpenCode 和 Pi。CC Safety Net 调用智能体自带的插件管理器，并顺带清理已被取代的插件 ID。DeepSeek Harness 的安装对每个 profile 运行一次 `dsh plugin ... add`，随后重新读取 profile 的 manifest，宿主装上 bundle 却没有启用时安装失败。OpenClaw 的安装在完成后还会验证 OpenClaw 是否报告插件已加载，然后请你重启 OpenClaw Gateway。在 OpenCode 1.x 上，安装会导入缓存的包条目，并验证它导出了可调用的 `CCSafetyNetPlugin`；在 2.x 上，安装会读取 `opencode plugin list`，要求其中有一行 `cc-safety-net` 且来源为 `cc-safety-net@latest`。任一检查失败都会中止安装，因为 OpenCode 否则会什么都不加载并 fail open。
 - **配置文件写入**：Antigravity CLI、Cursor、Grok Build 和 Kimi Code。这四者是 CC Safety Net 唯一直接编辑的智能体配置。
 - **托管插件产物**：Amp Code 和 Hermes Agent。Amp 的插件通过 amp CLI 发布到你账户下托管的 Amp Personal Plugins 仓库（预检命令是 `amp plugins repositories --json`），因此安装需要 amp CLI 和 `amp login`；发布后的插件对每个 Amp 会话都生效，包括 Orb 线程。遗留在 `~/.config/amp/plugins/cc-safety-net.ts` 的托管本地副本会遮蔽个人插件，因此安装会将其移除。改动之后，请重启 Amp 或运行 `plugins: reload`。对于 Hermes Agent，安装会把插件写入磁盘并运行 `hermes plugins enable`，改动同样需要重启 Hermes。
 
@@ -683,7 +685,7 @@ npx -y cc-safety-net@latest update
 
 系统通过读取每个智能体的配置和状态文件来查找目标。只要检测到已安装的集成，它就符合条件，**即使当前处于禁用状态**。Amp Code 通过 `amp plugins list` 的输出获得资格。该输出与 `codex plugin list` 一样以 30 秒超时获取，因为冷启动会通过网络刷新签出，可能超过默认的 5 秒。GitHub Copilot CLI 是例外。它仅在 Copilot 的 `installed-plugins` 目录中存在 CC Safety Net 插件签出时才有资格，因为它的禁用状态与没有安装插件的关闭开关无法区分，而更新绝不能变成安装。系统也会识别仍使用旧 `safety-net@cc-marketplace` 插件 ID 的安装。在 Claude Code 和 Codex 中，这表现为旧插件 ID；在 GitHub Copilot CLI 中，则表现为插件签出 `cc-marketplace/safety-net`。更新会将它们迁移到当前 ID，并尽力移除旧版副本。移除失败只会发出警告，不会使该目标失败。
 
-所有目标会在同一个 `Updating <n> integration…` 或 `Updating <n> integrations…` 加载指示器后面，并发运行与 `install` 相同的操作。命令会等所有目标结束，然后按固定的集成目录顺序统一打印报告，消息改为 `Updated …` 或 `… up to date`。对于安装过程会驱动智能体自带 CLI 的目标（Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、Hermes Agent、OpenClaw、OpenCode 和 Pi），会先探测厂商的二进制文件：二进制文件缺失时打印 `<Agent> not found; skipped`（例如 `Codex not found; skipped`），运行继续。配置文件类目标（Antigravity CLI、Cursor、Grok Build 和 Kimi Code）不需要二进制文件，总是会刷新。Amp Code 不需要单独的探测：仅当 `amp plugins list` 显示个人插件时才会被检测到，其刷新会驱动 amp CLI 发布当前产物。在 Claude Code、Codex 和 GitHub Copilot CLI 上，已注册的市场会在插件步骤之前先刷新（例如 `claude plugin marketplace update cc-marketplace`），而不是依赖无操作的 `add`，因此过时的目录签出不会使更新失败。
+所有目标会在同一个 `Updating <n> integration…` 或 `Updating <n> integrations…` 加载指示器后面，并发运行与 `install` 相同的操作。命令会等所有目标结束，然后按固定的集成目录顺序统一打印报告，消息改为 `Updated …` 或 `… up to date`。对于安装过程会驱动智能体自带 CLI 的目标（Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、Hermes Agent、OpenClaw、OpenCode 和 Pi），会先探测厂商的二进制文件：二进制文件缺失时打印 `<Agent> not found; skipped`（例如 `Codex not found; skipped`），运行继续。配置文件类目标（Antigravity CLI、Cursor、Grok Build 和 Kimi Code）不需要二进制文件，总是会刷新。对 DeepSeek Harness 也不做探测：它的更新会重新运行安装，对每个 profile 驱动 `dsh`，桌面应用处于打开状态时会失败。Amp Code 不需要单独的探测：仅当 `amp plugins list` 显示个人插件时才会被检测到，其刷新会驱动 amp CLI 发布当前产物。在 Claude Code、Codex 和 GitHub Copilot CLI 上，已注册的市场会在插件步骤之前先刷新（例如 `claude plugin marketplace update cc-marketplace`），而不是依赖无操作的 `add`，因此过时的目录签出不会使更新失败。
 
 在并发阶段前，如果存在任何依赖缓存的目标，即 Antigravity CLI、Cursor、Grok Build、Hermes Agent 或 Kimi Code，`update` 会清除一次 `npx` 缓存。如果清除失败，只有这些依赖缓存的目标会失败；其他目标仍会运行。
 
@@ -707,7 +709,7 @@ Update available: cc-safety-net <current> → <latest>. Update this CLI with you
 
 ## uninstall
 
-`uninstall` 接受与 `install` 相同的十三个目标标志，并使用相同的选择规则和目标顺序。
+`uninstall` 接受与 `install` 相同的十四个目标标志，并使用相同的选择规则和目标顺序。
 
 ```bash
 npx -y cc-safety-net uninstall
@@ -736,7 +738,7 @@ npx -y cc-safety-net uninstall --cursor
 
 只有 Coding CLI hook 能给出允许和拒绝之外的答案。在 Claude Code 的 `default`、`acceptEdits` 和 `plan` 三种权限模式下，standard 级别无法验证的命令会输出 `hookSpecificOutput.permissionDecision: "ask"`，由 Claude Code 向你确认。其他标志以及其他权限模式都输出拒绝形式。见[Claude Code 何时改为询问而不是拒绝](/zh-Hans/guides/integration-architecture#when-claude-code-asks-instead-of-denying)。
 
-Amp Code、OpenClaw、OpenCode 和 Pi 没有各自的 `hook` 标志。它们把 CC Safety Net 作为插件或扩展加载到进程内。有关每个智能体的连接方式，请参阅[集成架构](/zh-Hans/guides/integration-architecture)。
+Amp Code、DeepSeek Harness、OpenClaw、OpenCode 和 Pi 没有各自的 `hook` 标志。它们把 CC Safety Net 作为插件或扩展加载到进程内。有关每个智能体的连接方式，请参阅[集成架构](/zh-Hans/guides/integration-architecture)。
 
 <Note>
   没有 `hook install` 或 `hook uninstall` 子命令。安装由顶层 [`install`](#install) 和 [`uninstall`](#uninstall) 命令处理。

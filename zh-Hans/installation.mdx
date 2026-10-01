@@ -1,7 +1,7 @@
 ---
 title: "为编码智能体安装 CC Safety Net"
 sidebarTitle: "安装"
-description: "在全部十三个受支持的编码智能体中安装和卸载 CC Safety Net：Amp Code、Antigravity CLI、Claude Code、Codex、Cursor、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code、OpenClaw、OpenCode 和 Pi。"
+description: "在全部十四个受支持的编码智能体中安装和卸载 CC Safety Net：Amp Code、Antigravity CLI、Claude Code、Codex、Cursor、DeepSeek Harness、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code、OpenClaw、OpenCode 和 Pi。"
 ---
 
 CC Safety Net 以插件、扩展或 hook 的形式安装在编码智能体内，不需要常驻服务或守护进程。部分集成会为每次检查启动一个短时 hook 子进程。
@@ -9,6 +9,8 @@ CC Safety Net 以插件、扩展或 hook 的形式安装在编码智能体内，
 大多数集成支持 **Windows、macOS 和 Linux**。它们会检测主机操作系统，并按系统规则处理路径和解析命令。在 Windows 上，它们会按不区分大小写的方式处理路径，并通过 `COMSPEC` 和 `PATHEXT` 解析 `cmd.exe` 或 PowerShell。安装命令和交互式选择器也能识别 npm 在 Windows 上安装的 `.cmd` shim，因此 `install --codex` 这类命令可以找到智能体 CLI。CI 在 `windows-latest` 上运行与 Linux、macOS 相同的完整检查：lint、类型检查和整个测试套件，其中有 3 个测试用例在 Windows 上跳过。这些测试覆盖的是分析器和集成代码，而不是各个编码智能体在 Windows 上的实际运行情况。Amp 官方手册仅列出 macOS、Linux 和 WSL，不包括原生 Windows。
 
 **Hermes Agent** 和 **OpenClaw** 集成仅支持 macOS 和 Linux。两者都假定 POSIX 状态布局，默认为 `~/.hermes` 和 `~/.openclaw`，不支持 Windows 的默认路径。这两个宿主都可以改变状态目录的位置，各自读取哪些目录见 [Hermes Agent 安装](#hermes-agent-installation)和 [OpenClaw 安装](#openclaw-installation)。
+
+CC Safety Net 在 Windows、macOS 和 Linux 上都支持 **DeepSeek Harness** 的 web profile。它只在 macOS 和 Windows 上查找桌面应用，因此在 Linux 上安装只覆盖 web profile。详见 [DeepSeek Harness 安装](#deepseek-harness-installation)。
 
 开始前请安装 **Node.js 18 或更高版本**。示例使用 `npx` 运行 CLI 子命令。
 
@@ -66,6 +68,7 @@ npx -y cc-safety-net@latest update
 | [Claude Code](#claude-code-安装) | `npx -y cc-safety-net@latest install --claude-code` | `npx -y cc-safety-net@latest uninstall --claude-code` |
 | [Codex](#codex-安装) | `npx -y cc-safety-net@latest install --codex` | `npx -y cc-safety-net@latest uninstall --codex` |
 | [Cursor](#cursor-安装) | `npx -y cc-safety-net@latest install --cursor` | `npx -y cc-safety-net@latest uninstall --cursor` |
+| [DeepSeek Harness](#deepseek-harness-安装) | `npx -y cc-safety-net@latest install --deepseek-harness` | `npx -y cc-safety-net@latest uninstall --deepseek-harness` |
 | [Gemini CLI](#gemini-cli-安装) | `npx -y cc-safety-net@latest install --gemini-cli` | `npx -y cc-safety-net@latest uninstall --gemini-cli` |
 | [GitHub Copilot CLI](#github-copilot-cli-安装) | `npx -y cc-safety-net@latest install --copilot-cli` | `npx -y cc-safety-net@latest uninstall --copilot-cli` |
 | [Grok Build](#grok-build-安装) | `npx -y cc-safety-net@latest install --grok-build` | `npx -y cc-safety-net@latest uninstall --grok-build` |
@@ -202,6 +205,68 @@ npx -y cc-safety-net@latest install --cursor
 ```bash
 npx -y cc-safety-net@latest uninstall --cursor
 ```
+
+<span id="deepseek-harness-installation"></span>
+
+## DeepSeek Harness 安装
+
+```bash
+npx -y cc-safety-net@latest install --deepseek-harness
+```
+
+DeepSeek Harness 把 CC Safety Net 作为 profile 的插件 bundle 加载，而不是 hook 子进程，因此这个宿主没有 `hook` 标志。一次安装会覆盖机器上的每个 DeepSeek Harness profile：`npx @deepseek-ai/dsh web` 与全局安装共用的 `web` profile，以及桌面应用自己使用的 `desktop` profile。
+
+profile 位于 `~/.dsh/profiles`，设置了 `DSH_HOME` 时位于 `$DSH_HOME/profiles`；值开头的 `~` 会展开为主目录。每个 profile 的 `package.json` 同时记录 `cc-safety-net` 依赖和启用它的 bundle 列表。安装、卸载和 `doctor` 都读取这些 manifest。
+
+对 web profile，安装通过 `npx` 运行 DeepSeek Harness 自己的插件命令：
+
+```bash
+npx -y @deepseek-ai/dsh plugin --profile web add cc-safety-net
+```
+
+这会复用 `npx @deepseek-ai/dsh web` 或全局安装所运行的那个 DeepSeek Harness，而 DeepSeek Harness 需要 `PATH` 上有 `pnpm` 才能添加 bundle。以下三种情况下，安装会把 web profile 列为目标：找不到桌面应用、`web` profile 的 manifest 已存在、`npx --offline --no-install @deepseek-ai/dsh --version` 找到了缓存副本。第二种情况覆盖的是清空过 npx 缓存的 web profile，否则它会被漏掉。
+
+对 `desktop` profile，安装通过桌面应用自带的 `dsh` 运行同一条命令。在 macOS 上，它先在 `~/Applications` 再在 `/Applications` 下查找 `DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh`；在 Windows 上查找 `%LOCALAPPDATA%\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd`。只有 `desktop` profile 已存在时才会去找，所以请在安装前先打开一次桌面应用。
+
+桌面应用的插件只能在应用关闭时改动，因此它正在运行时，安装和卸载都会中止：
+
+```text
+Quit DeepSeek Harness Desktop, then run this command again: Desktop plugins can only change while it is closed.
+```
+
+如果 `desktop` profile 存在，但桌面应用本身不在默认位置，安装只处理 web profile，并提示你自行完成桌面应用那一半：
+
+```text
+DeepSeek Harness Desktop is not in its default location, so add cc-safety-net from its Plugins page.
+```
+
+DeepSeek Harness 装上 bundle 却没有启用，等于没有任何保护，因此安装之后会重新读取 profile 的 manifest，发现 bundle 未启用就失败：
+
+```text
+DeepSeek Harness installed cc-safety-net in the web profile but did not enable it. Enable it from the Plugins page, or update cc-safety-net if your registry served a release without DeepSeek Harness support.
+```
+
+两个 profile 都是目标时，这条消息会把两者合称为 `the Desktop and web profiles`。安装成功会报告 `Added cc-safety-net to the DeepSeek Harness Desktop and web profiles.`，只覆盖一个 profile 时则写出它覆盖的那个 profile。
+
+```bash
+npx -y cc-safety-net@latest uninstall --deepseek-harness
+```
+
+卸载会从 manifest 中列有该 bundle 的每个 profile 里移除它。两个 profile 都没有它时，什么都不执行：
+
+```text
+cc-safety-net is not installed in the DeepSeek Harness web or Desktop profile
+```
+
+如果桌面应用带有这个 bundle，但不在默认位置，卸载会先移除 web profile 里的副本，然后以 `1` 退出，因为报告成功会让仪表板显示 `Install`，而桌面应用的 bundle 仍在生效：
+
+```text
+Removed cc-safety-net from the DeepSeek Harness web profile, but DeepSeek Harness Desktop is not in its default location, so remove cc-safety-net from its Plugins page.
+```
+
+只有 `desktop` profile 带有这个 bundle 时，卸载不会移除任何东西，只打印同一条提示。
+
+运行时，bundle 会注册一个只能拒绝的工具 guard，DeepSeek Harness 在所有 `tools/pre-execute` 监听器（包括审批和 Auto review）之后运行它。`bash` 交给 POSIX 分析器，`pwsh` 交给 PowerShell 分析器，文件类和搜索类工具则走路径与机密保护。DeepSeek Harness 有几个工具不在这个 guard 的覆盖范围内，详见 [DeepSeek Harness 覆盖边界](/zh-Hans/guides/known-limitations#deepseek-harness-coverage-boundaries)和 [DeepSeek Harness](/zh-Hans/guides/integration-architecture#deepseek-harness)。
 
 <span id="gemini-cli-installation"></span>
 

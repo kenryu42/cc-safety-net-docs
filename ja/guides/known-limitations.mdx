@@ -1,7 +1,7 @@
 ---
 title: "既知の制限と注意点"
 sidebarTitle: "既知の制限"
-description: "CC Safety Net が検出できない範囲を説明します。不透明なコマンドプロキシ、バイナリ内部の動作、ファイルシステムの封じ込めとネットワーク、シンボリックリンクの TOCTOU、インタープリターのフラグ、コメント内の引用符、eval による動的実行、Codex の対話セッションと workdir の隙間、fail open のホストである Grok Build、Hermes Agent と OpenClaw の対象境界（OpenClaw のセッションの作業ディレクトリを含む）を扱います。"
+description: "CC Safety Net が検出できない範囲を説明します。不透明なコマンドプロキシ、バイナリ内部の動作、ファイルシステムの封じ込めとネットワーク、シンボリックリンクの TOCTOU、インタープリターのフラグ、コメント内の引用符、eval による動的実行、Codex の対話セッションと workdir の隙間、fail open のホストである Grok Build、DeepSeek Harness のオプションバンドルと run_code の隙間、Hermes Agent と OpenClaw の対象境界（OpenClaw のセッションの作業ディレクトリを含む）を扱います。"
 ---
 
 CC Safety Net が解析するのは、エージェントが実行しようとするコマンド文字列です。既知の破壊的な git 操作やファイルシステム操作によるデータ消失を防ぐためのガードですが、完全なセキュリティ対策ではありません。このページでは、現時点の制限と、代わりに[サンドボックス](/ja/guides/vs-sandboxing)を使うべき場面を示します。
@@ -153,6 +153,28 @@ Codex ネイティブのリレーはテストされていないため、対象�
 ### どちらの連携も Windows に対応しない
 
 いずれの連携も POSIX 形式の状態ディレクトリ構成を前提としています。Hermes のルートは `HERMES_HOME`、未設定なら `~/.hermes` です。さらに、ルートの `active_profile` ファイルが `<root>/profiles/<name>` を選びます。このファイルがない場合、内容が空の場合、内容が `default` の場合は、ルートのままです。`HERMES_HOME` がすでに `profiles` の下を指している場合は、そのまま使われます。OpenClaw のホームは `OPENCLAW_HOME`、未設定なら OS のホームディレクトリです。状態ディレクトリは `OPENCLAW_STATE_DIR`、`OPENCLAW_CONFIG_PATH` のあるディレクトリ、`<home>/.openclaw` の順に決まります。詳しくは [Hermes Agent](/ja/installation#hermes-agent-installation) と [OpenClaw](/ja/installation#openclaw-installation) のインストール手順を参照してください。Windows の既定の場所には対応していません。Windows では、インストールも検出も POSIX のパスを前提に動くため、Hermes のインストーラーは Hermes が読み取らないディレクトリにプラグインを書き込みます。OpenClaw 自身の CLI は正しくインストールしますが、`doctor` は状態を誤って報告します。
+
+<span id="deepseek-harness-coverage-boundaries"></span>
+
+## DeepSeek Harness の対象境界
+
+DeepSeek Harness における CC Safety Net は、プロファイルのオプションのプラグインバンドルであり、そのガードは拒否しかできません。ホストには、このガードの対象外になる部分がいくつかあります。
+
+### オプションのバンドルは読み込みに失敗しても警告だけ
+
+DeepSeek Harness は、オプションのプラグインの import や `apply()` が失敗しても警告として扱い、処理を続けます。そのため、バンドルの読み込みに失敗したプロファイルは保護されないまま動作します。`doctor` が読むのはディスク上のプロファイルのマニフェストであって、実行中のホストではないため、そのプロファイルを設定済みとして報告します。デスクトップアプリにはもう 1 つのケースがあります。クラッシュ復旧の操作がサードパーティのバンドルを無効にし、Plugins ページで再度有効にするまで無効のままです。
+
+### PTC モードの run_code は解析されない
+
+既定では無効になっている PTC モードでは、`run_code` ツールは、モデルの書いた TypeScript を実行します。このコードは Node.js の API を直接呼び出せます。ガードに届くのは、そのコードが発行するツールのサブ呼び出しだけなので、`node:fs` 経由のファイル書き込みは判定を受けません。
+
+### terminal_send のテキストは解析されずにシェルへ届く
+
+オプトインのターミナル系ツールは、`terminal_send` のテキストを解析せずに常駐シェルへ書き込みます。常駐型の `bash` や `pwsh` ツールは呼び出しごとに解析されます。ただし、これらは呼び出しをまたいでディレクトリの変更を保持します。一方 CC Safety Net は、各呼び出しをセッションのワークスペースを基準に評価します。そのため、両者が別のディレクトリを指すことがあります。
+
+### Windows のデスクトップアプリのパスは未検証
+
+Windows では、CC Safety Net はデスクトップアプリとして `%LOCALAPPDATA%\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd` を探し、起動中かどうかは `%APPDATA%\@deepseek-ai\dsh-desktop\lockfile` で判断します。実際の Windows のデスクトップアプリに対して、これらのパスを検証するテストはありません。web プロファイルはこの制限の影響を受けません。Linux ではデスクトップアプリを探す処理そのものがありません。[DeepSeek Harness のインストール](/ja/installation#deepseek-harness-installation)を参照してください。
 
 <span id="codex-coverage-boundary"></span>
 

@@ -217,7 +217,7 @@ PowerShell への対応は限定的なサブセットです。対象は、`Remov
 
 | コマンド形式 | ブロックする理由 | レベル |
 | --- | --- | --- |
-| `Remove-Item C:\`、`~`、`$HOME`、`$env:USERPROFILE`、`$env:HOME` | 末尾に `\`、`\*`、`/` が付く形式を含む、root またはホームディレクトリの削除 | すべて、致命的 |
+| `Remove-Item C:\`、`~`、`$HOME`、`${HOME}`、`$env:USERPROFILE`、`$env:HOME` | 末尾に `\`、`\*`、`/` が付く形式を含む、root またはホームディレクトリの削除 | すべて、致命的 |
 | `Remove-Item .git -Recurse -Force` | Git メタデータを削除する | すべて、重大 |
 | `Remove-Item . -Recurse -Force` | パラメーター終端の `--` の後に書かれた場合も含む、カレントディレクトリそのもの | すべて |
 | `Remove-Item ../other -Recurse -Force` | `..\other`、`../{other}`、外側の要素を含むカンマ区切りの配列、Windows の UNC／名前空間パスなど、カレントディレクトリの外 | すべて |
@@ -232,6 +232,8 @@ PowerShell への対応は限定的なサブセットです。対象は、`Remov
 
 <Note>
   `-WhatIf` を付けた場合、PowerShell は実際には何も削除しないため、ブロックの対象から外れます。`-WhatIf`、`-WhatIf:$true`、省略形の `-wi` を付ければ、通常はブロックされる `Remove-Item . -Recurse -Force` も許可されます。明示的に `-WhatIf:$false` を指定した場合は、再びブロックされます。なお、上の strict 限定の行には例外が 1 つあります。`Remove-Item $HOME -Recurse -Force` は動的な対象ではなく root／ホームの対象として分類されるため、**standard でも**ブロックされます。
+
+  PowerShell の変数名は大文字と小文字を区別しないため、上の root／ホームの行にあるホームの変数も同じように区別せずに照合します。`Remove-Item -Recurse -Force $home`、`$Home\*`、`${home}` はいずれも、動的な対象ではなく root／ホームの対象として分類されます。スクリプトの手前で代入していても、この分類は変わりません。PowerShell の `$HOME` は読み取り専用なので、`$home = 'D:\temp'; Remove-Item -Recurse -Force $home` は結局ホームを削除することになり、このルールは引き続きブロックします。
 </Note>
 
 <span id="sensitive-paths"></span>
