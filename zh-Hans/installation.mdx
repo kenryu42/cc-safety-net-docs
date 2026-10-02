@@ -218,10 +218,12 @@ DeepSeek Harness 把 CC Safety Net 作为 profile 的插件 bundle 加载，而�
 
 profile 位于 `~/.dsh/profiles`，设置了 `DSH_HOME` 时位于 `$DSH_HOME/profiles`；值开头的 `~` 会展开为主目录。每个 profile 的 `package.json` 同时记录 `cc-safety-net` 依赖和启用它的 bundle 列表。安装、卸载和 `doctor` 都读取这些 manifest。
 
+安装向每个 profile 添加 `cc-safety-net` 时会指定安装程序自身的版本号。不带版本号时，pnpm 的 `minimumReleaseAge` 设置会安装更旧的版本，而不是当前运行的这个版本。
+
 对 web profile，安装通过 `npx` 运行 DeepSeek Harness 自己的插件命令：
 
 ```bash
-npx -y @deepseek-ai/dsh plugin --profile web add cc-safety-net
+npx -y @deepseek-ai/dsh plugin --profile web add cc-safety-net@<version>
 ```
 
 这会复用 `npx @deepseek-ai/dsh web` 或全局安装所运行的那个 DeepSeek Harness，而 DeepSeek Harness 需要 `PATH` 上有 `pnpm` 才能添加 bundle。以下三种情况下，安装会把 web profile 列为目标：找不到桌面应用、`web` profile 的 manifest 已存在、`npx --offline --no-install @deepseek-ai/dsh --version` 找到了缓存副本。第二种情况覆盖的是清空过 npx 缓存的 web profile，否则它会被漏掉。
@@ -243,7 +245,7 @@ DeepSeek Harness Desktop is not in its default location, so add cc-safety-net fr
 DeepSeek Harness 装上 bundle 却没有启用，等于没有任何保护，因此安装之后会重新读取 profile 的 manifest，发现 bundle 未启用就失败：
 
 ```text
-DeepSeek Harness installed cc-safety-net in the web profile but did not enable it. Enable it from the Plugins page, or update cc-safety-net if your registry served a release without DeepSeek Harness support.
+DeepSeek Harness installed cc-safety-net in the web profile but did not enable it. Enable it from the Plugins page.
 ```
 
 两个 profile 都是目标时，这条消息会把两者合称为 `the Desktop and web profiles`。安装成功会报告 `Added cc-safety-net to the DeepSeek Harness Desktop and web profiles.`，只覆盖一个 profile 时则写出它覆盖的那个 profile。
