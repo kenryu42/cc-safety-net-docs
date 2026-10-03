@@ -105,7 +105,7 @@ While the file has errors, the dashboard form shows the full defaults instead of
 `transparent_wrappers` is declared in `rule.json`, not in a rulebook, and `rule.json` carries no digest. That has two consequences:
 
 - A **dropped rulebook** keeps its scope's wrappers, because `rule.json` itself is still readable.
-- An **unreadable `rule.json`** loses that scope's declared wrappers, because there is no verified copy to fall back to. Analysis stops looking through those wrapper commands to the protected command underneath. The seven built-in wrappers (`exec`, `nice`, `nohup`, `setsid`, `stdbuf`, `time`, `timeout`) need no file, so they are unaffected.
+- An **unreadable `rule.json`** loses that scope's declared wrappers, because there is no verified copy to fall back to. Analysis stops looking through those wrapper commands to the protected command underneath. The eight built-in wrappers (`caffeinate`, `exec`, `nice`, `nohup`, `setsid`, `stdbuf`, `time`, `timeout`) need no file, so they are unaffected.
 
 This is the one place where rejected configuration reduces built-in coverage rather than only removing your own rules. Repair `rule.json` first when a scope is dropped for that reason.
 
@@ -147,7 +147,7 @@ Two structural limits are worth knowing:
 ## Visible and silent failures
 
 - **A dropped rule source is quiet.** It removes denials rather than adding them, so a clean session produces no friction and no signal at all. This is the case to check deliberately after any change to rule configuration and after every upgrade. Make `cc-safety-net status` a habit; run `doctor` for the full report.
-- **An unmigrated legacy configuration is quieter.** The runtime does not load the file and reports nothing about it, so the snapshot stays `ready` while those rules protect nothing. `rule verify` flags it.
+- **An unmigrated legacy configuration is quieter.** The runtime does not load the file and `status` reports nothing about it, so the snapshot stays `ready` while those rules protect nothing. `doctor` reports it as the warning finding `config.legacy-ignored`, and `rule verify` flags it.
 - **An invalid `policy.json` mostly announces itself**, because rejected sections fall back to protective defaults: both protections forced on, allow paths dropped, disabling overrides dropped. You discover it as *more* denials than you configured.
 - **The quiet half of an invalid `policy.json`**: an invalid `safety.level` silently falls back to `standard`, so a typo in `paranoid` **lowers** your preset. Invalid `secret_protection.deny_paths` entries and per-rule overrides that would raise a rule above its default are discarded rather than repaired.
 - Only the status line marker is passive. The `Config warning:` line needs an unrelated denial to appear on, and every other surface waits for you to run a command or open the dashboard.
@@ -219,7 +219,7 @@ It vendors each cached rulebook that still matches its recorded digest, then del
 
 ## Migrate legacy inline rules
 
-CC Safety Net no longer loads the legacy inline config files `~/.cc-safety-net/config.json` and `.safety-net.json` at runtime, and it emits no diagnostic about them. **Their rules are not enforced at all** while everything else keeps working, and the snapshot stays `ready`. This creates silent degradation after an upgrade. The session does not break, but those rules provide no protection and the runtime does not report the problem. Run `cc-safety-net rule verify` to find a legacy file that still needs migration.
+CC Safety Net no longer loads the legacy inline config files `~/.cc-safety-net/config.json` and `.safety-net.json` at runtime. **Their rules are not enforced at all** while everything else keeps working, and the snapshot stays `ready`. This creates silent degradation after an upgrade. The session does not break, but those rules provide no protection, and neither the runtime nor `status` reports the problem. `cc-safety-net doctor` reports each file it finds as the warning finding `config.legacy-ignored`, titled `Legacy inline rule configs are ignored`, and points to `rule migrate`. The warning does not change the `doctor` exit code. `cc-safety-net rule verify` also flags a legacy file that still needs migration.
 
 Run the migration from the project whose legacy configuration you want to convert:
 

@@ -64,16 +64,18 @@ type CheckCommandInput = Readonly<{
 ```ts
 type CheckCommandResult =
   | Readonly<{ kind: 'allow' }>
-  | Readonly<{ kind: 'deny'; reason: string; ruleId?: string }>;
+  | Readonly<{ kind: 'deny'; reason: string; ruleId: string }>;
 ```
 
 | 字段 | 何时出现 | 描述 |
 | --- | --- | --- |
 | `kind` | 始终 | `'allow'` 或 `'deny'` |
 | `reason` | 仅拒绝 | 向用户展示的阻止原因 |
-| `ruleId` | 命中规则的拒绝 | 产生该阻止的规则 ID |
+| `ruleId` | 仅拒绝 | 产生该阻止的规则或固定拒绝的 ID |
 
-决策以 `kind` 为准。`deny` 表示主机不得执行这条命令。`reason` 是展示文本。不要解析或比较它，`ruleId` 也只作为诊断数据。拒绝可能对应哪些情况，请参阅[被阻止的命令](/zh-Hans/reference/blocked-commands)。
+决策以 `kind` 为准。`deny` 表示主机不得执行这条命令。`reason` 是展示文本。不要解析或比较它。
+
+每个拒绝都带有 `ruleId`。它可能是内置规则 ID（如 `git.reset-hard`）、机密规则 ID、以 `custom.` 开头的规则 ID，或某个[固定拒绝 ID](/zh-Hans/reference/destructive-rules#fixed-denial-ids)（如 `cwd.requested-unusable`）。如需对某类拒绝区别处理，可以按 `ruleId` 分支，例如提示用户修正工作目录。但无论 ID 是什么，被拒绝的命令都不得执行。后续版本也可能新增 ID，因此遇到不认识的 ID 时，按普通拒绝处理。拒绝可能对应哪些情况，请参阅[被阻止的命令](/zh-Hans/reference/blocked-commands)。
 
 ### 错误
 
@@ -95,10 +97,10 @@ type CheckCommandResult =
 
 `cwd` 先用 `resolve()` 归一化，再做检查。该路径的 stat 结果必须是目录，且可读、可搜索。这里刻意没有 `realpath` 步骤，因此 OpenCode 插件和本函数对同一个目录给出一致的决策。
 
-该检查失败时，调用返回带 fail-closed 原因的拒绝，而不是去分析错误的项目：
+该检查失败时，调用返回 `ruleId` 为 `cwd.requested-unusable` 的拒绝，而不是去分析错误的项目。原因如下：
 
 ```
-CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user.
+CC Safety Net could not use the requested working directory because it does not exist, is inaccessible, is not a directory, or uses an unsupported path form. Use an existing accessible working directory. If the requested directory is missing, create it from an accessible location before retrying the command.
 ```
 
 ## 示例

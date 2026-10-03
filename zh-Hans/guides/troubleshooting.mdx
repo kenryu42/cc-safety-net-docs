@@ -99,7 +99,7 @@ bunx cc-safety-net doctor
     3. 在 Claude Code 中使用 standard 级别时，先确认是不是你自己批准了这条命令。standard 模式无法验证的命令不会被阻止，而是以权限提示的形式交给你，提示开头是 `CC Safety Net could not verify this command`，批准后命令就会运行。批准与否，审计日志都按拒绝记录，因此某条已经执行过的命令也可能在 `logs` 中留下拒绝记录。见[Claude Code 何时改为询问而不是拒绝](/zh-Hans/guides/integration-architecture#when-claude-code-asks-instead-of-denying)。
     4. 检查命令是否属于明确允许的形式，例如当前工作目录内的 `rm -rf` 因为限定在项目范围内而默认允许。完整列表见[被允许的命令](/zh-Hans/reference/allowed-commands)。
     5. 运行 `npx cc-safety-net status`。`degraded` 判定表示某个规则来源已被丢弃，因此该来源贡献的拒绝规则不再生效。详情见[配置恢复](/zh-Hans/configuration/recovery)。
-    6. 在同一份 `status` 输出中查找 `Project policy` 区块。项目的 `.cc-safety-net/policy.json` 削弱了用户策略时才会出现该区块，每个被削弱的字段占一行，例如 `project policy lowers level: strict -> standard`、`project policy disables rule <id>` 或 `project policy adds destructive allow path: <path>`。某条规则只在这个项目里不再触发、在别处照常触发，任何一行都可能是原因。状态行用 `🔻` 表示同一情况，`doctor` 则在 `Project policy deltas:` 下打印同样的行。
+    6. 在同一份 `status` 输出中查找 `Project policy` 区块。项目的 `.cc-safety-net/policy.json` 削弱了用户策略时才会出现该区块，每个被削弱的字段占一行，例如 `project policy lowers level: strict -> standard`、`project policy disables rule <id>` 或 `project policy adds destructive allow path: <path>`。某条规则只在这个项目里不再触发、在别处照常触发，任何一行都可能是原因。状态行用 `🔻` 表示同一情况，`doctor` 则在 `Project policy deltas:` 下打印同样的行。如果区块标题是 `Project policy (ignored)`，说明设置了 `CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY`，这些行都没有生效。
     7. 如果命令通过 CC Safety Net 不分析的代理运行，请用 `npx -y cc-safety-net rule wrapper add <command>` 注册它，让分析能穿过它看到真实的子命令。
     8. 如果需要在你的环境中阻止该命令，请运行 `npx -y cc-safety-net rule init` 创建自定义 rulebook，并向 `.cc-safety-net/rules/project-rules/rulebook.json` 添加规则。schema 见[自定义规则](/zh-Hans/configuration/custom-rules)。
     9. 如果以上都无法解释，那就是规则尚未阻止的一种命令形式，即**覆盖缺口**；按项目策略，这属于公开 bug。请提交 [GitHub issue](https://github.com/kenryu42/cc-safety-net/issues)，说明命令*形式*，不要提供可直接粘贴的载荷。机密泄漏、预期目录外写入以及供应链或软件包完整性问题则走[安全策略](/zh-Hans/security)中的私密渠道。
@@ -168,7 +168,7 @@ bunx cc-safety-net doctor
     4. 确认 `rule.json` 和 rulebook JSON 文件都是有效的 JSON。常见错误包括多余的尾随逗号和未加引号的 key。无法读取的 `rule.json` 会让整个范围被丢弃，其中的 `transparent_wrappers` 也一并失效。
     5. 确认 `rule.json` 包含 `"version": 1`，每个 `rulebook.json` 包含 `"rulebook_version": 1`。两者都是必填字段。
     6. 如果编辑 rulebook 后仍是旧行为，说明你编辑的不是该范围实际加载的文件。每个来源都从 `<rules dir>/<rulebook name>/rulebook.json` 加载，其中的名称取自 `rule.json` 中的来源条目；对该文件的修改一经保存，下一次工具调用就生效，没有任何发布步骤。运行 `npx -y cc-safety-net rule list` 查看每个范围实际加载了哪些来源和 rulebook 名称，再确认你编辑的文件位于该名称之下。同时确认 `rule.json` 的 `overrides` 没有关闭这条规则。已被其他来源占用的 rulebook 名称会连同一条警告被忽略，其规则根本不会加载。
-    7. 如果以前使用旧的内联配置（`.safety-net.json` 或 `~/.cc-safety-net/config.json`），运行 `npx -y cc-safety-net rule migrate` 转换为新布局。迁移之前，旧文件中的规则一直是无效的。
+    7. 如果以前使用旧的内联配置（`.safety-net.json` 或 `~/.cc-safety-net/config.json`），运行 `npx -y cc-safety-net rule migrate` 转换为新布局。迁移之前，旧文件中的规则一直是无效的。`doctor` 会把这类文件报告为 `warning` 级检查项 `config.legacy-ignored`。
     8. 更改 rulebook 来源后，运行 `npx -y cc-safety-net rule verify` 重新校验。没有重建这一步。`rule verify` 会像防护一样重新加载每个范围，并给出准确的剩余诊断信息后失败，而不会报告虚假的成功。对于远程来源，`npx -y cc-safety-net rule update` 会重新拉取并覆盖已落盘的 `rulebook.json`，因此对该文件的本地修改会丢失。
 
     运行时处于 `degraded` 时，这些命令都可以照常运行。配置无法生效不会阻止这些操作。

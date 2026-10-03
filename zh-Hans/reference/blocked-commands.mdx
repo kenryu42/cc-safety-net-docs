@@ -31,7 +31,7 @@ CC Safety Net 阻止这些命令，因为它们可能永久破坏数据，包括
 | --- | --- |
 | [`standard`](/zh-Hans/configuration/modes#default-mode) | 阻止所有未标记项。`echo 'unterminated` 这类看似安全的无法解析文本可以通过；含有可识别破坏性模式的无法解析文本仍会被启发式扫描阻止。动态 `rm -rf` 目标**不会**一律阻止。 |
 | [`strict`](/zh-Hans/configuration/modes#strict-mode) | `standard` 阻止的全部内容，再加上无法解析的命令、无法验证的破坏性目标、[受支持范围之外的 heredoc](#strict-和-paranoid-中的-heredoc)，以及对内置敏感路径的纯元数据发现。 |
-| [`paranoid`](/zh-Hans/configuration/modes#paranoid-mode) | `strict` 阻止的全部内容，再加上即使位于当前工作目录内的非临时递归强制删除，以及所有解释器单行命令，无论其内容。 |
+| [`paranoid`](/zh-Hans/configuration/modes#paranoid-mode) | `strict` 阻止的全部内容，再加上即使位于当前工作目录内的非临时递归删除（`rm -r`、`rm -rf`、`find -delete`、`Remove-Item -Recurse -Force`），以及所有解释器单行命令，无论其内容。 |
 
 <Note>部分灾难性保护不依赖所选安全级别：根目录和主目录的递归删除保护、Git 元数据保护和规范 `policy.json` 保护会忽略主破坏性命令开关和单条规则的 `off` 覆盖。</Note>
 
@@ -100,9 +100,10 @@ Git 接受 `GIT_SSH_COMMAND` 和 `GIT_SSH` 以在网络操作期间运行任意�
 | cwd 以外的 `rm -rf` | 递归删除 cwd 之外的绝对路径、父级路径或非临时路径 | 全部 |
 | 主目录为 cwd 时运行 `rm -rf` | 以主目录为递归删除的起点并不安全，请先切换到项目目录 | 全部 |
 | `rm -rf "$target"` 等动态目标 | 由变量、反引号或替换拼出的目标无法在执行前验证 | **Strict**、paranoid |
-| `rm -rf ./cache`（cwd 内的非临时路径） | 即使在工作目录内，也限制递归强制删除 | **Paranoid**（[`CC_SAFETY_NET_PARANOID_RM=1`](/zh-Hans/configuration/modes#paranoid-rm-check)） |
+| `rm -rf ./cache`（cwd 内的非临时路径） | 即使在工作目录内，也限制递归删除 | **Paranoid**（[`CC_SAFETY_NET_PARANOID_RM=1`](/zh-Hans/configuration/modes#paranoid-rm-check)） |
 | `cleanup() { rm -rf ../outside; }; cleanup` | shell 函数的正文会在调用位置分析；只定义而不调用不会执行任何操作 | 全部 |
-| `find ... -delete` | 永久删除符合条件的文件；可先用 `-print` 预览 | 全部 |
+| `find . -delete`，或 cwd 外的非临时起点 | 永久删除符合条件的文件；可先用 `-print` 预览 | 全部 |
+| `find ./cache -delete`（cwd 内的非临时起点） | `find -delete` 在 cwd 内的放行取决于 `rm.recursive-force-paranoid`，因此凡是 `rm -rf ./cache` 被阻止的场合，它都以 `find.delete` 阻止 | **Paranoid**（[`CC_SAFETY_NET_PARANOID_RM=1`](/zh-Hans/configuration/modes#paranoid-rm-check)） |
 | `find .git -delete` | 选择受保护的 Git 元数据进行删除 | 全部，灾难性 |
 | `find -exec rm -rf ...` | 在 `find` 的 `-exec` 块中执行递归强制删除 | 全部 |
 | `xargs rm -rf` | 动态输入使目标不可预测 | 全部 |
@@ -110,7 +111,9 @@ Git 接受 `GIT_SSH_COMMAND` 和 `GIT_SSH` 以在网络操作期间运行任意�
 | `parallel rm -rf` | 动态输入使目标不可预测 | 全部 |
 | `parallel <shell> -c` | 可以执行任意命令 | 全部 |
 
-`rm -rf` 目标使用以下首个匹配分类顺序：不受支持的 Windows UNC 或设备目标、根目录或主目录、受保护的 Git 元数据、临时路径、动态目标、配置的允许路径、主目录作为工作目录、工作目录本身、工作目录内部、工作目录外部。临时路径在所有级别都允许。当前工作目录内的其他路径在 paranoid `rm` 未启用时允许。安全变体见[被允许的命令](/zh-Hans/reference/allowed-commands)。
+递归 `rm` 的目标，无论是 `rm -rf`，还是不带 `-f` 的 `rm -r`、`rm -R`、`rm --recursive`，都使用以下首个匹配分类顺序：不受支持的 Windows UNC 或设备目标、根目录或主目录、受保护的 Git 元数据、临时路径、动态目标、配置的允许路径、主目录作为工作目录、工作目录本身、工作目录内部、工作目录外部。临时路径在所有级别都允许。当前工作目录内的其他路径在 paranoid `rm` 未启用时允许。上表中 `rm -rf` 的各行同样适用于 `rm -r`，规则 ID 相同，因此 `rm -r ../outside` 以 `rm.recursive-force-outside-cwd` 阻止。安全变体见[被允许的命令](/zh-Hans/reference/allowed-commands)。
+
+`find -delete` 也用同一套分类判定每个起点。解析符号链接后，所有起点都位于工作目录内时允许；起点为 `.`、起点是工作目录外的非临时路径、工作目录是主目录，或使用了 `-L`、`-f`、`-follow` 时，以 `find.delete` 阻止。`find -exec rm -rf`、`xargs rm -rf` 和 `parallel rm -rf` 规则要求同时有 `-r` 和 `-f`。没有 `-f` 时，引擎仍会对能看到的目标分类，因此 `xargs rm -r ../other` 和 `parallel rm -r ::: ../other` 以 `rm.recursive-force-outside-cwd` 阻止。加引号的 `parallel` 命令会经由 shell 执行，因此 `parallel 'rm -rf {}' ::: ../other` 与不加引号的形式一样被阻止。详见[分析引擎](/zh-Hans/guides/analysis-engine#dynamic-target-analyzers-for-find-xargs-and-parallel)。
 
 把破坏性命令藏在 shell 函数中不会绕过这些规则。函数正文会在调用处按调用者的 cwd 分析；调用也可通过引号（`'cleanup'`）、`time`/`!` 前缀和 `eval` 解析。bash 关键字写法 `function cleanup { ... }` 和 `function cleanup() { ... }` 同样会解读为定义，因此行为与 `cleanup() { ... }` 相同。只定义但从未调用的函数，其正文不会运行。调用解析和作用域见 [POSIX shell 函数](/zh-Hans/guides/analysis-engine#posix-shell-functions)。
 

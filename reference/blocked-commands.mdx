@@ -31,7 +31,7 @@ This page is the behavior matrix for what is blocked and where each boundary fal
 | --- | --- |
 | [Standard](/configuration/modes#default-mode) | Blocks all untagged rows. Safe-looking unparseable text such as `echo 'unterminated` is permitted, but unparseable text containing a recognizable destructive pattern is still blocked heuristically. Dynamic `rm -rf` targets are **not** categorically blocked. |
 | [Strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) | Everything standard blocks, plus unparseable commands outright, destructive targets that cannot be verified, [heredocs outside a small supported set](#heredocs-in-strict-and-paranoid), and metadata-only discovery of built-in sensitive paths. |
-| [Paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) | Everything strict blocks, plus non-temp recursive forced deletion even inside the current working directory, and every interpreter one-liner regardless of content. |
+| [Paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) | Everything strict blocks, plus non-temp recursive deletion (`rm -r`, `rm -rf`, `find -delete`, `Remove-Item -Recurse -Force`) even inside the current working directory, and every interpreter one-liner regardless of content. |
 
 <Note>
   Some catastrophic protections do not depend on the selected safety level. Root and home recursive deletion, Git-metadata protection, and canonical `policy.json` protection ignore the master destructive-command switch and per-rule `off` overrides.
@@ -100,9 +100,10 @@ The rule is not catastrophic, so it can be turned off like any other built-in ru
 | `rm -rf` outside the cwd | Recursive deletion of absolute, parent, or non-temp paths outside the cwd | All |
 | `rm -rf` while the cwd is your home | Anchoring recursive deletion at home is unsafe. Change into a project directory first | All |
 | `rm -rf "$target"` and other dynamic targets | A target built from a variable, backtick, or substitution cannot be verified before it runs | **Strict**, paranoid |
-| `rm -rf ./cache` (non-temp path inside the cwd) | Recursive forced deletion is restricted even inside the working directory | **Paranoid** ([`CC_SAFETY_NET_PARANOID_RM=1`](/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1)) |
+| `rm -rf ./cache` (non-temp path inside the cwd) | Recursive deletion is restricted even inside the working directory | **Paranoid** ([`CC_SAFETY_NET_PARANOID_RM=1`](/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1)) |
 | `cleanup() { rm -rf ../outside; }; cleanup` | A called shell function body is analyzed at the call site. The definition alone executes nothing | All |
-| `find ... -delete` | Permanently removes files matching criteria (use `-print` to preview) | All |
+| `find . -delete`, or a non-temp starting point outside the cwd | Permanently removes files matching criteria (use `-print` to preview) | All |
+| `find ./cache -delete` (non-temp starting point inside the cwd) | The within-cwd allowance for `find -delete` follows `rm.recursive-force-paranoid`, so this blocks as `find.delete` wherever `rm -rf ./cache` blocks | **Paranoid** ([`CC_SAFETY_NET_PARANOID_RM=1`](/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1)) |
 | `find .git -delete` | Selects protected Git metadata for deletion | All (catastrophic) |
 | `find -exec rm -rf ...` | Recursive-force delete inside a find exec block | All |
 | `xargs rm -rf` | Dynamic input makes targets unpredictable | All |
@@ -110,7 +111,9 @@ The rule is not catastrophic, so it can be turned off like any other built-in ru
 | `parallel rm -rf` | Dynamic input makes targets unpredictable | All |
 | `parallel <shell> -c` | Can execute arbitrary commands | All |
 
-`rm -rf` targets use a first-match classification order: unsupported Windows UNC or device targets, root or home, protected Git metadata, temp paths, dynamic targets, configured allow paths, home as the working directory, the working directory itself, inside the working directory, and outside the working directory. Temp paths are allowed at all levels. Other paths inside the working directory are allowed unless paranoid `rm` is active. See [Allowed commands](/reference/allowed-commands) for safe variants.
+Recursive `rm` targets use a first-match classification order, whether the command is `rm -rf` or a plain `rm -r`, `rm -R`, or `rm --recursive`: unsupported Windows UNC or device targets, root or home, protected Git metadata, temp paths, dynamic targets, configured allow paths, home as the working directory, the working directory itself, inside the working directory, and outside the working directory. Temp paths are allowed at all levels. Other paths inside the working directory are allowed unless paranoid `rm` is active. Every `rm -rf` row above covers `rm -r` too, under the same rule id, so `rm -r ../outside` blocks as `rm.recursive-force-outside-cwd`. See [Allowed commands](/reference/allowed-commands) for safe variants.
+
+`find -delete` judges each starting point with the same classification. It is allowed when every starting point resolves inside the working directory after symlinks are resolved, and blocked as `find.delete` for `.`, for a non-temp starting point outside the working directory, for a home working directory, and with `-L`, `-f`, or `-follow`. The `find -exec rm -rf`, `xargs rm -rf`, and `parallel rm -rf` rules need both `-r` and `-f`. Without `-f`, targets the engine can see are still classified, so `xargs rm -r ../other` and `parallel rm -r ::: ../other` block as `rm.recursive-force-outside-cwd`. A quoted `parallel` command runs through a shell, so `parallel 'rm -rf {}' ::: ../other` blocks like the unquoted form. See [Analysis engine](/guides/analysis-engine#dynamic-target-analyzers-for-find-xargs-and-parallel) for the details.
 
 Hiding a destructive command in a shell function does not change any of this: the body is analyzed where the function is called, with the caller's cwd, and calls resolve through quoting (`'cleanup'`), `time`/`!` prefixes, and `eval`. The bash keyword spellings `function cleanup { ... }` and `function cleanup() { ... }` are read as definitions too, so they behave the same as `cleanup() { ... }`. A definition that is never called is inert. See [POSIX shell functions](/guides/analysis-engine#posix-shell-functions) for call resolution and scoping.
 

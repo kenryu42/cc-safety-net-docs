@@ -7,7 +7,7 @@ description: "使用 JSON rulebook，在 CC Safety Net 中定义项目级和用�
 自定义阻止规则可以强制执行团队约定或项目专用的安全策略。规则采用 **rulebook 布局**，并合并用户范围与项目范围的配置。你可以保留个人默认值，再用项目配置调整项目规则。
 
 <Warning>
-**重大更改**：运行时不再加载旧版内联配置文件（`.safety-net.json` 和 `~/.cc-safety-net/config.json`）。旧文件中的规则**在迁移前不会生效**，运行时也不会为此给出提示。`rule verify` 会报告旧文件。普通命令仍会运行。执行 `npx -y cc-safety-net rule migrate` 可把旧规则转换为 rulebook 布局。请参阅[迁移旧配置](#迁移旧配置)。
+**重大更改**：运行时不再加载旧版内联配置文件（`.safety-net.json` 和 `~/.cc-safety-net/config.json`）。旧文件中的规则**在迁移前不会生效**，运行时也不会为此给出提示。`doctor` 和 `rule verify` 会报告旧文件。普通命令仍会运行。执行 `npx -y cc-safety-net rule migrate` 可把旧规则转换为 rulebook 布局。请参阅[迁移旧配置](#迁移旧配置)。
 </Warning>
 
 <Tip>
@@ -139,7 +139,7 @@ rulebook 文件本身也有上限，且在 schema 校验之前检查。超出其
 
 如果团队通过 `rtk` 之类的包装器运行命令，分析器默认只能看到包装器。把包装器列入 `transparent_wrappers` 后，CC Safety Net 会提取其中可见的受保护子命令。内置分析和自定义规则便能像处理裸命令一样，处理 `rtk git reset --hard` 和 `rtk docker system prune`。
 
-`exec`、`nice`、`nohup`、`setsid`、`stdbuf`、`time` 和 `timeout` 无需列入就是包装器，因此 `timeout 5 docker system prune` 会命中与裸命令相同的自定义规则。
+`caffeinate`、`exec`、`nice`、`nohup`、`setsid`、`stdbuf`、`time` 和 `timeout` 无需列入就是包装器，因此 `timeout 5 docker system prune` 会命中与裸命令相同的自定义规则。
 
 用 `rule wrapper` 子命令来配置包装器，不要手动编辑 `rule.json`：
 
@@ -157,7 +157,7 @@ npx -y cc-safety-net rule wrapper add rtk --global
 
 这个字段的规则：
 
-- **有七个包装器是内置的。** `exec`、`nice`、`nohup`、`setsid`、`stdbuf`、`time` 和 `timeout` 总会执行一个可见的子命令，因此无论文件中是否列出，分析都会穿透它们。其余包装器中，只配置你有意信任的那些。
+- **有八个包装器是内置的。** `caffeinate`、`exec`、`nice`、`nohup`、`setsid`、`stdbuf`、`time` 和 `timeout` 总会执行一个可见的子命令，因此无论文件中是否列出，分析都会穿透它们。其余包装器中，只配置你有意信任的那些。
 - 包装器名称必须匹配 `^[a-zA-Z][a-zA-Z0-9_-]*$`，并且在文件内必须唯一。
 - **保留命令不能作为包装器**：`git`、`busybox`、内置分析的命令 `rm`、`find`、`xargs` 和 `parallel`、所有 shell 包装器、所有解释器以及 awk 解释器。
 - 解包时，会取包装器标志和 `VAR=value` 赋值之后的第一个*可保护*子命令，或者显式 `--` 之后紧跟的那个 token。本身不可保护的子命令不会被解包。
@@ -616,11 +616,11 @@ npx -y cc-safety-net rule verify
 
 | 旧文件状态 | 新行为 |
 | --- | --- |
-| 空的旧文件 | 静默忽略：只有内置规则生效 |
+| 空的旧文件 | 运行时忽略：只有内置规则生效 |
 | 含规则的旧文件 | 在用 `rule migrate` 迁移之前，其中的规则**不会生效**；运行时静默忽略该文件 |
 | 无效的旧文件 | 同上：在修复并迁移或删除之前一直不生效 |
 
-旧规则不会在原位置生效，也不会阻止普通命令。运行时不读取旧文件，因此防护阶段没有任何提示。`npx -y cc-safety-net rule verify` 才会报告残留的旧文件。升级后请运行一次。
+旧规则不会在原位置生效，也不会阻止普通命令。运行时不读取旧文件，因此防护阶段没有任何提示。升级后运行 `npx -y cc-safety-net doctor`，它会把残留的旧文件报告为警告 `Legacy inline rule configs are ignored`，`rule verify` 也会报告。已迁移的配置旁边留下旧文件并无害处，因此该警告不会让 `doctor` 失败。
 
 ```bash
 # Convert legacy inline rules into the rulebook layout

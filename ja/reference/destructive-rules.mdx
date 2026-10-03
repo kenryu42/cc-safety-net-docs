@@ -16,7 +16,7 @@ keywords:
 
 このページでは、すべての組み込みルール ID、ブロックする内容、有効になる条件を示します。ブロックメッセージからルールを調べ、無効にするかどうかを判断するために使ってください。各ルールの境界と具体例については[ブロックされるコマンド](/ja/reference/blocked-commands)を、`destructive_command_protection` スキーマについては[ポリシー](/ja/configuration/policy#destructive-command-protection)を、独自のルールを追加するには[カスタムルール](/ja/configuration/custom-rules)を参照してください。
 
-登録済みのルールは **59 個**です。そのうち 6 個は[致命的な操作に対するルール](#catastrophic-rules)で、無効にできません。それ以外のすべてのルールは、ルール単位の override を受け付けます。
+登録済みのルールは **59 個**です。そのうち 6 個は[致命的な操作に対するルール](#catastrophic-rules)で、無効にできません。それ以外のすべてのルールは、ルール単位の override を受け付けます。ルールによらない拒否には、代わりに[固定の拒否 ID](#fixed-denial-ids) のいずれかが付きます。これらはどの override でも無効にできません。
 
 <span id="allow-a-built-in-rule"></span>
 
@@ -135,3 +135,27 @@ override はルール全体を無効にするものであり、特定のコマ�
 | `shell.dynamic-structure` | strict モードで、置換の出力から組み立てられたガード対象のサブコマンドとオプションをブロックします。 | `git reset $(printf --hard)` | [Strict](/ja/configuration/modes#strict-mode) |
 | `shell.dynamic-executable` | strict モードで、コマンド置換の出力から組み立てられた実行ファイル名をブロックします。 | `$(printf r)m -rf /` | [Strict](/ja/configuration/modes#strict-mode) |
 | `raw-text.dangerous-command` | 生のコマンドテキストから検出された危険なコマンドをブロックします。 | `git reset --hard 'unterminated` | すべてのレベル |
+
+<span id="fixed-denial-ids"></span>
+
+## 固定の拒否 ID
+
+ルールによらない拒否もあります。コマンド解析の前に実行されるガード、解析の上限と失敗、使用できない作業ディレクトリによる拒否です。これらには固定の ID が付き、ブロックメッセージ、[監査ログ](/ja/reference/audit-log)、`explain --json` の `ruleId` フィールド、[`checkCommand`](/ja/reference/library-api) が返す拒否の `ruleId` に表示されます。これらの ID は登録済みのルールではないため、`destructive_command_protection.overrides` には指定できません。`policy check` は、いずれも `unknown destructive command rule id "<id>"` として拒否します。
+
+| ID | 拒否する条件 |
+| --- | --- |
+| `guard.policy-config` | 書き込み、移動、再帰削除が、保護対象の `policy.json` またはそれを含むディレクトリに及ぶ |
+| `guard.policy-apply` | コマンドが `cc-safety-net policy apply` を実行する |
+| `guard.git-metadata` | 削除、移動、書き込みが、解決済みの `.git` エントリ、そのディレクトリ、または hooks ディレクトリを対象にする |
+| `analysis.recursion-limit` | ネストが再帰の深さの上限を超える |
+| `analysis.structural-limit` | コマンドの構造が、安全に検証できる上限を超える |
+| `analysis.limit` | コマンドが、安全に解析できる上限を超える |
+| `analysis.derived-command-limit` | アナライザーが、派生コマンドの処理量の上限を超える |
+| `analysis.failed-closed` | ガードが予期せず失敗した、またはツール呼び出しを読み取れなかったため、fail closed になった |
+| `analysis.strict-unparseable` | パーサーがコマンドを受け付けない、または strict モードでコマンドを完全にはパースできない |
+| `analysis.unsupported-heredoc` | strict モードで、パーサーが対応していない heredoc 構文をコマンドが使っている |
+| `analysis.dynamic-shell-source` | シェルが、リテラル文字列ではないスクリプトテキストを実行する（`sh -c "$CMD"` など） |
+| `cwd.session-unusable` | セッションの作業ディレクトリまたはワークスペースルートが存在しない、アクセスできない、ディレクトリではない、または対応していないパス形式である |
+| `cwd.session-outside-workspace` | セッションの作業ディレクトリが、ワークスペースルートの外にある |
+| `cwd.requested-unusable` | ツール呼び出しまたは `checkCommand` が指定した作業ディレクトリが存在しない、アクセスできない、ディレクトリではない、または対応していないパス形式である |
+| `cwd.requested-outside-workspace` | ツール呼び出しが指定した作業ディレクトリが、セッションのワークスペースの外にある |

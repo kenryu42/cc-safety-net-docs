@@ -16,7 +16,7 @@ keywords:
 
 本页列出每个内置规则 ID、它阻止的内容以及生效条件。你可以据此从阻止消息中查找规则，并决定是否关闭它。各规则的边界和示例见[被阻止的命令](/zh-Hans/reference/blocked-commands)，`destructive_command_protection` schema 见[策略](/zh-Hans/configuration/policy#destructive-command-protection)，添加自己的规则见[自定义规则](/zh-Hans/configuration/custom-rules)。
 
-共有 **59 条已注册规则**。其中 6 条是[灾难性规则](#catastrophic-rules)，无法关闭。其余所有规则都接受单条规则的覆盖。
+共有 **59 条已注册规则**。其中 6 条是[灾难性规则](#catastrophic-rules)，无法关闭。其余所有规则都接受单条规则的覆盖。不是由任何规则产生的拒绝会改用某个[固定拒绝 ID](#fixed-denial-ids)，任何覆盖都无法关闭它们。
 
 <span id="allow-a-built-in-rule"></span>
 
@@ -135,3 +135,27 @@ keywords:
 | `shell.dynamic-structure` | 在 strict 模式下阻止由替换输出拼装而成的受保护子命令和选项。 | `git reset $(printf --hard)` | [Strict](/zh-Hans/configuration/modes#strict-mode) |
 | `shell.dynamic-executable` | 在 strict 模式下阻止由命令替换输出拼装而成的可执行文件名。 | `$(printf r)m -rf /` | [Strict](/zh-Hans/configuration/modes#strict-mode) |
 | `raw-text.dangerous-command` | 阻止在原始命令文本中检测到的危险命令。 | `git reset --hard 'unterminated` | 所有级别 |
+
+<span id="fixed-denial-ids"></span>
+
+## 固定拒绝 ID
+
+有些拒绝不来自任何规则，而是来自命令分析之前运行的防护、分析上限与失败，以及不可用的工作目录。这些拒绝带有固定 ID，会出现在阻止消息、[审计日志](/zh-Hans/reference/audit-log)、`explain --json` 的 `ruleId` 字段，以及 [`checkCommand`](/zh-Hans/reference/library-api) 所返回拒绝的 `ruleId` 中。这些 ID 不是已注册规则，因此不能写进 `destructive_command_protection.overrides`。`policy check` 会以 `unknown destructive command rule id "<id>"` 拒绝其中每一个。
+
+| ID | 何时拒绝 |
+| --- | --- |
+| `guard.policy-config` | 写入、移动或递归删除触及受保护的 `policy.json` 或包含它的目录 |
+| `guard.policy-apply` | 命令执行 `cc-safety-net policy apply` |
+| `guard.git-metadata` | 删除、移动或写入指向已解析 `.git` 入口、其目录或 hooks 目录 |
+| `analysis.recursion-limit` | 嵌套超出递归深度限制 |
+| `analysis.structural-limit` | 命令结构超出可安全验证的限制 |
+| `analysis.limit` | 命令超出可安全分析的限制 |
+| `analysis.derived-command-limit` | 分析器超出派生命令工作量限制 |
+| `analysis.failed-closed` | 防护意外失败，或无法读取工具调用，因而 fail-closed |
+| `analysis.strict-unparseable` | 解析器拒绝该命令，或 strict 模式下无法完整解析该命令 |
+| `analysis.unsupported-heredoc` | strict 模式下，命令使用了解析器不支持的 heredoc 语法 |
+| `analysis.dynamic-shell-source` | shell 执行的脚本文本不是字面字符串，例如 `sh -c "$CMD"` |
+| `cwd.session-unusable` | 会话的工作目录或工作区根目录不存在、无法访问、不是目录，或使用了不受支持的路径形式 |
+| `cwd.session-outside-workspace` | 会话的工作目录位于工作区根目录之外 |
+| `cwd.requested-unusable` | 工具调用或 `checkCommand` 指定的工作目录不存在、无法访问、不是目录，或使用了不受支持的路径形式 |
+| `cwd.requested-outside-workspace` | 工具调用指定的工作目录位于会话工作区之外 |

@@ -87,9 +87,12 @@ Claude の設定ファイルがない、解析に失敗する、`enabledPlugins`
 | `Level` | 有効なレベル。`standard`、`strict`、`paranoid`、`custom` のいずれか。有効になっている破壊的コマンドのルールが、レベルから継承される状態と異なる場合は ` (customised)` が付く |
 | `Rules` | `none active`、または有効なカスタムルール数を示す `<n> active` |
 | `Policy` | ユーザーポリシーファイルのパス。`~` で短縮される |
+| `Project` | プロジェクトポリシーファイルのパス。カレントディレクトリに `.cc-safety-net/policy.json` がある場合に**のみ**出力される |
 | `Worktree` | `relaxations active`。worktree モードが有効な場合に**のみ**出力される |
 
 情報行は 1 行です。長い値は折り返さず、`…` で切り詰めます。
+
+プロジェクトポリシーがユーザーポリシーを緩めている場合は、情報ブロックの後に `Project policy` ブロックが続き、緩めたフィールドを 1 行ずつ示します。`CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY` が設定されている場合、ブロックの見出しは `Project policy (ignored)` になります。[報告される緩和](/ja/configuration/policy#reported-weakenings)を参照してください。
 
 情報ブロックの後に、`status` は `Everything configured is active.`、または `Not active` セクションを出力します。後者には、問題ごとに折り返した項目があり、該当する場合はプラグイン無効の項目が最初、その後にスナップショット診断が続きます。最後に `Full report: cc-safety-net doctor` を出力します。
 
@@ -116,7 +119,7 @@ bunx cc-safety-net doctor
 | Guard Engine Verification | ブロックが動作することを確認する合成セルフテストを実行する（`git reset --hard` と `rm -rf /` はブロック、`rm -rf ./node_modules` は許可） |
 | Configuration | ユーザーとプロジェクトのルール設定を検証し、有効なルールを表示する |
 | Environment | CC Safety Net の環境変数の状態を表示する |
-| Effective Safety | 選択された preset、有効レベル、機能、ルールの override を表示する。継承されたルールを弱める override も含む |
+| Effective Safety | 選択された preset、有効レベル、機能、ルールの override を表示する。継承されたルールを弱める override も含む。プロジェクトポリシーによる緩和は `Project policy deltas:` の下に表示される。`CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY` が設定されている場合の見出しは `Project policy deltas (ignored):` |
 | Findings | 診断された問題。それぞれに重大度と修正ヒントがある |
 | Recent Activity | 過去 7 日間のブロックされたコマンドを要約する |
 | System Info | 関連するすべてのツールのバージョンを表示する |
@@ -160,6 +163,8 @@ OpenCode 2.x を報告するホストでは、`doctor` は設定ファイルだ�
 - policy、config、audit のいずれかのディレクトリが安全ではありません。現在のユーザーの所有ではない、グループまたはその他のユーザーに書き込み権限がある、シンボリックリンクである、ディレクトリではない、のいずれかに当てはまる状態を指します。
 
 以前のバージョンが残した `rule.lock` ファイルまたは `cache` ディレクトリがあると、`info` 重大度の finding `config.v2-leftovers`（タイトルは `Rulebook lock and cache leftovers detected`）が発生します。ランタイムはどちらももう読み取りません。修正ヒントは ``Run `cc-safety-net rule sync` (add `--global` for user scope) to migrate them, then rerun doctor.`` です。`info` の finding は終了コードに影響しません。
+
+レガシーのインライン形式のルール設定があると、`warning` 重大度の finding `config.legacy-ignored`（タイトルは `Legacy inline rule configs are ignored`）が発生します。`doctor` が調べるのは、実行したディレクトリの `.safety-net.json` と、CC Safety Net のホームディレクトリにある `config.json` です（`CC_SAFETY_NET_HOME` を設定していなければ `~/.cc-safety-net/config.json`）。詳細は `CC Safety Net no longer loads these files, so their rules enforce nothing: <paths>.`、修正ヒントは ``Run `cc-safety-net rule migrate` to convert them (add `--cleanup` to delete each file once it is converted), then rerun doctor.`` です。`doctor --json` は同じパスを、プロジェクトのファイルを先にして `legacyConfigs` に出力します。
 
 一部の監査ログファイルを読み取れない場合、Recent Activity セクションの末尾に `Warning: <n> audit log sources could not be read; this summary is incomplete` が表示されます（1 件の場合は `source`）。これにより、操作が少ない週を完全なデータと誤認しません。
 
@@ -525,6 +530,8 @@ npx -y cc-safety-net rule migrate --cleanup
 
 `--cleanup` は、移行したルールの検証後にレガシーファイルを削除します。`migrate` は、`--global` と 2 つ目の位置引数を拒否します。
 
+`doctor` は、移行していないレガシーファイルを `warning` 重大度の finding `config.legacy-ignored` として報告します。
+
 ### rule doc
 
 rulebook の作成ガイドを標準出力に出力します。このガイドをエージェントにパイプで渡せば、rulebook の作成と検証を任せられます。
@@ -796,7 +803,7 @@ bunx cc-safety-net statusline --claude-code
 bunx cc-safety-net statusline -cc
 ```
 
-プラグインが無効な場合、この行は `🛡️ CC Safety Net ❌` になります。それ以外の場合はレベルを絵文字で表します。standard は `✅`、strict は `🔒`、paranoid は `👁️`、customised は `🔧` です。worktree の緩和が有効な場合は `🌳` が、ポリシーのスナップショットが degraded の場合は末尾に `⚠️` が付きます。
+プラグインが無効な場合、この行は `🛡️ CC Safety Net ❌` になります。それ以外の場合はレベルを絵文字で表します。standard は `✅`、strict は `🔒`、paranoid は `👁️`、customised は `🔧` です。worktree の緩和が有効な場合は `🌳` が、プロジェクトポリシーによる緩和が適用されている場合は `🔻` が、ポリシーのスナップショットが degraded の場合は末尾に `⚠️` が付きます。`CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY` で無視された緩和には `🔻` は付きません。
 
 入力がパイプされると、`statusline` は標準入力を読み取ります。Claude Code の JSON ステータスペイロードは破棄します。それ以外のパイプされたテキストは維持し、`<stdin> | <status>` としてインジケーターの前に置きます。
 

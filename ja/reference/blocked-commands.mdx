@@ -31,7 +31,7 @@ keywords:
 | --- | --- |
 | [standard](/ja/configuration/modes#default-mode) | 印の付いていない行をすべてブロックします。`echo 'unterminated` のように安全に見える解析不能なテキストは許可しますが、認識できる破壊的パターンを含む解析不能なテキストは、ヒューリスティックによって引き続きブロックします。動的な `rm -rf` の対象は一律にはブロック**しません**。 |
 | [strict](/ja/configuration/modes#strict-mode) | standard がブロックする形式すべてに加えて、解析できないコマンドを一律にブロックし、検証できない破壊的対象、[限られた対応形式から外れる heredoc](#heredocs-in-strict-and-paranoid)、組み込みの機密パスに対するメタデータのみの探索もブロックします。 |
-| [paranoid](/ja/configuration/modes#paranoid-mode) | strict がブロックする形式すべてに加えて、カレントディレクトリ配下であっても一時パス以外への再帰的な強制削除をブロックし、内容にかかわらずすべてのインタープリター 1 行コードをブロックします。 |
+| [paranoid](/ja/configuration/modes#paranoid-mode) | strict がブロックする形式すべてに加えて、カレントディレクトリ配下であっても一時パス以外への再帰的な削除（`rm -r`、`rm -rf`、`find -delete`、`Remove-Item -Recurse -Force`）をブロックし、内容にかかわらずすべてのインタープリター 1 行コードをブロックします。 |
 
 <Note>
   一部の重要な保護は、選択した安全レベルに依存しません。root とホームディレクトリの再帰削除、Git メタデータの保護、正規の `policy.json` の保護は、破壊的コマンドのマスタースイッチも、ルール単位の `off` の override も無視します。
@@ -106,9 +106,10 @@ Git は、ネットワーク操作中に任意のプログラムを実行する�
 | カレントディレクトリ外への `rm -rf` | 作業領域の外にある絶対パス、親ディレクトリ、一時パス以外を削除する | すべて |
 | カレントディレクトリがホームの状態での `rm -rf` | ホームディレクトリを基準にした再帰削除は危険 | すべて |
 | `rm -rf "$target"` | 動的な対象は実行前に検証できない | **strict**、paranoid |
-| `rm -rf ./cache` | カレントディレクトリ配下でも、一時パス以外への再帰的な強制削除を制限する | **paranoid**（[`CC_SAFETY_NET_PARANOID_RM=1`](/ja/configuration/modes#paranoid-rm-check)） |
+| `rm -rf ./cache` | カレントディレクトリ配下でも、一時パス以外への再帰的な削除を制限する | **paranoid**（[`CC_SAFETY_NET_PARANOID_RM=1`](/ja/configuration/modes#paranoid-rm-check)） |
 | `cleanup() { rm -rf ../outside; }; cleanup` | 呼び出されたシェル関数の本体を、呼び出し位置で解析する。定義しただけでは何も実行されない | すべて |
-| `find ... -delete` | 条件に一致したファイルを完全に削除する（事前確認には `-print` を使う） | すべて |
+| `find . -delete`、またはカレントディレクトリ外にある一時パス以外の起点 | 条件に一致したファイルを完全に削除する（事前確認には `-print` を使う） | すべて |
+| `find ./cache -delete`（カレントディレクトリ配下の一時パス以外の起点） | `find -delete` に対するカレントディレクトリ配下の許可は `rm.recursive-force-paranoid` に従うため、`rm -rf ./cache` がブロックされる条件では `find.delete` としてブロックする | **paranoid**（[`CC_SAFETY_NET_PARANOID_RM=1`](/ja/configuration/modes#paranoid-rm-check)） |
 | `find .git -delete` | 保護対象の Git メタデータを削除対象にする。`find.delete-git-metadata` が `off` でも重大な操作としてブロックする | すべて、重大 |
 | `find -exec rm -rf ...` | `find` 内で再帰強制削除を実行する | すべて |
 | `xargs rm -rf` | 動的入力のため対象を予測できない | すべて |
@@ -116,7 +117,7 @@ Git は、ネットワーク操作中に任意のプログラムを実行する�
 | `parallel rm -rf` | 動的入力のため対象を予測できない | すべて |
 | `parallel <shell> -c` | 任意のコマンドを実行できる | すべて |
 
-`rm -rf` の対象は、次の順に照合し、最初に一致した分類を採用します。
+再帰的な `rm` の対象は、`rm -rf` でも、`-f` のない `rm -r`、`rm -R`、`rm --recursive` でも、次の順に照合し、最初に一致した分類を採用します。
 
 1. 未対応の Windows UNC またはデバイス名前空間の対象
 2. root またはホーム
@@ -129,7 +130,9 @@ Git は、ネットワーク操作中に任意のプログラムを実行する�
 9. カレントディレクトリ配下
 10. カレントディレクトリ外
 
-一時パスはすべてのレベルで許可します。カレントディレクトリ配下のパスは、paranoid の `rm` が有効でないかぎり許可します。安全な書き方は、[許可されるコマンド](/ja/reference/allowed-commands)を参照してください。
+一時パスはすべてのレベルで許可します。カレントディレクトリ配下のパスは、paranoid の `rm` が有効でないかぎり許可します。上の表の `rm -rf` の行は、同じルール ID で `rm -r` にも当てはまります。たとえば `rm -r ../outside` は `rm.recursive-force-outside-cwd` としてブロックされます。安全な書き方は、[許可されるコマンド](/ja/reference/allowed-commands)を参照してください。
+
+`find -delete` も、各起点を同じ分類で判定します。シンボリックリンクを解決したうえで、すべての起点がカレントディレクトリ配下にあれば許可します。起点が `.` の場合、一時パス以外でカレントディレクトリの外にある場合、カレントディレクトリがホームの場合、`-L`、`-f`、`-follow` のいずれかを指定した場合は、`find.delete` としてブロックします。`find -exec rm -rf`、`xargs rm -rf`、`parallel rm -rf` のルールは、`-r` と `-f` の両方を条件とします。`-f` がなくても、エンジンは見える範囲の対象を分類するため、`xargs rm -r ../other` と `parallel rm -r ::: ../other` は `rm.recursive-force-outside-cwd` としてブロックされます。引用符で囲んだ `parallel` のコマンドはシェルを通して実行されるため、`parallel 'rm -rf {}' ::: ../other` も引用符なしの形式と同じくブロックされます。詳しくは[解析エンジン](/ja/guides/analysis-engine#dynamic-target-analyzers-for-find-xargs-and-parallel)を参照してください。
 
 破壊的コマンドをシェル関数に隠しても結果は変わりません。関数を呼び出した位置で、呼び出し側のカレントディレクトリを使って本体を解析します。呼び出しは、引用符付きの形式（`'cleanup'`）、`time`／`!` を前置した形式、`eval` 経由でも解決します。bash のキーワード形式 `function cleanup { ... }` と `function cleanup() { ... }` も定義として解釈するため、`cleanup() { ... }` と同じ扱いになります。呼び出されない定義は何も実行しません。呼び出しの解決とスコープについては、[POSIX シェル関数](/ja/guides/analysis-engine#posix-shell-functions)を参照してください。
 

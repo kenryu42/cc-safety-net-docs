@@ -37,18 +37,18 @@ There is no separate embedded configuration. A call reads the same files a hook 
 
 Per-project variation is per-call variation, because the `cwd` selects it. A host that manages several checkouts at once gets the right policy for each one by passing the right directory, with no extra API.
 
-Two behaviors are worth knowing before you write the call site. A `cwd` that does not stat as a readable, searchable directory returns a fail-closed deny rather than throwing, so a mistyped path blocks commands instead of analyzing the wrong project. And a malformed input, such as a missing `cwd` or a non-string command, throws `TypeError`, which is a bug in the calling code rather than a verdict about the command.
+Two behaviors are worth knowing before you write the call site. A `cwd` that does not stat as a readable, searchable directory returns a deny with `ruleId` `cwd.requested-unusable` rather than throwing, so a mistyped path blocks commands instead of analyzing the wrong project. And a malformed input, such as a missing `cwd` or a non-string command, throws `TypeError`, which is a bug in the calling code rather than a verdict about the command.
 
 ## What the API guarantees
 
 These hold across minor versions, so a host can build on them:
 
-- The input shape `{ command, cwd }`, with `cwd` an absolute directory path, and the two result kinds, `allow` and `deny` with a `reason` string and an optional `ruleId`.
+- The input shape `{ command, cwd }`, with `cwd` an absolute directory path, and the two result kinds, `allow` and `deny` with a `reason` string and a `ruleId` string.
 - A `deny` means do not execute the command, and a throw means the same. A throw is never an allow.
 - `cwd` anchors policy resolution. Relative command targets and the project's `.cc-safety-net/` configuration resolve against the `cwd` you pass, never `process.cwd()`.
 - The API path writes no audit record and makes no network request. A call reads local policy files, filesystem facts, and environment settings; nothing leaves the machine.
 
-The rule catalog is free to change in any minor version. Which commands get denied grows with each release, and `reason` wording changes with it, so an upgrade can turn an allow into a deny for a command your test fixtures rely on. Branch on `kind`. Keep `reason` and `ruleId` for humans and logs rather than comparing against them, and pin the version in your lockfile the way you pin any other dependency whose behavior you test against.
+The rule catalog is free to change in any minor version. Which commands get denied grows with each release, and `reason` wording changes with it, so an upgrade can turn an allow into a deny for a command your test fixtures rely on. Branch on `kind` to decide whether the command runs. Keep `reason` for humans and logs rather than comparing against it, and pin the version in your lockfile the way you pin any other dependency whose behavior you test against.
 
 ## A worked example: a plugin host
 
@@ -90,7 +90,7 @@ If your host's veto is a thrown exception rather than a returned object, throw t
 
 - **You own the log.** No audit record is written on this path, so a denial that is not logged by the host leaves no trace. The `logs` command and the GUI dashboard show hook and plugin decisions, not embedded ones.
 - **Operators configure you with the normal tools.** Because an embedded host reads the same policy files, `status`, `doctor`, and `explain` all describe what your host will do, as long as they run in the same directory you pass as `cwd`. Point users at [Explain trace](/reference/explain-trace) when they ask why a command was blocked.
-- **`ruleId` is diagnostic.** Print it, log it, use it to look up a rule. Do not branch on it.
+- **`ruleId` names what denied the command.** Every deny carries one. Log it, look up the rule, or branch on it to handle one kind of deny differently. For example, `cwd.requested-unusable` means the `cwd` you passed is not a usable directory. The [fixed denial ids](/reference/destructive-rules#fixed-denial-ids) cover denials that no rule produced. A minor version can add ids, so treat an id you do not recognize as a plain deny.
 - **The call is synchronous.** For a batch, loop. There is no async or batched entry point, and adding one would only hide the file reads a call already makes.
 - **Read the version from the package.** `cc-safety-net/package.json` is an exported subpath, so a host that reports its own dependency versions can include this one.
 

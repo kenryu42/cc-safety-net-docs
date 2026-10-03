@@ -34,7 +34,7 @@ The top-level object returned by `explain --json`.
 | `result` | `"blocked" \| "allowed"` | always | Final outcome for the command |
 | `reason` | `string` | blocked only | The block reason |
 | `segment` | `string` | blocked only | The specific segment that triggered the decision |
-| `ruleId` | `string` | blocked with a matched rule | The id of the rule that produced the block |
+| `ruleId` | `string` | blocked only | The id of the rule or [fixed denial](/reference/destructive-rules#fixed-denial-ids) that produced the block |
 | `trace` | `ExplainTrace` | always | The trace container with top-level and per-segment steps |
 | `customRule` | `object` | when a custom or rulebook rule matched | `id`, plus optional `rulebook` (`name`, `version`), `source`, and `override` (`{ type: "reason", reason }`) |
 | `configSource` | `string \| null` | always | The config file the effective config was loaded from |
@@ -140,7 +140,7 @@ Manage wrappers with the `rule wrapper add`, `rule wrapper remove`, and `rule wr
 
 A typical trace flows from `parse` → per-segment `env-strip` / `leading-tokens-stripped` → detection (`shell-wrapper` / `interpreter` / `busybox` / `transparent-wrapper`) → `rule-check` or `custom-rules-check` → a decision. Recursion appears as `recurse` steps with increasing `depth`, except `busybox` dispatch, which records a `recurse` step but does not consume recursion depth, so a chain of busybox wrappers repeats the same `depth` value. When you only need the verdict, read `result` (plus `reason`, `segment`, and `ruleId`) at the top level instead of walking the trace.
 
-Three protections short-circuit before the evaluator runs: policy-file protection, Git-metadata protection, and secret protection. When one of those blocks a command, the trace contains a **single synthetic `rule-check` step and no `parse` step**, with `ruleId` set to `policy-protection`, `git-metadata-protection`, or the id of the matched secret rule. Tooling that assumes every trace opens with a `parse` step needs to handle this case.
+Four protections short-circuit before the evaluator runs: policy-file protection, `policy apply` protection, Git-metadata protection, and secret protection. When one of those blocks a command, the trace contains a **single synthetic `rule-check` step and no `parse` step**, with `ruleId` set to `guard.policy-config`, `guard.policy-apply`, `guard.git-metadata`, or the id of the matched secret rule. Tooling that assumes every trace opens with a `parse` step needs to handle this case.
 
 ## Before you share a trace
 

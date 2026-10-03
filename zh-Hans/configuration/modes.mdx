@@ -107,7 +107,7 @@ export CC_SAFETY_NET_STRICT=1
 当命令可能来自对抗性或不可信环境时，请启用 strict 模式。如果你需要最大保护，并且可以接受异常命令语法偶尔产生误报，也可以使用它。
 
 <Note>
-  可以通过 [policy.json](/zh-Hans/configuration/policy) 中的 `destructive_command_protection.overrides` 关闭单项 strict 层规则，也可以在 `standard` 下通过值为 `"on"` 的覆盖强制启用任何 strict 层规则。对于没有破坏性命令规则 ID 的 fail-closed 结果（例如解析器 fail-closed 和敏感路径结果），strict 仍会保持 strict 行为。
+  可以通过 [policy.json](/zh-Hans/configuration/policy) 中的 `destructive_command_protection.overrides` 关闭单项 strict 层规则，也可以在 `standard` 下通过值为 `"on"` 的覆盖强制启用任何 strict 层规则。对于没有已注册破坏性命令规则 ID 的 fail-closed 结果（例如解析器 fail-closed 和敏感路径结果），strict 仍会保持 strict 行为。
 </Note>
 
 <span id="paranoid-mode"></span>
@@ -120,7 +120,7 @@ export CC_SAFETY_NET_STRICT=1
 
 ### rm 检查（`CC_SAFETY_NET_PARANOID_RM=1`）
 
-默认允许当前工作目录内的 `rm -rf`，因为假定删除自己项目根目录内的文件是有意操作。启用 paranoid rm 检查后，**即使目标在当前工作目录内**，也会阻止非临时路径的递归强制删除：`rm -rf ./cache` 匹配 `rm.recursive-force-paranoid`，等效的 PowerShell 命令 `Remove-Item ./cache -Recurse -Force` 匹配 `powershell.remove-item-recursive-force-paranoid`。
+默认允许当前工作目录内的 `rm -rf` 和 `find -delete`，因为假定删除自己项目根目录内的文件是有意操作。启用 paranoid rm 检查后，**即使目标在当前工作目录内**，也会阻止非临时路径的递归删除：`rm -rf ./cache` 和 `rm -r ./cache` 匹配 `rm.recursive-force-paranoid`，`find ./cache -delete` 以 `find.delete` 阻止，等效的 PowerShell 命令 `Remove-Item ./cache -Recurse -Force` 匹配 `powershell.remove-item-recursive-force-paranoid`。
 
 临时目标和 `destructive_command_protection.allow_paths` 中列出的目录在此检查下仍会被允许。
 
@@ -209,7 +209,7 @@ Worktree 检测采用 **fail-closed**：如果 CC Safety Net 无法明确判断 
 | --- | --- |
 | `standard` | 不增加能力；针对可识别破坏性命令提供尽力保护 |
 | `strict` | `fail_closed`：无法解析的命令、不受支持的 heredoc、无法验证的破坏性目标、仅元数据的敏感路径发现 |
-| `paranoid` | Strict 加 `paranoid_rm`（即使在 cwd 内也阻止非临时 `rm -rf`）和 `paranoid_interpreters`（不论内容如何都阻止每一条解释器单行命令） |
+| `paranoid` | Strict 加 `paranoid_rm`（即使在 cwd 内也阻止非临时 `rm -r` 和 `rm -rf`）和 `paranoid_interpreters`（不论内容如何都阻止每一条解释器单行命令） |
 | `custom` | 不匹配任何预设的能力组合 |
 
 Worktree 模式与级别无关：它会放宽确认的 linked worktree 内的本地丢弃规则。

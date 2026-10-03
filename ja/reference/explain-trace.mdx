@@ -34,7 +34,7 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 | `result` | `"blocked" \| "allowed"` | 常にある | コマンドの最終結果 |
 | `reason` | `string` | ブロック時のみ | ブロック理由 |
 | `segment` | `string` | ブロック時のみ | 判定を発生させた特定のセグメント |
-| `ruleId` | `string` | 一致したルールによるブロック時 | ブロックを発生させたルールの ID |
+| `ruleId` | `string` | ブロック時のみ | ブロックを発生させたルールまたは[固定の拒否](/ja/reference/destructive-rules#fixed-denial-ids)の ID |
 | `trace` | `ExplainTrace` | 常にある | 最上位およびセグメントごとの手順を持つトレースコンテナー |
 | `customRule` | `object` | カスタムルールまたは rulebook のルールが一致した場合 | `id` と、任意の `rulebook`（`name`、`version`）、`source`、`override`（`{ type: "reason", reason }`） |
 | `configSource` | `string \| null` | 常にある | 有効な設定を読み込んだ設定ファイル |
@@ -140,7 +140,7 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 
 典型的なトレースは、`parse` → セグメントごとの `env-strip` / `leading-tokens-stripped` → 検出（`shell-wrapper` / `interpreter` / `busybox` / `transparent-wrapper`）→ `rule-check` または `custom-rules-check` → 判定、という順に進みます。再帰は `depth` が増える `recurse` 手順として表示されます。ただし、`busybox` ディスパッチは `recurse` 手順を記録しても再帰深度を消費しません。そのため、busybox ラッパーのチェーンでは同じ `depth` 値が繰り返されます。判定だけが必要な場合は、トレースをたどらず、最上位の `result` と、必要に応じて `reason`、`segment`、`ruleId` を読んでください。
 
-3 つの保護は、エバリュエーターの実行前に短絡します。ポリシーファイル保護、Git メタデータ保護、シークレット保護です。これらのいずれかがコマンドをブロックすると、トレースには**合成された 1 つの `rule-check` 手順だけが入り、`parse` 手順はありません**。`ruleId` は `policy-protection`、`git-metadata-protection`、または一致したシークレットルールの ID になります。すべてのトレースが `parse` 手順で始まると仮定するツールは、この場合を処理する必要があります。
+4 つの保護は、エバリュエーターの実行前に短絡します。ポリシーファイル保護、`policy apply` の保護、Git メタデータ保護、シークレット保護です。これらのいずれかがコマンドをブロックすると、トレースには**合成された 1 つの `rule-check` 手順だけが入り、`parse` 手順はありません**。`ruleId` は `guard.policy-config`、`guard.policy-apply`、`guard.git-metadata`、または一致したシークレットルールの ID になります。すべてのトレースが `parse` 手順で始まると仮定するツールは、この場合を処理する必要があります。
 
 <span id="before-you-share-a-trace"></span>
 

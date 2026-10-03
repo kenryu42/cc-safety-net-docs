@@ -34,7 +34,7 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 | `result` | `"blocked" \| "allowed"` | 始终 | 命令的最终结果 |
 | `reason` | `string` | 仅在 blocked 时 | 阻止原因 |
 | `segment` | `string` | 仅在 blocked 时 | 触发决策的具体片段 |
-| `ruleId` | `string` | 仅在 blocked 并匹配规则时 | 产生该阻止的规则 ID |
+| `ruleId` | `string` | 仅在 blocked 时 | 产生该阻止的规则或[固定拒绝](/zh-Hans/reference/destructive-rules#fixed-denial-ids)的 ID |
 | `trace` | `ExplainTrace` | 始终 | 跟踪容器，含顶级步骤和各片段的步骤 |
 | `customRule` | `object` | 匹配到自定义规则或 rulebook 规则时 | `id`，以及可选的 `rulebook`（`name`、`version`）、`source` 和 `override`（`{ type: "reason", reason }`） |
 | `configSource` | `string \| null` | 始终 | 生效配置所来自的配置文件 |
@@ -140,7 +140,7 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 
 典型的跟踪流程为 `parse` → 每个片段的 `env-strip` / `leading-tokens-stripped` → 检测（`shell-wrapper` / `interpreter` / `busybox` / `transparent-wrapper`）→ `rule-check` 或 `custom-rules-check` → 决策。递归表现为 `depth` 递增的 `recurse` 步骤。`busybox` 分派是例外，它会记录 `recurse` 步骤但不消耗递归深度，因此一连串 busybox 包装器会重复同一个 `depth` 值。只需要判定结果时，直接读顶级的 `result`（以及 `reason`、`segment` 和 `ruleId`），不必遍历整条跟踪。
 
-有三种保护会在评估器运行之前短路：策略文件保护、Git 元数据保护和机密保护。其中之一阻止命令时，跟踪只含**一个合成的 `rule-check` 步骤，且没有 `parse` 步骤**，`ruleId` 设为 `policy-protection`、`git-metadata-protection` 或匹配到的机密规则的 ID。假定每条跟踪都以 `parse` 步骤开头的工具需要处理这种情况。
+有四种保护会在评估器运行之前短路：策略文件保护、`policy apply` 保护、Git 元数据保护和机密保护。其中之一阻止命令时，跟踪只含**一个合成的 `rule-check` 步骤，且没有 `parse` 步骤**，`ruleId` 设为 `guard.policy-config`、`guard.policy-apply`、`guard.git-metadata` 或匹配到的机密规则的 ID。假定每条跟踪都以 `parse` 步骤开头的工具需要处理这种情况。
 
 <span id="before-you-share-a-trace"></span>
 

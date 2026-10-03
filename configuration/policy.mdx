@@ -44,7 +44,7 @@ An `audit` section in a project file is ignored, and the load reports `project p
 
 ### Reported weakenings
 
-A project policy is honored as written. Nothing clamps it back up to the user baseline. Instead, every field it relaxes relative to the user policy gets its own reported line:
+By default a project policy is honored as written. Nothing clamps it back up to the user baseline. Instead, every field it relaxes relative to the user policy gets its own reported line:
 
 - `project policy lowers level: <user> -> <project>`
 - `project policy disables fail_closed`, `project policy disables paranoid_rm`, `project policy disables paranoid_interpreters`
@@ -55,12 +55,22 @@ A project policy is honored as written. Nothing clamps it back up to the user ba
 - `project policy adds destructive allow path: <path>`
 - `project policy adds secret allow path: <path>`
 
+A lowered level is measured against `safety.level` in the user policy. A disabled capability is measured against the user policy with its level raised by `CC_SAFETY_NET_LEVEL`. Under `CC_SAFETY_NET_LEVEL=paranoid`, a project `safety.overrides.paranoid_rm: false` is reported even when the user policy sets `standard`, and it turns `paranoid_rm` off unless [the switch below](#ignore-project-weakenings) is set. The capability toggles such as `CC_SAFETY_NET_PARANOID_RM=1` apply after every policy override, so a project file never turns them off.
+
 They appear in four places:
 
 - `status` adds a `Project` row with the project file's path, and a `Project policy` block listing the lines.
 - The status line adds a `🔻` glyph while any weakening is in force. See [Status line](/configuration/status-line).
 - `doctor` prints a `Project policy deltas:` block under Effective Safety.
 - `doctor` and `explain` name the scope that supplied the safety preset next to it, as `user policy`, `project policy`, or `built-in default`. See [Explain trace](/reference/explain-trace).
+
+### Ignore project weakenings
+
+Set `CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY=1` to refuse every weakening a project policy makes. The merge then drops each field that has a reported line above: a lowered level, a disabled capability, enabled worktree relaxations, a disabled protection, a rule switched off, and an added allow path. The rest of the project file still applies, so its tightenings take effect. Like the other boolean switches, it is on when set to `1` or `true` (case-insensitive). See [Environment](/configuration/environment#project-policy-weakenings).
+
+The dropped fields are still reported. `status` titles its block `Project policy (ignored)`, and `doctor` prints `Project policy deltas (ignored):`. The status line shows no `🔻`, and the dashboard's project-policy notice lists none of them, because none is in force. When the switch drops a project level, `doctor` and `explain` name `user policy` or `built-in default` as the preset's scope.
+
+The switch does not change the previews. `policy check`, `policy apply`, and the dashboard's project draft review diff the merge without it, so they show what a member without the switch gets.
 
 ## Policy file protection
 
@@ -274,7 +284,7 @@ That example takes the `paranoid` preset but leaves interpreter one-liners alone
 }
 ```
 
-An id that is not registered is rejected with `unknown destructive command rule id "<id>"`, and any value other than `"on"` or `"off"` is rejected with `destructive_command_protection.overrides.<id> must be "on" or "off"`.
+An id that is not registered is rejected with `unknown destructive command rule id "<id>"`, and any value other than `"on"` or `"off"` is rejected with `destructive_command_protection.overrides.<id> must be "on" or "off"`. The [fixed denial ids](/reference/destructive-rules#fixed-denial-ids), such as `guard.policy-config` or `analysis.dynamic-shell-source`, are not registered rules, so an override naming one is rejected the same way.
 
 To find the id for a blocked command, read it from the block message or run `npx -y cc-safety-net explain --json '<command>'` and read the `ruleId` field. Every id, what it blocks, and when it is active is listed in the [Destructive-command rules reference](/reference/destructive-rules), which also walks through [allowing a built-in rule](/reference/destructive-rules#allow-a-built-in-rule).
 

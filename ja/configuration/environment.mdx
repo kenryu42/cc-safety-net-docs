@@ -1,7 +1,7 @@
 ---
 title: "環境変数"
 sidebarTitle: "環境変数"
-description: "CC Safety Net のすべての環境変数のリファレンスです。安全レベル、機能トグル、監査ログの記録範囲、デバッグ出力、設定ディレクトリの上書き、更新チェックの無効化、ポリシーと環境変数の優先順位を扱います。"
+description: "CC Safety Net のすべての環境変数のリファレンスです。安全レベル、機能トグル、プロジェクトポリシーの緩和を無視するスイッチ、監査ログの記録範囲、デバッグ出力、設定ディレクトリの上書き、更新チェックの無効化、ポリシーと環境変数の優先順位を扱います。"
 ---
 
 CC Safety Net は、`policy.json` と環境変数から設定を読み取ります。モードのトグルには `CC_SAFETY_NET_*` というプレフィックスを使います。`CC_` プレフィックスのない古い `SAFETY_NET_*` という名前も、以降で明記した箇所では以前からのエイリアスとして使用できます。変数は、エージェントを起動する前にシェルまたはエージェントの起動環境で設定してください。
@@ -32,7 +32,7 @@ CC Safety Net: ignored invalid CC_SAFETY_NET_LEVEL="<value>". Use standard, stri
 | --- | --- | --- |
 | `CC_SAFETY_NET_STRICT=1` | `SAFETY_NET_STRICT` | `fail_closed` 機能を強制的に有効にします。`safety.overrides.fail_closed: true` と同じです。 |
 | `CC_SAFETY_NET_PARANOID=1` | `SAFETY_NET_PARANOID` | `paranoid_rm` と `paranoid_interpreters` の両方を強制的に有効にします。`fail_closed` は設定**しません**。 |
-| `CC_SAFETY_NET_PARANOID_RM=1` | `SAFETY_NET_PARANOID_RM` | `paranoid_rm` を強制的に有効にします。対象がカレントディレクトリ配下にある場合でも、一時パス以外への `rm -rf` をブロックします。 |
+| `CC_SAFETY_NET_PARANOID_RM=1` | `SAFETY_NET_PARANOID_RM` | `paranoid_rm` を強制的に有効にします。対象がカレントディレクトリ配下にある場合でも、一時パス以外を対象とする `rm -r`、`rm -rf`、`find -delete` をブロックします。 |
 | `CC_SAFETY_NET_PARANOID_INTERPRETERS=1` | `SAFETY_NET_PARANOID_INTERPRETERS` | `paranoid_interpreters` を強制的に有効にします。内容にかかわらず、すべてのインタープリター 1 行コードをブロックします。 |
 | `CC_SAFETY_NET_WORKTREE=1` | `SAFETY_NET_WORKTREE` | 確認済みの linked worktree 内で、ローカルの変更を破棄する Git ルールを緩和します。`workflow.worktree_mode` とは論理 OR で組み合わせます。 |
 
@@ -53,6 +53,18 @@ CC Safety Net: ignored invalid CC_SAFETY_NET_LEVEL="<value>". Use standard, stri
 報告される**有効なレベル**は、最終的な 3 つの機能の組み合わせから決まります。どの preset にも一致しない組み合わせ（たとえば `fail_closed` が無効で `paranoid_rm` が有効な場合）は、`custom` として報告されます。
 
 `destructive_command_protection.overrides` のルール単位の設定は、機能から決まった状態の後に適用されます。致命的な操作に対するルールは常に強制され、どの設定でも無効にできません。
+
+<span id="project-policy-weakenings"></span>
+
+## プロジェクトポリシーの緩和
+
+| 変数 | 以前のエイリアス | 効果 |
+| --- | --- | --- |
+| `CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY=1` | なし | プロジェクトの `.cc-safety-net/policy.json` のうち、ユーザーポリシーを緩めるフィールドを無視します。保護を強める設定はそのまま適用されます。既定では無効です。 |
+
+無視した緩和も、`status` と `doctor` には引き続き表示されます。見出しはそれぞれ `Project policy (ignored)` と `Project policy deltas (ignored):` です。取り除かれるフィールドと、それぞれの判定基準は[プロジェクトの緩和を無視する](/ja/configuration/policy#ignore-project-weakenings)を参照してください。
+
+このスイッチがない場合、`CC_SAFETY_NET_LEVEL` が有効にした機能を、プロジェクトの `safety.overrides` で無効にできます。override はレベルの後に適用されるためです（上の手順 3）。機能トグルは最後に適用されるため、プロジェクトファイルから無効にすることはできません。
 
 ## 監査ログの記録範囲
 

@@ -64,16 +64,18 @@ type CheckCommandInput = Readonly<{
 ```ts
 type CheckCommandResult =
   | Readonly<{ kind: 'allow' }>
-  | Readonly<{ kind: 'deny'; reason: string; ruleId?: string }>;
+  | Readonly<{ kind: 'deny'; reason: string; ruleId: string }>;
 ```
 
 | Field | Presence | Description |
 | --- | --- | --- |
 | `kind` | always | `'allow'` or `'deny'` |
 | `reason` | deny only | The block message, as displayed to a user |
-| `ruleId` | deny with a matched rule | The id of the rule that produced the block |
+| `ruleId` | deny only | The id of the rule or fixed denial that produced the block |
 
-Read `kind` for the decision. A `deny` means the host must not execute the command. `reason` is display text. Do not parse or compare it, and treat `ruleId` as diagnostic data only. For what a deny can be, see [Blocked commands](/reference/blocked-commands).
+Read `kind` for the decision. A `deny` means the host must not execute the command. `reason` is display text. Do not parse or compare it.
+
+Every deny carries a `ruleId`. It is a built-in rule id such as `git.reset-hard`, a secret rule id, a `custom.` rule id, or one of the [fixed denial ids](/reference/destructive-rules#fixed-denial-ids), such as `cwd.requested-unusable`. You can branch on it to handle one kind of deny differently, for example to tell the user to fix the working directory. A deny blocks the command whatever its id. A later version can add ids, so treat an id you do not recognize as a plain deny. For what a deny can be, see [Blocked commands](/reference/blocked-commands).
 
 ### Errors
 
@@ -95,10 +97,10 @@ The function re-validates its input, because an untyped caller can pass anything
 
 `cwd` is normalized with `resolve()`, then checked. The path must stat as a directory and be readable and searchable. There is deliberately no `realpath` step, so the OpenCode plugin and this function decide alike for one directory.
 
-When that check fails, the call returns a deny with the fail-closed reason instead of analyzing the wrong project:
+When that check fails, the call returns a deny with `ruleId` `cwd.requested-unusable` instead of analyzing the wrong project. The reason is:
 
 ```
-CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user.
+CC Safety Net could not use the requested working directory because it does not exist, is inaccessible, is not a directory, or uses an unsupported path form. Use an existing accessible working directory. If the requested directory is missing, create it from an accessible location before retrying the command.
 ```
 
 ## Example

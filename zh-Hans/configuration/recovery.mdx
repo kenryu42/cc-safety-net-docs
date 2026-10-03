@@ -99,7 +99,7 @@ CC Safety Net 会在每次工具调用时加载策略快照。它读取用户策
 `transparent_wrappers` 声明在 `rule.json` 中，而不是在 rulebook 中，并且 `rule.json` 本身没有 digest。这有两个后果：
 
 - **被丢弃的 rulebook** 仍保留其范围的包装器，因为 `rule.json` 本身仍然可读。
-- **无法读取的 `rule.json`** 会丢失该范围声明的包装器，因为没有经过验证的副本可以回退。分析不再穿透这些包装命令去识别其下受保护的命令。内置的七个包装器（`exec`、`nice`、`nohup`、`setsid`、`stdbuf`、`time`、`timeout`）不依赖这个文件，因此不受影响。
+- **无法读取的 `rule.json`** 会丢失该范围声明的包装器，因为没有经过验证的副本可以回退。分析不再穿透这些包装命令去识别其下受保护的命令。内置的八个包装器（`caffeinate`、`exec`、`nice`、`nohup`、`setsid`、`stdbuf`、`time`、`timeout`）不依赖这个文件，因此不受影响。
 
 这是唯一一处被拒绝的配置会削弱内置覆盖，而不只是移除你自己的规则。当某个范围因此被丢弃时，请先修复 `rule.json`。
 
@@ -141,7 +141,7 @@ CC Safety Net 会在每次工具调用时加载策略快照。它读取用户策
 ## 可见的失败与静默的失败
 
 - **规则来源被丢弃时，会话中可能没有提示。** 它减少的是拒绝，因此普通会话可能没有任何异常。每次修改规则配置或升级后，都应运行 `cc-safety-net status` 检查。需要完整报告时运行 `doctor`。
-- **未迁移的旧配置更加静默。** 运行时既不加载该文件，也不报告它，因此即使其中的规则毫无保护作用，快照仍保持 `ready`。用 `rule verify` 才能标记出来。
+- **未迁移的旧配置更加静默。** 运行时不加载该文件，`status` 也不报告它，因此即使其中的规则毫无保护作用，快照仍保持 `ready`。`doctor` 会把它报告为警告项 `config.legacy-ignored`，`rule verify` 也会标记出来。
 - **无效的 `policy.json` 大多会自己暴露出来**，因为被拒绝的部分会回退到保护性默认值：两项保护被强制开启，允许路径被丢弃，用于关闭规则的覆盖被丢弃。你会因为出现*比配置更多*的拒绝而发现它。
 - **无效 `policy.json` 静默的那一半**：无效的 `safety.level` 会静默回退到 `standard`，因此把 `paranoid` 拼错反而会**降低**你的预设。无效的 `secret_protection.deny_paths` 条目，以及会把规则提到高于默认值的按规则覆盖，都会被丢弃而不是被修复。
 - 只有状态行标记是被动呈现的。`Config warning:` 行需要依附一次无关的拒绝才会出现，其他所有呈现位置都要等你运行命令或打开仪表板。
@@ -213,7 +213,7 @@ CC Safety Net 会在每次工具调用时加载策略快照。它读取用户策
 
 ## 迁移旧的内联规则
 
-运行时不再加载旧的内联配置文件 `~/.cc-safety-net/config.json` 和 `.safety-net.json`，也不会为它们生成诊断。**其中的规则不会执行**，但其他功能照常工作，快照仍可能保持 `ready`。这会造成升级后的静默保护缺失。`cc-safety-net rule verify` 会标记仍需迁移的旧文件。
+运行时不再加载旧的内联配置文件 `~/.cc-safety-net/config.json` 和 `.safety-net.json`。**其中的规则不会执行**，但其他功能照常工作，快照仍可能保持 `ready`。这会造成升级后的静默保护缺失：会话不会中断，运行时和 `status` 也都不报告这个问题。`cc-safety-net doctor` 会把找到的每个文件报告为警告项 `config.legacy-ignored`，标题为 `Legacy inline rule configs are ignored`，并提示运行 `rule migrate`。该警告不影响 `doctor` 的退出码。`cc-safety-net rule verify` 也会标记仍需迁移的旧文件。
 
 在要转换旧配置的那个项目中运行迁移：
 

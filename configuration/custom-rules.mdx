@@ -7,7 +7,7 @@ description: "Define project and user-level custom blocking rules in CC Safety N
 Use custom blocking rules to enforce team conventions or project-specific safety policies. Rules use a **rulebook-based layout** and merge from user and project scopes. This lets you keep personal defaults with project overrides.
 
 <Warning>
-  **Breaking change.** CC Safety Net no longer loads legacy inline configuration files (`.safety-net.json` and `~/.cc-safety-net/config.json`) at runtime. If they contain rules, **those rules are inert until you migrate**. The runtime ignores legacy files silently. `rule verify` warns about them. Ordinary commands keep working. Run `npx -y cc-safety-net rule migrate` to convert legacy rules into the rulebook layout. See [Migrate legacy configuration](#migrate-legacy-configuration).
+  **Breaking change.** CC Safety Net no longer loads legacy inline configuration files (`.safety-net.json` and `~/.cc-safety-net/config.json`) at runtime. If they contain rules, **those rules are inert until you migrate**. The runtime ignores legacy files silently. `doctor` and `rule verify` warn about them. Ordinary commands keep working. Run `npx -y cc-safety-net rule migrate` to convert legacy rules into the rulebook layout. See [Migrate legacy configuration](#migrate-legacy-configuration).
 </Warning>
 
 <Tip>
@@ -133,7 +133,7 @@ See [Configuration recovery](/configuration/recovery) for the full state model, 
 
 If your team runs commands through a wrapper such as `rtk`, analysis sees the wrapper by default, not the command underneath. Listing the wrapper in `transparent_wrappers` lets CC Safety Net look through it to the visible protected child command, so both built-in analysis and your custom rules apply to `rtk git reset --hard` and `rtk docker system prune` exactly as they would to the bare commands.
 
-`exec`, `nice`, `nohup`, `setsid`, `stdbuf`, `time`, and `timeout` are wrappers without being listed, so `timeout 5 docker system prune` hits the same custom rule as the bare command.
+`caffeinate`, `exec`, `nice`, `nohup`, `setsid`, `stdbuf`, `time`, and `timeout` are wrappers without being listed, so `timeout 5 docker system prune` hits the same custom rule as the bare command.
 
 Configure wrappers with the `rule wrapper` subcommand rather than editing `rule.json` by hand:
 
@@ -151,7 +151,7 @@ npx -y cc-safety-net rule wrapper add rtk --global
 
 Rules for the field:
 
-- **Seven wrappers are built in.** `exec`, `nice`, `nohup`, `setsid`, `stdbuf`, `time`, and `timeout` always run a visible child, so analysis looks through them whether or not they appear in the file. Configure only the other wrappers you intentionally trust.
+- **Eight wrappers are built in.** `caffeinate`, `exec`, `nice`, `nohup`, `setsid`, `stdbuf`, `time`, and `timeout` always run a visible child, so analysis looks through them whether or not they appear in the file. Configure only the other wrappers you intentionally trust.
 - A wrapper name must match `^[a-zA-Z][a-zA-Z0-9_-]*$` and must be unique within the file.
 - **Reserved commands cannot be wrappers**: `git`, `busybox`, the built-in analyzed commands `rm`, `find`, `xargs`, and `parallel`, every shell wrapper, every interpreter, and the awk interpreters.
 - Unwrapping finds the first *protectable* child command after wrapper flags and `VAR=value` assignments, or the token immediately after an explicit `--`. A child that is not itself protectable is not unwrapped.
@@ -604,11 +604,11 @@ Legacy inline config files (`.safety-net.json` and `~/.cc-safety-net/config.json
 
 | Legacy file state | New behavior |
 | --- | --- |
-| Empty legacy file | Silently ignored. Only built-in rules apply |
+| Empty legacy file | Ignored at runtime. Only built-in rules apply |
 | Legacy file with rules | Its rules are **inert** until migrated with `rule migrate`; the runtime ignores the file silently |
 | Invalid legacy file | Same result. Inert until fixed and migrated, or removed |
 
-CC Safety Net never enforces legacy rules from their old location, and they do not block work. The runtime does not inspect legacy files, so no warning appears at guard time. Run `npx -y cc-safety-net rule verify` after an upgrade to find a leftover legacy file.
+CC Safety Net never enforces legacy rules from their old location, and they do not block work. The runtime does not inspect legacy files, so no warning appears at guard time. After an upgrade, `npx -y cc-safety-net doctor` reports a leftover legacy file as the warning `Legacy inline rule configs are ignored`, and `rule verify` reports it too. The warning does not fail `doctor`, because a leftover file next to an already migrated config is harmless.
 
 ```bash
 # Convert legacy inline rules into the rulebook layout

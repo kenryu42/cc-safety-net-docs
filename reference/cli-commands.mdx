@@ -87,9 +87,12 @@ The verdict is taken from the policy snapshot and is never re-derived from your 
 | `Level` | The effective level: `standard`, `strict`, `paranoid`, or `custom`. A ` (customised)` suffix appears when an effective destructive-command rule differs from what the level would inherit |
 | `Rules` | `none active`, or `<n> active` for the number of active custom rules |
 | `Policy` | The path to your user policy file, shortened with `~` |
+| `Project` | The path to the project policy file. This row is printed **only** when the current directory has a `.cc-safety-net/policy.json` |
 | `Worktree` | `relaxations active`. This row is printed **only** when worktree mode is on |
 
 Fact rows are single-line: a long value is truncated with `…` rather than wrapped.
+
+When the project policy weakens the user policy, a `Project policy` block follows the facts with one line per weakened field. The block is titled `Project policy (ignored)` when `CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY` is set. See [Reported weakenings](/configuration/policy#reported-weakenings).
 
 After the facts block, `status` prints either `Everything configured is active.` or a `Not active` section with one wrapped bullet per issue. The plugin-disabled bullet appears first when applicable, followed by the snapshot diagnostics and `Full report: cc-safety-net doctor`.
 
@@ -116,7 +119,7 @@ bunx cc-safety-net doctor
 | Guard Engine Verification | Runs a synthetic self-test to confirm blocking works (`git reset --hard` and `rm -rf /` blocked; `rm -rf ./node_modules` allowed) |
 | Configuration | Validates user and project rule config and lists the effective rules |
 | Environment | Shows the state of the CC Safety Net environment variables |
-| Effective Safety | Shows the selected preset, effective level, capabilities, and rule overrides, including any override that weakens an inherited rule |
+| Effective Safety | Shows the selected preset, effective level, capabilities, and rule overrides, including any override that weakens an inherited rule. Project policy weakenings appear under `Project policy deltas:`, or `Project policy deltas (ignored):` when `CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY` is set |
 | Findings | Diagnosed problems, each with a severity and a fix hint |
 | Recent Activity | Summarizes blocked commands from the last 7 days |
 | System Info | Displays versions of all relevant tools |
@@ -160,6 +163,8 @@ A `cc-safety-net` row whose state is `failed`, with no matching row `active`, ma
 - The policy, config, or audit directory is unsafe: it is not owned by you, is group- or world-writable, is a symbolic link, or is not a directory.
 
 A `rule.lock` file or a `cache` directory left by an earlier version raises the `info` finding `config.v2-leftovers`, titled `Rulebook lock and cache leftovers detected`. The runtime no longer reads either one. Its fix hint is ``Run `cc-safety-net rule sync` (add `--global` for user scope) to migrate them, then rerun doctor.`` An `info` finding never changes the exit code.
+
+A legacy inline rule config raises the `warning` finding `config.legacy-ignored`, titled `Legacy inline rule configs are ignored`. `doctor` checks for `.safety-net.json` in the directory you run it in and for `config.json` in the CC Safety Net home directory (`~/.cc-safety-net/config.json` unless `CC_SAFETY_NET_HOME` is set). The detail is `CC Safety Net no longer loads these files, so their rules enforce nothing: <paths>.` and the fix hint is ``Run `cc-safety-net rule migrate` to convert them (add `--cleanup` to delete each file once it is converted), then rerun doctor.`` `doctor --json` lists the same paths in `legacyConfigs`, project file first.
 
 When some audit log files cannot be read, the Recent Activity section ends with `Warning: <n> audit log sources could not be read; this summary is incomplete` (`source` when it is one), so a quiet week is not mistaken for a complete one.
 
@@ -525,6 +530,8 @@ npx -y cc-safety-net rule migrate --cleanup
 
 `--cleanup` deletes the legacy files after the migrated rules verify. `migrate` rejects `--global` and any second positional argument.
 
+`doctor` reports an unmigrated legacy file as the warning finding `config.legacy-ignored`.
+
 ### rule doc
 
 Print the rulebook authoring guide to stdout. Pipe the guide to an agent for rulebook authoring or validation:
@@ -796,7 +803,7 @@ bunx cc-safety-net statusline --claude-code
 bunx cc-safety-net statusline -cc
 ```
 
-The line shows `🛡️ CC Safety Net ❌` when the plugin is disabled. Otherwise it shows the level as an emoji, `✅` standard, `🔒` strict, `👁️` paranoid, `🔧` customised, plus `🌳` when worktree relaxations are active and a trailing `⚠️` when the policy snapshot is degraded.
+The line shows `🛡️ CC Safety Net ❌` when the plugin is disabled. Otherwise it shows the level as an emoji, `✅` standard, `🔒` strict, `👁️` paranoid, `🔧` customised, plus `🌳` when worktree relaxations are active, `🔻` when a project policy weakening is in force, and a trailing `⚠️` when the policy snapshot is degraded. A weakening ignored under `CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY` shows no `🔻`.
 
 `statusline` reads standard input when input is piped to it. It discards Claude Code's JSON status payload. It keeps other piped text and prefixes it to the indicators as `<stdin> | <status>`.
 

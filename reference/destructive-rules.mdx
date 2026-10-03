@@ -16,7 +16,7 @@ Destructive-command protection is the command-analysis stage that blocks command
 
 This page lists every built-in rule id, what it blocks, and when it is active. Use it to look up a rule from a block message and decide whether to turn it off. See [Blocked commands](/reference/blocked-commands) for the boundary of each rule with worked examples, [Policy](/configuration/policy#destructive-command-protection) for the `destructive_command_protection` schema, and [Custom rules](/configuration/custom-rules) to add rules of your own.
 
-There are **59 registered rules**. Six are [catastrophic](#catastrophic-rules) and cannot be turned off. Every other rule accepts a per-rule override.
+There are **59 registered rules**. Six are [catastrophic](#catastrophic-rules) and cannot be turned off. Every other rule accepts a per-rule override. A deny that no rule produced carries one of the [fixed denial ids](#fixed-denial-ids) instead, and no override can turn those off.
 
 ## Allow a built-in rule
 
@@ -131,3 +131,25 @@ Six rules are marked catastrophic. They ignore `destructive_command_protection.e
 | `shell.dynamic-structure` | Blocks guarded subcommands and options assembled from substitution output in strict mode. | `git reset $(printf --hard)` | [Strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) |
 | `shell.dynamic-executable` | Blocks executable names assembled from command substitution output in strict mode. | `$(printf r)m -rf /` | [Strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) |
 | `raw-text.dangerous-command` | Blocks dangerous commands detected in raw command text. | `git reset --hard 'unterminated` | All levels |
+
+## Fixed denial ids
+
+Some denials do not come from any rule. They come from the guards that run before command analysis, from analysis limits and failures, and from unusable working directories. Each carries a fixed id in the block message, the [audit log](/reference/audit-log), the `ruleId` field of `explain --json`, and the `ruleId` of a [`checkCommand`](/reference/library-api) deny. These ids are not registered rules, so `destructive_command_protection.overrides` cannot name them. `policy check` rejects each one with `unknown destructive command rule id "<id>"`.
+
+| Id | When it denies |
+| --- | --- |
+| `guard.policy-config` | A write, move, or recursive delete touches a protected `policy.json` or a directory that contains one |
+| `guard.policy-apply` | The command runs `cc-safety-net policy apply` |
+| `guard.git-metadata` | A delete, move, or write targets the resolved `.git` entry, its directories, or its hooks directories |
+| `analysis.recursion-limit` | Nesting exceeds the maximum recursion depth |
+| `analysis.structural-limit` | The command's structure exceeds safe validation limits |
+| `analysis.limit` | The command exceeds safe analysis limits |
+| `analysis.derived-command-limit` | The analyzer exceeds its derived-command work limit |
+| `analysis.failed-closed` | The guard failed unexpectedly, or could not read the tool call, and failed closed |
+| `analysis.strict-unparseable` | The parser rejects the command, or strict mode cannot fully parse it |
+| `analysis.unsupported-heredoc` | In strict mode, the command uses heredoc syntax the parser does not support |
+| `analysis.dynamic-shell-source` | A shell runs script text that is not a literal string, such as `sh -c "$CMD"` |
+| `cwd.session-unusable` | The session's working directory or workspace root does not exist, is inaccessible, is not a directory, or uses an unsupported path form |
+| `cwd.session-outside-workspace` | The session's working directory is outside its workspace roots |
+| `cwd.requested-unusable` | The working directory a tool call or `checkCommand` asks for does not exist, is inaccessible, is not a directory, or uses an unsupported path form |
+| `cwd.requested-outside-workspace` | The working directory a tool call asks for is outside the session's workspace |

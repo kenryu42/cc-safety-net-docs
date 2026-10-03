@@ -107,7 +107,7 @@ export CC_SAFETY_NET_STRICT=1
 コマンドが敵対的な文脈や信頼できない経路から渡される可能性がある場合は、strict モードを有効にしてください。保護を最大限に高めたい場合や、珍しいコマンド構文でときどき誤検知が出ても許容できる場合にも適しています。
 
 <Note>
-  [policy.json](/ja/configuration/policy) の `destructive_command_protection.overrides` を使うと、strict 相当のルールを個別に無効にできます。逆に `"on"` の override を指定すれば、standard でも任意の strict 相当ルールを強制的に有効にできます。ただし、パーサーの fail closed や機密パスに関する判定など、破壊的コマンドのルール ID を持たない fail closed の結果については、strict は引き続き strict のまま動作します。
+  [policy.json](/ja/configuration/policy) の `destructive_command_protection.overrides` を使うと、strict 相当のルールを個別に無効にできます。逆に `"on"` の override を指定すれば、standard でも任意の strict 相当ルールを強制的に有効にできます。ただし、パーサーの fail closed や機密パスに関する判定など、登録済みの破壊的コマンドのルール ID を持たない fail closed の結果については、strict は引き続き strict のまま動作します。
 </Note>
 
 <span id="paranoid-mode"></span>
@@ -120,7 +120,7 @@ export CC_SAFETY_NET_STRICT=1
 
 ### rm チェック（`CC_SAFETY_NET_PARANOID_RM=1`）
 
-既定では、カレントディレクトリ配下の `rm -rf` は許可されます。自分のプロジェクトルート内のファイルを削除するのは意図的な操作だ、という前提に立っているためです。paranoid の rm チェックを有効にすると、**カレントディレクトリ配下であっても**、一時パス以外への再帰的な強制削除をブロックします。`rm -rf ./cache` は `rm.recursive-force-paranoid` に一致し、PowerShell の同等コマンドである `Remove-Item ./cache -Recurse -Force` は `powershell.remove-item-recursive-force-paranoid` に一致します。
+既定では、カレントディレクトリ配下の `rm -rf` と `find -delete` は許可されます。自分のプロジェクトルート内のファイルを削除するのは意図的な操作だ、という前提に立っているためです。paranoid の rm チェックを有効にすると、**カレントディレクトリ配下であっても**、一時パス以外への再帰的な削除をブロックします。`rm -rf ./cache` と `rm -r ./cache` は `rm.recursive-force-paranoid` に一致し、`find ./cache -delete` は `find.delete` としてブロックされます。PowerShell の同等コマンドである `Remove-Item ./cache -Recurse -Force` は `powershell.remove-item-recursive-force-paranoid` に一致します。
 
 このチェックを有効にしても、一時パスと `destructive_command_protection.allow_paths` に指定したディレクトリは許可されたままです。
 
@@ -209,7 +209,7 @@ worktree の検出は **fail closed** です。カレントディレクトリを
 | --- | --- |
 | `standard` | 追加機能なし。認識できる破壊的コマンドに対するベストエフォートの保護 |
 | `strict` | `fail_closed`：解析できないコマンド、未対応の heredoc、検証できない破壊的対象、メタデータのみによる機密パスの探索 |
-| `paranoid` | strict に加えて `paranoid_rm`（カレントディレクトリ配下でも一時パス以外の `rm -rf` をブロック）と `paranoid_interpreters`（内容にかかわらずすべての 1 行コードをブロック） |
+| `paranoid` | strict に加えて `paranoid_rm`（カレントディレクトリ配下でも一時パス以外の `rm -r` と `rm -rf` をブロック）と `paranoid_interpreters`（内容にかかわらずすべての 1 行コードをブロック） |
 | `custom` | どの preset にも一致しない機能の組み合わせ |
 
 worktree モードはレベルとは独立しており、確認済みの linked worktree 内でローカル破棄ルールを緩和します。

@@ -87,9 +87,12 @@ plugin cc-safety-net@cc-marketplace is disabled in Claude Code; nothing is enfor
 | `Level` | 生效级别：`standard`、`strict`、`paranoid` 或 `custom`；当任何生效的破坏性命令规则与该级别本应继承的规则不同时，会带上 ` (customised)` 后缀 |
 | `Rules` | `none active`，或用 `<n> active` 给出活动自定义规则的数量 |
 | `Policy` | 用户策略文件的路径，使用 `~` 缩短 |
+| `Project` | 项目策略文件的路径；此行**仅**在当前目录有 `.cc-safety-net/policy.json` 时打印 |
 | `Worktree` | `relaxations active`；此行**仅**在启用 worktree 模式时打印 |
 
 信息行都是单行的：过长的值用 `…` 截断，而不是折行。
+
+项目策略削弱了用户策略时，信息块之后会跟一个 `Project policy` 区块，每个被削弱的字段占一行。设置了 `CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY` 时，区块标题为 `Project policy (ignored)`。参见[报告的削弱](/zh-Hans/configuration/policy#reported-weakenings)。
 
 信息块之后，`status` 会打印 `Everything configured is active.`，或者一个 `Not active` 小节：每个问题一条自动折行的条目，插件禁用的那条在适用时排在最前，随后是快照诊断；最后跟上 `Full report: cc-safety-net doctor`。
 
@@ -116,7 +119,7 @@ bunx cc-safety-net doctor
 | Guard Engine Verification | 运行合成自检，确认阻止确实生效（`git reset --hard` 和 `rm -rf /` 被阻止；`rm -rf ./node_modules` 被允许） |
 | Configuration | 验证用户和项目规则配置，并列出生效的规则 |
 | Environment | 显示 CC Safety Net 环境变量的状态 |
-| Effective Safety | 显示选定的预设、生效级别、能力和规则覆盖，包括任何削弱继承规则的覆盖 |
+| Effective Safety | 显示选定的预设、生效级别、能力和规则覆盖，包括任何削弱继承规则的覆盖。项目策略的削弱列在 `Project policy deltas:` 下；设置了 `CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY` 时，标题为 `Project policy deltas (ignored):` |
 | Findings | 诊断出的问题，每条都带有严重程度和修复提示 |
 | Recent Activity | 总结过去 7 天内被阻止的命令 |
 | System Info | 显示所有相关工具的版本 |
@@ -160,6 +163,8 @@ Warning (Codex): Codex runs only trusted hooks, and doctor cannot check trust. S
 - policy、config 或 audit 目录不安全，即不归当前用户所有、组或其他用户可写、是符号链接，或不是目录。
 
 旧版本遗留的 `rule.lock` 文件或 `cache` 目录会产生 `info` 严重程度的条目 `config.v2-leftovers`，标题为 `Rulebook lock and cache leftovers detected`。运行时不再读取它们。修复提示是 ``Run `cc-safety-net rule sync` (add `--global` for user scope) to migrate them, then rerun doctor.``。`info` 条目不影响退出码。
+
+存在旧版内联规则配置时，会产生 `warning` 严重程度的条目 `config.legacy-ignored`，标题为 `Legacy inline rule configs are ignored`。`doctor` 检查运行目录下的 `.safety-net.json`，以及 CC Safety Net 主目录下的 `config.json`（未设置 `CC_SAFETY_NET_HOME` 时为 `~/.cc-safety-net/config.json`）。详情为 `CC Safety Net no longer loads these files, so their rules enforce nothing: <paths>.`，修复提示是 ``Run `cc-safety-net rule migrate` to convert them (add `--cleanup` to delete each file once it is converted), then rerun doctor.``。`doctor --json` 在 `legacyConfigs` 中列出同样的路径，项目文件在前。
 
 当某些审计日志文件无法读取时，Recent Activity 部分以 `Warning: <n> audit log sources could not be read; this summary is incomplete`（当只有一个时为 `source`）结尾，以免把平静的一周误当成完整的记录。
 
@@ -525,6 +530,8 @@ npx -y cc-safety-net rule migrate --cleanup
 
 `--cleanup` 会在迁移后的规则通过校验后删除旧版文件。`migrate` 不接受 `--global` 和任何第二个位置参数。
 
+`doctor` 会把尚未迁移的旧版文件报告为 `warning` 严重程度的条目 `config.legacy-ignored`。
+
 ### rule doc
 
 把 rulebook 编写指南打印到 stdout。可以把指南通过管道交给智能体，用于编写或校验 rulebook：
@@ -796,7 +803,7 @@ bunx cc-safety-net statusline --claude-code
 bunx cc-safety-net statusline -cc
 ```
 
-插件被禁用时，该行显示 `🛡️ CC Safety Net ❌`。否则显示对应级别的表情符号：`✅` standard、`🔒` strict、`👁️` paranoid、`🔧` customised；worktree 放宽生效时再加上 `🌳`，策略快照降级时在末尾加上 `⚠️`。
+插件被禁用时，该行显示 `🛡️ CC Safety Net ❌`。否则显示对应级别的表情符号：`✅` standard、`🔒` strict、`👁️` paranoid、`🔧` customised；worktree 放宽生效时再加上 `🌳`，有项目策略削弱生效时加上 `🔻`，策略快照降级时在末尾加上 `⚠️`。在 `CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY` 下被忽略的削弱不会显示 `🔻`。
 
 有输入通过管道传入时，`statusline` 会读取标准输入。它会丢弃 Claude Code 的 JSON 状态负载，保留其他管道文本，并以 `<stdin> | <status>` 的形式把它放在指示器前面。
 

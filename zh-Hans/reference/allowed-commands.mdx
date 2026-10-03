@@ -53,18 +53,19 @@ CC Safety Net 通过语义分析区分允许的命令形式和破坏性的命令
 | `rm -rf /var/tmp/...` | 系统临时目录 | 全部 |
 | `rm -rf $TMPDIR/...` | 用户的临时目录（除非 `$TMPDIR` 被覆盖为非临时路径） | 全部 |
 | `rm -rf ./subdir`（cwd 内） | 限定在当前工作目录内的路径 | 除 [paranoid rm](/zh-Hans/configuration/modes#paranoid-rm-check) 外全部 |
+| `find ./subdir -delete`（cwd 内） | 所有起点都解析到当前工作目录内，与 `rm -rf ./subdir` 通过的是同一项检查 | 除 [paranoid rm](/zh-Hans/configuration/modes#paranoid-rm-check) 外全部 |
 | `rm -rf "$target"`（动态目标） | `standard` 不会一律阻止无法验证的目标 | **仅 `standard`** |
 | `cleanup() { rm -rf ../outside; }`（仅定义） | 只定义函数不会执行正文；函数正文只在调用位置分析 | 全部 |
 | 仓库根目录下的 `find . -name '*.pyc' -exec rm {} +` | 受保护的 Git 元数据中没有条目能匹配这个字面量 `-name` 过滤条件，起点触发的阻止随之解除 | 全部 |
 
-`rm -rf` 按目标分类，第一个匹配项生效。根目录或主目录目标（`/`、`~`、`$HOME`）、受保护的 Git 元数据、当前工作目录本身（`rm -rf .`），以及当前工作目录就是主目录的情况，在所有级别都被阻止。当前工作目录外的其他字面路径也会被阻止，除非它们是已识别的临时目标或配置的允许路径。临时路径和当前工作目录内的路径是允许的。请注意区别：`rm -rf ./subdir` 是允许的，但 `rm -rf .`（当前工作目录本身）被阻止。
+`rm -rf` 按目标分类，第一个匹配项生效。根目录或主目录目标（`/`、`~`、`$HOME`）、受保护的 Git 元数据、当前工作目录本身（`rm -rf .`），以及当前工作目录就是主目录的情况，在所有级别都被阻止。当前工作目录外的其他字面路径也会被阻止，除非它们是已识别的临时目标或配置的允许路径。临时路径和当前工作目录内的路径是允许的。请注意区别：`rm -rf ./subdir` 是允许的，但 `rm -rf .`（当前工作目录本身）被阻止。不带 `-f` 的 `rm -r` 和 `find -delete` 的每个起点也按同样方式分类，因此 `find ./subdir -delete` 允许，`find . -delete` 被阻止。
 
 在此基础上还有两项与级别相关的调整：
 
 - 动态目标（`rm -rf "$target"`、反引号、替换）在 `standard` 中允许，一旦启用 fail-closed 能力就会被阻止。`standard` 对对抗性或动态生成的命令文本只提供尽力保护。
-- 启用 `CC_SAFETY_NET_PARANOID_RM=1` 后，*即使在当前工作目录内*，非临时的递归强制删除也会被阻止，因此 `rm -rf ./cache` 不再通过。临时目标和配置的允许路径仍然可以通过。
+- 启用 `CC_SAFETY_NET_PARANOID_RM=1` 后，*即使在当前工作目录内*，非临时的递归删除也会被阻止，因此 `rm -rf ./cache`、`rm -r ./cache` 和 `find ./cache -delete` 都不再通过。临时目标和配置的允许路径仍然可以通过。
 
-执行删除的 `find`，只要起点能够到达受保护的 Git 元数据就仍会被阻止；在仓库根目录下，起点 `.` 就是这种情况。但如果字面量的 `-name` 或 `-iname` 过滤条件无法匹配任何受保护的元数据条目，这项阻止就会解除，因此 `find . -name '*.pyc' -exec rm {} +` 和 `find . -name '*.pyc' -execdir rm -f -- {} \;` 在仓库根目录下可以通过。`find . -name '*.pyc' -delete` 则不行，因为 `find.delete` 会单独阻止它。条件以及仍被阻止的形式见 [Git 元数据](/zh-Hans/reference/blocked-commands#git-metadata)。
+执行删除的 `find`，只要起点能够到达受保护的 Git 元数据就仍会被阻止；在仓库根目录下，起点 `.` 就是这种情况。但如果字面量的 `-name` 或 `-iname` 过滤条件无法匹配任何受保护的元数据条目，这项阻止就会解除，因此 `find . -name '*.pyc' -exec rm {} +` 和 `find . -name '*.pyc' -execdir rm -f -- {} \;` 在仓库根目录下可以通过。`find . -name '*.pyc' -delete` 则不行，因为 `find.delete` 会单独阻止起点 `.`。条件以及仍被阻止的形式见 [Git 元数据](/zh-Hans/reference/blocked-commands#git-metadata)。
 
 <span id="configured-allow-paths"></span>
 

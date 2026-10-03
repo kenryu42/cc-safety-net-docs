@@ -99,7 +99,7 @@ export CC_SAFETY_NET_STRICT=1
 Enable strict mode when commands can come from an adversarial or untrusted context. You can also use it when you want maximum protection and can accept occasional false positives for unusual command syntax.
 
 <Note>
-  Individual strict-tier rules can be turned off through `destructive_command_protection.overrides` in [policy.json](/configuration/policy), and any strict-tier rule can be force-enabled under standard with an `"on"` override. Strict is still strict for fail-closed outcomes that have no destructive-command rule id, such as parser fail-closed and sensitive-path outcomes.
+  Individual strict-tier rules can be turned off through `destructive_command_protection.overrides` in [policy.json](/configuration/policy), and any strict-tier rule can be force-enabled under standard with an `"on"` override. Strict is still strict for fail-closed outcomes that have no registered destructive-command rule id, such as parser fail-closed and sensitive-path outcomes.
 </Note>
 
 ## Paranoid mode (`CC_SAFETY_NET_PARANOID=1`)
@@ -108,7 +108,7 @@ The `paranoid` level is strict plus two capabilities, `paranoid_rm` and `paranoi
 
 ### rm check (`CC_SAFETY_NET_PARANOID_RM=1`)
 
-By default, CC Safety Net allows `rm -rf` within the current working directory because it assumes that deletion inside your project root is intentional. The paranoid rm check blocks non-temp recursive forced removal **even inside the current working directory**. `rm -rf ./cache` matches `rm.recursive-force-paranoid`. The PowerShell equivalent `Remove-Item ./cache -Recurse -Force` matches `powershell.remove-item-recursive-force-paranoid`.
+By default, CC Safety Net allows `rm -rf` and `find -delete` within the current working directory because it assumes that deletion inside your project root is intentional. The paranoid rm check blocks non-temp recursive removal **even inside the current working directory**. `rm -rf ./cache` and `rm -r ./cache` match `rm.recursive-force-paranoid`, and `find ./cache -delete` blocks as `find.delete`. The PowerShell equivalent `Remove-Item ./cache -Recurse -Force` matches `powershell.remove-item-recursive-force-paranoid`.
 
 Temp targets and directories listed in `destructive_command_protection.allow_paths` are still allowed under this check.
 
@@ -197,7 +197,7 @@ Worktree detection is **fail-closed**: if CC Safety Net cannot positively identi
 | --- | --- |
 | `standard` | No capabilities. Best-effort protection against recognizable destructive commands |
 | `strict` | `fail_closed`: unparseable commands, unsupported heredocs, unverifiable destructive targets, metadata-only sensitive-path discovery |
-| `paranoid` | Strict plus `paranoid_rm` (non-temp `rm -rf` even within cwd) and `paranoid_interpreters` (every interpreter one-liner regardless of content) |
+| `paranoid` | Strict plus `paranoid_rm` (non-temp `rm -r` and `rm -rf` even within cwd) and `paranoid_interpreters` (every interpreter one-liner regardless of content) |
 | `custom` | Any capability combination that matches no preset |
 
 Worktree mode is independent of the level: it relaxes local-discard rules inside a confirmed linked worktree.

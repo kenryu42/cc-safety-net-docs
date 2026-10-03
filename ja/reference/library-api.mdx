@@ -64,16 +64,18 @@ type CheckCommandInput = Readonly<{
 ```ts
 type CheckCommandResult =
   | Readonly<{ kind: 'allow' }>
-  | Readonly<{ kind: 'deny'; reason: string; ruleId?: string }>;
+  | Readonly<{ kind: 'deny'; reason: string; ruleId: string }>;
 ```
 
 | フィールド | 有無 | 説明 |
 | --- | --- | --- |
 | `kind` | 常に | `'allow'` または `'deny'` |
 | `reason` | 拒否のみ | ユーザーに表示されるブロック理由 |
-| `ruleId` | ルールが一致した拒否 | ブロックを生成したルールの ID |
+| `ruleId` | 拒否のみ | ブロックを生成したルールまたは固定の拒否の ID |
 
-判定は `kind` で読み取ります。`deny` は、ホストがそのコマンドを実行してはならないことを意味します。`reason` は表示用のテキストです。解析や比較には使わないでください。`ruleId` は診断データとしてのみ扱います。どのような場合に拒否になるかは、[ブロックされるコマンド](/ja/reference/blocked-commands)を参照してください。
+判定は `kind` で読み取ります。`deny` は、ホストがそのコマンドを実行してはならないことを意味します。`reason` は表示用のテキストです。解析や比較には使わないでください。
+
+すべての拒否には `ruleId` が付きます。値は `git.reset-hard` のような組み込みルールの ID、シークレットルールの ID、`custom.` で始まるルールの ID、または `cwd.requested-unusable` のような[固定の拒否 ID](/ja/reference/destructive-rules#fixed-denial-ids) のいずれかです。拒否の種類ごとに扱いを変えたい場合は、`ruleId` で分岐できます。たとえば、作業ディレクトリを直すようユーザーに伝える場合です。ただし、ID が何であっても、拒否であればコマンドはブロックされます。今後のバージョンで ID が増える可能性もあるため、知らない ID は通常の拒否として扱ってください。どのような場合に拒否になるかは、[ブロックされるコマンド](/ja/reference/blocked-commands)を参照してください。
 
 ### エラー
 
@@ -95,10 +97,10 @@ type CheckCommandResult =
 
 `cwd` は `resolve()` で正規化してから確認します。パスはディレクトリとして stat でき、読み取りと検索ができる必要があります。`realpath` の手順は意図的に設けていません。これにより、OpenCode プラグインとこの関数は、同じディレクトリに対して同じ判定になります。
 
-この確認に失敗した場合は、誤ったプロジェクトを解析する代わりに、fail closed の理由を持つ拒否を返します。
+この確認に失敗した場合は、誤ったプロジェクトを解析する代わりに、`ruleId` が `cwd.requested-unusable` の拒否を返します。理由は次のとおりです。
 
 ```
-CC Safety Net failed closed because command analysis failed unexpectedly. This is not caused by your command. Report it to the user.
+CC Safety Net could not use the requested working directory because it does not exist, is inaccessible, is not a directory, or uses an unsupported path form. Use an existing accessible working directory. If the requested directory is missing, create it from an accessible location before retrying the command.
 ```
 
 ## 例

