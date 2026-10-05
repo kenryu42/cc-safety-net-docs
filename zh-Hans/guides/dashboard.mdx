@@ -149,6 +149,8 @@ cc-safety-net gui --no-open
 
 保存操作会写入策略文件，并报告路径。磁盘上的策略存在错误时，表单控件显示内置默认值，不显示运行时从文件中保留的有效值。只有原始 JSON 镜像仍显示文件内容。此时保存会被拒绝，并提示 `Repair policy before saving changes.`，以免默认值覆盖文件。请先修复，再保存。修复后，表单会重新加载保留下来的设置。
 
+<span id="draft-a-project-policy"></span>
+
 ### 起草项目策略
 
 视图顶部的 `Draft project policy` 会把整个策略视图切换为项目文件的草稿。草稿栏列出写入路径，并说明这个文件遵循的规则：`Only the fields you mark are written here; everything else keeps inheriting from each member's own policy.` `Exit draft` 返回编辑你自己的策略。在提供原生目录选择器的环境中会出现 `Change…`，确认后丢弃当前草稿并改用另一个目录。在你改动之前，目标就是仪表板的启动目录。
@@ -160,6 +162,14 @@ cc-safety-net gui --no-open
 差异加载期间修改表单，应用会被拒绝并提示 `Error: the draft changed while the review was loading. Review it again.`，需要重新复核一次。如果另一个标签页改动了项目目录，草稿会按新目标重新加载，并要求你在应用前再复核一遍。
 
 **草稿无法启动的情况。** 用户策略有错误时，运行时会退回到保护性默认值；以这些值为基础起草，会让默认值看起来像团队继承的基线。因此仪表板拒绝起草，并连同诊断信息提示 `Error: repair your user policy before drafting a project policy.`。项目文件存在但读不出来则是另一回事：草稿从空白开始，并把该文件的诊断信息显示在表单上方。
+
+**目标是用户配置目录的情况。** 从存放用户 `.cc-safety-net/` 的目录启动时，草稿要写入的就是你的用户策略。草稿仍会打开，`Change…` 依然可用，但草稿栏会显示一行诊断信息，所有控件都显示 `Inherited`，复核和应用都以同一段文字失败：
+
+```text
+<dir>/.cc-safety-net/policy.json is the user policy, not a project policy; choose a project directory, or run the GUI from one
+```
+
+`Review & apply` 会把它报告为 `Review failed`。用 `Change…` 选一个项目目录，草稿就能正常读取。如果另一个标签页改动了项目目录，上文所述的草稿重新加载仍然优先。这指的是哪个目录，以及该比较如何解析 `CC_SAFETY_NET_HOME` 和通过符号链接到达的主目录，见[策略](/zh-Hans/configuration/policy#the-user-config-directory-is-not-a-project)。
 
 **与 CLI 相同的保证。** 这份草稿就是表单形式的 `cc-safety-net policy check` 和 `cc-safety-net policy apply`。它写入同样稀疏的文件，针对同一份运行时用户基线计算差异，在你确认之前不写入任何内容。文件约定和两个范围的合并规则见[策略](/zh-Hans/configuration/policy#project-policy)。
 

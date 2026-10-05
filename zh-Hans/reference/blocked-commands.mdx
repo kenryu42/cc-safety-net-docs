@@ -29,7 +29,7 @@ CC Safety Net 阻止这些命令，因为它们可能永久破坏数据，包括
 
 | 级别 | 增加的阻止 |
 | --- | --- |
-| [`standard`](/zh-Hans/configuration/modes#default-mode) | 阻止所有未标记项。`echo 'unterminated` 这类看似安全的无法解析文本可以通过；含有可识别破坏性模式的无法解析文本仍会被启发式扫描阻止。动态 `rm -rf` 目标**不会**一律阻止。 |
+| [`standard`](/zh-Hans/configuration/modes#default-mode) | 阻止所有未标记项。`echo 'unterminated` 这类看似安全的无法解析文本可以通过；含有可识别破坏性模式的无法解析文本仍会被启发式扫描阻止；[解析器直接拒绝的 shell 语法](/zh-Hans/guides/analysis-engine#shell-syntax-the-parser-refuses)在这一级别同样会被阻止。动态 `rm -rf` 目标**不会**一律阻止。 |
 | [`strict`](/zh-Hans/configuration/modes#strict-mode) | `standard` 阻止的全部内容，再加上无法解析的命令、无法验证的破坏性目标、[受支持范围之外的 heredoc](#strict-和-paranoid-中的-heredoc)，以及对内置敏感路径的纯元数据发现。 |
 | [`paranoid`](/zh-Hans/configuration/modes#paranoid-mode) | `strict` 阻止的全部内容，再加上即使位于当前工作目录内的非临时递归删除（`rm -r`、`rm -rf`、`find -delete`、`Remove-Item -Recurse -Force`），以及所有解释器单行命令，无论其内容。 |
 
@@ -312,6 +312,9 @@ shell 解析器无法对命令分词时（例如引号未闭合），行为取�
 | `echo 'unterminated` | 允许，看似安全的无法解析文本可以通过 | 阻止，理由是“无法安全分析” |
 | `git reset --hard 'unterminated` | 被启发式扫描**阻止** | 阻止 |
 | `dd if=/dev/zero of=/dev/sda 'oops` | 被启发式扫描**阻止** | 阻止 |
+| `echo ${ date; }` | **阻止**，解析器直接拒绝该构造 | 阻止 |
+
+被 POSIX 解析器直接拒绝的构造会让解析变为无效。每个级别都会拒绝无效的解析，启发式扫描也不会运行，因此符合这些写法的无害命令同样会被拒绝。被拒绝的范围包括 `${ list; }` 函数替换、可能藏着替换的 `${…}` 中的引号或反斜杠、没有闭合花括号的 `${…}`，以及反引号主体中的反斜杠转义。确切的写法以及仍被允许的例子见[解析器拒绝的 shell 语法](/zh-Hans/guides/analysis-engine#shell-syntax-the-parser-refuses)。
 
 启发式扫描会查找 `rm -rf`、`git reset --hard`、`git reset --merge`、`git clean -f`、`git checkout --force`、`git checkout --`、`git push --force`、`git push --delete`、`git branch -D`、`git tag -d`、`git stash drop`、`git stash clear`、不带 `--staged` 的 `git restore`、`find -delete`、`dd of=/dev/`、`mkfs /dev/` 和 `shred <arg>`。匹配会以规则 `raw-text.dangerous-command` 拒绝。文本以 `echo ` 或 `rg ` 开头时会跳过 `find`、`dd`、`mkfs` 和 `shred` 模式，因此把这些字符串引用进 echo 或 ripgrep 调用不会触发扫描。
 

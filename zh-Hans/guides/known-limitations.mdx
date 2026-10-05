@@ -1,7 +1,7 @@
 ---
 title: "已知限制和易错点"
 sidebarTitle: "已知限制"
-description: "CC Safety Net 无法捕获的内容：不透明命令代理、二进制文件内部行为、文件系统隔离和网络、符号链接 TOCTOU、解释器标志、解释器注释中的引号、基于 eval 的执行、Codex 的交互会话缺口和 workdir 缺口、fail-open 的宿主 Grok Build、DeepSeek Harness 的可选 bundle 与 run_code 缺口、OpenClaw 的会话工作目录，以及 Hermes Agent 和 OpenClaw 的覆盖边界。"
+description: "CC Safety Net 无法捕获的内容：不透明命令代理、二进制文件内部行为、文件系统隔离和网络、符号链接 TOCTOU、解释器标志、解释器注释中的引号、基于 eval 的执行、Codex 的交互会话缺口和 workdir 缺口、fail-open 的宿主（Grok Build、Factory Droid、Devin CLI）、DeepSeek Harness 的可选 bundle 与 run_code 缺口、OpenClaw 的会话工作目录，以及 Hermes Agent 和 OpenClaw 的覆盖边界。"
 ---
 
 CC Safety Net 分析智能体尝试运行的命令字符串。它能阻止已知的破坏性 Git 和文件系统操作，降低意外丢失数据的风险，但不是完整的安全方案。本页列出仍存在的**残余**限制，并说明何时应改用<a href="/zh-Hans/guides/vs-sandboxing">沙箱</a>。
@@ -192,15 +192,38 @@ Grok Build hook 在设计上就是 fail open，宿主也没有提供 `failClosed
 
 适配器仍会为自身的 fail-closed 情况输出明确的 deny，例如工具输入被截断或工作目录不可用。但在这个宿主上，如果失败导致适配器完全没有输出，它就无法阻止这次调用。如果这项残余风险在你的环境中值得关注，请用[沙箱](/zh-Hans/guides/vs-sandboxing)作为隔离层。
 
+<span id="factory-droid-is-a-fail-open-host"></span>
+
+## Factory Droid 是 fail-open 的宿主
+
+Factory Droid hook 是 fail open。只有退出码 2 或 stdout 上明确的 deny 判定才能阻止工具调用。0 和 2 以外的退出码、崩溃、超时或缺少 `npx`，都只会记为不阻止的错误，调用照常执行。适配器对放行的调用不输出任何内容，因此 Droid 自己的权限提示仍然生效。
+
+Droid 有一项设置会让这个 hook 完全失效。企业级设置 `allowManagedHooksOnly` 开启后，Droid 会忽略用户级和项目级 hook。`install --droid` 写入的 `~/.factory/hooks.json` 属于用户级 hook，因此该设置开启期间它不会运行。
+
+覆盖的工具范围也是有限的。这个 hook 在 `Execute` 和文件类工具上验证过，`Task` 子智能体、`Loop` 和自动化类工具是否会到达它则未经验证。
+
+<span id="devin-cli-is-a-fail-open-host"></span>
+
+## Devin CLI 是 fail-open 的宿主
+
+Devin CLI hook 也是 fail open，但范围很窄。只有退出码 2 或 stdout 上的 `block` 判定才能阻止工具调用；让调用照常执行的只有三种失败：超时、缺少 `npx`，以及 hook 进程在输出判定之前就结束。适配器自己捕获的错误仍会输出 `block` 判定，调用依然被阻止。适配器对放行的调用不输出任何内容，因此 Devin 自己的权限提示仍然生效。
+
+宿主的若干部分不在这个集成的覆盖范围内：
+
+- 受支持的只有 `install --devin` 写入的用户级配置：`$XDG_CONFIG_HOME/devin/config.json`，默认为 `~/.config/devin/config.json`，Windows 上为 `%APPDATA%\devin\config.json`。该文件中的 hook 在会话目录下运行，适配器也按这个目录分析每次调用。项目的 `.devin/hooks.v1.json` 中的 hook 则以仓库根目录为工作目录运行，而负载中没有 `cwd` 可用来纠正这一点。
+- 适配器逐个分析 `write_to_process` 调用，因此文本分散在多次写入交互式 shell 的命令不在分析范围内。
+- Devin Cloud 会话不在覆盖范围内。
+- Devin 默认也会加载 Claude Code 的 hook 文件，因此为 Claude Code 安装的 CC Safety Net hook 也可能在 Devin 会话中运行，但这只会让拒绝重复一次。
+
 ## 解决过期集成缓存
 
 ### OpenCode 过期缓存
 
 新版本发布后，OpenCode 的插件安装程序可能仍然提供缓存中过期的 `cc-safety-net`。如果更新未生效，请清除缓存并重新安装，见 <a href="/zh-Hans/installation#opencode-installation">OpenCode 安装步骤</a>。运行 `npx cc-safety-net doctor` 可确认检测到的插件版本。
 
-### 过期 npx 缓存（Antigravity CLI、Cursor、Grok Build、Hermes Agent、Kimi Code）
+### 过期 npx 缓存（Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build、Hermes Agent、Kimi Code）
 
-Antigravity CLI、Cursor、Grok Build 和 Kimi Code hook 以及 Hermes Agent 插件通过 `npx -y cc-safety-net` 运行，因此 npx 自身缓存也可能继续提供旧版本。安装这五个目标中的任何一个时，系统会先删除所有包含 `cc-safety-net` 的 npx 缓存条目（`_npx/*/node_modules/cc-safety-net`），因此直接重新安装就能用上新版本，无需手动清理缓存。安装其他目标不会触及此缓存。
+Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build 和 Kimi Code hook 以及 Hermes Agent 插件通过 `npx -y cc-safety-net` 运行，因此 npx 自身缓存也可能继续提供旧版本。安装这七个目标中的任何一个时，系统会先删除所有包含 `cc-safety-net` 的 npx 缓存条目（`_npx/*/node_modules/cc-safety-net`），因此直接重新安装就能用上新版本，无需手动清理缓存。安装其他目标不会触及此缓存。
 
 ### 过期 bunx 缓存
 

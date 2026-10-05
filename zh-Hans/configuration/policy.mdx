@@ -44,6 +44,22 @@ description: "CC Safety Net policy.json 的完整参考：用户范围与项目�
 
 项目文件中的 `audit` 部分会被忽略，加载时报告 `project policy audit settings are ignored; audit is user scope only`。
 
+<span id="the-user-config-directory-is-not-a-project"></span>
+
+### 用户配置目录不是项目
+
+存放用户 `.cc-safety-net/` 的目录绝不会同时又是项目，默认情况下它就是你的主目录。在那里运行时，`.cc-safety-net/policy.json` 就是你的用户文件，没有项目文件可以叠加在它上面，加载结果里也不会出现项目策略。`status` 不打印 `Project` 行，仪表板也不显示项目策略提示。
+
+早先的版本会把同一个文件按两个范围各读一次。于是仪表板每次保存写入的 `audit` 部分都会被报告为 `project policy audit settings are ignored; audit is user scope only`，`status` 报告 `degraded`，其中 `Project` 行与 `Policy` 行是同一个路径，仪表板则显示它在执行 fallback 配置时使用的那个横幅。项目 `rule.json` 与用户那一份是同一个文件时，本来就只加载一次；现在 `policy.json` 也是如此。
+
+这项检查会先解析两个路径再比较，所以覆盖的不止字面上的主目录：
+
+- 设置 `CC_SAFETY_NET_HOME` 后，匹配目标变成它的父目录，前提是这个变量指向的目录名为 `.cc-safety-net`。指向其他名字的 `CC_SAFETY_NET_HOME` 没有可匹配的父目录。
+- 通过符号链接到达的主目录同样匹配。FreeBSD 把 `/home` 做成指向 `/usr/home` 的符号链接，而 `getcwd` 返回物理路径，这两种写法按普通字符串比较永远不相等。
+- 尚不存在的 `.cc-safety-net/` 会沿最近的已有上级目录解析，因此在该目录创建之前，这项比较同样成立。
+
+从这个目录发起的项目范围写入会被拒绝，而不是悄悄改写用户文件。不带 `-g, --global` 的 `policy check` 和 `policy apply` 以退出码 1 结束，`rule` 的写入类子命令同样如此，仪表板的项目草稿也拒绝应用。参见[确认并应用提案](#check-and-apply-a-proposal)、[自定义规则](/zh-Hans/configuration/custom-rules#the-user-config-directory-is-not-a-project)和[起草项目策略](/zh-Hans/guides/dashboard#draft-a-project-policy)。
+
 <span id="reported-weakenings"></span>
 
 ### 报告的削弱
@@ -113,6 +129,8 @@ npx cc-safety-net status
 
 判定为 `degraded`，说明文件中有字段被拒绝。`npx cc-safety-net doctor` 会指出具体字段。运行时**从不**自行重写 `policy.json`。在你手动修复或使用仪表板修复前，无效文件会原样保留。
 
+<span id="check-and-apply-a-proposal"></span>
+
 ## 确认并应用提案
 
 `policy check` 和 `policy apply` 把同一个流程拆给智能体和你。智能体写出提案 JSON，运行 `policy check` 展示它会改变什么。`policy apply` 由你自己在终端里运行。
@@ -124,6 +142,14 @@ policy <subcommand>
   -g, --global   Use the user-scope policy instead of the project one
   -h, --help     Show this help
 ```
+
+不带 `-g, --global` 时，两个子命令都不会在存放用户 `.cc-safety-net/` 的目录下运行，因为那里的项目路径就是你的用户文件。它们在读取提案、打印差异或提示确认之前就打印一行错误，并以退出码 1 结束：
+
+```text
+<home>/.cc-safety-net/policy.json is the user policy, not a project policy; use --global for the user scope, or run from a project directory
+```
+
+参见[用户配置目录不是项目](#the-user-config-directory-is-not-a-project)。
 
 在写入任何内容之前，两个子命令都会输出同样的头部和差异：
 
@@ -342,7 +368,7 @@ Schema 版本。必须为 `1`。这是唯一的必填字段；值缺失或错误
 
 只要启用了机密保护，大多数内置机密规则都处于开启状态。有一层例外：**编码 CLI 配置**规则，它涵盖受支持的编码智能体的设置文件和 MCP 配置文件。这些文件可能内嵌凭证，但智能体也会把编辑它们当作日常工作，因此该层默认关闭，需要你逐条用显式的 `"on"` 覆盖来选择启用。启用某条配置规则后，它会保护该智能体的用户级配置文件，同时也会保护任意仓库根目录下按名称匹配的项目级文件，例如任何 `.mcp.json`。
 
-十个默认关闭的 id、它们默认开启的 **编码 CLI 凭证** 对应规则，以及每条规则保护的确切路径，都列在[机密保护参考](/zh-Hans/reference/secret-protection#coding-cli-config-tier-off-by-default)中。
+十三个默认关闭的 id、它们默认开启的 **编码 CLI 凭证** 对应规则，以及每条规则保护的确切路径，都列在[机密保护参考](/zh-Hans/reference/secret-protection#coding-cli-config-tier-off-by-default)中。
 
 <span id="deny-paths"></span>
 

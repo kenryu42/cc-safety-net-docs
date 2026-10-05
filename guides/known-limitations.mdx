@@ -1,7 +1,7 @@
 ---
 title: "Known limitations and pitfalls"
 sidebarTitle: "Known limitations"
-description: "What CC Safety Net cannot catch: opaque command proxies, in-binary behavior, filesystem containment and network, symlink TOCTOU, interpreter flags, quotes inside interpreter comments, eval-based execution, the Codex interactive-session and workdir gaps, the Grok Build fail-open host, the DeepSeek Harness optional-bundle and run_code gaps, and the Hermes Agent and OpenClaw coverage boundaries including the OpenClaw session working directory."
+description: "What CC Safety Net cannot catch: opaque command proxies, in-binary behavior, filesystem containment and network, symlink TOCTOU, interpreter flags, quotes inside interpreter comments, eval-based execution, the Codex interactive-session and workdir gaps, the Grok Build, Factory Droid, and Devin CLI fail-open hosts, the DeepSeek Harness optional-bundle and run_code gaps, and the Hermes Agent and OpenClaw coverage boundaries including the OpenClaw session working directory."
 ---
 
 CC Safety Net analyzes the command string your agent attempts to run. It is a strong guardrail against accidental data loss from known-destructive git and filesystem operations, but it is not a complete security solution. This page is an honest list of the **residual** limits that remain today, so you can set correct expectations and know when to use [sandboxing](/guides/vs-sandboxing) instead.
@@ -184,15 +184,34 @@ Grok Build hooks are fail-open by design, and the host exposes no `failClosed` k
 
 The adapter still emits an explicit deny for its own fail-closed outcomes, such as truncated tool input or an unusable working directory. On this host it cannot block a call when the failure leaves the adapter with no output at all. If that residual risk matters in your environment, use [sandboxing](/guides/vs-sandboxing) as the containment layer.
 
+## Factory Droid is a fail-open host
+
+Factory Droid hooks fail open. Only exit code 2 or an explicit deny decision on stdout blocks a tool call. An exit code other than 0 or 2, a crash, a timeout, or a missing `npx` is logged as a non-blocking error, and the call proceeds. The adapter prints nothing for an allowed call, so Droid's own permission prompt still applies.
+
+One Droid setting switches the hook off entirely. `allowManagedHooksOnly` is an enterprise setting that makes Droid ignore user and project hooks. `install --droid` writes the hook to `~/.factory/hooks.json`, which is a user hook, so it does not run while the setting is on.
+
+Tool coverage is bounded as well. The hook was verified against `Execute` and the file tools. `Task` subagents, `Loop`, and automation tools have not been verified to reach it.
+
+## Devin CLI is a fail-open host
+
+Devin CLI hooks fail open, but only on a narrow set of failures. Only exit code 2 or a `block` decision on stdout blocks a tool call, and only three failures let the call proceed: a timeout, a missing `npx`, and a hook process that dies before printing a decision. An error the adapter catches itself still blocks, because the adapter prints a `block` decision for it. The adapter prints nothing for an allowed call, so Devin's own permission prompt still applies.
+
+Several parts of the host sit outside the integration:
+
+- Only the user-level config that `install --devin` writes is supported: `$XDG_CONFIG_HOME/devin/config.json`, by default `~/.config/devin/config.json`, or `%APPDATA%\devin\config.json` on Windows. Hooks declared there run in the session directory, and the adapter analyzes every call against that directory. Hooks in a project `.devin/hooks.v1.json` run with the repository root as their working directory instead, and the payload carries no `cwd` to correct for that.
+- Each `write_to_process` call is analyzed on its own, so a command whose text arrives split across several writes to an interactive shell is outside the analysis.
+- Devin Cloud sessions are not covered.
+- Devin loads Claude Code hook files by default, so a CC Safety Net hook installed for Claude Code can run in a Devin session as well. That only duplicates denials.
+
 ## Resolve stale integration caches
 
 ### OpenCode stale cache
 
 OpenCode's plugin installer can keep serving a stale cached version of `cc-safety-net` after a new release is published. If updates do not take effect, clear the cache and reinstall. See the [OpenCode installation steps](/installation#opencode-installation). Run `npx cc-safety-net doctor` to confirm the detected plugin version.
 
-### Stale npx cache (Antigravity CLI, Cursor, Grok Build, Hermes Agent, Kimi Code)
+### Stale npx cache (Antigravity CLI, Cursor, Devin CLI, Factory Droid, Grok Build, Hermes Agent, Kimi Code)
 
-The Antigravity CLI, Cursor, Grok Build, and Kimi Code hooks and the Hermes Agent plugin run through `npx -y cc-safety-net`, so npx's own cache can also keep serving an old release. Installing any of those five targets first removes every npx cache entry that contains `cc-safety-net` (the `_npx/*/node_modules/cc-safety-net` entries). A plain reinstall then picks up the new release without manual cache clearing. Installs for other targets do not touch this cache.
+The Antigravity CLI, Cursor, Devin CLI, Factory Droid, Grok Build, and Kimi Code hooks and the Hermes Agent plugin run through `npx -y cc-safety-net`, so npx's own cache can also keep serving an old release. Installing any of those seven targets first removes every npx cache entry that contains `cc-safety-net` (the `_npx/*/node_modules/cc-safety-net` entries). A plain reinstall then picks up the new release without manual cache clearing. Installs for other targets do not touch this cache.
 
 ### Stale bunx cache
 

@@ -1,7 +1,7 @@
 ---
 title: "既知の制限と注意点"
 sidebarTitle: "既知の制限"
-description: "CC Safety Net が検出できない範囲を説明します。不透明なコマンドプロキシ、バイナリ内部の動作、ファイルシステムの封じ込めとネットワーク、シンボリックリンクの TOCTOU、インタープリターのフラグ、コメント内の引用符、eval による動的実行、Codex の対話セッションと workdir の隙間、fail open のホストである Grok Build、DeepSeek Harness のオプションバンドルと run_code の隙間、Hermes Agent と OpenClaw の対象境界（OpenClaw のセッションの作業ディレクトリを含む）を扱います。"
+description: "CC Safety Net が検出できない範囲を説明します。不透明なコマンドプロキシ、バイナリ内部の動作、ファイルシステムの封じ込めとネットワーク、シンボリックリンクの TOCTOU、インタープリターのフラグ、コメント内の引用符、eval による動的実行、Codex の対話セッションと workdir の隙間、fail open のホスト（Grok Build、Factory Droid、Devin CLI）、DeepSeek Harness のオプションバンドルと run_code の隙間、Hermes Agent と OpenClaw の対象境界（OpenClaw のセッションの作業ディレクトリを含む）を扱います。"
 ---
 
 CC Safety Net が解析するのは、エージェントが実行しようとするコマンド文字列です。既知の破壊的な git 操作やファイルシステム操作によるデータ消失を防ぐためのガードですが、完全なセキュリティ対策ではありません。このページでは、現時点の制限と、代わりに[サンドボックス](/ja/guides/vs-sandboxing)を使うべき場面を示します。
@@ -194,15 +194,38 @@ Grok Build の hook は設計上 fail open であり、ホスト側に `failClos
 
 アダプター自身が fail closed とするケース（ツール入力の切り詰めや、作業ディレクトリを利用できない場合）には、それでも明示的に deny を出力します。このホストでは、アダプターが出力を一切返せなくなる失敗が起きた場合、その呼び出しをブロックできません。この残るリスクが自分の環境で問題になる場合は、封じ込めの層として[サンドボックス](/ja/guides/vs-sandboxing)を使ってください。
 
+<span id="factory-droid-is-a-fail-open-host"></span>
+
+## Factory Droid は fail open のホスト
+
+Factory Droid の hook は fail open です。ツール呼び出しをブロックできるのは、終了コード 2 を返した場合と、標準出力に明示的な deny を返した場合だけです。0 でも 2 でもない終了コード、クラッシュ、タイムアウト、`npx` が見つからない場合は、Droid がブロックを伴わないエラーとして記録し、その呼び出しをそのまま実行します。許可した呼び出しではアダプターが何も出力しないため、Droid 自身の権限確認のプロンプトはそのまま働きます。
+
+この hook を丸ごと無効にする Droid の設定が 1 つあります。エンタープライズ向けの `allowManagedHooksOnly` 設定を有効にすると、Droid はユーザーレベルとプロジェクトレベルの hook を無視します。`install --droid` が書き込む `~/.factory/hooks.json` はユーザーレベルの hook なので、この設定の下では実行されません。
+
+対象ツールの範囲にも限りがあります。この hook は `Execute` とファイル系ツールで検証済みです。`Task` のサブエージェント、`Loop`、自動化ツールから届くかどうかは未検証です。
+
+<span id="devin-cli-is-a-fail-open-host"></span>
+
+## Devin CLI は fail open のホスト
+
+Devin CLI の hook も fail open ですが、その範囲は狭いです。ツール呼び出しをブロックできるのは、終了コード 2 を返した場合と、標準出力に `block` を返した場合だけです。呼び出しがそのまま実行されるのは、タイムアウトした場合、`npx` が見つからない場合、判定を出力する前に hook のプロセスが終了した場合の 3 つだけです。アダプター自身が捕捉したエラーについては、引き続き `block` を出力するため、呼び出しはブロックされます。許可した呼び出しではアダプターが何も出力しないため、Devin 自身の権限確認のプロンプトはそのまま働きます。
+
+連携の対象外になる部分がいくつかあります。
+
+- 対応するのは、`install --devin` が書き込むユーザーレベルの設定（`$XDG_CONFIG_HOME/devin/config.json`、既定では `~/.config/devin/config.json`、Windows では `%APPDATA%\devin\config.json`）だけです。このファイルの hook はセッションのディレクトリで実行され、アダプターもすべての呼び出しをそのディレクトリを基準に解析します。プロジェクトの `.devin/hooks.v1.json` にある hook はリポジトリルートを作業ディレクトリとして実行され、それを補正する `cwd` はペイロードに含まれません。
+- アダプターは `write_to_process` の呼び出しを 1 件ずつ解析します。そのため、対話的なシェルへの複数回の書き込みに分割されて届くコマンドは、解析の対象外です。
+- Devin Cloud のセッションは対象外です。
+- Devin は既定で Claude Code の hook ファイルも読み込みます。そのため、Claude Code 向けにインストールした CC Safety Net の hook が Devin のセッションでも動くことがありますが、拒否が重複するだけです。
+
 ## 連携のキャッシュが古い場合の対処
 
 ### OpenCode のキャッシュが古い場合
 
 新しいリリースを公開した後も、OpenCode のプラグインインストーラーが古いキャッシュ版の `cc-safety-net` を使い続けることがあります。更新が反映されない場合は、キャッシュを消去してから再インストールしてください。手順は [OpenCode のインストール](/ja/installation#opencode-installation)にあります。検出されたプラグインのバージョンは、`npx cc-safety-net doctor` で確認できます。
 
-### npx のキャッシュが古い場合（Antigravity CLI、Cursor、Grok Build、Hermes Agent、Kimi Code）
+### npx のキャッシュが古い場合（Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build、Hermes Agent、Kimi Code）
 
-Antigravity CLI、Cursor、Grok Build、Kimi Code の hook と Hermes Agent のプラグインは、いずれも `npx -y cc-safety-net` を使います。そのため、npx 自身のキャッシュが古いリリースを返すことがあります。この 5 つのいずれかを対象にインストールすると、まず `cc-safety-net` を含む npx キャッシュの項目（`_npx/*/node_modules/cc-safety-net`）をすべて削除します。そのため、通常どおり再インストールするだけで新しいリリースを取得でき、手動でキャッシュを消す必要はありません。他の対象のインストールでは、このキャッシュには手を加えません。
+Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build、Kimi Code の hook と Hermes Agent のプラグインは、いずれも `npx -y cc-safety-net` を使います。そのため、npx 自身のキャッシュが古いリリースを返すことがあります。この 7 つのいずれかを対象にインストールすると、まず `cc-safety-net` を含む npx キャッシュの項目（`_npx/*/node_modules/cc-safety-net`）をすべて削除します。そのため、通常どおり再インストールするだけで新しいリリースを取得でき、手動でキャッシュを消す必要はありません。他の対象のインストールでは、このキャッシュには手を加えません。
 
 ### bunx のキャッシュが古い場合
 

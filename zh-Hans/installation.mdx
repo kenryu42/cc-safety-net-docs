@@ -1,7 +1,7 @@
 ---
 title: "为编码智能体安装 CC Safety Net"
 sidebarTitle: "安装"
-description: "在全部十四个受支持的编码智能体中安装和卸载 CC Safety Net：Amp Code、Antigravity CLI、Claude Code、Codex、Cursor、DeepSeek Harness、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code、OpenClaw、OpenCode 和 Pi。"
+description: "在全部十六个受支持的编码智能体中安装和卸载 CC Safety Net：Amp Code、Antigravity CLI、Claude Code、Codex、Cursor、DeepSeek Harness、Devin CLI、Factory Droid、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code、OpenClaw、OpenCode 和 Pi。"
 ---
 
 CC Safety Net 以插件、扩展或 hook 的形式安装在编码智能体内，不需要常驻服务或守护进程。部分集成会为每次检查启动一个短时 hook 子进程。
@@ -69,6 +69,8 @@ npx -y cc-safety-net@latest update
 | [Codex](#codex-安装) | `npx -y cc-safety-net@latest install --codex` | `npx -y cc-safety-net@latest uninstall --codex` |
 | [Cursor](#cursor-安装) | `npx -y cc-safety-net@latest install --cursor` | `npx -y cc-safety-net@latest uninstall --cursor` |
 | [DeepSeek Harness](#deepseek-harness-安装) | `npx -y cc-safety-net@latest install --deepseek-harness` | `npx -y cc-safety-net@latest uninstall --deepseek-harness` |
+| [Devin CLI](#devin-cli-安装) | `npx -y cc-safety-net@latest install --devin` | `npx -y cc-safety-net@latest uninstall --devin` |
+| [Factory Droid](#factory-droid-安装) | `npx -y cc-safety-net@latest install --droid` | `npx -y cc-safety-net@latest uninstall --droid` |
 | [Gemini CLI](#gemini-cli-安装) | `npx -y cc-safety-net@latest install --gemini-cli` | `npx -y cc-safety-net@latest uninstall --gemini-cli` |
 | [GitHub Copilot CLI](#github-copilot-cli-安装) | `npx -y cc-safety-net@latest install --copilot-cli` | `npx -y cc-safety-net@latest uninstall --copilot-cli` |
 | [Grok Build](#grok-build-安装) | `npx -y cc-safety-net@latest install --grok-build` | `npx -y cc-safety-net@latest uninstall --grok-build` |
@@ -269,6 +271,74 @@ Removed cc-safety-net from the DeepSeek Harness web profile, but DeepSeek Harnes
 只有 `desktop` profile 带有这个 bundle 时，卸载不会移除任何东西，只打印同一条提示。
 
 运行时，bundle 会注册一个只能拒绝的工具 guard，DeepSeek Harness 在所有 `tools/pre-execute` 监听器（包括审批和 Auto review）之后运行它。`bash` 交给 POSIX 分析器，`pwsh` 交给 PowerShell 分析器，文件类和搜索类工具则走路径与机密保护。DeepSeek Harness 有几个工具不在这个 guard 的覆盖范围内，详见 [DeepSeek Harness 覆盖边界](/zh-Hans/guides/known-limitations#deepseek-harness-coverage-boundaries)和 [DeepSeek Harness](/zh-Hans/guides/integration-architecture#deepseek-harness)。
+
+<span id="devin-cli-installation"></span>
+
+## Devin CLI 安装
+
+```bash
+npx -y cc-safety-net@latest install --devin
+```
+
+此命令在 `$XDG_CONFIG_HOME/devin/config.json`（默认为 `~/.config/devin/config.json`，Windows 上为 `%APPDATA%\devin\config.json`）的 `hooks` 下写入托管的 `PreToolUse` 项：
+
+```json
+{ "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --devin", "timeout": 30 }] }
+```
+
+该条目不带 matcher，因此到达适配器的不只是 `exec`，而是每一次工具调用。Devin 自己的配置键和其他 hook 事件都原样保留。文件不存在时，安装会新建一个只有这一个 `hooks` 键的文件。替换已有文件时，安装和卸载都保留它原有的权限位。
+
+Devin 允许在 `config.json` 中写注释，因此安装、卸载和检测都会先去掉 `//` 和 `/* */` 注释再解析。写回的内容是普通 JSON，因此安装或卸载改动该文件后，其中的注释不会保留。
+
+`config.json` 无法解析、根不是 JSON 对象、`hooks` 不是对象，或 `hooks.PreToolUse` 不是数组时，安装会指出该文件并停止，不做任何写入。
+
+由于 hook 通过 `npx` 运行，安装会先清除 npm `_npx` 缓存中缓存的 `cc-safety-net` 副本，以便 hook 解析到当前版本；卸载不会修改缓存。缓存位置见 [Antigravity CLI 部分](#antigravity-cli-安装)。
+
+```bash
+npx -y cc-safety-net@latest uninstall --devin
+```
+
+卸载移除托管 handler 并把文件写回，从不删除 `config.json`，即使移除后 `hooks.PreToolUse` 变为空数组也是如此。文件中没有托管 handler 时，卸载不写入任何内容，并报告该 hook 未安装。
+
+运行时，适配器把 `exec` 作为 shell 命令工具处理；`write_to_process` 的 `text_input` 是非空字符串时，按命令分析这次调用。其他工具输入则检查其中的受保护路径。Devin 的 payload 不带 `cwd`，因此分析以 hook 进程的工作目录为基准，也就是会话目录。适配器只返回 block 判定，对允许的调用不输出任何内容，因此 Devin 自己的权限提示照常生效。详见 [`hook` 命令](/zh-Hans/reference/cli-commands#hook)和[集成架构](/zh-Hans/guides/integration-architecture)。
+
+<Note>
+  Devin CLI hook 是 fail open。只有退出码 2 或 stdout 上的 `block` 判定才能阻止工具调用；超时、缺少 `npx`，或 hook 进程在打印判定前退出时，调用照常执行。见 [Devin CLI 是 fail-open 的宿主](/zh-Hans/guides/known-limitations#devin-cli-is-a-fail-open-host)。
+</Note>
+
+<span id="factory-droid-installation"></span>
+
+## Factory Droid 安装
+
+```bash
+npx -y cc-safety-net@latest install --droid
+```
+
+此命令在 `~/.factory/hooks.json` 顶层的 `PreToolUse` 数组中写入托管条目：
+
+```json
+{ "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --droid", "timeout": 30 }] }
+```
+
+该条目不带 matcher，因此到达适配器的不只是 `Execute`，而是每一次工具调用。文件中非托管的条目和其他 hook 事件都原样保留，替换已有文件时也保留它原有的权限位。
+
+`hooks.json` 不存在时，Droid 从 `~/.factory/settings.json` 的 `hooks` 键读取 hook。如果新建的 `hooks.json` 只包含托管条目，`settings.json` 中声明的所有 hook 都会失效。因此 `hooks.json` 不存在时，安装会把 `settings.json` 中的 hook 事件带入新文件，再追加托管条目，而 `settings.json` 本身始终不写入。
+
+`hooks.json` 无法解析、根不是 JSON 对象，或其 `PreToolUse` 不是数组时，安装会指出该文件并停止，不做任何写入。
+
+由于 hook 通过 `npx` 运行，安装会先清除 npm `_npx` 缓存中缓存的 `cc-safety-net` 副本，以便 hook 解析到当前版本；卸载不会修改缓存。缓存位置见 [Antigravity CLI 部分](#antigravity-cli-安装)。
+
+```bash
+npx -y cc-safety-net@latest uninstall --droid
+```
+
+卸载移除托管 handler；某个条目移除后不再有 handler，该条目也一并删除。安装时从 `settings.json` 带入的 hook 会留在 `hooks.json` 中，因此卸载后生效的 hook 集合与安装前一致。只有当移除 handler 后留下一个空的 `PreToolUse`，且它是文件中唯一的键，并且 `settings.json` 不存在时，卸载才删除 `hooks.json`。存在 `settings.json` 时，卸载改为写入移除后的文件，因为删掉 `hooks.json` 会重新启用 `settings.json` 中的后备 hook，其中若残留托管 handler 的副本，它也会跟着运行。
+
+运行时，适配器把 `Execute` 作为 shell 命令工具处理，并检查其他工具输入中的受保护路径。分析以 Droid 的 payload 中的 `cwd` 为基准。对允许的调用，适配器不输出任何内容，因此 Droid 自己的权限提示照常生效。详见 [`hook` 命令](/zh-Hans/reference/cli-commands#hook)和[集成架构](/zh-Hans/guides/integration-architecture)。
+
+<Note>
+  Factory Droid hook 是 fail open。只有退出码 2 或 stdout 上明确的 deny 判定才能阻止工具调用；0 和 2 以外的退出码、崩溃、超时或缺少 `npx` 时，调用照常执行。企业级设置 `allowManagedHooksOnly` 会忽略用户级和项目级 hook，因此 `install --droid` 写入的 hook 在该设置下不会运行。见 [Factory Droid 是 fail-open 的宿主](/zh-Hans/guides/known-limitations#factory-droid-is-a-fail-open-host)。
+</Note>
 
 <span id="gemini-cli-installation"></span>
 

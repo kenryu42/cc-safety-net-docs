@@ -1,12 +1,12 @@
 ---
 title: "CC Safety Net と各エージェントの連携方法"
 sidebarTitle: "連携アーキテクチャ"
-description: "CC Safety Net が 14 のエージェントに接続する 4 つの方式です。標準入力を使う hook subprocess、エージェントが読み込むプラグイン、プロセス内で動く Pi の拡張機能、Amp Code のイベントプラグインを扱います。"
+description: "CC Safety Net が 16 のエージェントに接続する 4 つの方式です。標準入力を使う hook subprocess、エージェントが読み込むプラグイン、プロセス内で動く Pi の拡張機能、Amp Code のイベントプラグインを扱います。"
 ---
 
 このページは、連携の設定や不具合の調査に使います。各エージェントが CC Safety Net を呼び出し、判定を受け取るまでの流れを示します。ユーザー向けのライフサイクルは[仕組み](/ja/guides/how-it-works)を参照してください。
 
-CC Safety Net は 14 のコーディングエージェントに対応し、接続方式は 4 種類あります。方式が分かれば、hook が動かない原因や設定ファイルの場所を絞り込めます。
+CC Safety Net は 16 のコーディングエージェントに対応し、接続方式は 4 種類あります。方式が分かれば、hook が動かない原因や設定ファイルの場所を絞り込めます。
 
 各連携のインストール／削除コマンドは[インストール](/ja/installation)を参照してください。このページで扱うどの方式も、[アーキテクチャ](/ja/guides/architecture)で一度だけ規定した同じガードに接続します。
 
@@ -14,14 +14,14 @@ CC Safety Net は 14 のコーディングエージェントに対応し、接�
 
 | 方式 | エージェント | 仕組み |
 | --- | --- | --- |
-| **標準入力の hook subprocess** | Antigravity CLI、Claude Code、Codex、Cursor、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code | エージェントはツール呼び出しのたびに `cc-safety-net hook <flag>` を短命のプロセスとして実行し、呼び出し内容を JSON で標準入力に書き込みます。CC Safety Net は解析結果として、エージェントごとの拒否オブジェクトを標準出力に返し、終了コード 0 で終了します。 |
+| **標準入力の hook subprocess** | Antigravity CLI、Claude Code、Codex、Cursor、Devin CLI、Factory Droid、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code | エージェントはツール呼び出しのたびに `cc-safety-net hook <flag>` を短命のプロセスとして実行し、呼び出し内容を JSON で標準入力に書き込みます。CC Safety Net は解析結果として、エージェントごとの拒否オブジェクトを標準出力に返し、終了コード 0 で終了します。 |
 | **エージェントが読み込むプラグイン** | DeepSeek Harness、OpenClaw、OpenCode | エージェントが、自身のパッケージ形式のプラグインとして CC Safety Net を読み込みます。これらのエージェントに `hook` フラグはありません。 |
 | **プロセス内の拡張機能** | Pi | Pi は CC Safety Net の拡張機能を自身のプロセスに直接読み込み、メモリ内で呼び出します。subprocess も標準入出力も使いません。 |
 | **イベントプラグイン** | Amp Code | Amp は、アカウントの Personal Plugins リポジトリから管理対象の personal plugin を読み込み、`tool.call` の各イベントをプロセス内で渡します。 |
 
 ## 標準入力の hook subprocess を使うエージェント
 
-この 9 つのエージェントでは、標準入力から JSON を読み取る `hook <flag>` コマンドが保護を担います。実行前イベントの名前もコマンド用ツールの名前もエージェントごとに異なり、標準出力に求められる拒否の形式も異なります。
+この 11 のエージェントでは、標準入力から JSON を読み取る `hook <flag>` コマンドが保護を担います。実行前イベントの名前もコマンド用ツールの名前もエージェントごとに異なり、標準出力に求められる拒否の形式も異なります。
 
 | エージェント | 実行時フラグ | hook イベント | コマンド用ツール | 拒否時の出力形式 |
 | --- | --- | --- | --- | --- |
@@ -29,6 +29,8 @@ CC Safety Net は 14 のコーディングエージェントに対応し、接�
 | Claude Code | `-cc` / `--coding-cli` | `PreToolUse` | `Bash`, `PowerShell`, `Monitor` | `hookSpecificOutput.permissionDecision: "deny"`。[standard モードで検証できなかったコマンド](#when-claude-code-asks-instead-of-denying)では `"ask"` |
 | Codex | `-cx` / `--codex` | `PreToolUse` | `Bash` | `hookSpecificOutput.permissionDecision: "deny"` |
 | Cursor | `-cu` / `--cursor` | `preToolUse` | `Shell` | `{ "permission": "deny", "user_message": …, "agent_message": … }` |
+| Devin CLI | `-dv` / `--devin` | `PreToolUse` | `exec`, `write_to_process` | `{ "decision": "block", "reason": … }` |
+| Factory Droid | `-fd` / `--droid` | `PreToolUse` | `Execute` | `hookSpecificOutput.permissionDecision: "deny"` |
 | Gemini CLI | `-gc` / `--gemini-cli` | `BeforeTool` | `run_shell_command` | `{ "decision": "deny", "reason": …, "systemMessage": … }` |
 | GitHub Copilot CLI | `-cp` / `--copilot-cli` | `PreToolUse` | `bash`, `Bash`, `powershell`, `PowerShell` | `{ "permissionDecision": "deny", "permissionDecisionReason": … }` |
 | Grok Build | `-gb` / `--grok-build` | `PreToolUse` | `run_terminal_command`, `monitor` | `{ "decision": "deny", "reason": … }` |
@@ -36,6 +38,10 @@ CC Safety Net は 14 のコーディングエージェントに対応し、接�
 | Kimi Code | `-kc` / `--kimi-code` | `PreToolUse` | `Bash` | `hookSpecificOutput.permissionDecision: "deny"` |
 
 Claude Code の `Monitor` と Grok Build の `monitor` もシェルコマンドを実行するため、どちらもコマンド用ツールとして扱います。`Monitor` は POSIX のアナライザーを、`monitor` は方言の自動判定を使います。ただし `command` フィールドを持たない `Monitor` の呼び出しだけは、コマンド用ツールとして扱いません。これは `ws: { url, protocols? }` を送る WebSocket 版です。コマンド用ツールとして扱うとコマンドが見つからずに fail closed となり、WebSocket の監視をすべて拒否してしまいます。
+
+Devin CLI の `write_to_process` をコマンド用ツールとして扱うのは、実行中のプロセスに打ち込むテキストだけです。空でない文字列の `text_input` は、方言の自動判定でシェルコマンドとして解析し、呼び出しのそれ以外の内容は読み取りません。それ以外の `write_to_process` の呼び出しは未知のツールの入力経路を通るため、`bytes_input` によるキー入力はコマンドとしてパースせず、保護対象のパスが含まれていないかだけを検査します。
+
+Factory Droid の `Glob` ツールは `{ patterns, folder }` を受け取ります。glob の経路ではこの 2 つのキーをパスとして読み取るため、`patterns: "**/.env"` もシークレット保護の検査に届き、`secret.basename.env` でブロックされます。
 
 <Note>
   エージェントごとにイベント名も拒否の形式も異なるため、CC Safety Net はそれぞれに合った形式で出力します。たとえば Gemini CLI は、Claude Code の `hookSpecificOutput` ではなく、終了コード 0 と `decision`／`systemMessage` を持つオブジェクトを求めます。出力形式を自分で設定する必要はありません。指定したフラグによって自動的に決まります。
@@ -74,7 +80,7 @@ Claude Code の `Monitor` と Grok Build の `monitor` もシェルコマンド�
 
 ### hook 設定の場所
 
-9 つのうち 5 つは、CC Safety Net がファイルを直接書き込みます。4 つは hook の設定エントリとして、Hermes Agent は管理対象プラグインとして書き込みます。残りの 4 つは、それぞれのプラグインや拡張機能の配布経路を通して接続し、そのうえで標準入力の hook を呼び出します。
+11 のうち 7 つは、CC Safety Net がファイルを直接書き込みます。6 つは hook の設定エントリとして、Hermes Agent は管理対象プラグインとして書き込みます。残りの 4 つは、それぞれのプラグインや拡張機能の配布経路を通して接続し、そのうえで標準入力の hook を呼び出します。
 
 | エージェント | 設定の場所と読み込まれ方 |
 | --- | --- |
@@ -82,6 +88,8 @@ Claude Code の `Monitor` と Grok Build の `monitor` もシェルコマンド�
 | Claude Code | プラグイン `cc-safety-net@cc-marketplace`。有効・無効の状態は `~/.claude/settings.json` の `enabledPlugins` に保存される |
 | Codex | プラグイン `cc-safety-net@cc-marketplace`。プラグイン自身の `hooks/codex.json` が、`node "${PLUGIN_ROOT}/dist/bin/cc-safety-net.js" hook --codex` を実行する `PreToolUse` エントリを登録する |
 | Cursor | 直接書き込み。`npx -y cc-safety-net hook --cursor` を実行する管理対象の `preToolUse` エントリを、`timeout: 30` と `failClosed: true` を付けて `~/.cursor/hooks.json` に追加する。この設定はグローバルで、すべてのプロジェクトの Cursor IDE と Cursor CLI が対象になる |
+| Devin CLI | 直接書き込み。`npx -y cc-safety-net hook --devin` を実行する管理対象の `PreToolUse` エントリを、`timeout: 30` を付けて `$XDG_CONFIG_HOME/devin/config.json`（既定は `~/.config/devin/config.json`、Windows では `%APPDATA%\devin\config.json`）の `hooks` の下に追加する。このエントリにマッチャーはないため、`exec` だけでなくファイル系ツールも hook に届く。Devin は `config.json` にコメントを書けるため、パース前に `//` と `/* */` のコメントを取り除く。書き戻す内容は通常の JSON なので、コメントは残らない。ファイルがパースできない場合、ルートが JSON オブジェクトでない場合、`hooks` がオブジェクトでない場合、`hooks.PreToolUse` が配列でない場合は、何も書き込まず、対象のファイルを示して停止する。アンインストールは管理対象のハンドラーを取り除いてファイルを書き戻し、`config.json` を削除することはない |
+| Factory Droid | 直接書き込み。`npx -y cc-safety-net hook --droid` を実行する管理対象の `PreToolUse` エントリを、`timeout: 30` を付けて `~/.factory/hooks.json` のトップレベルの `PreToolUse` 配列に追加する。マッチャーはないため、`Execute` だけでなくファイル系ツールも hook に届く。Droid は `hooks.json` がない場合に `~/.factory/settings.json` の `hooks` キーから hook を読み込むため、`hooks.json` が存在しない場合は、そのイベントを引き継いだ内容で新しいファイルを作り、そこに管理対象のエントリを追加する。`settings.json` 自体には書き込まない。`hooks.json` を削除するのは、ハンドラーを取り除いた結果、空の `PreToolUse` がファイルに残る唯一のキーになり、かつ `settings.json` が存在しない場合だけ。`settings.json` がある場合は、削除すると `settings.json` のフォールバックが再び有効になってしまうため、取り除いた内容を書き込む。管理対象のエントリに `commandRegex` があると hook に届く `Execute` の呼び出しが絞られ、`doctor` は再インストールで直せるずれとして報告する |
 | Gemini CLI | `gemini-safety-net` リポジトリから読み込む拡張機能 `gemini-safety-net`。`cc-marketplace` のプラグインではない |
 | GitHub Copilot CLI | プラグイン `cc-safety-net@cc-marketplace`、または `~/.copilot/hooks` 配下の hook ファイルや Copilot の設定内のインライン hook。hook 対応にはバージョン条件があるため、使える取得元は Copilot CLI のバージョンによって異なる（[インストール](/ja/installation#github-copilot-cli-installation)を参照）。`disableAllHooks: true` はすべての hook を無効にする |
 | Grok Build | 直接書き込み。`npx -y cc-safety-net hook --grok-build` を実行する管理対象の `PreToolUse` エントリを、`timeout: 30` を付けて `~/.grok/hooks/cc-safety-net.json`（または `$GROK_HOME/hooks/cc-safety-net.json`）に追加する。このエントリにマッチャーはないため、`run_terminal_command` だけでなくファイル系ツールやパッチ系ツールも hook に届く。インストールもアンインストールも管理対象のハンドラーだけを操作するため、同じファイル内の管理対象外のエントリや、同じエントリ内の管理対象外のハンドラーはそのまま残る |
@@ -101,6 +109,10 @@ GitHub Copilot CLI の呼び出しでは、`toolArgs` はオブジェクトか�
 プラグイン経由の場合、Copilot は Windows の `powershell` ツールを `Bash` という名前で送ります。そのままでは Claude 形式のアダプターが POSIX のコマンドとして扱ってしまいます。そこでアダプターは環境変数 `COPILOT_CLI` を読み、値が `1` であれば `Bash` を `auto` の方言に振り分けます。これにより PowerShell の削除ルールが引き続き適用されます。[PowerShell `Remove-Item`](/ja/guides/analysis-engine#powershell-remove-item) を参照してください。
 
 Grok Build の呼び出しでは、信頼するルートは `workspaceRoot` で、`workspaceRoot` がない場合は `cwd` をルートとします。`cwd` はそのルートの内側のディレクトリとして正規化できる必要があり、`cwd` がないか空の場合は `.` として扱います。ルートを正規化できない場合や、`cwd` がルートの外を指す場合は fail closed になります。`toolInputTruncated: true` も fail closed になります。Grok Build はツール入力を 128 KB で切り詰めるため、途中で切れたコマンドは解析できません。
+
+Factory Droid の呼び出しでは、ペイロードの `cwd` が設定ディレクトリと実行ディレクトリの両方になります。Kimi Code の `Bash` とは違い、アダプターはツール入力から作業ディレクトリを読み取らないため、`Execute` の呼び出しも同じディレクトリで解析します。`cwd` があるのに空でない文字列でない場合は fail closed になり、使用できるディレクトリに解決できない場合は、セッションのディレクトリが原因であることを示して拒否します。
+
+Devin CLI のペイロードには `cwd` が含まれず、アダプターもそれを読み取りません。どちらのディレクトリも hook プロセス自身の作業ディレクトリ、つまり Devin が hook を起動したセッションのディレクトリになります。
 
 ### Codex が hook に到達する仕組み
 
@@ -210,7 +222,7 @@ OpenCode 1.x では、プラグインは `@opencode-ai/plugin` の仕様を実�
 1. `tool.execute.before` を実装します。OpenCode は各ツールの実行前にこれを呼び出します。CC Safety Net は呼び出しを解析し、コマンドが破壊的であれば拒否を例外として投げます。標準入出力経由の JSON のやり取りはありません。
 2. `config` の hook を実装し、CC Safety Net の組み込みコマンドを OpenCode のコマンド一覧に追加します。ユーザーがすでに定義しているコマンドを上書きすることはありません。
 
-`bash` ツールでは、プラグインは OpenCode の `shell` の設定からアナライザーの方言を選びます。この設定が文字列でない場合、Windows では PowerShell を既定とし、それ以外では `SHELL` を参照します。認識できる `powershell` と `pwsh` の実行ファイルなら PowerShell を、認識できる POSIX シェルなら POSIX を選びます。それ以外の値の場合は自動判定に任せます。指定された `workdir` は、読み取りと検索ができるディレクトリとして解決できた場合にかぎり、実行ディレクトリになります。Windows では、`/C:`、`/C`、`/cygdrive/C`、`/mnt/C` という文書化された形式を正規化し、それ以外のスラッシュ始まりのパスは OpenCode 側で解決できるようそのまま渡します。
+`bash` ツールでは、プラグインは OpenCode の `shell` の設定からアナライザーの方言を選びます。この設定が文字列でない場合、Windows では PowerShell を既定とし、それ以外では `SHELL` を参照します。プラグインはその値のパスの最後の要素を取り出し、小文字にして末尾の `.exe` を除いた名前で判断します。`powershell` と `pwsh` なら PowerShell、`cmd` なら方言の自動判定、それ以外の実行ファイルはすべて POSIX を選びます。値が空または空白だけの場合、および Windows 以外で `SHELL` が未設定の場合も自動判定になります。指定された `workdir` は、読み取りと検索ができるディレクトリとして解決できた場合にかぎり、実行ディレクトリになります。Windows では、`/C:`、`/C`、`/cygdrive/C`、`/mnt/C` という文書化された形式を正規化し、それ以外のスラッシュ始まりのパスは OpenCode 側で解決できるようそのまま渡します。
 
 OpenCode 2.x では、プラグインは `cc-safety-net` という ID で登録され、`tool.execute.before` を hook して、型付きの `Tool.Error` で拒否を返します。`shell` ツールはコマンドとして検査し、read、edit、write、patch、grep、glob と未知のツールは v1 と同じ入力経路で検査します。Code Mode から呼ばれる子ツールもこの hook を通りますが、CC Safety Net は外側の Code Mode の JavaScript 自体は解釈しません。プラグインはさらに command API 経由で `/cc-safety-net` を登録し、同名のコマンドがすでにある場合はそれをそのまま残します。
 
@@ -231,15 +243,19 @@ v2 のツールイベントはシェルの実行ファイル名を伝えない�
 }
 ```
 
-bash、dash、ksh、sh、zsh には `"posix"` を、powershell と pwsh には `"powershell"` を指定します。このオプションは OpenCode が使う実行ファイルを選ぶものではありません。OpenCode が実際に使う実行ファイルと一致させる必要があります。それ以外の値を指定すると、プラグインは `CC Safety Net: plugin option shell must be posix or powershell.` で失敗します。
+POSIX の `sh` の文法で動くシェル（ash、bash、dash、ksh、sh、zsh など）には `"posix"` を、powershell と pwsh には `"powershell"` を指定します。このオプションは OpenCode が使う実行ファイルを選ぶものではありません。OpenCode が実際に使う実行ファイルと一致させる必要があります。それ以外の値を指定すると、プラグインは `CC Safety Net: plugin option shell must be posix or powershell.` で失敗します。
 
-`shell.create.before` の hook が、シェルの起動前に実際の実行ファイルと設定された方言を突き合わせ、食い違っていれば次のメッセージで停止します。
+`shell.create.before` の hook が、シェルの起動前に実際の実行ファイルを確認します。`"powershell"` の場合、実行ファイルの名前は `powershell` か `pwsh` でなければなりません。`"posix"` の場合、`powershell`、`pwsh`、`cmd` は、末尾の `.exe` があってもなくても名前の時点で拒否します。OpenCode がこれらを別の方法で起動するためです。それ以外の実行ファイルは、プローブに合格する必要があります。確認に失敗すると、次のメッセージで起動を止めます。
 
 ```text
 CC Safety Net: actual shell "<actual>" does not match plugin option shell "<configured>". Configure the plugin's shell option to match OpenCode; supported dialects are posix and powershell.
 ```
 
-cmd.exe、fish、nushell を含む未対応のシェルは、誤った parser で解析せずに拒否します。この停止は通常のツール拒否とは異なります。OpenCode のシェル hook には型付きの拒否の経路もセッション ID もないため、実行中の操作そのものが失敗することがあり、セッションに紐づく監査エントリも残りません。この検査は、プラグインの `location`、つまりプラグインが読み込まれた OpenCode のディレクトリコンテキストで作成されるすべてのシェルが対象で、エージェントのツール呼び出し以外のシェル操作も含みます。OS レベルのサンドボックスではありません。
+プローブは `x=ccsn; case $x in ccsn) echo $x-posix;; esac` を `<shell> -c` で実行します。実行するディレクトリはプラグインの `location`、環境変数は OpenCode がシェルに渡すものです。エラーなく終了し、出力に `ccsn-posix` が含まれていれば、その実行ファイルは合格です。この目印は `$x` から組み立てるため、プローブのテキストをエラーメッセージとしてそのまま出力するシェルが合格することはありません。POSIX の `sh` の文法で動かないシェル、たとえば fish、nushell、tcsh はプローブに失敗するため、誤った parser で解析せずに拒否します。
+
+プローブは実行ファイルのパスごとに 1 回だけ実行します。確認中に別のシェル作成が重なった場合は、同じ 1 回の確認結果を共有します。合格した実行ファイルは記憶するため、同じパスの次回以降の作成ではプローブを省きます。失敗した確認やタイムアウトした確認は記憶しないため、次の作成でもう一度プローブします。確認は 10 秒のタイマーで失敗として確定し、プローブは `SIGKILL` で終了させます。これにより、応答しないシェルを待ち続けることはありません。
+
+この停止は通常のツール拒否とは異なります。OpenCode のシェル hook には型付きの拒否の経路もセッション ID もないため、実行中の操作そのものが失敗することがあり、セッションに紐づく監査エントリも残りません。この検査は、プラグインの `location`、つまりプラグインが読み込まれた OpenCode のディレクトリコンテキストで作成されるすべてのシェルが対象で、エージェントのツール呼び出し以外のシェル操作も含みます。OS レベルのサンドボックスではありません。
 
 OpenCode 1.x は古いキャッシュのプラグインを使い続けることがあるため、キャッシュを消去するまで設定変更が反映されない場合があります。[インストール](/ja/installation#opencode-installation)を参照してください。
 

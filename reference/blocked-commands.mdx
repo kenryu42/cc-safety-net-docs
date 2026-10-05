@@ -29,7 +29,7 @@ This page is the behavior matrix for what is blocked and where each boundary fal
 
 | Level | Additional blocks |
 | --- | --- |
-| [Standard](/configuration/modes#default-mode) | Blocks all untagged rows. Safe-looking unparseable text such as `echo 'unterminated` is permitted, but unparseable text containing a recognizable destructive pattern is still blocked heuristically. Dynamic `rm -rf` targets are **not** categorically blocked. |
+| [Standard](/configuration/modes#default-mode) | Blocks all untagged rows. Safe-looking unparseable text such as `echo 'unterminated` is permitted, but unparseable text containing a recognizable destructive pattern is still blocked heuristically, and [shell syntax the parser refuses outright](/guides/analysis-engine#shell-syntax-the-parser-refuses) is blocked here too. Dynamic `rm -rf` targets are **not** categorically blocked. |
 | [Strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) | Everything standard blocks, plus unparseable commands outright, destructive targets that cannot be verified, [heredocs outside a small supported set](#heredocs-in-strict-and-paranoid), and metadata-only discovery of built-in sensitive paths. |
 | [Paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) | Everything strict blocks, plus non-temp recursive deletion (`rm -r`, `rm -rf`, `find -delete`, `Remove-Item -Recurse -Force`) even inside the current working directory, and every interpreter one-liner regardless of content. |
 
@@ -306,6 +306,9 @@ Behavior depends on the safety level when the shell parser cannot tokenize a com
 | `echo 'unterminated` | Allowed, safe-looking unparseable text passes | Blocked, "could not be safely analyzed" |
 | `git reset --hard 'unterminated` | **Blocked** by the heuristic scan | Blocked |
 | `dd if=/dev/zero of=/dev/sda 'oops` | **Blocked** by the heuristic scan | Blocked |
+| `echo ${ date; }` | **Blocked**, the parser refuses the construct | Blocked |
+
+A construct the POSIX parser refuses outright makes the parse invalid. Every level denies an invalid parse, and the heuristic scan never runs, so a harmless command in one of those shapes is denied as well. The refused list covers `${ list; }` function substitutions, a quote or a backslash in a `${…}` that could be hiding a substitution, a `${…}` with no closing brace, and a backslash escape inside a backtick body. [Shell syntax the parser refuses](/guides/analysis-engine#shell-syntax-the-parser-refuses) gives the exact shapes and the examples that stay allowed.
 
 The heuristic scan looks for `rm -rf`, `git reset --hard`, `git reset --merge`, `git clean -f`, `git checkout --force`, `git checkout --`, `git push --force`, `git push --delete`, `git branch -D`, `git tag -d`, `git stash drop`, `git stash clear`, `git restore` without `--staged`, `find -delete`, `dd of=/dev/`, `mkfs /dev/`, and `shred <arg>`. A match denies with the rule `raw-text.dangerous-command`. The `find`, `dd`, `mkfs`, and `shred` patterns are skipped when the text begins with `echo ` or `rg `, so quoting one of those strings into an echo or ripgrep invocation does not trip the scan.
 

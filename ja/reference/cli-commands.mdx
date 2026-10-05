@@ -87,10 +87,12 @@ Claude の設定ファイルがない、解析に失敗する、`enabledPlugins`
 | `Level` | 有効なレベル。`standard`、`strict`、`paranoid`、`custom` のいずれか。有効になっている破壊的コマンドのルールが、レベルから継承される状態と異なる場合は ` (customised)` が付く |
 | `Rules` | `none active`、または有効なカスタムルール数を示す `<n> active` |
 | `Policy` | ユーザーポリシーファイルのパス。`~` で短縮される |
-| `Project` | プロジェクトポリシーファイルのパス。カレントディレクトリに `.cc-safety-net/policy.json` がある場合に**のみ**出力される |
+| `Project` | プロジェクトポリシーファイルのパス。カレントディレクトリにある `.cc-safety-net/policy.json` がユーザーポリシーファイルではない場合に**のみ**出力される |
 | `Worktree` | `relaxations active`。worktree モードが有効な場合に**のみ**出力される |
 
 情報行は 1 行です。長い値は折り返さず、`…` で切り詰めます。
+
+ユーザーの `.cc-safety-net/` があるディレクトリは 1 つだけです。ホームディレクトリ、または `CC_SAFETY_NET_HOME` が設定されている場合はその親ディレクトリです。そこで実行した場合、`<cwd>/.cc-safety-net/policy.json` はユーザーポリシーファイルそのものです。ローダーはこのファイルをユーザーポリシーとして 1 回だけ読み、プロジェクトポリシーは存在しないものとして扱います。そのため `status` に `Project` 行は出ず、`doctor` にも `Project policy deltas:` ブロックは出ません。比較では両方のパスを正規化するため、シンボリックリンク経由のホームディレクトリも一致します。たとえば FreeBSD は `/home` を `/usr/home` へのリンクとして提供しています。
 
 プロジェクトポリシーがユーザーポリシーを緩めている場合は、情報ブロックの後に `Project policy` ブロックが続き、緩めたフィールドを 1 行ずつ示します。`CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY` が設定されている場合、ブロックの見出しは `Project policy (ignored)` になります。[報告される緩和](/ja/configuration/policy#reported-weakenings)を参照してください。
 
@@ -115,7 +117,7 @@ bunx cc-safety-net doctor
 
 | セクション | 説明 |
 | --- | --- |
-| Hook Integration | サポート対象の各エージェントの設定を確認する。Claude Code、Amp Code、Antigravity CLI、Codex、Cursor、DeepSeek Harness、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code、OpenClaw、OpenCode、Pi が対象 |
+| Hook Integration | サポート対象の各エージェントの設定を確認する。Claude Code、Amp Code、Antigravity CLI、Codex、Cursor、DeepSeek Harness、Devin CLI、Factory Droid、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code、OpenClaw、OpenCode、Pi が対象 |
 | Guard Engine Verification | ブロックが動作することを確認する合成セルフテストを実行する（`git reset --hard` と `rm -rf /` はブロック、`rm -rf ./node_modules` は許可） |
 | Configuration | ユーザーとプロジェクトのルール設定を検証し、有効なルールを表示する |
 | Environment | CC Safety Net の環境変数の状態を表示する |
@@ -168,28 +170,45 @@ OpenCode 2.x を報告するホストでは、`doctor` は設定ファイルだ�
 
 一部の監査ログファイルを読み取れない場合、Recent Activity セクションの末尾に `Warning: <n> audit log sources could not be read; this summary is incomplete` が表示されます（1 件の場合は `source`）。これにより、操作が少ない週を完全なデータと誤認しません。
 
+<span id="managed-hook-drift"></span>
+
 ### 管理対象 hook の設定ずれ
 
-Cursor と Grok Build は、hook のエントリを手で編集できる設定ファイルに保持します。そのため `doctor` は、ディスク上のエントリと、インストールが書き込むエントリを比較します。ずれているエントリも、管理対象のエントリであることに変わりはありません。エージェントは `Configured` のままで、一致しなかった項目ごとに `Warning (<Agent>): <message>` を出力し、終了コードも変わりません。インストールを実行し直せば、エントリは書き直されます。
+Cursor、Devin CLI、Factory Droid、Grok Build は、hook のエントリを手で編集できる設定ファイルに保持します。そのため `doctor` は、ディスク上のエントリと、インストールが書き込むエントリを比較します。ずれているエントリも、管理対象のエントリであることに変わりはありません。エージェントは `Configured` のままで、一致しなかった項目ごとに `Warning (<Agent>): <message>` を出力し、終了コードも変わりません。インストールを実行し直せば、エントリは書き直されます。
 
 | エージェント | 警告 | ずれている箇所 |
 | --- | --- | --- |
 | Cursor | `Multiple managed cc-safety-net hooks found; reinstall to collapse duplicates` | `hooks.preToolUse` に管理対象のエントリが複数ある |
 | Cursor | `Managed hook is missing "failClosed": true; reinstall to repair` | 最初の管理対象エントリの `failClosed` が `true` でない。この場合、hook が判定できなかった呼び出しを Cursor が許可してしまう |
 | Cursor | `Managed hook "timeout" is not 30; reinstall to repair` | 最初の管理対象エントリの `timeout` が `30` でない |
+| Devin CLI | `Managed hook has a "matcher" that narrows coverage; reinstall to repair` | 管理対象エントリの `matcher` が `""` でも `"*"` でもない |
+| Devin CLI | `Managed hook "type" is not "command"; reinstall to repair` | 管理対象ハンドラーの `type` が `command` でない |
+| Devin CLI | `Managed hook "timeout" is not 30; reinstall to repair` | 管理対象ハンドラーの `timeout` が `30` でない |
+| Factory Droid | `Managed hook has a "commandRegex" that narrows coverage; reinstall to repair` | 管理対象エントリに `commandRegex` があり、その値が `""` でない |
+| Factory Droid | `Managed hook has a "matcher" that narrows coverage; reinstall to repair` | 管理対象エントリの `matcher` が `""` でも `"*"` でもない |
+| Factory Droid | `Managed hook "type" is not "command"; reinstall to repair` | 管理対象ハンドラーの `type` が `command` でない |
+| Factory Droid | `Managed hook "timeout" is not 30; reinstall to repair` | 管理対象ハンドラーの `timeout` が `30` でない |
 | Grok Build | `Managed hook has a "matcher" that narrows coverage; reinstall to repair` | 管理対象エントリの `matcher` が `""` でも `"*"` でもない。この 2 つは Grok Build がすべてに一致するものとして扱う書き方で、それ以外の値では一部のツール呼び出しが hook を通らなくなる |
 | Grok Build | `Managed hook "type" is not "command"; reinstall to repair` | 管理対象ハンドラーの `type` が `command` でない |
 | Grok Build | `Managed hook "timeout" is not 30; reinstall to repair` | 管理対象ハンドラーの `timeout` が `30` でない |
 
 Antigravity CLI には、ずれの検査がありません。`doctor` は正規のエントリと比較するのではなく、コマンドのパターンで hook を照合します。そのため `Detected` かつ `Configured` と報告し、hook の定義に `enabled: false` がある場合は `Detected` かつ `Not configured` と報告します。
 
-hook の設定ファイルをパースできない場合は、3 つとも結果が変わります。検出の段階で管理対象のエントリが見つからないため、そのエージェントは未設定として数えられ、Discovery、Configuration、Inspection の各列は `Unknown`、`Unknown`、`Failed` になります。メッセージも、警告ではなくエラーとして赤で表示されます。
+hook の設定ファイルをパースできない場合は、5 つとも結果が変わります。検出の段階で管理対象のエントリが見つからないため、そのエージェントは未設定として数えられ、Discovery、Configuration、Inspection の各列は `Unknown`、`Unknown`、`Failed` になります。メッセージも、警告ではなくエラーとして赤で表示されます。
 
 - `Error (Antigravity CLI): Failed to parse Antigravity hooks config <path>: <reason>`
 - `Error (Cursor): Failed to parse Cursor hooks config <path>: <reason>`
+- `Error (Devin CLI): Failed to parse Devin CLI config <path>: <reason>`
+- `Error (Factory Droid): Failed to parse Factory Droid hooks config <path>: <reason>`
 - `Error (Grok Build): Failed to parse Grok Build hooks config <path>: <reason>`
 
 いずれの場合も `<Agent> inspection failed` の finding が `error` 重大度で発生するため、`doctor` は `1` で終了します。
+
+Devin CLI の設定ファイルがパースできても形式が合わない場合、`doctor` は同じ扱いをします。パースエラーの代わりに、次のいずれかのメッセージを出力します。
+
+- `Devin CLI config <path> must be a JSON object`
+- `Devin CLI config <path> "hooks" must be an object`
+- `Devin CLI config <path> "hooks.PreToolUse" must be an array`
 
 ### ホストごとの設定の場所
 
@@ -197,6 +216,7 @@ hook の設定ファイルをパースできない場合は、3 つとも結果�
 
 - **Claude Code**：`CLAUDE_CONFIG_DIR` が設定されていればその値、なければ `<home>/.claude` です。Claude Code 自身と同じく、値は `~` を展開せずそのまま使います。`install`、`update`、レガシープラグインの後始末、`status` と `statusline` の裏側で行う `enabledPlugins` の確認も、同じディレクトリを使います。
 - **DeepSeek Harness**：`DSH_HOME` が設定されていれば `$DSH_HOME/profiles`、なければ `<home>/.dsh/profiles` です。値の先頭の `~` はホームディレクトリに展開されます。`doctor` は、その配下の各プロファイルディレクトリにある `package.json` を読み取ります。`node_modules` は対象外です。
+- **Devin CLI**：`XDG_CONFIG_HOME` が設定されていて空でなければ `$XDG_CONFIG_HOME/devin`、それ以外は `<home>/.config/devin` です。Windows では `%APPDATA%\devin` で、`APPDATA` が未設定または空なら `<home>\AppData\Roaming\devin` です。ファイルはそこにある `config.json` で、値は `~` を展開せずそのまま使います。
 - **Hermes Agent**：`HERMES_HOME` の親ディレクトリ名が `profiles` の場合、その値がそのまま Hermes のホームです。それ以外の場合、ルートは `HERMES_HOME`（未設定なら `<home>/.hermes`）で、ルートにある `active_profile` ファイルが `<root>/profiles/<name>` を選びます。この名前は前後の空白を取り除き、小文字に変換して使います。`active_profile` が空、`default`、ファイルなし、読み取り不能のいずれかであれば、ルートのままです。プラグインファイルは `<Hermes home>/plugins/cc-safety-net` に置かれます。
 - **OpenClaw**：OpenClaw のホームは、`OPENCLAW_HOME` が設定されていて空でなければその値、それ以外は OS のホームです。先頭の `~` は OS のホームを基準に展開します。状態ディレクトリは `OPENCLAW_STATE_DIR`、なければ `OPENCLAW_CONFIG_PATH` があるディレクトリ、それもなければ `<OpenClaw home>/.openclaw` です。この 2 つの環境変数では、先頭の `~` を OpenClaw のホームを基準に展開します。
 - **OpenCode**：2.x を報告するホストでは、`doctor` は `OPENCODE_CONFIG_DIR` だけを読み取ります。2.x は、この変数が設定されているとそのディレクトリしか読まないためです。それ以外のバージョンでは、そのディレクトリと XDG のディレクトリ（`$XDG_CONFIG_HOME/opencode`、なければ `<home>/.config/opencode`）の両方を読み取ります。1.x は常に XDG のディレクトリを読み込むためです。`OPENCODE_CONFIG_DIR` が空文字列の場合は未設定と同じ扱いです。`uninstall` は常に両方を読み取ります。
@@ -343,6 +363,14 @@ npx cc-safety-net explain --json 'loop() { loop; }; loop'
 | `--ref <ref>` | ブランチ、タグ、コミットを指定する | `add` のみ |
 | `--only <rulebook...>` | リポジトリ内の指定した rulebook だけを追加する | `add` のみ |
 | `-h`, `--help` | ヘルプを表示する | すべて |
+
+ユーザーの `.cc-safety-net/` があるディレクトリでは、`<cwd>/.cc-safety-net/rules/rule.json` がユーザーのルール設定です。そのため、プロジェクトスコープに書き込むサブコマンドは、このディレクトリでの実行を拒否します。`--global` なしの `rule init`、`rule add`、`rule remove`、`rule update`、`rule sync`、`rule wrapper add`、`rule wrapper remove` は、何も書き込まないまま次のエラーを 1 行出力して `1` で終了します。
+
+```text
+<cwd>/.cc-safety-net/rules/rule.json is the user rule config, not a project rule config; use --global for the user scope, or run from a project directory
+```
+
+読み取りの動作は変わりません。`rule list` と `rule wrapper list` はこのディレクトリでも動作し、`--global` を付けたサブコマンドも同じです。[`rule migrate`](#rule-migrate) には `--global` がなく、このディレクトリでの扱いも異なります。
 
 `--check` は受け付けなくなりました。どのサブコマンドでも `Unknown option for rule: --check` として拒否されます。rulebook は毎回ディスクから読み込まれるため、`add` や `update` のドライランに意味を持たせるには、結局その候補を取得して検証するほかありません。オフラインでの検証には [`rule verify`](#rule-verify) を使います。
 
@@ -530,6 +558,14 @@ npx -y cc-safety-net rule migrate --cleanup
 
 `--cleanup` は、移行したルールの検証後にレガシーファイルを削除します。`migrate` は、`--global` と 2 つ目の位置引数を拒否します。
 
+`--global` がないため、1 回の実行で両方のスコープを移行します。ユーザーの `.cc-safety-net/` があるディレクトリでは、`rule migrate` はプロジェクト側だけをスキップし、ユーザー側はそのまま移行して、次の 1 行を出力します。
+
+```text
+Skipped the project scope: <cwd>/.cc-safety-net/rules/rule.json is the user rule config, not a project rule config
+```
+
+スキップした側は成功として数えるため、終了コードはユーザー側の結果だけで決まります。
+
 `doctor` は、移行していないレガシーファイルを `warning` 重大度の finding `config.legacy-ignored` として報告します。
 
 ### rule doc
@@ -573,6 +609,12 @@ cc-safety-net policy apply proposal.json --global
 ```
 
 対象は、プロジェクトの `.cc-safety-net/policy.json` です。`--global` を指定した場合はユーザーポリシーファイルになります。
+
+ユーザーの `.cc-safety-net/` があるディレクトリでは、このプロジェクト側の対象がユーザーポリシーファイルそのものです。そのため `--global` なしの `policy check` と `policy apply` は、提案の読み取り、差分の出力、確認プロンプトのいずれにも進まずに実行を拒否します。次のエラーを 1 行出力して `1` で終了します。
+
+```text
+<cwd>/.cc-safety-net/policy.json is the user policy, not a project policy; use --global for the user scope, or run from a project directory
+```
 
 ### 出力
 
@@ -634,7 +676,7 @@ npx -y cc-safety-net install --claude-code
 
 ### ターゲット
 
-14 個のターゲットを使用できます。次の順序はインストールされる順序です。
+16 個のターゲットを使用できます。次の順序はインストールされる順序です。
 
 | フラグ | エージェント | インストール方法 |
 | --- | --- | --- |
@@ -644,6 +686,8 @@ npx -y cc-safety-net install --claude-code
 | `--codex` | Codex | Codex 自身のプラグインマーケットプレイスコマンドを実行する |
 | `--cursor` | Cursor | `~/.cursor/hooks.json` に hook エントリを書き込む |
 | `--deepseek-harness` | DeepSeek Harness | マシン上の各プロファイルに対して `dsh plugin --profile <name> add cc-safety-net@<version>` を実行する。`web` プロファイルには `npx -y @deepseek-ai/dsh` 経由、`desktop` プロファイルにはデスクトップアプリ同梱の `dsh` 経由。`<version>` はインストーラー自身のバージョン。プロファイルの置き場所は `$DSH_HOME/profiles` または `~/.dsh/profiles` |
+| `--devin` | Devin CLI | `~/.config/devin/config.json`（または `$XDG_CONFIG_HOME/devin/config.json`、Windows では `%APPDATA%\devin\config.json`）の `hooks.PreToolUse` に hook エントリを書き込む |
+| `--droid` | Factory Droid | `~/.factory/hooks.json` の `PreToolUse` に hook エントリを書き込む |
 | `--gemini-cli` | Gemini CLI | Gemini CLI の拡張機能インストールコマンドを実行する |
 | `--copilot-cli` | GitHub Copilot CLI | Copilot CLI 自身のプラグインマーケットプレイスコマンドを実行する |
 | `--grok-build` | Grok Build | `~/.grok/hooks/cc-safety-net.json`（または `$GROK_HOME/hooks/cc-safety-net.json`）に hook エントリを書き込む |
@@ -658,10 +702,10 @@ npx -y cc-safety-net install --claude-code
 CC Safety Net は、3 つのインストール方法を使います。
 
 - **ネイティブのプラグインまたは拡張機能のコマンド**：Claude Code、Codex、DeepSeek Harness、GitHub Copilot CLI、Gemini CLI、OpenClaw、OpenCode、Pi。CC Safety Net はエージェント自身のプラグインマネージャーを実行し、置き換えられた古いプラグイン ID を削除します。DeepSeek Harness のインストールは、プロファイルごとに `dsh plugin ... add` を実行し、その後プロファイルのマニフェストを読み直します。ホストがバンドルをインストールしても有効にしていない場合は失敗します。OpenClaw のインストールは、その後に OpenClaw がプラグインを読み込み済みと報告することも確認し、OpenClaw Gateway の再起動を求めます。OpenCode 1.x のインストールは、キャッシュ済みパッケージのエントリを import し、呼び出し可能な `CCSafetyNetPlugin` を export することを確認します。2.x では `opencode plugin list` を読み取り、ソースが `cc-safety-net@latest` の `cc-safety-net` の行があることを要求します。どちらの確認も、失敗すればインストールは中止されます。そのまま進めると、OpenCode が何も読み込まず fail open になるためです。
-- **設定ファイルへの書き込み**：Antigravity CLI、Cursor、Grok Build、Kimi Code。CC Safety Net がエージェントの設定を直接編集するのは、この 4 つだけです。
+- **設定ファイルへの書き込み**：Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build、Kimi Code。CC Safety Net がエージェントの設定を直接編集するのは、この 6 つだけです。
 - **管理対象プラグイン成果物**：Amp Code と Hermes Agent。Amp のプラグインは、amp CLI を通じてアカウントのホスト型 Amp Personal Plugins リポジトリに公開されます（事前確認は `amp plugins repositories --json`）。そのため、インストールには amp CLI と `amp login` が必要です。公開されたプラグインは、Orb スレッドを含むすべての Amp セッションに適用されます。`~/.config/amp/plugins/cc-safety-net.ts` に管理対象のローカルコピーが残っているとパーソナルプラグインを覆い隠すため、インストール時に削除されます。変更後は Amp を再起動するか `plugins: reload` を実行します。Hermes Agent では、インストール時にプラグインをディスクに書き込んで `hermes plugins enable` も実行し、変更後に Hermes の再起動が必要です。
 
-Antigravity CLI、Cursor、Grok Build、Kimi Code の設定ファイルへのインストールと、Hermes Agent へのインストールでは、何かを書き込む前に `npx` キャッシュから古い `cc-safety-net` を削除します。npm キャッシュの `_npx` ディレクトリ（`$npm_config_cache` が設定されている場合はその場所。それ以外は macOS と Linux で `~/.npm`、Windows で `%LOCALAPPDATA%\npm-cache`）の下にあり、`node_modules` が `cc-safety-net` を含むすべてのエントリを削除します。この 5 つの連携は `npx` で hook を実行するため、この処理により、新しくインストールした hook はキャッシュ済みのバージョンではなく最新版を解決します。
+Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build、Kimi Code の設定ファイルへのインストールと、Hermes Agent へのインストールでは、何かを書き込む前に `npx` キャッシュから古い `cc-safety-net` を削除します。npm キャッシュの `_npx` ディレクトリ（`$npm_config_cache` が設定されている場合はその場所。それ以外は macOS と Linux で `~/.npm`、Windows で `%LOCALAPPDATA%\npm-cache`）の下にあり、`node_modules` が `cc-safety-net` を含むすべてのエントリを削除します。この 7 つの連携は `npx` で hook を実行するため、この処理により、新しくインストールした hook はキャッシュ済みのバージョンではなく最新版を解決します。
 
 **Kimi Code には 2 つのインストール方式があります。** ターミナルで `install --kimi-code` を実行するか、ピッカーで Kimi Code を選択すると、単一選択プロンプトが開きます。グローバル hook を今インストールするか、代わりにネイティブ Kimi プラグインの手順を表示するかを選びます（Kimi Code 内で `/plugins install https://github.com/kenryu42/cc-safety-net` を実行し、次に `/reload` を実行するか新しいセッションを開始します。信頼プロンプトの既定はキャンセルです）。プラグイン方式を選んでも何も書き込まれず、手順を表示するだけです。非対話セッションではプロンプトをスキップして、グローバル hook を直接インストールします。このプロンプトがプラグイン手順への唯一の経路であるため、グローバル hook が設定済みでも install 時の Kimi Code の行は選択可能なままで、`(global hook installed)` と表示されます。
 
@@ -692,9 +736,9 @@ TTY で `update` を直接実行すると、インストールバナーを表示
 
 ターゲットは、各エージェントの設定ファイルと状態ファイルを読み取って検出します。現在無効な場合でも、インストール済みと検出される連携が対象です。Amp Code は `amp plugins list` の出力によって対象になります。この出力は、`codex plugin list` と同じく 30 秒のタイムアウトで取得します。コールドラン時は checkout をネットワーク経由で更新するため、既定の 5 秒を超えることがあるからです。GitHub Copilot CLI は例外です。Copilot の `installed-plugins` ディレクトリに CC Safety Net プラグインの checkout がある場合だけ対象になります。無効状態と、何もインストールされていない kill-switch 状態を区別できず、update が install になることを防ぐためです。改名前の `safety-net@cc-marketplace` プラグイン ID を使うインストール（Claude Code、Codex、および GitHub Copilot CLI のプラグイン checkout `cc-marketplace/safety-net`）も検出されます。更新時に現在の ID へ移行し、レガシーコピーをベストエフォートで削除します。レガシーコピーの削除に失敗しても、ターゲットは失敗せず警告になります。
 
-すべてのターゲットは、1 つの `Updating <n> integration…` または `Updating <n> integrations…` スピナーの後ろで、`install` と同じ操作を並列に実行します。すべてのターゲットが完了した後、レポートを安定したカタログ順でまとめて出力します。メッセージだけが `Updated …` または `… up to date` に変わります。インストール時にエージェント自身の CLI を使うターゲットでは、先にベンダーバイナリを調べます。対象は Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、Hermes Agent、OpenClaw、OpenCode、Pi です。バイナリがない場合は `<Agent> not found; skipped`（例は `Codex not found; skipped`）を出力して処理を続けます。設定ファイルを使うターゲット、つまり Antigravity CLI、Cursor、Grok Build、Kimi Code にはバイナリが不要で、常に更新されます。DeepSeek Harness もバイナリは調べません。更新では install を再実行し、プロファイルごとに `dsh` を動かします。デスクトップアプリが起動中の場合は失敗します。Amp Code には別途の検査は不要です。`amp plugins list` がパーソナルプラグインを表示する場合にのみ検出され、その更新は amp CLI を実行して現在の成果物を公開します。Claude Code、Codex、GitHub Copilot CLI では、登録済みのマーケットプレイスをプラグイン処理の前に更新します（例は `claude plugin marketplace update cc-marketplace`）。何もしない `add` に頼らないため、古いカタログ checkout が更新を失敗させることはありません。
+すべてのターゲットは、1 つの `Updating <n> integration…` または `Updating <n> integrations…` スピナーの後ろで、`install` と同じ操作を並列に実行します。すべてのターゲットが完了した後、レポートを安定したカタログ順でまとめて出力します。メッセージだけが `Updated …` または `… up to date` に変わります。インストール時にエージェント自身の CLI を使うターゲットでは、先にベンダーバイナリを調べます。対象は Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、Hermes Agent、OpenClaw、OpenCode、Pi です。バイナリがない場合は `<Agent> not found; skipped`（例は `Codex not found; skipped`）を出力して処理を続けます。設定ファイルを使うターゲット、つまり Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build、Kimi Code にはバイナリが不要で、常に更新されます。DeepSeek Harness もバイナリは調べません。更新では install を再実行し、プロファイルごとに `dsh` を動かします。デスクトップアプリが起動中の場合は失敗します。Amp Code には別途の検査は不要です。`amp plugins list` がパーソナルプラグインを表示する場合にのみ検出され、その更新は amp CLI を実行して現在の成果物を公開します。Claude Code、Codex、GitHub Copilot CLI では、登録済みのマーケットプレイスをプラグイン処理の前に更新します（例は `claude plugin marketplace update cc-marketplace`）。何もしない `add` に頼らないため、古いカタログ checkout が更新を失敗させることはありません。
 
-並列処理の前に、キャッシュに依存するターゲット（Antigravity CLI、Cursor、Grok Build、Hermes Agent、Kimi Code）が 1 つでもある場合、`update` は `npx` キャッシュを 1 回消去します。消去に失敗した場合、そのキャッシュに依存するターゲットだけが失敗し、ほかのターゲットは実行を続けます。
+並列処理の前に、キャッシュに依存するターゲット（Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build、Hermes Agent、Kimi Code）が 1 つでもある場合、`update` は `npx` キャッシュを 1 回消去します。消去に失敗した場合、そのキャッシュに依存するターゲットだけが失敗し、ほかのターゲットは実行を続けます。
 
 `bunx` キャッシュの消去は無条件です。`bunx cc-safety-net` は連携ではなくユーザー自身が実行するものなので、対象の連携が 1 つも見つからない実行も含め、`update` は毎回このキャッシュから自分の `cc-safety-net` のエントリを消去します。
 
@@ -716,7 +760,7 @@ Update available: cc-safety-net <current> → <latest>. Update this CLI with you
 
 ## uninstall
 
-`uninstall` は、`install` と同じ 14 個のターゲットフラグを受け取り、同じ選択ルールとターゲット順序を使います。
+`uninstall` は、`install` と同じ 16 個のターゲットフラグを受け取り、同じ選択ルールとターゲット順序を使います。
 
 ```bash
 npx -y cc-safety-net uninstall
@@ -737,6 +781,8 @@ npx -y cc-safety-net uninstall --cursor
 | `-cc`, `--coding-cli` | Coding CLI（Claude Code） | `PreToolUse` | `--claude-code`。最上位形式の `cc-safety-net -cc` と `cc-safety-net --claude-code` も含む |
 | `-cx`, `--codex` | Codex | `PreToolUse` | 該当なし |
 | `-cu`, `--cursor` | Cursor | `preToolUse` | 該当なし |
+| `-dv`, `--devin` | Devin CLI | `PreToolUse` | 該当なし |
+| `-fd`, `--droid` | Factory Droid | `PreToolUse` | 該当なし |
 | `-gc`, `--gemini-cli` | Gemini CLI | `BeforeTool` | 最上位形式の `cc-safety-net -gc` と `cc-safety-net --gemini-cli` |
 | `-cp`, `--copilot-cli` | GitHub Copilot CLI | `PreToolUse` | 最上位形式の `cc-safety-net -cp` と `cc-safety-net --copilot-cli` |
 | `-gb`, `--grok-build` | Grok Build | `PreToolUse` | 該当なし |
@@ -764,6 +810,24 @@ Amp Code、DeepSeek Harness、OpenClaw、OpenCode、Pi には、独自の `hook`
 実行時、hook は Cursor の `Shell` ツール呼び出しを読み取り、`conversation_id` からセッション ID を取得して、`{ "permission": "deny", … }` または `{ "permission": "allow" }` を返します。Cursor の `working_directory` フィールドは、ワークスペースのルート内に収まっているかを検査されます。宣言されているのに値がない場合、またはワークスペースのルートの外を指す場合は fail closed になります。
 
 Windows では、Cursor が `/C:/Users/you` のような VS Code の URI 形式でパスを渡します。そこで hook は、`workspace_roots`、`cwd`、`working_directory` を解決する前に、先頭の `/<drive-letter>:` の後ろに `/`、`\`、文字列の終端のいずれかが続く場合、その部分を `<drive-letter>:/` へ書き換えます。後ろに続く区切り文字も書き換えの対象に含まれます。そのため `/C:/Users/you` は `C:/Users/you`、`/C:\Users` は `C:/Users` として解決され、`/C:` だけならドライブのルート `C:/` になります。書き換わるのは先頭のこの部分だけで、ドライブレターの大文字小文字はそのままです。`/c/x` のような MSYS 形式のパス、POSIX パス、Windows 本来のドライブレター表記は変わりません。Windows 以外のプラットフォームでは、どのパスも書き換えません。
+
+### Devin CLI エントリーポイント
+
+`install --devin` は、コマンド `npx -y cc-safety-net hook --devin` を `~/.config/devin/config.json`（`XDG_CONFIG_HOME` が設定されている場合は `$XDG_CONFIG_HOME/devin/config.json`、Windows では `%APPDATA%\devin\config.json`）の `hooks.PreToolUse` に書き込みます。管理対象エントリは `{ "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --devin", "timeout": 30 }] }` です。マッチャーがないため、すべてのツール呼び出しが hook に届きます。install は、ファイル内のほかのキー、ほかの hook イベント、管理対象外の `PreToolUse` エントリとハンドラーをそのまま残します。
+
+既存ファイルの読み取りでは、`//` コメント、`/* */` コメント、末尾のカンマを取り除きます。Devin CLI が `config.json` でこれらを受け付けるためです。書き戻すのは通常の JSON なので、ファイルに残しておいたコメントは install の後には残りません。パースできないファイル、JSON オブジェクトでないファイル、`hooks` または `hooks.PreToolUse` の型が合わないファイルでは、install は何も書き込まず中止します。メッセージは[管理対象 hook の設定ずれ](#managed-hook-drift)に挙げたものです。uninstall は管理対象のハンドラーだけを取り除き、ファイルは残します。
+
+実行時、hook は Devin CLI の `PreToolUse` の入力（`tool_name`、`tool_input`、`session_id`）を読み取ります。`hook_event_name` が `PreToolUse` でない入力は無視します。コマンドツールは `exec` だけで、そのシェルの方言は自動判定します。`write_to_process` の呼び出しも、`text_input` が空でない文字列であればシェルコマンドとして解析します。これにより、実行中のプロセスに入力したコマンドも対象になります。`bytes_input` だけを持つ `write_to_process` は、コマンド以外の呼び出しとして扱います。入力に `cwd` フィールドはないため、セッションのディレクトリは hook プロセス自身の作業ディレクトリです。正規化できないディレクトリは fail closed になります。拒否時は `{"decision": "block", "reason": …}` を返します。許可時は何も出力しないため、Devin CLI 自身の権限確認のプロンプトがそのまま働きます。
+
+### Factory Droid エントリーポイント
+
+`install --droid` は、コマンド `npx -y cc-safety-net hook --droid` を `~/.factory/hooks.json` の `PreToolUse` に書き込みます。管理対象エントリは `{ "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --droid", "timeout": 30 }] }` です。マッチャーも `commandRegex` もないため、`Execute` だけでなくすべてのツール呼び出しが hook に届きます。`hooks.json` がまだない場合、install は `~/.factory/settings.json` の `hooks` オブジェクトを引き継いで新しいファイルを作るため、Factory Droid がすでにそこから読み込んでいる hook は新しいファイルにも残ります。install は、`hooks.json` 内のほかのキーと、管理対象外の `PreToolUse` エントリやハンドラーをそのまま残します。
+
+認識できないファイルでは、install は何も書き込まず中止します。メッセージは `Failed to parse Factory Droid hooks config <path>: <reason>`、`Factory Droid hooks config <path> must be a JSON object`、`Factory Droid hooks config <path> "PreToolUse" must be an array` のいずれかです。
+
+uninstall は管理対象のハンドラーだけを取り除きます。`hooks.json` を削除するのは、取り除いた結果 `PreToolUse` が空になり、`PreToolUse` がそのファイルの唯一のキーであり、かつ `~/.factory/settings.json` が存在しない場合だけです。その settings ファイルがある場合、uninstall は `hooks.json` を書き直します。ファイルを消すと、Factory Droid が `settings.json` の hook を再び読み込んでしまうためです。
+
+実行時、hook は Factory Droid の `PreToolUse` の入力（`tool_name`、`tool_input`、`cwd`、`session_id`）を読み取ります。コマンドツールは `Execute` だけで、そのシェルの方言は自動判定します。セッションのディレクトリは入力の `cwd` で、入力に `cwd` がない場合は hook プロセス自身の作業ディレクトリです。正規化できないディレクトリは fail closed になります。拒否時は `hookSpecificOutput.permissionDecision: "deny"` を返し、理由は `permissionDecisionReason` に入ります。これは Coding CLI の hook と同じ出力形式です。許可時は何も出力しないため、Factory Droid 自身の権限確認のプロンプトがそのまま働きます。
 
 ### Grok Build エントリーポイント
 

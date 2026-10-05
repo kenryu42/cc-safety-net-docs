@@ -18,7 +18,7 @@ Include this information when it is safe to share:
 
 - The affected `cc-safety-net` version
 - Your operating system and runtime version
-- The affected integration, such as Claude Code, OpenCode, Gemini CLI, GitHub Copilot CLI, Grok Build, or Codex
+- The affected integration, such as Claude Code, OpenCode, Gemini CLI, GitHub Copilot CLI, Grok Build, Factory Droid, Devin CLI, or Codex
 - Steps to reproduce, and the command or input that bypasses, weakens, or abuses CC Safety Net
 - Any relevant output from `cc-safety-net explain` or `cc-safety-net doctor`
 - Whether the issue can cause data loss, command execution, secret exposure, or another concrete security impact
@@ -57,6 +57,12 @@ Use normal [GitHub issues](https://github.com/kenryu42/cc-safety-net/issues) for
 - Questions about custom rules or configuration
 
 Grok Build hooks are fail-open by design, and the host exposes no `failClosed` knob. Only an explicit deny on stdout blocks a tool call, so a hook that crashes, times out, or emits malformed output lets the call proceed. The adapter still emits an explicit deny for its own fail-closed outcomes, such as truncated tool input or an unusable working directory. A failure that leaves the adapter with no output at all does not block the call on this host. That is host behavior, not a coverage gap.
+
+Factory Droid hooks also fail open. Only exit code 2 or an explicit deny on stdout blocks a tool call. Droid treats an exit code other than 0 or 2, a crash, a timeout, or a missing `npx` as a non-blocking error and runs the call. The adapter emits nothing for an allowed call, so Droid's own permission prompt still applies. An enterprise `allowManagedHooksOnly` setting ignores user and project hooks, so the hook that `install --droid` writes to `~/.factory/hooks.json` does not run under it. The hook is verified against `Execute` and the file tools. Whether `Task` subagents, `Loop`, and automation tools reach it is unverified.
+
+Devin CLI hooks also fail open. Only exit code 2 or a `block` decision on stdout blocks a tool call. A timeout, a missing `npx`, or a hook process that dies before printing a decision lets the call proceed. Errors the adapter catches itself still produce a `block` decision. The adapter emits nothing for an allowed call, so Devin's own permission prompt still applies.
+
+CC Safety Net supports only the user-level Devin config that `install --devin` writes: `$XDG_CONFIG_HOME/devin/config.json`, by default `~/.config/devin/config.json`, or `%APPDATA%\devin\config.json` on Windows. Hooks in that file run in the session directory. Hooks in a project `.devin/hooks.v1.json` run with the repository root as their working directory, and the payload carries no `cwd` to correct that. The adapter analyzes each `write_to_process` call on its own, so a command split across several writes to an interactive shell is outside the analysis. CC Safety Net does not cover Devin Cloud sessions. Devin also loads Claude Code hook files by default, so a CC Safety Net hook installed for Claude Code may run there as well, which only duplicates denials.
 
 <Note>
   A destructive-command coverage gap stays public even when it looks severe. It is not reclassified as a vulnerability. Use the private path only for the categories listed above. A command allowed under [standard mode's documented relaxations](/guides/security-model#what-each-safety-level-guarantees) is not a gap. Standard is best-effort, while strict and paranoid fail closed on those forms.

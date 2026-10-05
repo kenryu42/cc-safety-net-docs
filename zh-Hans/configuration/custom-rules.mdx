@@ -45,6 +45,22 @@ CC Safety Net 从两个范围加载 rulebook 并将它们合并：
 
 如果两个位置都没有配置，则只有内置规则生效。
 
+<span id="the-user-config-directory-is-not-a-project"></span>
+
+### 用户配置目录不是项目
+
+存放用户 `.cc-safety-net/` 的目录（默认是主目录）绝不会同时又是项目。在那里运行时，`.cc-safety-net/rules/rule.json` 就是用户配置，加载器只按用户范围读一次，项目范围保持为空。
+
+每个会写入项目配置的 `rule` 子命令都拒绝在这个目录里运行。不带 `--global` 的 `rule init`、`rule add`、`rule remove`、`rule update`、`rule sync`、`rule wrapper add` 和 `rule wrapper remove` 会打印一行错误并以退出码 1 结束，不写入任何内容：
+
+```text
+<home>/.cc-safety-net/rules/rule.json is the user rule config, not a project rule config; use --global for the user scope, or run from a project directory
+```
+
+若要改用户配置，请加上 `--global`；否则请在项目目录下运行。读取不受影响：`rule list` 和 `rule wrapper list` 在这个目录下的行为与在其他目录下一致。
+
+`policy.json` 的路径比较与此相同。它如何解析 `CC_SAFETY_NET_HOME` 以及通过符号链接到达的主目录，见[策略](/zh-Hans/configuration/policy#the-user-config-directory-is-not-a-project)。
+
 <span id="managing-rulebook-sources"></span>
 
 ## 管理 rulebook 来源
@@ -632,6 +648,14 @@ npx -y cc-safety-net rule migrate --cleanup
 # Validate the migrated rules
 npx -y cc-safety-net rule verify
 ```
+
+`rule migrate` 没有 `--global`。在[存放用户 `.cc-safety-net/` 的目录](#the-user-config-directory-is-not-a-project)下运行时，它只跳过项目范围并记录一行日志，用户范围照常迁移：
+
+```text
+Skipped the project scope: <home>/.cc-safety-net/rules/rule.json is the user rule config, not a project rule config
+```
+
+跳过不会导致整次运行失败，退出码只取决于用户范围的结果。
 
 **之前**，规则内嵌在单个内联配置文件中：
 

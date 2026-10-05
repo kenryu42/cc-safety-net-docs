@@ -18,7 +18,7 @@ description: "如何报告 CC Safety Net 安全漏洞、哪些问题属于安全
 
 - 受影响的 `cc-safety-net` 版本
 - 操作系统和运行时版本
-- 受影响的集成，例如 Claude Code、OpenCode、Gemini CLI、GitHub Copilot CLI、Grok Build 或 Codex
+- 受影响的集成，例如 Claude Code、OpenCode、Gemini CLI、GitHub Copilot CLI、Grok Build、Factory Droid、Devin CLI 或 Codex
 - 复现步骤，以及绕过、削弱或滥用 CC Safety Net 的命令或输入
 - `cc-safety-net explain` 或 `cc-safety-net doctor` 的相关输出
 - 问题是否会造成数据丢失、命令执行、机密暴露或其他具体安全影响
@@ -57,6 +57,12 @@ CC Safety Net 应在所选安全级别的保证范围内，阻止智能体运行
 - 关于自定义规则或配置的问题
 
 Grok Build hook 在设计上就是 fail open，宿主也没有提供 `failClosed` 开关。只有 stdout 上明确的 deny 才能阻止工具调用；hook 崩溃、超时或输出格式错误时，调用照常执行。适配器仍会为自身的 fail-closed 情况输出明确的 deny，例如工具输入被截断或工作目录不可用。在这个宿主上，如果失败导致适配器完全没有输出，这次调用就不会被阻止。这是宿主行为，不是覆盖缺口。
+
+Factory Droid hook 同样 fail open。只有退出码 2 或 stdout 上明确的 deny 判定才能阻止工具调用。0 和 2 以外的退出码、崩溃、超时或缺少 `npx`，都只会记为不阻止的错误，调用照常执行。适配器对放行的调用不输出任何内容，因此 Droid 自己的权限提示仍然生效。企业级设置 `allowManagedHooksOnly` 开启后，Droid 会忽略用户级和项目级 hook，因此 `install --droid` 写入 `~/.factory/hooks.json` 的 hook 不会运行。这个 hook 在 `Execute` 和文件类工具上验证过，`Task` 子智能体、`Loop` 和自动化类工具是否会到达它则未经验证。
+
+Devin CLI hook 同样 fail open。只有退出码 2 或 stdout 上的 `block` 判定才能阻止工具调用；让调用照常执行的只有超时、缺少 `npx`，以及 hook 进程在输出判定之前就结束这三种失败。适配器自己捕获的错误仍会输出 `block` 判定，调用依然被阻止。适配器对放行的调用不输出任何内容，因此 Devin 自己的权限提示仍然生效。
+
+受支持的只有 `install --devin` 写入的用户级配置：`$XDG_CONFIG_HOME/devin/config.json`，默认为 `~/.config/devin/config.json`，Windows 上为 `%APPDATA%\devin\config.json`。该文件中的 hook 在会话目录下运行，项目的 `.devin/hooks.v1.json` 中的 hook 则以仓库根目录为工作目录运行，而负载中没有 `cwd` 可用来纠正这一点。适配器逐个分析 `write_to_process` 调用，因此文本分散在多次写入交互式 shell 的命令不在分析范围内。Devin Cloud 会话不在覆盖范围内。Devin 默认也会加载 Claude Code 的 hook 文件，因此为 Claude Code 安装的 CC Safety Net hook 也可能在 Devin 会话中运行，但这只会让拒绝重复一次。
 
 <Note>
   即使破坏性命令覆盖缺口看起来很严重，它仍应公开报告。它不会被重新分类为漏洞，私密渠道仅用于上述类别。在 [standard 模式的文档放宽范围](/zh-Hans/guides/security-model#what-each-safety-level-guarantees)内允许的命令不属于缺口。standard 只提供尽力保护；strict 或 paranoid 才会对这些形式 fail closed。

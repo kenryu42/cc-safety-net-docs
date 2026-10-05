@@ -28,7 +28,7 @@ description: "分析引擎详解：安全级别边界、包装器和解释器递
 
 Standard 会阻止可识别的破坏性命令，但**不具备**对抗级保护。对于动态或恶意输入，它只能尽力分析。
 
-- **允许看似安全但无法解析的文本。** `echo 'unterminated` 会被允许。
+- **允许看似安全但无法解析的文本。** `echo 'unterminated` 会被允许。[解析器拒绝的 shell 语法](#解析器拒绝的-shell-语法)属于例外，在这一级别同样会被拒绝。
 - **即使无法解析，可识别的破坏性文本仍然会被阻止。** `git reset --hard 'unterminated` 会被原始文本启发式扫描阻止，该扫描可识别 `rm -rf`、`git reset --hard`/`--merge`、`git clean -f`、`git checkout --force`、`git push --force`/`--delete`、`git branch -D`、`git tag -d`、`git stash drop`/`clear`、`git checkout --`、`git restore`、`find -delete`、`dd of=/dev/`、`mkfs /dev/`、`shred <arg>`，以及把下载内容经管道交给 shell 的写法（`curl … | sh`）。
 - **带引号的字面量赋值中的危险文本延后到使用时判定。** `W='rm -rf ~'; echo "$W"` 会被允许：赋值本身不执行操作，而且参数位置中带引号的展开仍是一个 argv word，不能拆成命令和标志。任何风险更高的引用方式（未加引号、位于命令位置、位于替换中或位于未加引号的 heredoc body 中）仍会在赋值时触发阻止。把值交给 shell（`eval "$W"`、`bash -c "$W"`、`echo "$W" | sh`）也会拒绝，因为无法验证 shell 执行来源。Strict 从不延后判定。见[仅标准允许](/zh-Hans/reference/allowed-commands#standard-only-allowances)。
 - **不会一律阻止动态 `rm -rf` 目标。** Standard 允许 `rm -rf "$target"`；只有启用 fail-closed 能力后才会阻止。
@@ -172,6 +172,36 @@ Heredoc body 是 stdin 上的文本，由 consumer 决定该文本是数据还�
 **位于 `rm` 或 `find` 的删除目标。** shell 会把所有项都交给命令，因此这里分类的是全部项，而不只是第一项。即使 `x` 无害，`rm -rf {x,/}` 也会因 `/` 被阻止；`find {x,/} -delete` 同样会被阻止。
 
 解析器无法解析的目标组不会按字面量读取，而是 fail closed。这包括范围写法（`rm -rf {a..c}` 和 `rm -rf ./{a..c}` 都以 `rm.recursive-force-outside-cwd` 拒绝），以及展开后超过 64 个词或 16,384 个字符的组。位于命令词的组则改由[解析器限制](/zh-Hans/guides/architecture#parsers-and-the-runtime-dependency-surface)约束，超出限制时，解析会以 `Structural command analysis limit exceeded.` 结束，并在所有安全级别下拒绝。
+
+<span id="shell-syntax-the-parser-refuses"></span>
+
+## 解析器拒绝的 shell 语法
+
+POSIX 解析器不会把少数几种构造当作普通文本读取，而是直接拒绝，因为它们都能改变 shell 最终执行的命令。被拒绝的构造会让整次解析变为无效，而无效的解析会以 `analysis.strict-unparseable` 拒绝整条命令，理由是无法安全分析该命令，并且在**每个**安全级别（包括 standard）都是如此。引号未闭合时 standard 会退回到[原始文本启发式扫描](#standard)，这里不会，因此即使内容无害，这些写法同样会被拒绝。下面列出的标识符是解析器自己的 issue 码，拒绝理由中出现的始终是 `analysis.strict-unparseable`。
+
+**函数替换。** `${` 后面紧跟空白或 `|` 时，开启的是函数替换，其中的命令在当前 shell 中执行。解析器以 `unsupported-function-substitution` 拒绝它，因此 `echo ${ rm -rf ~/; }` 和 `echo ${|REPLY=x; }` 都会被拒绝，无害的 `echo ${ date; }` 也一样。只看写法、不判断主体内容，这是有意的设计。解析器能在这些位置识别出它的开头：普通词中、双引号中、算术展开中（`echo $(( ${ rm -rf x; echo 0; } ))` 及其双引号写法）、`${…}` 的操作数中（`echo ${x:-${ rm -rf ~/; }}`）、嵌套 shell 中（`bash -c 'echo ${ rm -rf ~/; }'`），以及不带引号的 heredoc body 中。在 heredoc body 里，以 `#` 开头的行也按普通行读取，而不是注释。`$` 与 `{` 之间以及 `{` 之后的反斜杠续行都会被跳过，所以这两种续行写法同样会被拦下。有三种形式仍是字面文本并被允许：单引号包裹的 `'${ rm -rf x; }'`、转义后的 `\${ rm -rf x; }`，以及分隔符带引号的 heredoc body。
+
+**可能藏着替换的 `${…}` 中的引号或反斜杠。** 这项拒绝要求两个条件同时成立，issue 码为 `unsupported-parameter-expansion`。第一，`${…}` 在它所含替换的主体之外出现了引号或反斜杠。第二，`$(`、反引号、`<(` 或 `>(` 出现在同一个展开内，或出现在命令后面的任何位置。heredoc body 不算作后面的文本。因此 `echo ${x:-"$(rm -rf ~/)"}` 和 `echo ${x:-"a"} "$(date)"` 都会被拒绝。
+
+这项检查只看后面有没有替换的开头，既不读引号位置，也不看引号配对：提前闭合展开的引号只能藏住它之后的替换。因此 `echo "${MSG:-it's done}"` 仍然允许；替换在前的 `echo $(date) ${x:-"a"}` 也允许，body 为 `$(date)` 的 `cat ${x:-"a"} <<EOF` 同样允许。`${…}` 中的反斜杠续行能把 `$` 和 `(` 拆开从而藏住替换，所以无论后面有没有替换，都按同一个 issue 码拒绝。
+
+**没有闭合花括号的 `${…}`。** `echo ${x`、`echo "${x"` 和 `echo ${x:-$(date)` 以 `unclosed-parameter-expansion` 拒绝。
+
+**反引号主体中的反斜杠转义。** 在 shell 执行主体之前，反引号处理只重写四种转义：`\\`、`\$`、反引号前的反斜杠，以及反斜杠续行。主体中含有其中任何一种时，以 `unsupported-backtick-escape` 拒绝。转义的 `\$` 能藏住替换：反引号主体 `echo "\$(rm -rf ~/)"` 在重写去掉反斜杠后会执行 `rm -rf ~/`。双反斜杠能拼出命令名：反引号主体 `r\\m -rf ~/` 执行的是 `rm`。四种都不含的主体照常解析，因此用反引号包裹 `date` 是允许的。
+
+**被深度限制截断、但仍能看出函数替换开头的 heredoc 替换。** heredoc body 中的替换被解析器的 64 层深度限制截断时，解析器会在读不下去的那段文本里扫描 `${` 开头，并按函数替换拒绝整条命令，而不是报告什么都没找到。body 扫描也会越过被截断的替换继续进行，因此后面 body 行中的 `${ cd ~; }` 仍会被拦下。
+
+### 参数展开和算术展开中的替换
+
+`${…}` 操作数中以及双引号算术展开中的替换，过去一直保持为原始文本，因此写在这两处的破坏性命令在任何安全级别都看不见。现在两者都会读取。
+
+解析器用一次花括号配对读完 `${…}`。`$(`、`$((`、`<(`、`>(` 的主体或反引号主体会成为该词的嵌套程序，并像其他命令一样分析；`${` 可以嵌套，`}` 负责闭合。因此 `echo ${x:-$(rm -rf ~/)}` 和 `echo "${y#<(rm -rf ~/)}"` 在 standard 下也会以 `rm.recursive-force-root-or-home` 阻止。引号不会改变这个遍历；引号带来的问题由上面的拒绝处理。嵌套的展开算一个词，所以 `echo ${x:-${y}}` 被允许；不含替换的展开仍是字面文本。
+
+双引号 `$((…))` 与不带引号的写法走同一个算术读取器。`echo "$(( $(rm -rf ~/) ))"` 会在 `rm` 上阻止，嵌套超过 64 层则触发深度限制，而不是被当成文本读取。
+
+变量名到 `$` 为止，只有 `$$` 是两个字符的名字，因此紧贴裸变量的替换也会按替换读取。`echo "$x$(rm -rf ~/)"` 以 `rm.recursive-force-root-or-home` 阻止，而过去是允许的。相邻变量的判定不变，`$a$b` 和 `$HOME$PATH` 仍各算两个变量。
+
+每个嵌套替换都有自己的引号状态，因此 `echo $(dirname "$(command -v node)")` 内层的 `)` 不再算作落在外层双引号里。这条命令解析为 complete，在 strict 下也被允许；过去它解析为 partial，会被拒绝。`NODE_DIR=${NODE_DIR:-$(dirname "$(command -v node)")}` 出于同样的原因，在 standard 和 strict 下都被允许。
 
 ## Git 规则引擎
 

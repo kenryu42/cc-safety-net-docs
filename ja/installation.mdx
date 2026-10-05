@@ -1,7 +1,7 @@
 ---
 title: "コーディングエージェントに CC Safety Net をインストールする"
 sidebarTitle: "インストール"
-description: "Amp Code、Antigravity CLI、Claude Code、Codex、Cursor、DeepSeek Harness、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code、OpenClaw、OpenCode、Pi に CC Safety Net をインストールまたはアンインストールします。"
+description: "Amp Code、Antigravity CLI、Claude Code、Codex、Cursor、DeepSeek Harness、Devin CLI、Factory Droid、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code、OpenClaw、OpenCode、Pi に CC Safety Net をインストールまたはアンインストールします。"
 ---
 
 CC Safety Net は、コーディングエージェント内のプラグイン、拡張機能、または hook として動作します。常駐サービスやデーモンは不要です。連携によっては、チェックのたびに短命の hook subprocess を起動します。
@@ -69,6 +69,8 @@ npx -y cc-safety-net@latest update
 | [Codex](#codex-installation) | `npx -y cc-safety-net@latest install --codex` | `npx -y cc-safety-net@latest uninstall --codex` |
 | [Cursor](#cursor-installation) | `npx -y cc-safety-net@latest install --cursor` | `npx -y cc-safety-net@latest uninstall --cursor` |
 | [DeepSeek Harness](#deepseek-harness-installation) | `npx -y cc-safety-net@latest install --deepseek-harness` | `npx -y cc-safety-net@latest uninstall --deepseek-harness` |
+| [Devin CLI](#devin-cli-installation) | `npx -y cc-safety-net@latest install --devin` | `npx -y cc-safety-net@latest uninstall --devin` |
+| [Factory Droid](#factory-droid-installation) | `npx -y cc-safety-net@latest install --droid` | `npx -y cc-safety-net@latest uninstall --droid` |
 | [Gemini CLI](#gemini-cli-installation) | `npx -y cc-safety-net@latest install --gemini-cli` | `npx -y cc-safety-net@latest uninstall --gemini-cli` |
 | [GitHub Copilot CLI](#github-copilot-cli-installation) | `npx -y cc-safety-net@latest install --copilot-cli` | `npx -y cc-safety-net@latest uninstall --copilot-cli` |
 | [Grok Build](#grok-build-installation) | `npx -y cc-safety-net@latest install --grok-build` | `npx -y cc-safety-net@latest uninstall --grok-build` |
@@ -269,6 +271,74 @@ Removed cc-safety-net from the DeepSeek Harness web profile, but DeepSeek Harnes
 バンドルがデスクトップ側だけにある場合は、何も削除せず、同じ案内だけを表示します。
 
 実行時には、バンドルが拒否専用のツールガードを登録します。DeepSeek Harness はこのガードを、承認や Auto review を含むすべての `tools/pre-execute` リスナーの後に実行します。`bash` は POSIX アナライザー、`pwsh` は PowerShell アナライザーに渡され、ファイル系・検索系のツールはパスとシークレットの保護を通ります。DeepSeek Harness のツールのうち、このガードの対象外になるものがいくつかあります。[DeepSeek Harness の対象境界](/ja/guides/known-limitations#deepseek-harness-coverage-boundaries)と [DeepSeek Harness](/ja/guides/integration-architecture#deepseek-harness)を参照してください。
+
+<span id="devin-cli-installation"></span>
+
+## Devin CLI
+
+```bash
+npx -y cc-safety-net@latest install --devin
+```
+
+`$XDG_CONFIG_HOME/devin/config.json`（既定は `~/.config/devin/config.json`、Windows では `%APPDATA%\devin\config.json`）の `hooks` の下に、管理対象の `PreToolUse` エントリとして次を書き込みます。
+
+```json
+{ "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --devin", "timeout": 30 }] }
+```
+
+このエントリにマッチャーはありません。そのため `exec` だけでなく、すべてのツール呼び出しがアダプターに届きます。Devin 自身の設定キーと、他の hook イベントはそのまま残ります。ファイルが存在しない場合は、この `hooks` キーだけを持つファイルを新しく作ります。既存のファイルを置き換える場合、インストールもアンインストールも元のパーミッションを保ちます。
+
+Devin は `config.json` にコメントを書けるため、インストール、アンインストール、検出はいずれもパース前に `//` と `/* */` のコメントを取り除きます。書き戻す内容は通常の JSON なので、インストールやアンインストールがファイルを変更すると、コメントは残りません。
+
+`config.json` がパースできない場合、ルートが JSON オブジェクトでない場合、`hooks` がオブジェクトでない場合、`hooks.PreToolUse` が配列でない場合は、何も書き込まず、対象のファイルを示して停止します。
+
+hook は `npx` 経由で動作するため、インストール時にはまず npm の `_npx` キャッシュからキャッシュ済みの `cc-safety-net` を削除し、hook が最新リリースを解決できるようにします。アンインストールではキャッシュに手を加えません。キャッシュの場所は [Antigravity CLI のセクション](#antigravity-cli-installation)を参照してください。
+
+```bash
+npx -y cc-safety-net@latest uninstall --devin
+```
+
+アンインストールは管理対象のハンドラーを取り除き、ファイルを書き戻します。`config.json` を削除することはありません。ハンドラーを取り除いた結果 `hooks.PreToolUse` が空になった場合も削除しません。管理対象のハンドラーがない場合は、何も書き込まず、hook は未インストールと報告します。
+
+実行時には、アダプターが `exec` をシェルコマンドのツールとして扱います。`write_to_process` は、`text_input` が空でない文字列の場合にコマンドとして解析します。その他のツール入力については、保護対象のパスが含まれていないかを検査します。Devin のペイロードには `cwd` が含まれないため、解析の基準には hook プロセスの作業ディレクトリ、つまりセッションのディレクトリを使います。アダプターが返すのは block の判定だけで、許可する呼び出しには何も出力しません。そのため Devin 自身の権限確認のプロンプトもそのまま働きます。詳細は [`hook` コマンド](/ja/reference/cli-commands#hook)と[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
+
+<Note>
+  Devin CLI の hook は fail open です。ツール呼び出しをブロックできるのは、終了コード 2 と標準出力の `block` 判定だけです。タイムアウトした場合、`npx` が見つからない場合、判定を出力する前に hook のプロセスが終了した場合は、その呼び出しはそのまま実行されます。[Devin CLI は fail open のホスト](/ja/guides/known-limitations#devin-cli-is-a-fail-open-host)を参照してください。
+</Note>
+
+<span id="factory-droid-installation"></span>
+
+## Factory Droid
+
+```bash
+npx -y cc-safety-net@latest install --droid
+```
+
+`~/.factory/hooks.json` のトップレベルの `PreToolUse` 配列に、管理対象のエントリとして次を書き込みます。
+
+```json
+{ "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --droid", "timeout": 30 }] }
+```
+
+このエントリにマッチャーはありません。そのため `Execute` だけでなく、すべてのツール呼び出しがアダプターに届きます。管理対象外のエントリと他の hook イベントはそのまま残り、既存のファイルを置き換える場合は元のパーミッションを保ちます。
+
+Droid は `hooks.json` がない場合、`~/.factory/settings.json` の `hooks` キーから hook を読み込みます。管理対象のエントリだけを含む `hooks.json` を作ってしまうと、`settings.json` で宣言した hook がすべて無効になります。そのため `hooks.json` が存在しない場合は、`settings.json` の hook イベントを引き継いだ内容で新しいファイルを作り、そこに管理対象のエントリを追加します。`settings.json` 自体には書き込みません。
+
+`hooks.json` がパースできない場合、ルートが JSON オブジェクトでない場合、`PreToolUse` が配列でない場合は、何も書き込まず、対象のファイルを示して停止します。
+
+hook は `npx` 経由で動作するため、インストール時にはまず npm の `_npx` キャッシュからキャッシュ済みの `cc-safety-net` を削除し、hook が最新リリースを解決できるようにします。アンインストールではキャッシュに手を加えません。キャッシュの場所は [Antigravity CLI のセクション](#antigravity-cli-installation)を参照してください。
+
+```bash
+npx -y cc-safety-net@latest uninstall --droid
+```
+
+アンインストールは管理対象のハンドラーを取り除き、ハンドラーが 1 つも残らなくなったエントリは削除します。インストール時に `settings.json` から引き継いだ hook は `hooks.json` に残るため、アンインストール後に有効な hook の構成はインストール前と同じになります。`hooks.json` 自体を削除するのは、ハンドラーを取り除いた結果、空の `PreToolUse` がファイルに残る唯一のキーになり、かつ `settings.json` が存在しない場合だけです。`settings.json` がある場合は、代わりにハンドラーを取り除いた内容を書き込みます。`hooks.json` を削除すると `settings.json` のフォールバックが再び有効になり、そこに管理対象のハンドラーのコピーが残っていれば、それも一緒に動き出してしまうためです。
+
+実行時には、アダプターが `Execute` をシェルコマンドのツールとして扱い、その他のツール入力については保護対象のパスが含まれていないかを検査します。解析の基準には、Droid のペイロードに含まれる `cwd` を使います。許可する呼び出しに対しては何も出力しないため、Droid 自身の権限確認のプロンプトもそのまま働きます。詳細は [`hook` コマンド](/ja/reference/cli-commands#hook)と[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
+
+<Note>
+  Factory Droid の hook は fail open です。ツール呼び出しをブロックできるのは、終了コード 2 と標準出力の明示的な deny 判定だけです。0 でも 2 でもない終了コード、クラッシュ、タイムアウト、`npx` が見つからない場合は、その呼び出しはそのまま実行されます。エンタープライズ設定の `allowManagedHooksOnly` はユーザーとプロジェクトの hook を無視するため、`install --droid` が書き込む hook はその設定下では動きません。[Factory Droid は fail open のホスト](/ja/guides/known-limitations#factory-droid-is-a-fail-open-host)を参照してください。
+</Note>
 
 <span id="gemini-cli-installation"></span>
 

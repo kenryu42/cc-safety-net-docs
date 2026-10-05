@@ -45,6 +45,20 @@ Local rulebook sources are referenced by bare names like `project-rules`. GitHub
 
 If no config is found in either location, only built-in rules apply.
 
+### The user config directory is not a project
+
+The directory that holds your user `.cc-safety-net/`, your home directory by default, is never also a project. Run from there and `.cc-safety-net/rules/rule.json` is the user config, so the loader reads it once, in the user scope, and the project scope stays empty.
+
+Every `rule` subcommand that writes the project config refuses to run from that directory. `rule init`, `rule add`, `rule remove`, `rule update`, `rule sync`, `rule wrapper add`, and `rule wrapper remove` without `--global` print one error and exit 1 before writing anything:
+
+```text
+<home>/.cc-safety-net/rules/rule.json is the user rule config, not a project rule config; use --global for the user scope, or run from a project directory
+```
+
+Add `--global` to edit the user config instead, or run from a project directory. Reads are unaffected. `rule list` and `rule wrapper list` behave there as they do anywhere else.
+
+`policy.json` uses the same path comparison. [Policy](/configuration/policy#the-user-config-directory-is-not-a-project) covers how it resolves `CC_SAFETY_NET_HOME` and a home directory reached through a symlink.
+
 ## Managing rulebook sources
 
 A rulebook source is referenced by an entry in `rule.json`'s `rules` array. There are two kinds:
@@ -620,6 +634,14 @@ npx -y cc-safety-net rule migrate --cleanup
 # Validate the migrated rules
 npx -y cc-safety-net rule verify
 ```
+
+`rule migrate` has no `--global`. Run it from [the directory that holds your user `.cc-safety-net/`](#the-user-config-directory-is-not-a-project) and it skips only its project half, logging one line, while the user half migrates as usual:
+
+```text
+Skipped the project scope: <home>/.cc-safety-net/rules/rule.json is the user rule config, not a project rule config
+```
+
+The skip does not fail the run. The exit code reflects the user half alone.
 
 **Before.** A single inline config with embedded rules:
 

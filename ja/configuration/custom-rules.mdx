@@ -45,6 +45,22 @@ CC Safety Net は、2 つのスコープから rulebook を読み込んでマー
 
 どちらの場所にも設定が見つからない場合は、組み込みのルールだけが適用されます。
 
+<span id="the-user-config-directory-is-not-a-project"></span>
+
+### ユーザー設定ディレクトリはプロジェクトではない
+
+ユーザーの `.cc-safety-net/` があるディレクトリ（既定ではホームディレクトリ）が、同時にプロジェクトになることはありません。そこで実行した場合、`.cc-safety-net/rules/rule.json` はユーザーの設定そのものです。ローダーはこれをユーザースコープとして 1 回だけ読み込み、プロジェクトスコープは空のままになります。
+
+プロジェクトの設定を書き換える `rule` のサブコマンドは、どれもこのディレクトリでの実行を拒否します。`--global` なしの `rule init`、`rule add`、`rule remove`、`rule update`、`rule sync`、`rule wrapper add`、`rule wrapper remove` は、何も書き込まないままエラーを 1 行表示して終了コード 1 で終了します。
+
+```text
+<home>/.cc-safety-net/rules/rule.json is the user rule config, not a project rule config; use --global for the user scope, or run from a project directory
+```
+
+ユーザーの設定を編集したい場合は `--global` を付け、そうでなければプロジェクトのディレクトリから実行してください。読み取りには影響しません。`rule list` と `rule wrapper list` は、このディレクトリでもほかの場所と同じように動作します。
+
+`policy.json` も同じパス比較を使います。`CC_SAFETY_NET_HOME` やシンボリックリンク経由のホームディレクトリをどう解決するかは、[ポリシー](/ja/configuration/policy#the-user-config-directory-is-not-a-project)を参照してください。
+
 <span id="managing-rulebook-sources"></span>
 
 ## rulebook の設定元を管理する
@@ -640,6 +656,14 @@ npx -y cc-safety-net rule migrate --cleanup
 # Validate the migrated rules
 npx -y cc-safety-net rule verify
 ```
+
+`rule migrate` に `--global` はありません。[ユーザーの `.cc-safety-net/` があるディレクトリ](#the-user-config-directory-is-not-a-project)で実行すると、プロジェクト側の移行だけをスキップして 1 行のログを出し、ユーザー側はそのまま移行します。
+
+```text
+Skipped the project scope: <home>/.cc-safety-net/rules/rule.json is the user rule config, not a project rule config
+```
+
+スキップしても実行自体は失敗しません。終了コードはユーザー側の結果だけで決まります。
 
 **移行前**は、ルールを直接埋め込んだ 1 つの設定ファイルです：
 

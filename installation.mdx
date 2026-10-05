@@ -1,7 +1,7 @@
 ---
 title: "Install CC Safety Net for your coding agent"
 sidebarTitle: "Installation"
-description: "Install and uninstall CC Safety Net across all fourteen supported coding agents: Amp Code, Antigravity CLI, Claude Code, Codex, Cursor, DeepSeek Harness, Gemini CLI, GitHub Copilot CLI, Grok Build, Hermes Agent, Kimi Code, OpenClaw, OpenCode, and Pi."
+description: "Install and uninstall CC Safety Net across all sixteen supported coding agents: Amp Code, Antigravity CLI, Claude Code, Codex, Cursor, DeepSeek Harness, Devin CLI, Factory Droid, Gemini CLI, GitHub Copilot CLI, Grok Build, Hermes Agent, Kimi Code, OpenClaw, OpenCode, and Pi."
 ---
 
 CC Safety Net installs as a plugin, extension, or hook inside your coding agent. You do not need a persistent service or daemon. Some integrations start a short-lived hook subprocess for each check.
@@ -67,6 +67,8 @@ For scripted, non-interactive installs, pass exactly one target flag. Passing ze
 | [Codex](#codex-installation) | `npx -y cc-safety-net@latest install --codex` | `npx -y cc-safety-net@latest uninstall --codex` |
 | [Cursor](#cursor-installation) | `npx -y cc-safety-net@latest install --cursor` | `npx -y cc-safety-net@latest uninstall --cursor` |
 | [DeepSeek Harness](#deepseek-harness-installation) | `npx -y cc-safety-net@latest install --deepseek-harness` | `npx -y cc-safety-net@latest uninstall --deepseek-harness` |
+| [Devin CLI](#devin-cli-installation) | `npx -y cc-safety-net@latest install --devin` | `npx -y cc-safety-net@latest uninstall --devin` |
+| [Factory Droid](#factory-droid-installation) | `npx -y cc-safety-net@latest install --droid` | `npx -y cc-safety-net@latest uninstall --droid` |
 | [Gemini CLI](#gemini-cli-installation) | `npx -y cc-safety-net@latest install --gemini-cli` | `npx -y cc-safety-net@latest uninstall --gemini-cli` |
 | [GitHub Copilot CLI](#github-copilot-cli-installation) | `npx -y cc-safety-net@latest install --copilot-cli` | `npx -y cc-safety-net@latest uninstall --copilot-cli` |
 | [Grok Build](#grok-build-installation) | `npx -y cc-safety-net@latest install --grok-build` | `npx -y cc-safety-net@latest uninstall --grok-build` |
@@ -255,6 +257,70 @@ Removed cc-safety-net from the DeepSeek Harness web profile, but DeepSeek Harnes
 When Desktop is the only profile with the bundle, uninstall removes nothing and prints the same instruction on its own.
 
 At runtime the bundle registers a deny-only tool guard that DeepSeek Harness runs after every `tools/pre-execute` listener, including approvals and Auto review. `bash` goes to the POSIX analyzer and `pwsh` to the PowerShell analyzer, and file and search tools reach path and secret protection. Several DeepSeek Harness tools stay outside that guard; see [DeepSeek Harness coverage boundaries](/guides/known-limitations#deepseek-harness-coverage-boundaries) and [DeepSeek Harness](/guides/integration-architecture#deepseek-harness).
+
+## Devin CLI installation
+
+```bash
+npx -y cc-safety-net@latest install --devin
+```
+
+This writes a managed `PreToolUse` entry under `hooks` in `$XDG_CONFIG_HOME/devin/config.json`, which defaults to `~/.config/devin/config.json`. On Windows the file is `%APPDATA%\devin\config.json`:
+
+```json
+{ "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --devin", "timeout": 30 }] }
+```
+
+The entry carries no matcher, so every tool call reaches the adapter instead of only `exec`. Devin's own keys and its other hook events stay in the file. When the file does not exist, install creates it with that one `hooks` key and nothing else. Both commands keep the file's existing permission bits when they replace it.
+
+Devin allows comments in `config.json`, so install, uninstall, and detection strip `//` and `/* */` comments before parsing. A rewrite is plain JSON, so an install or uninstall that changes the file drops its comments.
+
+Install stops without writing and names the file when `config.json` does not parse, when its root is not a JSON object, when `hooks` is not an object, or when `hooks.PreToolUse` is not an array.
+
+Because the hook runs through `npx`, install first clears cached `cc-safety-net` copies from the npm `_npx` cache so the hook resolves the current release; uninstall does not touch the cache. The cache locations are listed in the [Antigravity CLI section](#antigravity-cli-installation).
+
+```bash
+npx -y cc-safety-net@latest uninstall --devin
+```
+
+Uninstall removes the managed handler and writes the file back. It never deletes `config.json`, not even when stripping the handler leaves `hooks.PreToolUse` empty. When the file holds no managed handler, uninstall writes nothing and reports the hook as not installed.
+
+At runtime the adapter treats `exec` as a shell-command tool, and it analyzes a `write_to_process` call as a command when its `text_input` is a non-empty string. It inspects other tool inputs for protected paths. Devin's payload carries no `cwd`, so the adapter resolves the analysis against the hook process's working directory, which is the session directory. The adapter answers only with a block decision and stays silent on an allowed call, so Devin's own permission prompt still applies. See the [`hook` command](/reference/cli-commands#hook) and [Integration architecture](/guides/integration-architecture).
+
+<Note>
+  Devin CLI hooks are fail-open. Only exit code 2 or a `block` decision on stdout blocks a tool call. A timeout, a missing `npx`, or a hook process that dies before printing a decision lets the call proceed. See [Devin CLI is a fail-open host](/guides/known-limitations#devin-cli-is-a-fail-open-host).
+</Note>
+
+## Factory Droid installation
+
+```bash
+npx -y cc-safety-net@latest install --droid
+```
+
+This writes a managed `PreToolUse` entry to the top-level `PreToolUse` array in `~/.factory/hooks.json`:
+
+```json
+{ "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --droid", "timeout": 30 }] }
+```
+
+The entry carries no matcher, so every tool call reaches the adapter instead of only `Execute`. Foreign entries and other hook events in the file stay as they are, and both commands keep the file's existing permission bits when they replace it.
+
+Droid reads hooks from the `hooks` key of `~/.factory/settings.json` whenever `hooks.json` is absent. A `hooks.json` holding only the managed entry would therefore switch off every hook declared in `settings.json`. So when `hooks.json` does not exist, install seeds the new file with the hook events from `settings.json` and appends the managed entry to them. `settings.json` itself is never written.
+
+Install stops without writing and names the file when `hooks.json` does not parse, when its root is not a JSON object, or when its `PreToolUse` is not an array.
+
+Because the hook runs through `npx`, install first clears cached `cc-safety-net` copies from the npm `_npx` cache so the hook resolves the current release; uninstall does not touch the cache. The cache locations are listed in the [Antigravity CLI section](#antigravity-cli-installation).
+
+```bash
+npx -y cc-safety-net@latest uninstall --droid
+```
+
+Uninstall removes the managed handler and drops an entry once it has no handlers left. Hooks that install carried over from `settings.json` stay in `hooks.json`, so the hook set in effect after uninstall matches the one before install. Uninstall deletes `hooks.json` only when stripping the handler leaves an empty `PreToolUse` as the file's one remaining key and no `settings.json` exists. With a `settings.json` present it writes the stripped file instead, because deleting `hooks.json` would re-activate the `settings.json` fallback, including any copy of the managed handler sitting there.
+
+At runtime the adapter treats `Execute` as a shell-command tool and inspects other tool inputs for protected paths. It resolves the analysis against the `cwd` in Droid's payload. The adapter emits nothing for an allowed call, so Droid's own permission prompt still applies. See the [`hook` command](/reference/cli-commands#hook) and [Integration architecture](/guides/integration-architecture).
+
+<Note>
+  Factory Droid hooks are fail-open. Only exit code 2 or an explicit deny decision on stdout blocks a tool call. An exit code other than 0 or 2, a crash, a timeout, or a missing `npx` lets the call proceed. An enterprise `allowManagedHooksOnly` setting ignores user and project hooks, so the hook that `install --droid` writes does not run under it. See [Factory Droid is a fail-open host](/guides/known-limitations#factory-droid-is-a-fail-open-host).
+</Note>
 
 ## Gemini CLI installation
 

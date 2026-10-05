@@ -26,7 +26,7 @@ Any capability mix that is not exactly one of the three presets reports as the e
 
 Standard blocks recognizable destructive commands. It is deliberately **not** adversarial-grade, and it is best-effort against dynamic or hostile input.
 
-- **Safe-looking unparseable text is permitted.** `echo 'unterminated` is allowed.
+- **Safe-looking unparseable text is permitted.** `echo 'unterminated` is allowed. The constructs under [Shell syntax the parser refuses](#shell-syntax-the-parser-refuses) are the exception. A command holding one of them denies at this level too.
 - **Recognizable destructive text is still blocked, even when unparseable.** `git reset --hard 'unterminated` blocks via the raw-text heuristic scan, which recognizes `rm -rf`, `git reset --hard`/`--merge`, `git clean -f`, `git checkout --force`, `git push --force`/`--delete`, `git branch -D`, `git tag -d`, `git stash drop`/`clear`, `git checkout --`, `git restore`, `find -delete`, `dd of=/dev/`, `mkfs /dev/`, `shred <arg>`, and a download piped into a shell (`curl … | sh`).
 - **Dangerous text in a quoted-literal assignment defers to use time.** `W='rm -rf ~'; echo "$W"` is allowed because the assignment executes nothing. A quoted expansion in argument position stays one argv word, so it cannot split into a command plus flags. Any riskier reference keeps the assignment-time block, including an unquoted reference, a command-position reference, a substitution, or an unquoted heredoc body. Handing the value to a shell (`eval "$W"`, `bash -c "$W"`, `echo "$W" | sh`) also denies because the shell execution source cannot be verified. Strict never defers. See [Standard-only allowances](/reference/allowed-commands#standard-only-allowances).
 - **Dynamic `rm -rf` targets are not categorically blocked.** `rm -rf "$target"` is allowed in standard; it blocks only once the fail-closed capability is on.
@@ -162,6 +162,34 @@ Where the group sits decides how the result is read.
 **At an `rm` or `find` delete target.** Every alternative is classified, not only the first, because the shell hands all of them to the command. `rm -rf {x,/}` blocks on `/` even though `x` is harmless, and `find {x,/} -delete` blocks the same way.
 
 A target group the parser cannot resolve fails closed instead of being read literally. That covers a range (`rm -rf {a..c}` and `rm -rf ./{a..c}` both deny as `rm.recursive-force-outside-cwd`) and a group that expands past 64 words or 16,384 characters. A group at the command word is bounded by the [parser limits](/guides/architecture#parsers-and-the-runtime-dependency-surface) instead, and exceeding them ends the parse with `Structural command analysis limit exceeded.`, which denies at every safety level.
+
+## Shell syntax the parser refuses
+
+The POSIX parser refuses a few constructs outright instead of reading them as ordinary text, because each one can change which command the shell ends up running. A refused construct makes the parse invalid, and an invalid parse denies the whole command as `analysis.strict-unparseable`, with a reason stating that the command could not be safely analyzed, at **every** safety level, standard included. Standard does not fall back to the [raw-text heuristic scan](#standard) it uses on an unterminated quote, so one of these shapes denies even when nothing in it is dangerous. The identifiers below are the parser's own issue codes; the denial itself always reports `analysis.strict-unparseable`.
+
+**A function substitution.** A `${` followed by whitespace or by `|` opens a function substitution, which runs its commands in the current shell. The parser refuses it as `unsupported-function-substitution`, so `echo ${ rm -rf ~/; }` and `echo ${|REPLY=x; }` both deny, and so does the harmless `echo ${ date; }`. Refusing the shape rather than judging the body is deliberate. The parser finds the opener in a plain word, inside double quotes, inside arithmetic (`echo $(( ${ rm -rf x; echo 0; } ))` and its double-quoted spelling), inside a `${…}` operand (`echo ${x:-${ rm -rf ~/; }}`), inside a nested shell (`bash -c 'echo ${ rm -rf ~/; }'`), and in an unquoted heredoc body, where a body line starting with `#` is read like any other line rather than as a comment. A line continuation between the `$` and the `{`, or right after the `{`, is skipped, so those spellings are caught too. Three forms stay literal text and are allowed: a single-quoted `'${ rm -rf x; }'`, an escaped `\${ rm -rf x; }`, and a body under a quoted heredoc delimiter.
+
+**A quote or a backslash in a `${…}` that could be hiding a substitution.** Two things have to coincide for this refusal, which carries the issue code `unsupported-parameter-expansion`. First, the `${…}` holds a quote or a backslash outside the body of any substitution it contains. Second, a `$(`, a backtick, `<(`, or `>(` appears either inside that same expansion or anywhere later in the command. Heredoc bodies do not count as later text. So `echo ${x:-"$(rm -rf ~/)"}` and `echo ${x:-"a"} "$(date)"` both deny.
+
+The check asks only whether a later opener exists. It reads no quote positions and no quote parity, because a quote that ends the expansion early can only hide a substitution that comes after it. So `echo "${MSG:-it's done}"` stays allowed. So does `echo $(date) ${x:-"a"}`, whose substitution comes first, and `cat ${x:-"a"} <<EOF` with a `$(date)` body. A backslash followed by a newline inside `${…}` can split a `$` from its `(` and hide a substitution that way, so the parser refuses that under the same code whether or not a substitution follows.
+
+**A `${…}` with no closing brace.** `echo ${x`, `echo "${x"`, and `echo ${x:-$(date)` deny as `unclosed-parameter-expansion`.
+
+**A backslash escape inside a backtick body.** Backtick processing rewrites exactly four escapes before the shell runs the body: `\\`, `\$`, a backslash before a backtick, and a backslash followed by a newline. A body holding any of them denies as `unsupported-backtick-escape`. An escaped `\$` hides a substitution, so a backtick body of `echo "\$(rm -rf ~/)"` runs `rm -rf ~/` once the rewrite drops the backslash. A doubled backslash assembles a command name, so a backtick body of `r\\m -rf ~/` runs `rm`. A body with none of the four parses normally, so a backtick body of `date` is allowed.
+
+**A depth-limited heredoc substitution that still shows a function-substitution opener.** When the parser's 64-level depth limit cuts a substitution in a heredoc body short, the parser scans the text it could not read for a `${` opener and refuses the command as a function substitution rather than reporting that it found nothing. The body scan also continues past the cut-off substitution, so a `${ cd ~; }` on a later body line is still caught.
+
+### Substitutions inside expansions and arithmetic
+
+A substitution inside a `${…}` operand or inside double-quoted arithmetic used to stay raw text, so a destructive command in either place was invisible at every level. The parser reads both now.
+
+The parser reads a `${…}` by matching its braces in one pass. A `$(`, `$((`, `<(`, or `>(` body, or a backtick body, becomes a nested program of the word and is analyzed like any other command, `${` nests, and `}` closes. `echo ${x:-$(rm -rf ~/)}` and `echo "${y#<(rm -rf ~/)}"` therefore block as `rm.recursive-force-root-or-home` in standard. Quotes do not change the walk, which is what the refusal above covers instead. A nested expansion is one word, so `echo ${x:-${y}}` is allowed, and an expansion that holds no substitution stays literal text.
+
+Double-quoted `$((…))` goes through the same arithmetic reader as the unquoted form. `echo "$(( $(rm -rf ~/) ))"` blocks on the `rm`, and nesting deeper than 64 levels hits the depth limit instead of being read as text.
+
+A variable name ends at `$`, and `$$` is the only two-character name, so a substitution glued to a bare variable is read as a substitution. `echo "$x$(rm -rf ~/)"` blocks as `rm.recursive-force-root-or-home` where it used to be allowed. Adjacent variables keep their verdicts, so `$a$b` and `$HOME$PATH` are still two variables each.
+
+Each nested substitution carries its own quote state, so the inner `)` of `echo $(dirname "$(command -v node)")` no longer counts as sitting inside the outer double quotes. That command parses complete and is allowed in strict, where it used to parse partial and deny. `NODE_DIR=${NODE_DIR:-$(dirname "$(command -v node)")}` is allowed in standard and strict for the same reason.
 
 ## Git rule engine
 

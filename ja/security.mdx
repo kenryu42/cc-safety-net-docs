@@ -18,7 +18,7 @@ description: "CC Safety Net のセキュリティ脆弱性を報告する方法�
 
 - 影響を受ける `cc-safety-net` のバージョン
 - OS とランタイムのバージョン
-- 影響を受ける連携（Claude Code、OpenCode、Gemini CLI、GitHub Copilot CLI、Grok Build、Codex など）
+- 影響を受ける連携（Claude Code、OpenCode、Gemini CLI、GitHub Copilot CLI、Grok Build、Factory Droid、Devin CLI、Codex など）
 - 再現手順と、CC Safety Net を迂回・弱体化・悪用するコマンドまたは入力
 - `cc-safety-net explain` や `cc-safety-net doctor` の関連する出力
 - データ損失、コマンド実行、シークレットの露出など、具体的なセキュリティ影響につながるかどうか
@@ -59,6 +59,12 @@ CC Safety Net の役割は、選択した安全レベルについて文書化さ
 - カスタムルールや設定についての質問
 
 Grok Build の hook は設計上 fail open であり、ホスト側に `failClosed` に相当する設定はありません。ツール呼び出しをブロックできるのは、標準出力に明示的な deny を返した場合だけです。hook がクラッシュした場合、タイムアウトした場合、不正な出力を返した場合は、その呼び出しはそのまま実行されます。アダプター自身が fail closed とするケース（ツール入力の切り詰めや、作業ディレクトリを利用できない場合）には、それでも明示的に deny を出力します。このホストでは、アダプターが出力を一切返せなくなる失敗が起きた場合、その呼び出しをブロックできません。これはホスト側の挙動であり、未対応には当たりません。
+
+Factory Droid の hook も fail open です。ツール呼び出しをブロックできるのは、終了コード 2 を返した場合と、標準出力に明示的な deny を返した場合だけです。0 でも 2 でもない終了コード、クラッシュ、タイムアウト、`npx` が見つからない場合は、Droid がブロックを伴わないエラーとして記録し、その呼び出しをそのまま実行します。許可した呼び出しではアダプターが何も出力しないため、Droid 自身の権限確認のプロンプトはそのまま働きます。エンタープライズ向けの `allowManagedHooksOnly` 設定は、ユーザーレベルとプロジェクトレベルの hook を無視します。そのため、`install --droid` が `~/.factory/hooks.json` に書き込む hook は、この設定の下では実行されません。この hook は `Execute` とファイル系ツールで検証済みです。`Task` のサブエージェント、`Loop`、自動化ツールから届くかどうかは未検証です。
+
+Devin CLI の hook も fail open です。ツール呼び出しをブロックできるのは、終了コード 2 を返した場合と、標準出力に `block` を返した場合だけです。タイムアウトした場合、`npx` が見つからない場合、判定を出力する前に hook のプロセスが終了した場合は、その呼び出しはそのまま実行されます。アダプター自身が捕捉したエラーについては、引き続き `block` を出力します。許可した呼び出しではアダプターが何も出力しないため、Devin 自身の権限確認のプロンプトはそのまま働きます。
+
+CC Safety Net が対応するのは、`install --devin` が書き込むユーザーレベルの設定（`$XDG_CONFIG_HOME/devin/config.json`、既定では `~/.config/devin/config.json`、Windows では `%APPDATA%\devin\config.json`）だけです。このファイルの hook は、セッションのディレクトリで実行されます。プロジェクトの `.devin/hooks.v1.json` にある hook はリポジトリルートを作業ディレクトリとして実行され、それを補正する `cwd` はペイロードに含まれません。アダプターは `write_to_process` の呼び出しを 1 件ずつ解析するため、対話的なシェルへの複数回の書き込みに分割されたコマンドは解析の対象外です。Devin Cloud のセッションも対象外です。また、Devin は既定で Claude Code の hook ファイルも読み込みます。そのため、Claude Code 向けにインストールした CC Safety Net の hook がそこでも動くことがありますが、拒否が重複するだけです。
 
 <Note>
   破壊的コマンドの未対応は、深刻に見える場合でも公開扱いのままです。脆弱性に再分類することはなく、非公開の報告経路は上に挙げた分類のために確保しています。[standard モードで文書化された緩和](/ja/guides/security-model#what-each-safety-level-guarantees)によって許可されるコマンドは、そもそも未対応には当たりません。standard はベストエフォートであり、これらの形式に対して fail closed になるのは strict と paranoid です。

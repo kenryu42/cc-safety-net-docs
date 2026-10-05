@@ -1,12 +1,12 @@
 ---
 title: "How CC Safety Net integrates with each agent"
 sidebarTitle: "Integration architecture"
-description: "The four integration models behind CC Safety Net's fourteen agents: stdin hook subprocesses, agent-loaded plugins, the in-process Pi extension, and the Amp Code event plugin."
+description: "The four integration models behind CC Safety Net's sixteen agents: stdin hook subprocesses, agent-loaded plugins, the in-process Pi extension, and the Amp Code event plugin."
 ---
 
 Use this page when you configure or debug an integration. It describes how each agent calls CC Safety Net and receives a decision. See [How it works](/guides/how-it-works) for the user-facing lifecycle.
 
-CC Safety Net supports fourteen coding agents, and it does not plug into all of them the same way. There are four integration models. Knowing which one your agent uses helps you debug a hook that is not firing and know where its configuration lives.
+CC Safety Net supports sixteen coding agents, and it does not plug into all of them the same way. There are four integration models. Knowing which one your agent uses helps you debug a hook that is not firing and know where its configuration lives.
 
 See [Installation](/installation) for the commands that install or remove each integration. Every model on this page feeds the same guard, specified once in [Architecture](/guides/architecture).
 
@@ -14,14 +14,14 @@ See [Installation](/installation) for the commands that install or remove each i
 
 | Model | Agents | How it works |
 | --- | --- | --- |
-| **Stdin hook subprocess** | Antigravity CLI, Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot CLI, Grok Build, Hermes Agent, Kimi Code | The agent runs `cc-safety-net hook <flag>` as a short-lived process for each tool call, writing the call as JSON to its stdin. CC Safety Net analyzes it and prints an agent-specific deny object on stdout, exiting 0. |
+| **Stdin hook subprocess** | Antigravity CLI, Claude Code, Codex, Cursor, Devin CLI, Factory Droid, Gemini CLI, GitHub Copilot CLI, Grok Build, Hermes Agent, Kimi Code | The agent runs `cc-safety-net hook <flag>` as a short-lived process for each tool call, writing the call as JSON to its stdin. CC Safety Net analyzes it and prints an agent-specific deny object on stdout, exiting 0. |
 | **Agent-loaded plugin** | DeepSeek Harness, OpenClaw, OpenCode | The agent loads CC Safety Net as a plugin of its own package format. There is no `hook` flag for these agents. |
 | **In-process extension** | Pi | Pi loads CC Safety Net's extension directly into the Pi process and calls it in memory. It uses no subprocess, stdin, or stdout. |
 | **Event plugin** | Amp Code | Amp loads a managed personal plugin from the account's Personal Plugins repository and delivers each `tool.call` event to it, in process. |
 
 ## Stdin hook subprocess agents
 
-For these nine agents, the protection is the runtime `hook <flag>` command, which reads JSON from stdin. Each agent names its pre-execution event and its command tool differently, and each expects a different deny shape on stdout:
+For these eleven agents, the protection is the runtime `hook <flag>` command, which reads JSON from stdin. Each agent names its pre-execution event and its command tool differently, and each expects a different deny shape on stdout:
 
 | Agent | Runtime flag | Hook event | Command tool | Deny output shape |
 | --- | --- | --- | --- | --- |
@@ -29,6 +29,8 @@ For these nine agents, the protection is the runtime `hook <flag>` command, whic
 | Claude Code | `-cc` / `--coding-cli` | `PreToolUse` | `Bash`, `PowerShell`, `Monitor` | `hookSpecificOutput.permissionDecision: "deny"`, or `"ask"` when [standard mode could not verify the command](#when-claude-code-asks-instead-of-denying) |
 | Codex | `-cx` / `--codex` | `PreToolUse` | `Bash` | `hookSpecificOutput.permissionDecision: "deny"` |
 | Cursor | `-cu` / `--cursor` | `preToolUse` | `Shell` | `{ "permission": "deny", "user_message": …, "agent_message": … }` |
+| Devin CLI | `-dv` / `--devin` | `PreToolUse` | `exec`, `write_to_process` | `{ "decision": "block", "reason": … }` |
+| Factory Droid | `-fd` / `--droid` | `PreToolUse` | `Execute` | `hookSpecificOutput.permissionDecision: "deny"` |
 | Gemini CLI | `-gc` / `--gemini-cli` | `BeforeTool` | `run_shell_command` | `{ "decision": "deny", "reason": …, "systemMessage": … }` |
 | GitHub Copilot CLI | `-cp` / `--copilot-cli` | `PreToolUse` | `bash`, `Bash`, `powershell`, `PowerShell` | `{ "permissionDecision": "deny", "permissionDecisionReason": … }` |
 | Grok Build | `-gb` / `--grok-build` | `PreToolUse` | `run_terminal_command`, `monitor` | `{ "decision": "deny", "reason": … }` |
@@ -36,6 +38,10 @@ For these nine agents, the protection is the runtime `hook <flag>` command, whic
 | Kimi Code | `-kc` / `--kimi-code` | `PreToolUse` | `Bash` | `hookSpecificOutput.permissionDecision: "deny"` |
 
 Claude Code's `Monitor` and Grok Build's `monitor` also run a shell command, so both are command tools. `Monitor` goes to the POSIX analyzer and `monitor` uses automatic dialect detection. A `Monitor` call with no `command` field keeps the non-command route. That is the WebSocket variant, which sends `ws: { url, protocols? }` instead. As a command tool its missing command would fail closed and deny every WebSocket watch.
+
+Devin CLI's `write_to_process` is a command tool only for the text it types into a running process. A non-empty string `text_input` goes to the analyzer as a shell command with automatic dialect detection, and nothing else in the call is read. Every other `write_to_process` call takes the unknown-tool input route, so CC Safety Net checks a `bytes_input` keypress for protected paths instead of parsing it as a command.
+
+Factory Droid's `Glob` tool takes `{ patterns, folder }`. CC Safety Net reads both keys as paths on the glob route, so `patterns: "**/.env"` reaches the secret checks and blocks under `secret.basename.env`.
 
 <Note>
   Because these agents use different events and deny formats, CC Safety Net emits the correct shape per agent. Gemini CLI, for example, expects a `decision`/`systemMessage` object with exit 0 rather than Claude Code's `hookSpecificOutput`. You do not need to configure the output format because the flag selects it.
@@ -72,7 +78,7 @@ Separately, three agents keep legacy **top-level** forms that skip the `hook` wo
 
 ### Hook configuration locations
 
-CC Safety Net writes files directly for five of the nine agents. Four use hook configuration entries, and Hermes Agent uses a managed plugin. The other four use their own plugin or extension distribution channel, which then invokes the stdin hook:
+CC Safety Net writes files directly for seven of the eleven agents. Six use hook configuration entries, and Hermes Agent uses a managed plugin. The other four use their own plugin or extension distribution channel, which then invokes the stdin hook:
 
 | Agent | Config location and load mechanism |
 | --- | --- |
@@ -80,6 +86,8 @@ CC Safety Net writes files directly for five of the nine agents. Four use hook c
 | Claude Code | Plugin `cc-safety-net@cc-marketplace`; plugin state in `~/.claude/settings.json` under `enabledPlugins` |
 | Codex | Plugin `cc-safety-net@cc-marketplace`; the plugin's own `hooks/codex.json` registers the `PreToolUse` entry that runs `node "${PLUGIN_ROOT}/dist/bin/cc-safety-net.js" hook --codex` |
 | Cursor | Written directly: a managed `preToolUse` entry in `~/.cursor/hooks.json` running `npx -y cc-safety-net hook --cursor` with `timeout: 30` and `failClosed: true`. The config is global, so it covers Cursor IDE and Cursor CLI across all projects |
+| Devin CLI | Written directly: a managed `PreToolUse` entry under `hooks` in `$XDG_CONFIG_HOME/devin/config.json` (`~/.config/devin/config.json` by default, `%APPDATA%\devin\config.json` on Windows) running `npx -y cc-safety-net hook --devin` with `timeout: 30`. The entry carries no matcher, so file tools reach the hook alongside `exec`. Devin allows comments in that file, so CC Safety Net strips `//` and `/* */` comments before parsing, and a rewrite is plain JSON that no longer holds them. Install stops without writing and names the file when it does not parse, when its root is not a JSON object, when `hooks` is not an object, or when `hooks.PreToolUse` is not an array. Uninstall removes the managed handler and writes the file back; it never deletes `config.json` |
+| Factory Droid | Written directly: a managed `PreToolUse` entry in the top-level `PreToolUse` array of `~/.factory/hooks.json` running `npx -y cc-safety-net hook --droid` with `timeout: 30` and no matcher, so file tools reach the hook alongside `Execute`. Droid reads hooks from the `hooks` key of `~/.factory/settings.json` while `hooks.json` is absent, so install seeds a new `hooks.json` with that event map before appending the managed entry, and never writes `settings.json`. Uninstall deletes `hooks.json` only when the stripped `PreToolUse` is its one remaining key and no `settings.json` exists; otherwise it writes the stripped file, because deleting it would re-activate the fallback. A `commandRegex` on the managed entry narrows which `Execute` calls reach the hook, and `doctor` reports it as drift that a reinstall repairs |
 | Gemini CLI | Extension `gemini-safety-net`, loaded from the `gemini-safety-net` repository, not a `cc-marketplace` plugin |
 | GitHub Copilot CLI | Plugin `cc-safety-net@cc-marketplace`, or hook files under `~/.copilot/hooks` / inline hooks in Copilot config. Hook support is version-gated, so which of those sources works depends on your Copilot CLI version. See [Installation](/installation#github-copilot-cli-installation). `disableAllHooks: true` disables all hooks |
 | Grok Build | Written directly: a managed `PreToolUse` entry in `~/.grok/hooks/cc-safety-net.json` (or `$GROK_HOME/hooks/cc-safety-net.json`) running `npx -y cc-safety-net hook --grok-build` with `timeout: 30`. The entry carries no matcher, so file and patch tools reach the hook alongside `run_terminal_command`. Install and uninstall only ever touch the managed handler, so foreign entries in the file and foreign handlers inside a shared entry are left alone |
@@ -99,6 +107,10 @@ For a GitHub Copilot CLI call, `toolArgs` arrives as an object or as a string. C
 On the plugin path Copilot sends its Windows `powershell` tool under the name `Bash`. The Claude-shaped adapter would otherwise route that call as a POSIX command. The adapter reads the environment variable `COPILOT_CLI` and routes `Bash` with the `auto` dialect when the value is `1`, so the PowerShell removal rules still apply. See [PowerShell `Remove-Item`](/guides/analysis-engine#powershell-remove-item).
 
 For a Grok Build call, the trusted root is `workspaceRoot`, or `cwd` when `workspaceRoot` is absent. `cwd` must canonicalize to a directory inside that root, and an absent or empty `cwd` is treated as `.`. A root that cannot be canonicalized, or a `cwd` outside it, fails closed. A `toolInputTruncated: true` envelope also fails closed, because Grok Build truncates tool input at 128 KB and the truncated command cannot be analyzed.
+
+For a Factory Droid call, the payload `cwd` is both the configuration and the execution directory. Unlike Kimi Code's `Bash`, the adapter reads no working directory out of the tool input, so an `Execute` call is analyzed in that same directory. A `cwd` that is present but not a non-empty string fails closed, and a `cwd` that does not resolve to a usable directory is denied, naming the session directory as the cause.
+
+A Devin CLI payload carries no `cwd`, and the adapter does not read one. Both directories come from the hook process's own working directory, which is the session directory Devin starts the hook in.
 
 ### How Codex reaches the hook
 
@@ -200,7 +212,7 @@ On OpenCode 1.x the plugin implements the `@opencode-ai/plugin` contract and doe
 1. Implements `tool.execute.before`, which OpenCode calls ahead of every tool execution. CC Safety Net analyzes the call and throws a denial when the command is destructive; there is no JSON-over-stdio.
 2. Implements the `config` hook to inject CC Safety Net's builtin commands into the OpenCode command set, without overwriting commands you have already defined.
 
-For the `bash` tool, the plugin selects the analyzer dialect from OpenCode's `shell` setting. If the setting is not a string, it defaults to PowerShell on Windows and uses `SHELL` elsewhere. Recognized `powershell` and `pwsh` executables select PowerShell; recognized POSIX shells select POSIX; other values use automatic detection. A supplied `workdir` becomes the execution directory only when it resolves to a readable, searchable directory. On Windows, documented `/C:`, `/C`, `/cygdrive/C`, and `/mnt/C` forms are normalized, while other slash-rooted paths pass through for OpenCode to resolve.
+For the `bash` tool, the plugin selects the analyzer dialect from OpenCode's `shell` setting. If the setting is not a string, it defaults to PowerShell on Windows and uses `SHELL` elsewhere. It then reads the last path segment of that value, lowercased and without a `.exe` suffix. `powershell` and `pwsh` select PowerShell, `cmd` uses automatic dialect detection, and every other executable selects POSIX. An empty or whitespace-only value uses automatic detection, as does a missing `SHELL` off Windows. A supplied `workdir` becomes the execution directory only when it resolves to a readable, searchable directory. On Windows, documented `/C:`, `/C`, `/cygdrive/C`, and `/mnt/C` forms are normalized, while other slash-rooted paths pass through for OpenCode to resolve.
 
 On OpenCode 2.x the plugin registers under the id `cc-safety-net` and hooks `tool.execute.before`, returning typed `Tool.Error` denials. It checks the `shell` tool as a command, and read, edit, write, patch, grep, glob, and unknown tools through the same input routes as v1. Code Mode's child tool calls cross this hook too; CC Safety Net does not interpret the outer Code Mode JavaScript. The plugin also registers `/cc-safety-net` through the command API, and leaves an existing command of that name alone.
 
@@ -221,15 +233,19 @@ V2's tool event does not name the shell executable, so the analyzer dialect come
 }
 ```
 
-Use `"posix"` for bash, dash, ksh, sh, or zsh, and `"powershell"` for powershell or pwsh. The option does not select OpenCode's executable; it has to match the one OpenCode uses. Any other value fails the plugin with `CC Safety Net: plugin option shell must be posix or powershell.`
+Use `"posix"` for any shell that runs POSIX `sh` syntax, such as ash, bash, dash, ksh, sh, or zsh, and `"powershell"` for powershell or pwsh. The option does not select OpenCode's executable; it has to match the one OpenCode uses. Any other value fails the plugin with `CC Safety Net: plugin option shell must be posix or powershell.`
 
-A `shell.create.before` hook compares the real executable against the configured dialect before the spawn and stops on a mismatch:
+A `shell.create.before` hook checks the real executable before the spawn. With `"powershell"`, the executable's name has to be `powershell` or `pwsh`. With `"posix"`, the hook refuses `powershell`, `pwsh`, and `cmd` by name, with or without a `.exe` suffix, because OpenCode invokes those differently, and every other executable has to pass a probe. A failed check stops the spawn:
 
 ```text
 CC Safety Net: actual shell "<actual>" does not match plugin option shell "<configured>". Configure the plugin's shell option to match OpenCode; supported dialects are posix and powershell.
 ```
 
-Unsupported shells, including cmd.exe, fish, and nushell, are rejected rather than analyzed with the wrong parser. That stop is not an ordinary tool denial. OpenCode's shell hook has no typed denial channel and no session ID, so a mismatch may fail the current operation, and it leaves no session-attributed audit entry. The check covers every shell created in the plugin's `location`, the OpenCode directory context the plugin was loaded for, including shell operations outside agent tool calls. It is not an operating-system sandbox.
+The probe runs `x=ccsn; case $x in ccsn) echo $x-posix;; esac` through `<shell> -c`, in the plugin's `location` directory and with the environment OpenCode passes to the shell. The executable passes when that command exits without an error and its output contains `ccsn-posix`. The probe builds the marker from `$x`, so a shell that echoes the probe text back in an error message cannot pass. A shell that does not run POSIX `sh` syntax, such as fish, nushell, or tcsh, fails the probe and is refused rather than analyzed with the wrong parser.
+
+The probe runs once per executable path. Shell creations that arrive while a check is pending share that one check. The plugin remembers a passing executable, so later creations of the same path skip the probe, and it forgets a failed or timed-out check, so the next creation probes again. A 10-second timer settles the check as failed and kills the probe with `SIGKILL`, so the result never waits for a shell that hangs.
+
+That stop is not an ordinary tool denial. OpenCode's shell hook has no typed denial channel and no session ID, so a mismatch may fail the current operation, and it leaves no session-attributed audit entry. The check covers every shell created in the plugin's `location`, the OpenCode directory context the plugin was loaded for, including shell operations outside agent tool calls. It is not an operating-system sandbox.
 
 OpenCode 1.x can serve a stale cached copy of the plugin, so a wiring change may not take effect until the cache is cleared. See [Installation](/installation#opencode-installation).
 

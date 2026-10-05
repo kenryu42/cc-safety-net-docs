@@ -41,15 +41,17 @@ bunx cc-safety-net doctor
     6. **Codex**：运行 `codex plugin list`，确认 `cc-safety-net@cc-marketplace` 一行显示 `installed, enabled`。然后启动 Codex，打开 `/hooks`，选择 cc-safety-net PreToolUse hook，按 `t` 将其标记为受信任。Codex 只运行受信任的 hook，未完成这一步时 hook 不会运行。对于已配置的 Codex，`doctor` 每次运行都会打印 `Warning (Codex): Codex runs only trusted hooks, and doctor cannot check trust.`，因为它从不向 Codex 查询信任状态。这一行只是提醒，并不表示缺少信任。
     7. **Cursor**：检查 `~/.cursor/hooks.json` 是否有运行 `npx -y cc-safety-net hook --cursor` 的托管全局 `preToolUse` 项。
     8. **DeepSeek Harness**：打开 `~/.dsh/profiles`（或 `$DSH_HOME/profiles`）下该 profile 的 `package.json`，确认 `dependencies` 列出了 `cc-safety-net`，并且 `dsh.profile.bundles` 中也包含它。有依赖但该列表里没有 bundle，说明已安装但未启用，请在 Plugins 页面启用。依赖本身缺失时，请先退出桌面应用，再重新运行 `npx -y cc-safety-net@latest install --deepseek-harness`，因为桌面应用的插件只能在它关闭时改动。`doctor` 只读取这些 manifest，不会向运行中的 DeepSeek Harness 查询 bundle 是否已加载；而 bundle 的 import 失败在宿主侧只会产生警告。
-    9. **Gemini CLI**：运行 `gemini extensions list`，确认 `https://github.com/kenryu42/gemini-safety-net` 来源已安装并启用；User 和 Workspace 两个范围都要检查，设置了 Workspace 时以 Workspace 为准。使用 `gemini extensions install https://github.com/kenryu42/gemini-safety-net` 重新安装，然后开始新的 Gemini 会话。
-    10. **GitHub Copilot CLI**：确认 `/plugin` 中已安装 `cc-safety-net@cc-marketplace` 插件，并在 `enabledPlugins` 中启用它。Copilot 逐条应用这个开关，因此 `doctor` 从仓库中 `.github/copilot/settings.local.json`、`.github/copilot/settings.json`、`.claude/settings.local.json`、`.claude/settings.json` 里第一个把它设为布尔值的文件读取，若都没有则回退到 `~/.copilot/settings.json`。仓库中的 `true` 会重新启用用户设置中的 `false`。即使开关是关闭的，只要还有 hook 文件或内联 hook 条目在运行防护，`doctor` 就会改为报告该 hook，因为 Copilot 与插件 hook 分开加载 hook 配置。对于 Copilot CLI 1.0.8+，请按以下优先顺序检查内联 hook 配置和 `disableAllHooks`：`.github/copilot/settings.local.json`、`.github/copilot/settings.json`、`.claude/settings.local.json`、`.claude/settings.json`、`~/.copilot/settings.json`、`~/.copilot/config.json`。首个定义 `disableAllHooks` 的文件决定结果：`true` 会禁用所有 hook，`false` 则阻止优先级更低的值生效。`.claude` 中的 hook 必须运行 `cc-safety-net hook --copilot-cli` 或 `cc-safety-net hook -cp`；普通 Claude Code hook 不会注册到 Copilot。hook 条目只有在 `type` 缺失或为 `command` 时才计入，其命令取自 `command`、`bash`、`powershell`，或 `exec` 与 `args` 拼接后的结果。`~/.copilot/hooks/` 下的用户 hook 文件要求 Copilot CLI 0.0.422+。
-    11. **Grok Build**：检查 `~/.grok/hooks/cc-safety-net.json`（或 `$GROK_HOME/hooks/cc-safety-net.json`）中是否有运行 `npx -y cc-safety-net hook --grok-build` 的托管 `PreToolUse` 条目。如果缺失，请重新运行 `npx -y cc-safety-net@latest install --grok-build`。
-    12. **Hermes Agent**：确认托管插件文件位于 `<Hermes home>/plugins/cc-safety-net`，并已用 `hermes plugins enable cc-safety-net --no-allow-tool-override` 启用插件。Hermes 只有在 `config.yaml` 中列出某个用户插件时才会加载它。若 `HERMES_HOME` 的父目录名为 `profiles`，Hermes 主目录就是该值；否则取 `HERMES_HOME`（未设置时为 `~/.hermes`），并在其中的 `active_profile` 文件指向 `default` 以外的 profile 时收窄到 `profiles/<name>`。然后重启 Hermes 让插件加载。`doctor` 只读取插件文件和 Hermes 配置，不会向运行中的 Hermes 查询插件是否真的已加载，因此任何更改之后都要重启并重新测试。
-    13. **Kimi Code**：检查 `~/.kimi-code/config.toml`（或 `$KIMI_CODE_HOME/config.toml`）中是否有在 `PreToolUse` `Bash` 上运行 `npx -y cc-safety-net hook --kimi-code` 的 `[[hooks]]` 块。如果缺失，请重新运行 `npx -y cc-safety-net@latest install --kimi-code`。
-    14. **OpenClaw**：插件通过 OpenClaw 自己的 CLI 安装和启用，要求 OpenClaw 2026.8.1 或更高版本。重新运行 `npx -y cc-safety-net@latest install --openclaw` 会运行 `openclaw plugins install <plugin dir> --force --accept-capabilities`，该命令同时会启用插件，随后确认插件已加载（详情由 `openclaw plugins inspect cc-safety-net --runtime` 显示）。若安装因 unknown-option 错误而失败，说明你的 OpenClaw 还不支持 `--accept-capabilities`，请升级 OpenClaw。若你在 `openclaw.json` 中手动禁用了插件，安装后它仍是禁用状态，加载检查也会如实报告；需要启用时请自行运行 `openclaw plugins enable cc-safety-net`。随后重启 OpenClaw Gateway。若 `openclaw.json` 设置了 `plugins.allow`，其中也必须包含 `cc-safety-net`。`doctor` 只读取插件目录和 `openclaw.json`，不会向运行中的 Gateway 查询插件是否已加载，因此已停止的 Gateway 不会被报告为失败。两者都在 OpenClaw 状态目录下，该目录取 `OPENCLAW_STATE_DIR`，否则取 `OPENCLAW_CONFIG_PATH` 所在的目录，再否则是 OpenClaw 主目录下的 `.openclaw`。主目录取 `OPENCLAW_HOME`（已设置且非空时），否则是操作系统的主目录。
-    15. **OpenCode**：检查 OpenCode 配置目录下的 `opencode.json`（或 `.jsonc`），确认 `plugin[]` 或 `plugins[]` 数组中包含 `cc-safety-net`。在报告为 2.x 的宿主上，`doctor` 只读取 `OPENCODE_CONFIG_DIR`；其他版本下则同时读取该目录和 XDG 目录（`$XDG_CONFIG_HOME/opencode`，否则 `~/.config/opencode`）。`OPENCODE_CONFIG_DIR` 为空字符串等同于未设置。在 OpenCode 2.x 上，`doctor` 还会执行 `opencode api integration.list` 和 `opencode api plugin.list`，针对你运行它的目录向宿主查询插件是否已激活。若有 `failed` 行且没有 `active` 行，会打印 `Error (OpenCode): OpenCode reports cc-safety-net failed: <reason>`。`opencode plugin list` 回答的问题更窄：其中来源为 `cc-safety-net@latest` 的 `cc-safety-net` 行只说明 OpenCode 发现了插件，不代表 hook 已激活。在 OpenCode 1.x 上，缓存中的旧版本可能仍在运行，清除缓存的步骤见[安装](/zh-Hans/installation#opencode-installation)。
-    16. **Pi**：确认 `pi install npm:cc-safety-net` 已完成，并已重启 Pi 让扩展加载。运行 `npx cc-safety-net doctor` 可直接探测 Pi。`doctor` 从 `PI_CODING_AGENT_DIR`（未设置时为 `~/.pi/agent`）读取 `settings.json`。
-    17. 做出任何更改后，都要重新加载或重启智能体会话。
+    9. **Devin CLI**：检查 `$XDG_CONFIG_HOME/devin/config.json`（默认为 `~/.config/devin/config.json`，Windows 上为 `%APPDATA%\devin\config.json`）的 `hooks.PreToolUse` 中是否有运行 `npx -y cc-safety-net hook --devin`、且不带 matcher 的托管条目。如果缺失，请重新运行 `npx -y cc-safety-net@latest install --devin`。
+    10. **Factory Droid**：检查 `~/.factory/hooks.json` 中是否有运行 `npx -y cc-safety-net hook --droid`、且不带 matcher 的托管 `PreToolUse` 条目。如果缺失，请重新运行 `npx -y cc-safety-net@latest install --droid`。
+    11. **Gemini CLI**：运行 `gemini extensions list`，确认 `https://github.com/kenryu42/gemini-safety-net` 来源已安装并启用；User 和 Workspace 两个范围都要检查，设置了 Workspace 时以 Workspace 为准。使用 `gemini extensions install https://github.com/kenryu42/gemini-safety-net` 重新安装，然后开始新的 Gemini 会话。
+    12. **GitHub Copilot CLI**：确认 `/plugin` 中已安装 `cc-safety-net@cc-marketplace` 插件，并在 `enabledPlugins` 中启用它。Copilot 逐条应用这个开关，因此 `doctor` 从仓库中 `.github/copilot/settings.local.json`、`.github/copilot/settings.json`、`.claude/settings.local.json`、`.claude/settings.json` 里第一个把它设为布尔值的文件读取，若都没有则回退到 `~/.copilot/settings.json`。仓库中的 `true` 会重新启用用户设置中的 `false`。即使开关是关闭的，只要还有 hook 文件或内联 hook 条目在运行防护，`doctor` 就会改为报告该 hook，因为 Copilot 与插件 hook 分开加载 hook 配置。对于 Copilot CLI 1.0.8+，请按以下优先顺序检查内联 hook 配置和 `disableAllHooks`：`.github/copilot/settings.local.json`、`.github/copilot/settings.json`、`.claude/settings.local.json`、`.claude/settings.json`、`~/.copilot/settings.json`、`~/.copilot/config.json`。首个定义 `disableAllHooks` 的文件决定结果：`true` 会禁用所有 hook，`false` 则阻止优先级更低的值生效。`.claude` 中的 hook 必须运行 `cc-safety-net hook --copilot-cli` 或 `cc-safety-net hook -cp`；普通 Claude Code hook 不会注册到 Copilot。hook 条目只有在 `type` 缺失或为 `command` 时才计入，其命令取自 `command`、`bash`、`powershell`，或 `exec` 与 `args` 拼接后的结果。`~/.copilot/hooks/` 下的用户 hook 文件要求 Copilot CLI 0.0.422+。
+    13. **Grok Build**：检查 `~/.grok/hooks/cc-safety-net.json`（或 `$GROK_HOME/hooks/cc-safety-net.json`）中是否有运行 `npx -y cc-safety-net hook --grok-build` 的托管 `PreToolUse` 条目。如果缺失，请重新运行 `npx -y cc-safety-net@latest install --grok-build`。
+    14. **Hermes Agent**：确认托管插件文件位于 `<Hermes home>/plugins/cc-safety-net`，并已用 `hermes plugins enable cc-safety-net --no-allow-tool-override` 启用插件。Hermes 只有在 `config.yaml` 中列出某个用户插件时才会加载它。若 `HERMES_HOME` 的父目录名为 `profiles`，Hermes 主目录就是该值；否则取 `HERMES_HOME`（未设置时为 `~/.hermes`），并在其中的 `active_profile` 文件指向 `default` 以外的 profile 时收窄到 `profiles/<name>`。然后重启 Hermes 让插件加载。`doctor` 只读取插件文件和 Hermes 配置，不会向运行中的 Hermes 查询插件是否真的已加载，因此任何更改之后都要重启并重新测试。
+    15. **Kimi Code**：检查 `~/.kimi-code/config.toml`（或 `$KIMI_CODE_HOME/config.toml`）中是否有在 `PreToolUse` `Bash` 上运行 `npx -y cc-safety-net hook --kimi-code` 的 `[[hooks]]` 块。如果缺失，请重新运行 `npx -y cc-safety-net@latest install --kimi-code`。
+    16. **OpenClaw**：插件通过 OpenClaw 自己的 CLI 安装和启用，要求 OpenClaw 2026.8.1 或更高版本。重新运行 `npx -y cc-safety-net@latest install --openclaw` 会运行 `openclaw plugins install <plugin dir> --force --accept-capabilities`，该命令同时会启用插件，随后确认插件已加载（详情由 `openclaw plugins inspect cc-safety-net --runtime` 显示）。若安装因 unknown-option 错误而失败，说明你的 OpenClaw 还不支持 `--accept-capabilities`，请升级 OpenClaw。若你在 `openclaw.json` 中手动禁用了插件，安装后它仍是禁用状态，加载检查也会如实报告；需要启用时请自行运行 `openclaw plugins enable cc-safety-net`。随后重启 OpenClaw Gateway。若 `openclaw.json` 设置了 `plugins.allow`，其中也必须包含 `cc-safety-net`。`doctor` 只读取插件目录和 `openclaw.json`，不会向运行中的 Gateway 查询插件是否已加载，因此已停止的 Gateway 不会被报告为失败。两者都在 OpenClaw 状态目录下，该目录取 `OPENCLAW_STATE_DIR`，否则取 `OPENCLAW_CONFIG_PATH` 所在的目录，再否则是 OpenClaw 主目录下的 `.openclaw`。主目录取 `OPENCLAW_HOME`（已设置且非空时），否则是操作系统的主目录。
+    17. **OpenCode**：检查 OpenCode 配置目录下的 `opencode.json`（或 `.jsonc`），确认 `plugin[]` 或 `plugins[]` 数组中包含 `cc-safety-net`。在报告为 2.x 的宿主上，`doctor` 只读取 `OPENCODE_CONFIG_DIR`；其他版本下则同时读取该目录和 XDG 目录（`$XDG_CONFIG_HOME/opencode`，否则 `~/.config/opencode`）。`OPENCODE_CONFIG_DIR` 为空字符串等同于未设置。在 OpenCode 2.x 上，`doctor` 还会执行 `opencode api integration.list` 和 `opencode api plugin.list`，针对你运行它的目录向宿主查询插件是否已激活。若有 `failed` 行且没有 `active` 行，会打印 `Error (OpenCode): OpenCode reports cc-safety-net failed: <reason>`。`opencode plugin list` 回答的问题更窄：其中来源为 `cc-safety-net@latest` 的 `cc-safety-net` 行只说明 OpenCode 发现了插件，不代表 hook 已激活。在 OpenCode 1.x 上，缓存中的旧版本可能仍在运行，清除缓存的步骤见[安装](/zh-Hans/installation#opencode-installation)。
+    18. **Pi**：确认 `pi install npm:cc-safety-net` 已完成，并已重启 Pi 让扩展加载。运行 `npx cc-safety-net doctor` 可直接探测 Pi。`doctor` 从 `PI_CODING_AGENT_DIR`（未设置时为 `~/.pi/agent`）读取 `settings.json`。
+    19. 做出任何更改后，都要重新加载或重启智能体会话。
 
     如果不确定智能体使用哪种机制，请参阅[集成架构](/zh-Hans/guides/integration-architecture)。
   </Accordion>
@@ -59,7 +61,7 @@ bunx cc-safety-net doctor
 
     **解决步骤：**
 
-    1. 确认你的智能体如何运行 hook。Claude Code 插件直接运行捆绑的副本，因此包解析不可能是原因。Antigravity CLI、Cursor、Grok Build、Hermes Agent 和 Kimi Code 的 hook 每条命令都运行 `npx -y cc-safety-net`，即使 npm 缓存健康，也会增加几百毫秒。
+    1. 确认你的智能体如何运行 hook。Claude Code 插件直接运行捆绑的副本，因此包解析不可能是原因。Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build、Hermes Agent 和 Kimi Code 的 hook 每条命令都运行 `npx -y cc-safety-net`，即使 npm 缓存健康，也会增加几百毫秒。
     2. 在智能体之外测量解析耗时：
 
        ```bash
@@ -172,6 +174,28 @@ bunx cc-safety-net doctor
     8. 更改 rulebook 来源后，运行 `npx -y cc-safety-net rule verify` 重新校验。没有重建这一步。`rule verify` 会像防护一样重新加载每个范围，并给出准确的剩余诊断信息后失败，而不会报告虚假的成功。对于远程来源，`npx -y cc-safety-net rule update` 会重新拉取并覆盖已落盘的 `rulebook.json`，因此对该文件的本地修改会丢失。
 
     运行时处于 `degraded` 时，这些命令都可以照常运行。配置无法生效不会阻止这些操作。
+  </Accordion>
+
+  <Accordion title="policy 或 rule 命令提示项目路径就是用户配置">
+    在存放用户 `.cc-safety-net/` 的目录下，`policy check`、`policy apply` 以及会写入的 `rule` 子命令（`init`、`add`、`remove`、`update`、`sync`、`wrapper add`、`wrapper remove`）不加 `--global` 就会拒绝执行，打印一条错误后退出 `1`：
+
+    ```text
+    <home>/.cc-safety-net/policy.json is the user policy, not a project policy; use --global for the user scope, or run from a project directory
+    ```
+
+    ```text
+    <home>/.cc-safety-net/rules/rule.json is the user rule config, not a project rule config; use --global for the user scope, or run from a project directory
+    ```
+
+    这个目录就是你的主目录，或 `CC_SAFETY_NET_HOME` 的父目录。在这里，`.cc-safety-net/policy.json` 和 `.cc-safety-net/rules/rule.json` 本身就是用户范围的文件，因此按项目范围写入实际上会改动用户范围。
+
+    **解决步骤：**
+
+    1. 如果本意就是用户范围，请加上 `--global`，例如 `npx -y cc-safety-net policy apply <file> --global` 或 `npx -y cc-safety-net rule init --global`。
+    2. 否则请切换到真正要操作的项目目录，再运行该命令。
+    3. `rule migrate` 不会拒绝执行。它会输出 `Skipped the project scope: <home>/.cc-safety-net/rules/rule.json is the user rule config, not a project rule config`，只迁移用户范围。
+
+    在该目录下，`status` 既不显示 `Project` 行，也不显示 `Project policy` 区块，因为 CC Safety Net 不会把用户策略当作项目策略来读取。
   </Accordion>
 
   <Accordion title="status 或状态行显示 degraded">

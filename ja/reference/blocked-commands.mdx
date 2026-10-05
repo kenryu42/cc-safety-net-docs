@@ -29,7 +29,7 @@ keywords:
 
 | レベル | 追加するブロック |
 | --- | --- |
-| [standard](/ja/configuration/modes#default-mode) | 印の付いていない行をすべてブロックします。`echo 'unterminated` のように安全に見える解析不能なテキストは許可しますが、認識できる破壊的パターンを含む解析不能なテキストは、ヒューリスティックによって引き続きブロックします。動的な `rm -rf` の対象は一律にはブロック**しません**。 |
+| [standard](/ja/configuration/modes#default-mode) | 印の付いていない行をすべてブロックします。`echo 'unterminated` のように安全に見える解析不能なテキストは許可しますが、認識できる破壊的パターンを含む解析不能なテキストは、ヒューリスティックによって引き続きブロックします。[パーサーが拒否するシェル構文](/ja/guides/analysis-engine#shell-syntax-the-parser-refuses)も、このレベルでブロックします。動的な `rm -rf` の対象は一律にはブロック**しません**。 |
 | [strict](/ja/configuration/modes#strict-mode) | standard がブロックする形式すべてに加えて、解析できないコマンドを一律にブロックし、検証できない破壊的対象、[限られた対応形式から外れる heredoc](#heredocs-in-strict-and-paranoid)、組み込みの機密パスに対するメタデータのみの探索もブロックします。 |
 | [paranoid](/ja/configuration/modes#paranoid-mode) | strict がブロックする形式すべてに加えて、カレントディレクトリ配下であっても一時パス以外への再帰的な削除（`rm -r`、`rm -rf`、`find -delete`、`Remove-Item -Recurse -Force`）をブロックし、内容にかかわらずすべてのインタープリター 1 行コードをブロックします。 |
 
@@ -335,6 +335,9 @@ standard モードでの heredoc 本文の扱いを含む詳細な仕様は、[�
 | `echo 'unterminated` | 許可。安全に見える解析不能なテキストは通す | ブロック。「安全に解析できなかった」として拒否 |
 | `git reset --hard 'unterminated` | ヒューリスティックなスキャンで**ブロック** | ブロック |
 | `dd if=/dev/zero of=/dev/sda 'oops` | ヒューリスティックなスキャンで**ブロック** | ブロック |
+| `echo ${ date; }` | パーサーが構文そのものを拒否するため**ブロック** | ブロック |
+
+POSIX パーサーが構文そのものを拒否すると、その解析は無効になります。無効な解析はすべてのレベルで拒否され、ヒューリスティックなスキャンも実行されないため、その形式に当てはまる無害なコマンドも拒否されます。対象は、`${ list; }` の関数置換、置換を隠している可能性のある `${…}` の中の引用符やバックスラッシュ、閉じブレースのない `${…}`、バッククォートの本体にあるバックスラッシュのエスケープです。正確な形式と、許可されたままの例は[パーサーが拒否するシェル構文](/ja/guides/analysis-engine#shell-syntax-the-parser-refuses)にあります。
 
 ヒューリスティックなスキャンが確認するのは、`rm -rf`、`git reset --hard`、`git reset --merge`、`git clean -f`、`git checkout --force`、`git checkout --`、`git push --force`、`git push --delete`、`git branch -D`、`git tag -d`、`git stash drop`、`git stash clear`、`--staged` を伴わない `git restore`、`find -delete`、`dd of=/dev/`、`mkfs /dev/`、`shred <arg>` です。一致した場合は、ルール `raw-text.dangerous-command` で拒否します。テキストが `echo ` または `rg ` で始まる場合、`find`、`dd`、`mkfs`、`shred` のパターンは対象外になるため、これらの文字列を echo や ripgrep の引数として引用符で囲んでもスキャンには引っかかりません。
 

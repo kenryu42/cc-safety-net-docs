@@ -44,6 +44,22 @@ description: "CC Safety Net の policy.json の完全なリファレンスです
 
 プロジェクトファイルの `audit` セクションは無視され、読み込み時に `project policy audit settings are ignored; audit is user scope only` が報告されます。
 
+<span id="the-user-config-directory-is-not-a-project"></span>
+
+### ユーザー設定ディレクトリはプロジェクトではない
+
+ユーザーの `.cc-safety-net/` があるディレクトリが、同時にプロジェクトになることはありません。既定ではホームディレクトリです。そこで実行した場合、`.cc-safety-net/policy.json` はユーザーファイルそのものです。重ねるプロジェクトファイルは存在せず、読み込み結果にもプロジェクトポリシーは現れません。`status` に `Project` の行は出ず、ダッシュボードにもプロジェクトポリシーの通知は出ません。
+
+以前のバージョンは、この 1 つのファイルをスコープごとに 1 回ずつ、合計 2 回読み込んでいました。そのため、ダッシュボードが保存のたびに書き込む `audit` セクションが `project policy audit settings are ignored; audit is user scope only` として報告され、`status` は `Project` の行が `Policy` の行と同じパスのまま `degraded` を報告し、ダッシュボードは設定のフォールバック時に表示するバナーを出していました。プロジェクトの `rule.json` がユーザーのものと同一の場合、以前から読み込みは 1 回だけでした。`policy.json` も同じ扱いになりました。
+
+判定は両方のパスを解決してから比較するため、文字どおりのホームディレクトリだけが対象ではありません。
+
+- `CC_SAFETY_NET_HOME` を設定した場合、変数が指すディレクトリの名前が `.cc-safety-net` であるかぎり、一致するのはその親ディレクトリです。別の名前を指している `CC_SAFETY_NET_HOME` には、一致する親ディレクトリがありません。
+- シンボリックリンク経由で到達するホームディレクトリも一致します。FreeBSD は `/home` を `/usr/home` へのシンボリックリンクとして提供しており、`getcwd` が返すのは物理パスなので、単純な文字列比較では 2 つの表記が一致することはありません。
+- まだ存在しない `.cc-safety-net/` は、最も近い既存の上位ディレクトリまで遡って解決されます。ディレクトリを作る前でも比較は成り立ちます。
+
+このディレクトリからプロジェクトスコープに書き込もうとすると、ユーザーファイルを黙って書き換えるのではなく拒否されます。`-g, --global` なしの `policy check` と `policy apply` は終了コード 1 で終了し、`rule` の書き込み系サブコマンドも同じです。ダッシュボードのプロジェクト下書きも適用を拒否します。[提案の確認と適用](#check-and-apply-a-proposal)、[カスタムルール](/ja/configuration/custom-rules#the-user-config-directory-is-not-a-project)、[プロジェクトポリシーを下書きする](/ja/guides/dashboard#draft-a-project-policy)を参照してください。
+
 <span id="reported-weakenings"></span>
 
 ### 報告される緩和
@@ -126,6 +142,14 @@ policy <subcommand>
   -g, --global   Use the user-scope policy instead of the project one
   -h, --help     Show this help
 ```
+
+`-g, --global` を付けない場合、どちらのサブコマンドもユーザーの `.cc-safety-net/` があるディレクトリでは実行できません。そこではプロジェクトのパスがユーザーファイルそのものだからです。提案の読み込み、差分の出力、確認の表示のいずれにも進まず、エラーを 1 行表示して終了コード 1 で終了します。
+
+```text
+<home>/.cc-safety-net/policy.json is the user policy, not a project policy; use --global for the user scope, or run from a project directory
+```
+
+[ユーザー設定ディレクトリはプロジェクトではない](#the-user-config-directory-is-not-a-project)を参照してください。
 
 どちらのサブコマンドも、何かを書き込む前に同じヘッダーと差分を出力します。
 
@@ -344,7 +368,7 @@ Only the user may apply a policy proposal, because it rewrites the configuration
 
 組み込みのシークレットルールは、ほとんどがシークレット保護と同時に有効になります。唯一の例外は、対応するコーディングエージェントの設定ファイルと MCP 設定ファイルを対象にする **Coding CLI config** ルールです。これらのファイルは資格情報を直接含むことがありますが、エージェントが通常の作業で編集することもあります。このため、Coding CLI config は既定で無効です。使うルールごとに `"on"` の override を指定してください。有効にした config ルールは、エージェントのユーザーレベル設定に加え、任意のリポジトリルートにある同名のプロジェクトレベルファイル（`.mcp.json` など）も保護します。
 
-既定で無効な 10 個の ID、それぞれに対応する既定で有効な **Coding CLI credential** ルール、各ルールが保護する正確なパスは、[シークレット保護リファレンス](/ja/reference/secret-protection#coding-cli-config-tier-off-by-default)に記載しています。
+既定で無効な 13 個の ID、それぞれに対応する既定で有効な **Coding CLI credential** ルール、各ルールが保護する正確なパスは、[シークレット保護リファレンス](/ja/reference/secret-protection#coding-cli-config-tier-off-by-default)に記載しています。
 
 <span id="deny-paths"></span>
 

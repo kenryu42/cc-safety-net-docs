@@ -42,6 +42,20 @@ The effective policy is the user policy with the project policy layered on top:
 
 An `audit` section in a project file is ignored, and the load reports `project policy audit settings are ignored; audit is user scope only`.
 
+### The user config directory is not a project
+
+The directory that holds your user `.cc-safety-net/` is never also a project. By default that is your home directory. Run from there and `.cc-safety-net/policy.json` is your user file, so there is no project file to layer on top of it, and the load reports none. `status` prints no `Project` row, and the dashboard shows no project-policy notice.
+
+Earlier versions read that one file twice, once per scope. The `audit` section the dashboard writes on every save then came back as `project policy audit settings are ignored; audit is user scope only`, `status` reported `degraded` with a `Project` row identical to its `Policy` row, and the dashboard showed the banner it uses for a configuration fallback. A project `rule.json` that is the user one already loaded once. `policy.json` now does too.
+
+The check resolves both paths before comparing them, so it covers more than the literal home directory:
+
+- With `CC_SAFETY_NET_HOME` set, the match moves to that directory's parent, as long as the variable names a directory called `.cc-safety-net`. A `CC_SAFETY_NET_HOME` under any other name has no matching parent.
+- A home directory reached through a symlink matches. FreeBSD ships `/home` as a symlink to `/usr/home`, and `getcwd` reports the physical path, so the two spellings would never compare equal as plain strings.
+- A `.cc-safety-net/` that does not exist yet is resolved through its nearest existing ancestor, so the comparison holds before you create the directory.
+
+A project-scope write from that directory refuses, instead of quietly writing the user file. `policy check` and `policy apply` without `-g, --global` exit 1, the `rule` writers do the same, and the dashboard's project draft declines to apply. See [Check and apply a proposal](#check-and-apply-a-proposal), [Custom rules](/configuration/custom-rules#the-user-config-directory-is-not-a-project), and [Draft a project policy](/guides/dashboard#draft-a-project-policy).
+
 ### Reported weakenings
 
 By default a project policy is honored as written. Nothing clamps it back up to the user baseline. Instead, every field it relaxes relative to the user policy gets its own reported line:
@@ -118,6 +132,14 @@ policy <subcommand>
   -g, --global   Use the user-scope policy instead of the project one
   -h, --help     Show this help
 ```
+
+Without `-g, --global`, neither subcommand will run from the directory that holds your user `.cc-safety-net/`, where the project path is your user file. Both print one error and exit 1 before reading the proposal, printing a diff, or prompting:
+
+```text
+<home>/.cc-safety-net/policy.json is the user policy, not a project policy; use --global for the user scope, or run from a project directory
+```
+
+See [The user config directory is not a project](#the-user-config-directory-is-not-a-project).
 
 Both subcommands print the same header and diff before anything is written:
 
@@ -328,7 +350,7 @@ An unregistered id is rejected with `unknown secret protection rule id "<id>"`, 
 
 Most built-in secret rules are on whenever secret protection is enabled. One tier is not: the **Coding CLI config** rules, which cover the settings and MCP configuration files of supported coding agents. Those files can carry credentials inline, but agents also edit them as routine work, so the tier ships off and you opt in per rule with an explicit `"on"` override. A config rule you turn on protects the agent's user-level config files, and it also protects project-level files matched by name at any repository root, such as any `.mcp.json`.
 
-The ten default-off ids, their on-by-default **Coding CLI credential** counterparts, and the exact paths each rule protects are listed in the [Secret protection reference](/reference/secret-protection#coding-cli-config-tier-off-by-default).
+The thirteen default-off ids, their on-by-default **Coding CLI credential** counterparts, and the exact paths each rule protects are listed in the [Secret protection reference](/reference/secret-protection#coding-cli-config-tier-off-by-default).
 
 ### Deny paths
 
