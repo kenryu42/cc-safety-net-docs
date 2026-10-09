@@ -208,6 +208,34 @@ Each one also raises an `<Agent> inspection failed` finding with `error` severit
 - `Devin CLI config <path> "hooks" must be an object`
 - `Devin CLI config <path> "hooks.PreToolUse" must be an array`
 
+### Cursor through the Claude Code plugin
+
+The Claude Code plugin carries a Cursor plugin manifest, so Cursor can run CC Safety Net from it. `doctor` counts that route when all of these hold:
+
+- Claude Code reads `Configured`, which means `cc-safety-net@cc-marketplace` is installed and enabled.
+- The plugin's record in `plugins/installed_plugins.json` under the Claude Code config directory has a user-scope entry with an `installPath`.
+- `<installPath>/.cursor-plugin/plugin.json` parses, and the file its `hooks` field names exists.
+
+Cursor runs the Claude Code plugin only when it imports Claude Code plugins, and `doctor` cannot check whether it does. Both messages below say so.
+
+When the `install --cursor` hook is also configured, Cursor keeps the method `hook config` and `doctor` prints:
+
+```text
+Warning (Cursor): The Claude Code plugin also runs this check in Cursor, so every tool call is checked twice. Cursor runs the Claude Code plugin only while it imports Claude Code plugins, which doctor cannot check. If Cursor runs it, run `cc-safety-net uninstall --cursor` to remove this hook.
+```
+
+`doctor` does not remove the hook itself.
+
+When the plugin is the only route, Cursor reads `Detected`, `Configured`, and `Verified`. `doctor --json` reports the method `Claude Code plugin` and the manifest path as `configPath`. `doctor` prints:
+
+```text
+Warning (Cursor): Cursor runs the Claude Code plugin only while it imports Claude Code plugins, which doctor cannot check. If it stops, run `cc-safety-net install --cursor`.
+```
+
+Neither warning changes the exit code. While the plugin route counts, a `~/.cursor/hooks.json` that will not parse also prints as a warning, `Warning (Cursor): Failed to parse Cursor hooks config <path>: <reason>`, and raises no `Cursor inspection failed` finding.
+
+A Cursor covered only by the plugin has no managed hook in `~/.cursor/hooks.json`. [`update`](#update) skips it, so it does not write the hook back. The interactive selector shows it as `already installed` during install and `not installed` during uninstall. `install --cursor` still writes the hook.
+
 ### Host configuration paths
 
 Several hosts let you move their configuration elsewhere. `doctor` follows the same overrides each host follows, so a relocated config is still found.
@@ -732,7 +760,7 @@ npx -y cc-safety-net@latest update
 
 In a TTY, a direct `update` starts detection before it shows the install banner, so the banner animation covers part of the detection time. If detection is still running after the banner, the CLI shows `Checking installed integrations…`. Press `Enter` to skip the animation. When you start update with `u` in the interactive `install` selector, the CLI uses the banner that it already showed and does not print a second one. A non-TTY shows no banner or spinner.
 
-`update` reads each agent's configuration and state files. An integration qualifies when it is installed, **even when it is disabled**. Amp Code qualifies through `amp plugins list`, which uses a 30-second timeout like `codex plugin list` because a cold run refreshes checkouts over the network and can outlast the default 5 seconds. GitHub Copilot CLI is the exception. It qualifies only when a CC Safety Net checkout exists in Copilot's `installed-plugins` directory, because its disabled state is indistinguishable from a bare kill switch with nothing installed and `update` must never install something new. Installations that still use the old `safety-net@cc-marketplace` id in Claude Code or Codex also qualify. The GitHub Copilot CLI checkout `cc-marketplace/safety-net` also qualifies. Updating migrates them to the current id and removes the legacy copy on a best-effort basis, so a failed removal warns without failing the target.
+`update` reads each agent's configuration and state files. An integration qualifies when it is installed, **even when it is disabled**. Amp Code qualifies through `amp plugins list`, which uses a 30-second timeout like `codex plugin list` because a cold run refreshes checkouts over the network and can outlast the default 5 seconds. GitHub Copilot CLI is the exception. It qualifies only when a CC Safety Net checkout exists in Copilot's `installed-plugins` directory, because its disabled state is indistinguishable from a bare kill switch with nothing installed and `update` must never install something new. Installations that still use the old `safety-net@cc-marketplace` id in Claude Code or Codex also qualify. The GitHub Copilot CLI checkout `cc-marketplace/safety-net` also qualifies. Updating migrates them to the current id and removes the legacy copy on a best-effort basis, so a failed removal warns without failing the target. A Cursor that `doctor` counts only through the [Claude Code plugin](#cursor-through-the-claude-code-plugin) does not qualify, so `update` never writes a Cursor hook for it.
 
 All targets run the same operation as `install` concurrently behind one `Updating <n> integration…` or `Updating <n> integrations…` spinner. The command waits for every target to settle, then prints all reports in stable catalog order, with messages changed to `Updated …` or `… up to date`. For the targets whose install drives the agent's own CLI, Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Hermes Agent, OpenClaw, OpenCode, and Pi, the vendor binary is probed first: a missing binary prints `<Agent> not found; skipped` (for example `Codex not found; skipped`) and the run continues. The config-file targets, Antigravity CLI, Cursor, Devin CLI, Factory Droid, Grok Build, and Kimi Code, need no binary and always refresh. DeepSeek Harness is not probed either. Its update re-runs the install, which drives `dsh` for each profile and fails while the Desktop app is open. Amp Code needs no separate probe: it is detected only when `amp plugins list` shows the personal plugin, and its refresh drives the amp CLI to publish the current artifact. On Claude Code, Codex, and GitHub Copilot CLI, an already-registered marketplace is refreshed before the plugin step (for example `claude plugin marketplace update cc-marketplace`) instead of relying on a no-op `add`, so a stale catalog checkout cannot fail the update.
 
@@ -804,6 +832,8 @@ At runtime the hook reads Antigravity's `run_command` tool calls, takes the sess
 ### Cursor entry point
 
 `install --cursor` writes the command `npx -y cc-safety-net hook --cursor` into `~/.cursor/hooks.json` under `hooks.preToolUse`, in a `"version": 1` document, with a 30-second timeout and `failClosed: true`. The installer validates the document's version and shape and fails with a descriptive error rather than rewriting something it does not recognize. Duplicate managed entries are collapsed into one.
+
+The Cursor manifest in the Claude Code plugin uses the same flag. Its hook runs `node "${CURSOR_PLUGIN_ROOT}/dist/bin/cc-safety-net.js" hook --cursor`. See [Cursor installation](/installation#cursor-installation).
 
 At runtime the hook reads Cursor's `Shell` tool calls, takes the session id from `conversation_id`, and answers with `{ "permission": "deny", … }` or `{ "permission": "allow" }`. Cursor's `working_directory` field is containment-checked against the workspace roots and fails closed when it is missing-but-declared or points outside them.
 

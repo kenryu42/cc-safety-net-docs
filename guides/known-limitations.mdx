@@ -1,7 +1,7 @@
 ---
 title: "Known limitations and pitfalls"
 sidebarTitle: "Known limitations"
-description: "What CC Safety Net cannot catch: opaque command proxies, in-binary behavior, filesystem containment and network, symlink TOCTOU, interpreter flags, quotes inside interpreter comments, eval-based execution, the Codex interactive-session and workdir gaps, the Grok Build, Factory Droid, and Devin CLI fail-open hosts, the DeepSeek Harness optional-bundle and run_code gaps, and the Hermes Agent and OpenClaw coverage boundaries including the OpenClaw session working directory."
+description: "What CC Safety Net cannot catch: opaque command proxies, in-binary behavior, filesystem containment and network, symlink TOCTOU, interpreter flags, quotes inside interpreter comments, the cmd and nested PowerShell readers, eval-based execution, the Codex interactive-session and workdir gaps, the Grok Build, Factory Droid, and Devin CLI fail-open hosts, the DeepSeek Harness optional-bundle and run_code gaps, and the Hermes Agent and OpenClaw coverage boundaries including the OpenClaw session working directory."
 ---
 
 CC Safety Net analyzes the command string your agent attempts to run. It is a strong guardrail against accidental data loss from known-destructive git and filesystem operations, but it is not a complete security solution. This page is an honest list of the **residual** limits that remain today, so you can set correct expectations and know when to use [sandboxing](/guides/vs-sandboxing) instead.
@@ -74,6 +74,12 @@ This is most relevant when writing precise [custom rules](/configuration/custom-
 
 This is inherent to any pre-execution command analysis tool; fully closing it would require running inside the kernel or intercepting syscalls, which is out of scope for a hook. The [paranoid rm](/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1) mode (`CC_SAFETY_NET_PARANOID_RM=1`) provides a stricter stance for operators who want to block more aggressively.
 
+### Windows Command Prompt and nested PowerShell
+
+CC Safety Net reads a `cmd /c` or `cmd /k` body with a bounded text check, not a cmd parser. The check finds a delete word anywhere in a piece of the body, so it can block a command that deletes nothing. `cmd /c 'echo rmdir /s /q C:\'` blocks as a drive-root delete. The check does not open a batch file the body runs, and it does not evaluate delayed expansion (`!VAR!`), so a delete inside the file or assembled at run time is not seen.
+
+A nested `powershell` or `pwsh` is read only in the shape described under [Nested PowerShell scripts](/reference/blocked-commands#nested-powershell-scripts). A script run with `-File` or read from stdin is not read, so `pwsh -File cleanup.ps1` is allowed whatever the file does. An unread form is blocked only when its own text names a delete command and a recursive switch.
+
 ## Out-of-scope protections
 
 These are boundaries CC Safety Net does not attempt to cover. Most of them need **containment** rather than semantic analysis, which is a different layer. See [where CC Safety Net cannot help](/guides/vs-sandboxing#where-cc-safety-net-cannot-help) for the sandboxing counterpart of each one.
@@ -87,7 +93,8 @@ Coding-CLI coverage comes in two tiers. The **credential** tier (auth tokens and
 The residual limit is that this is a **bounded pattern set over supported shapes**, not a general read boundary:
 
 - A credential in a file whose name and extension are not on the pattern list is not recognized.
-- Standard mode allows metadata-only checks of built-in sensitive paths (for example `test -f ~/.ssh/id_rsa`, `find ~/.ssh -type f`, `ls -la ~/.ssh`, or `stat .env`), either alone or as one segment of a compound command such as `test -f .env && echo present`. For the built-in file-name rules it also treats three shapes as a mention rather than a read: a secret name that is an existing directory, a word containing whitespace that neither starts like a path nor exists on disk, and an output redirection that creates a secret-named file where none exists. Those three never apply to the `secret.home.*` or `secret.cli.*` rules. [Strict and paranoid](/configuration/modes#strict-mode-cc_safety_net_strict=1) block every form listed here, and configured deny paths are never relaxed in any mode. [Sensitive-path relaxations in standard](/configuration/modes#sensitive-path-relaxations-in-standard) has the exact conditions.
+- Standard mode allows metadata-only checks of built-in sensitive paths (for example `test -f ~/.ssh/id_rsa`, `find ~/.ssh -type f`, `ls -la ~/.ssh`, `stat .env`, `wc -l .env`, or `grep -l KEY .env`), either alone or as one segment of a compound command such as `test -f .env && echo present`. For the built-in file-name rules it also treats some shapes as a mention rather than a read, such as a secret name that is an existing directory, a file that a redirection, `mkdir`, or `touch` creates, and a Python or JavaScript string literal in a data position. Those shapes never apply to the `secret.home.*` or `secret.cli.*` rules. [Strict and paranoid](/configuration/modes#strict-mode-cc_safety_net_strict=1) block every form listed here, and configured deny paths are never relaxed in any mode. [What standard mode does not count as a read](/reference/secret-protection#what-standard-mode-does-not-count-as-a-read) has the exact conditions.
+- Standard mode does not follow a name to a later read. A string literal held in a collection is data even when the code opens it afterwards, so `python3 -c "for f in {'.env'}: print(open(f).read())"` is allowed. Nor does it follow a `for` loop variable that the loop writes to a file for a later command to read back. Strict mode blocks both.
 - Setting `secret_protection.enabled` to `false` in `policy.json` turns the whole stage off, deny paths included.
 
 For a boundary that constrains *all* reads rather than a recognized set, use [sandboxing](/guides/vs-sandboxing#where-cc-safety-net-cannot-help).

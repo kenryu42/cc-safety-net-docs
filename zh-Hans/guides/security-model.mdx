@@ -53,7 +53,7 @@ Standard、strict 和 paranoid 是三个预设，为 `fail_closed`、`paranoid_r
 
 启用机密保护时，安全级别不会放宽已匹配敏感**内容**的访问，也不会放宽用户配置的拒绝路径及其后代。配置的 `secret_protection.allow_paths` 条目可以让字面文件或目录树豁免于非 CLI 的内置机密规则；拒绝路径和 `secret.cli.*` 规则仍然优先。灾难性保护始终强制执行，包括递归删除根目录或用户主目录、对受保护 Git 元数据的破坏性更改，以及对用户或项目 `policy.json` 的破坏性更改。
 
-对内置的文件名规则，standard 还会把三种形式当作提及而不是读取：机密文件名对应一个已存在的目录；含空白字符的词既不像路径，磁盘上也不存在；重定向新建了一个原本不存在的机密文件名。`secret.home.*` 和 `secret.cli.*` 规则不会因此被放宽。准确条件见 [`standard` 对敏感路径的放宽](/zh-Hans/configuration/modes#sensitive-path-relaxations-in-standard)。
+对内置的文件名规则，standard 还会把一些形式当作提及而不是读取，例如：机密文件名对应一个已存在的目录；含空白字符的词既不像路径，磁盘上也不存在；重定向、`mkdir` 或 `touch` 新建了机密同名文件；`tailscale cert` 的输出文件；`openssl x509 -in` 的输入；以及位于列表元素等数据位置的 Python 或 JavaScript 字符串字面量。`secret.home.*` 和 `secret.cli.*` 规则不会因此被放宽。准确条件见 [standard 模式不算作读取的情形](/zh-Hans/reference/secret-protection#what-standard-mode-does-not-count-as-a-read)。
 
 ## 配置恢复边界
 
@@ -113,7 +113,7 @@ Standard、strict 和 paranoid 是三个预设，为 `fail_closed`、`paranoid_r
 | 攻击面 | 攻击者尝试的操作 | 缓解措施 |
 | --- | --- | --- |
 | **Shell 命令解析器** | 构造利用解析器边缘情况（异常引号、嵌套替换、运算符歧义）的命令字符串，以隐藏破坏性 payload | 未闭合引号防护把原始字符串作为一个段返回；保留变量引用而不展开，以便检测动态替换；strict 模式阻止无法解析的命令；解析器错误触发 fail-closed |
-| **包装器和解释器剥离** | 在 `sudo`、`env`、`bash -c` 或解释器单行命令后隐藏破坏性命令 | 迭代剥离包装器（有迭代上限）；递归重新分析 shell 包装器和解释器代码，最多 10 层；在 `transparent_wrappers` 中声明的命令会在分析前展开到可见子命令 |
+| **包装器和解释器剥离** | 在 `sudo`、`env`、`bash -c`、`cmd /c`、`pwsh -c` 或解释器单行命令后隐藏破坏性命令 | 迭代剥离包装器（有迭代上限）；递归重新分析 shell 包装器和解释器代码，最多 10 层；在 `transparent_wrappers` 中声明的命令会在分析前展开到可见子命令；`cmd /c` 和 `cmd /k` 的正文会对其中的递归删除做有界检查，字面量的 `powershell` 或 `pwsh` `-Command` 脚本会按 PowerShell 重新分析，以分析器无法读取的形式交给两者的递归删除会被拒绝或阻止 |
 | **敏感文件访问** | 通过 command、path、search 或 patch 形式读取或发现 `.env`、`~/.ssh/id_*` 或 `~/.aws/credentials` 等凭证 | 敏感路径保护覆盖受支持的 command、path、search 和 patch 形式，并包含未知工具的回退检查；用户配置的拒绝路径及其后代最先匹配且绝不放宽；字面机密允许路径可以豁免非 CLI 的内置匹配，但 Coding CLI 路径仍然受保护；strict 和 paranoid 还会阻止仅元数据的发现。覆盖范围是有界的模式集，不是通用的读取边界 |
 | **rm 分析中的路径遍历** | 使用符号链接或路径技巧让危险 `rm -rf` 目标绕过分类 | 把目标解析为规范路径；检测指向已知临时目录之外的 `$TMPDIR` override；仍存在残余的 TOCTOU 窗口（见<a href="/zh-Hans/guides/known-limitations#symlink-toctou-risk">已知限制</a>） |
 | **Rulebook 供应链** | 从 GitHub 来源提供恶意 rulebook | `rule add` 和 `rule update` 会把 ref 解析到 commit，禁止重定向，限制响应的字节数和时间，对内容做 schema 验证，并运行 `rulebook_version: 2` 的 fixture，之后才写入落盘副本；落盘文件位于使用方仓库中，人可以评审；运行时在加载时再次做 schema 验证；恶意 rulebook 可以添加规则，但不能删除内置阻止 |

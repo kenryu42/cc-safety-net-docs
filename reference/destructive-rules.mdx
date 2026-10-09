@@ -16,7 +16,7 @@ Destructive-command protection is the command-analysis stage that blocks command
 
 This page lists every built-in rule id, what it blocks, and when it is active. Use it to look up a rule from a block message and decide whether to turn it off. See [Blocked commands](/reference/blocked-commands) for the boundary of each rule with worked examples, [Policy](/configuration/policy#destructive-command-protection) for the `destructive_command_protection` schema, and [Custom rules](/configuration/custom-rules) to add rules of your own.
 
-There are **59 registered rules**. Six are [catastrophic](#catastrophic-rules) and cannot be turned off. Every other rule accepts a per-rule override. A deny that no rule produced carries one of the [fixed denial ids](#fixed-denial-ids) instead, and no override can turn those off.
+There are **68 registered rules**. Ten are [catastrophic](#catastrophic-rules) and cannot be turned off. Every other rule accepts a per-rule override. A deny that no rule produced carries one of the [fixed denial ids](#fixed-denial-ids) instead, and no override can turn those off.
 
 ## Allow a built-in rule
 
@@ -47,7 +47,7 @@ An override turns the whole rule off, not one command. `"on"` does the opposite 
 
 ## Catastrophic rules
 
-Six rules are marked catastrophic. They ignore `destructive_command_protection.enabled: false` and ignore an `"off"` override, so they block at every safety level under every policy. They cover recursive removal of `/` or your home directory and deletion of Git metadata, in `rm`, `find`, and PowerShell form. They are marked **Catastrophic** in the tables below.
+Ten rules are marked catastrophic. They ignore `destructive_command_protection.enabled: false` and ignore an `"off"` override, so they block at every safety level under every policy. Eight cover recursive removal of `/` or your home directory and deletion of Git metadata, in `rm`, `find`, PowerShell, and `cmd` form. The other two cover recursive deletes whose targets cannot be read safely: a `cmd` delete whose quoting can split the target so that one piece names the drive root, and a recursive delete handed to `powershell` or `pwsh` in a form the analyzer does not read. They are marked **Catastrophic** in the tables below.
 
 ## Reading the tables
 
@@ -115,6 +115,22 @@ Six rules are marked catastrophic. They ignore `destructive_command_protection.e
 | `powershell.remove-item-recursive-force-outside-cwd` | Blocks recursive forced PowerShell removal outside the original cwd. | `Remove-Item ../outside -Recurse -Force` | All levels |
 | `powershell.remove-item-recursive-force-paranoid` | Blocks non-temp recursive forced PowerShell removal when paranoid rm is enabled. | `Remove-Item ./cache -Recurse -Force` | [Paranoid rm](/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1) |
 | `powershell.remove-item-pipeline-dynamic-target` | Blocks PowerShell Remove-Item with unverifiable pipeline input in strict mode. | `Get-ChildItem . -Recurse \| Remove-Item -Force` | [Strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) |
+| `powershell.nested-recursive-delete-unread` | Blocks a recursive delete handed to powershell or pwsh in any form other than literal -Command script words. | `pwsh -WorkingDirectory C:\ -c 'Remove-Item -Recurse -Force *'` | **Catastrophic**, always on |
+
+## Command Prompt rules
+
+These rules judge the targets of `rmdir`, `rd`, `del`, and `erase` with an `/s` switch inside a `cmd /c` or `cmd /k` body. [Command Prompt bodies](/reference/blocked-commands#command-prompt-bodies) explains how the body is read.
+
+| Rule id | What it blocks | Example | Active when |
+| --- | --- | --- | --- |
+| `cmd.recursive-delete-root-or-home` | Blocks cmd rmdir /s or del /s of root or home paths. | `cmd /c rmdir /s /q C:\` | **Catastrophic**, always on |
+| `cmd.recursive-delete-escaped-quote` | Blocks cmd rmdir /s or del /s whose quoting can reach cmd as `\"` and split the target down to the drive root. | `cmd /c "rmdir /s /q \"build output\""` | **Catastrophic**, always on |
+| `cmd.recursive-delete-git-metadata` | Blocks cmd rmdir /s or del /s of protected Git metadata and hooks. | `cmd /c rmdir /s /q .git` | **Catastrophic**, always on |
+| `cmd.recursive-delete-dynamic-target` | Blocks cmd rmdir /s or del /s with wildcard or variable targets in strict mode. | `cmd /c del /s /q *.log` | [Strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) |
+| `cmd.recursive-delete-home-cwd` | Blocks cmd rmdir /s or del /s while working in home. | `Set-Location $HOME; cmd /c rmdir /s /q build` | All levels |
+| `cmd.recursive-delete-cwd-self` | Blocks cmd rmdir /s or del /s of the current directory. | `cmd /c rmdir /s /q .` | All levels |
+| `cmd.recursive-delete-outside-cwd` | Blocks cmd rmdir /s or del /s outside the original cwd. | `cmd /c rmdir /s /q ..\outside` | All levels |
+| `cmd.recursive-delete-paranoid` | Blocks non-temp cmd rmdir /s or del /s when paranoid rm is enabled. | `cmd /c rmdir /s /q build` | [Paranoid rm](/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1) |
 
 ## Execution rules
 

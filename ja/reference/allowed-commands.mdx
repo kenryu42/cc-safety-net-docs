@@ -103,7 +103,7 @@ allow path が他の範囲を広げることはありません。機密パス保
 | `Get-ChildItem . -Recurse \| Remove-Item -Force` | 検証できない PowerShell パイプライン入力 |
 | `$(printf r)m -rf /`、`c=rm; "$c" -rf dir`、`$CMD --version` | 動的な実行ファイル。先頭のコマンドが置換または変数に由来する |
 | `git reset $(printf --hard)`、`rm $(printf -- '-rf') dir` | 動的な構造。置換によって引数が組み立てられる |
-| `test -f ~/.ssh/id_rsa`、`find ~/.ssh -type f`、`ls -la ~/.ssh`、`stat .env`、`git check-ignore .env && git status --short` | 内容にアクセスせず、組み込み機密パスのメタデータのみを検出する。コマンド全体だけでなく、複合コマンドの 1 セグメントも対象になる |
+| `test -f ~/.ssh/id_rsa`、`find ~/.ssh -type f`、`ls -la ~/.ssh`、`stat .env`、`wc -l .env`、`grep -l KEY .env`、`git check-ignore .env && git status --short` | 内容にアクセスせず、組み込み機密パスのメタデータのみを検出する。コマンド全体だけでなく、複合コマンドの 1 セグメントも対象になる |
 | `W='rm -rf ~'; echo "$W"` | 正しく解析された引用符付きリテラル代入内の危険なテキスト。変数が引用符付き引数データとしてのみ使われる場合、使用時までブロックを保留する |
 | `f() { rm -rf "$1"; }; f ~` | 呼び出された関数本体では位置パラメーターが未束縛のままであるため、対象が動的になる。`rm -rf "$target"` と同じトレードオフ |
 | `eval "$(ssh-agent -s)"`、`source <(kubectl completion bash)` | 完全にリテラルなローカルの生成コマンド 1 つ。*形*は検証できるが、その出力は検証できない |
@@ -157,23 +157,27 @@ allow path が他の範囲を広げることはありません。機密パス保
 | `find . -name .env` | `-name` は読み取るパスではなく、検索*パターン*を指定する | すべて |
 | `find src -type f` | 機密パスのルートがない | すべて |
 | `custom-tool README.md`、`make FOO=bar`、`xxd README.md` | リストにないコマンドの無害なオペランド | すべて |
-| `cat .env.example`（`.env.sample`、`.env.template`、`.env.defaults` も同様） | env のテンプレートには、シークレットではなくプレースホルダーの値が入る。他のすべての機密パスルールより先に除外される | すべて |
+| `cat .env.example`（`.env.sample`、`.env.template`、`.env.tpl`、`.env.defaults` も同様） | env のテンプレートには、シークレットではなくプレースホルダーの値が入る。ホームディレクトリルールを除くすべての機密パスルールから除外される | すべて |
 | `cat node_modules/x/fixture.pem` | ベンダー管理ディレクトリでは、拡張子ルールと広範なキーベース名ルールが抑制される | すべて |
 | `test -f ~/.ssh/id_rsa` | 内容にアクセスしないメタデータのみの存在確認 | **standard のみ** |
 | `find ~/.ssh -type f` | 内容にアクセスしないメタデータのみの一覧取得 | **standard のみ** |
 | `ls -la ~/.ssh`、`stat .env` | 内容にアクセスしないディレクトリの一覧取得とファイル情報の確認 | **standard のみ** |
 | `git check-ignore .env && git status --short`、`if [ -f ~/.aws/credentials ]; then echo present; fi` | 内容にアクセスしない、複合コマンドのメタデータのみのセグメント | **standard のみ** |
-| 機密パスのリテラルを含むインタープリターのインラインコード | コードにファイルシステム操作、コマンド実行、eval のいずれの痕跡もない場合、リテラルは実行されないデータのままになる。POSIX シェルのコードは対象外で、ガードがシェルとしてたどる | **standard のみ** |
+| `wc -l .env`、`grep -l KEY .env`、`grep -q KEY .env \|\| echo missing` | 件数、一致したファイル名、終了ステータスだけを返し、その出力が後ろのパイプに届かない | **standard のみ** |
+| `mkdir -p fx/credentials && touch fx/.env` | `mkdir` と `touch` はパスを作るだけで、読み取らない | **standard のみ** |
+| `tailscale cert --cert-file crt.pem --key-file key.pem host`、`openssl x509 -in crt.pem -noout -enddate` | `tailscale cert` はこれらのファイルを書き込むだけで、`openssl x509` は証明書のデータしか出力しない | **standard のみ** |
+| `for t in .env.local; do grep -c -- "$t" notes.md; done` | ループ変数は `grep` のパターンになるだけで、読み取りに使われない | **standard のみ** |
+| 機密パスのリテラルを含むインタープリターのインラインコード | コードにファイルシステム操作、コマンド実行、eval のいずれの痕跡もない場合、リテラルは実行されないデータのままになる。痕跡があっても、コレクションの要素や比較のオペランドなどデータの位置にある Python や JavaScript のリテラルと、コードが書き込む新しいファイルの名前を指すだけのリテラルはデータのままになる。POSIX シェルのコードは対象外で、ガードがシェルとしてたどる | **standard のみ** |
 
-メタデータのみと見なされる形式は、次に挙げるもので固定です。`ls`、`stat`、`test -e <path>`、`test -f <path>`、`[ -e <path> ]`、`[ -f <path> ]`、`git check-ignore`、そして読み書きを伴うアクションを持たない `find` です。standard では、こうした形式だけが指す機密パスは無視されます。コマンド全体でも、複合コマンドの 1 セグメントでも同じです。同じパスを読み取るセグメントに書いた場合は引き続きブロックされるため、`test -f .env && cat .env` は拒否されます。メタデータのみと見なされなくなる `find` のアクションは、[シークレット保護リファレンス](/ja/reference/secret-protection)にあります。
+メタデータのみと見なされる形式は、次に挙げるもので固定です。`ls`、`stat`、`test -e <path>`、`test -f <path>`、`[ -e <path> ]`、`[ -f <path> ]`、`git check-ignore`、読み書きを伴うアクションを持たない `find`、件数を数えるだけの `wc`、そして出力をファイル名、件数、終了ステータスだけに絞った `grep` または `rg` です。standard では、こうした形式だけが指す機密パスは無視されます。コマンド全体でも、複合コマンドの 1 セグメントでも同じです。同じパスを読み取るセグメントに書いた場合は引き続きブロックされるため、`test -f .env && cat .env` は拒否されます。`wc`、`grep`、`rg` の出力が後ろのパイプ、キャプチャー、コプロセスに届きうる場合は読み取りとして検査するため、`grep -l KEY .env | xargs cat` は拒否されます。対象となるオプション、メタデータのみと見なされなくなる `find` のアクション、この表のほかの形については、[standard モードが読み取りと見なさないもの](/ja/reference/secret-protection#what-standard-mode-does-not-count-as-a-read)を参照してください。
 
 この許可には、注意すべき境界が 2 つあります。
 
-- **env テンプレート。** 正確なベース名 `.env.example`、`.env.sample`、`.env.template`、`.env.defaults` と、`.env.example.` または `.env.sample.` で始まるすべての名前（`.env.example.local` など）は、ほかのすべての機密パスルールより先に除外されます。そのため、保護対象のホームディレクトリ内でも読み書きできます。この接頭辞形式は、残りの 2 つのテンプレートには拡張されません。`.env.template.local` は、ほかのすべての `.env.*` 名と同様に `secret.pattern.env-variant` でブロックされます。
+- **env テンプレート。** 正確なベース名 `.env.example`、`.env.sample`、`.env.template`、`.env.tpl`、`.env.defaults` と、`.env.example.` または `.env.sample.` で始まるすべての名前（`.env.example.local` など）は、先に検査されるホームディレクトリルールを除き、すべての機密パスルールから除外されます。それ以外の場所では読み書きできますが、`cat ~/.ssh/.env.tpl` は `secret.home.ssh` でブロックされます。この接頭辞形式は、残りの 2 つのテンプレートには拡張されません。`.env.template.local` は、ほかのすべての `.env.*` 名と同様に `secret.pattern.env-variant` でブロックされます。
 - **ベンダー管理ディレクトリ。** パスセグメントが `node_modules` または `__pycache__` の場合、または隣接する組み合わせ `vendor/bundle` または `vendor/cache` がある場合（単独の `vendor` セグメントは対象外）、正確に 2 つのルールグループが抑制されます。拡張子ルール（`.pem`、`.p12`、`.key` など）と、拡張子なしの広範なキーベース名ルール `secret.pattern.ssh-key-basename`（`*_rsa`、`*_dsa`、`*_ed25519`、`*_ecdsa`）です。それ以外のルールはすべて引き続き適用されます。`node_modules/x/.env` と `node_modules/x/id_rsa` は通常どおりブロックされます。`.git` は除外セットに**含まれません**。そのため、`.git` ツリー内のキーマテリアル（`.git/hooks/deploy_key_rsa` など）は、ほかの場所と同様にルールに一致します。
 
 <Warning>
-  standard であっても、機密情報の**内容**へのアクセスや、設定済みの deny path が緩和されることはありません。`cat ~/.ssh/id_rsa`、`find ~/.ssh -type f -exec cat {} +`、`find ~/.ssh -type f -fprint .env`、`test -f ~/.ssh/id_rsa && cat ~/.ssh/id_rsa`、`test -f "$(cat ~/.ssh/id_rsa)"` は、いずれも standard でもブロックされます。deny path とその配下は組み込みルールより先に照合され、standard 限定の 2 つの緩和の対象外です。
+  standard であっても、機密情報の**内容**へのアクセスや、設定済みの deny path が緩和されることはありません。`cat ~/.ssh/id_rsa`、`find ~/.ssh -type f -exec cat {} +`、`find ~/.ssh -type f -fprint .env`、`test -f ~/.ssh/id_rsa && cat ~/.ssh/id_rsa`、`test -f "$(cat ~/.ssh/id_rsa)"` は、いずれも standard でもブロックされます。deny path とその配下は組み込みルールより先に照合され、standard 限定のどの緩和の対象にもなりません。
 </Warning>
 
 ## worktree モードの例外

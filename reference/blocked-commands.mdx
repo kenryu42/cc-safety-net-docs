@@ -1,7 +1,7 @@
 ---
 title: "Blocked commands and why they block"
 sidebarTitle: "Blocked commands"
-description: "Complete reference of the git, rm, find, device, PowerShell, and sensitive-path commands CC Safety Net blocks, with the safety level each rule needs."
+description: "Complete reference of the git, rm, find, device, PowerShell, cmd, and sensitive-path commands CC Safety Net blocks, with the safety level each rule needs."
 keywords:
   - "blocked commands"
   - "dangerous commands"
@@ -31,7 +31,7 @@ This page is the behavior matrix for what is blocked and where each boundary fal
 | --- | --- |
 | [Standard](/configuration/modes#default-mode) | Blocks all untagged rows. Safe-looking unparseable text such as `echo 'unterminated` is permitted, but unparseable text containing a recognizable destructive pattern is still blocked heuristically, and [shell syntax the parser refuses outright](/guides/analysis-engine#shell-syntax-the-parser-refuses) is blocked here too. Dynamic `rm -rf` targets are **not** categorically blocked. |
 | [Strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) | Everything standard blocks, plus unparseable commands outright, destructive targets that cannot be verified, [heredocs outside a small supported set](#heredocs-in-strict-and-paranoid), and metadata-only discovery of built-in sensitive paths. |
-| [Paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) | Everything strict blocks, plus non-temp recursive deletion (`rm -r`, `rm -rf`, `find -delete`, `Remove-Item -Recurse -Force`) even inside the current working directory, and every interpreter one-liner regardless of content. |
+| [Paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) | Everything strict blocks, plus non-temp recursive deletion (`rm -r`, `rm -rf`, `find -delete`, `Remove-Item -Recurse -Force`, `cmd /c rmdir /s`) even inside the current working directory, and every interpreter one-liner regardless of content. |
 
 <Note>
   Some catastrophic protections do not depend on the selected safety level. Root and home recursive deletion, Git-metadata protection, and canonical `policy.json` protection ignore the master destructive-command switch and per-rule `off` overrides.
@@ -195,7 +195,7 @@ The recognizer over-matches on purpose. It covers a direct `cc-safety-net` or `c
 
 ## PowerShell Remove-Item
 
-PowerShell support is a conservative subset: `Remove-Item` and its aliases, the file cmdlets `Get-Content`, `Set-Content`, `Add-Content`, `Copy-Item`, and `Move-Item` with the aliases `gc`, `cat`, `type`, `cp`, and `mv`, plus the existing cross-shell rules. It is not a general PowerShell parser. The removal rules below apply in `powershell` and `auto` shell modes; `posix` mode deliberately does not apply them, while still keeping cross-shell rules such as `git.reset-hard` and `rm.recursive-force-root-or-home`. Sensitive-path protection resolves a `$HOME`, `$env:USERPROFILE`, `$env:HOME`, or `~` prefix joined to a literal suffix by either path separator, so `Get-Content $HOME\.ssh\id_rsa` is blocked; a path assembled any other way, such as by concatenation, a subexpression, or `Join-Path`, is not evaluated.
+PowerShell support is a conservative subset: `Remove-Item` and its aliases, the file cmdlets `Get-Content`, `Set-Content`, `Add-Content`, `Copy-Item`, and `Move-Item` with the aliases `gc`, `cat`, `type`, `cp`, and `mv`, plus the existing cross-shell rules. It is not a general PowerShell parser. The removal rules below apply in `powershell` and `auto` shell modes; `posix` mode deliberately does not apply them, while still keeping cross-shell rules such as `git.reset-hard` and `rm.recursive-force-root-or-home`. A script nested in `powershell -Command` or `pwsh -Command` is the exception. It is analyzed as PowerShell in every shell mode; see [Nested PowerShell scripts](#nested-powershell-scripts). Sensitive-path protection resolves a `$HOME`, `$env:USERPROFILE`, `$env:HOME`, or `~` prefix joined to a literal suffix by either path separator, so `Get-Content $HOME\.ssh\id_rsa` is blocked; a path assembled any other way, such as by concatenation, a subexpression, or `Join-Path`, is not evaluated.
 
 | Command pattern | Why it's blocked | Level |
 | --- | --- | --- |
@@ -251,6 +251,65 @@ Destructive code embedded in interpreter one-liners is detected and blocked **by
 | `node -e 'require("child_process").exec("git reset --hard")'` | Blocked by default |
 
 The analyzed interpreters are `python`, `python2`, `python3`, `node`, `ruby`, and `perl`. The embedded destructive command triggers the block. The one-line form alone is allowed by default.
+
+### Command Prompt bodies
+
+CC Safety Net reads the body of `cmd /c` and `cmd /k` in every shell mode. The head can be `cmd` or `cmd.exe` in any case, and Git Bash's `//c` spelling counts too. The reader is a bounded text check, not a cmd parser. It strips one pair of outer quotes and splits the body on `&` and `|`. In each piece it looks for `rmdir`, `rd`, `del`, or `erase` with an `/s` switch, also when bundled as `/s/q`, after a leading `@`, or behind an `if exist` guard. Those targets go through the `cmd.recursive-delete-*` rules against the outer working directory, and a final `*.*` path segment counts as `*`. Every other piece is analyzed as a command of the outer shell, so `cmd /c git reset --hard` blocks on `git.reset-hard`.
+
+| Example | Result |
+| --- | --- |
+| `cmd /c 'rmdir /s /q C:\'`, `cmd /c "del /s /q C:\*.*"` | Blocked as `cmd.recursive-delete-root-or-home` |
+| `cmd /c 'if exist C:\ rmdir /s /q C:\'` | Blocked as `cmd.recursive-delete-root-or-home` |
+| `cmd /c '@rd /s /q ..\outside'` | Blocked as `cmd.recursive-delete-outside-cwd` |
+| `cmd /c "rmdir /s /q \"build output\""` | Blocked as `cmd.recursive-delete-escaped-quote` |
+| `cmd /c 'cd /d C:\Users && rmdir /s /q build'` | Refused as an unverifiable shell source |
+| `cmd /c 'rd/s/q C:\'`, `cmd /c '(rmdir /s /q C:\)'` | Refused as an unverifiable shell source |
+| `cmd /c 'if exist node_modules rmdir /s /q node_modules'` | Allowed inside the workspace |
+| `cmd /c 'del /q build.log'` | Allowed, because the delete is not recursive |
+
+**Escaped quotes.** cmd does not treat `\"` as an escape, so a target written with `\"` can split so that one piece names the drive root. A body that names a recursive delete therefore blocks as `cmd.recursive-delete-escaped-quote`, at every safety level and in every permission mode, when any of these holds:
+
+- The body contains `\"`. Under PowerShell, a `\"` anywhere in a word of the command counts too.
+- The shell mode is `posix` and the body contains any `"`. Git Bash re-escapes each `"` as `\"` when it starts cmd.
+- A delete target is a `\\?\` or `\\.\` namespace path.
+
+The block message asks for each path as its own quoted argument, or for `Remove-Item -LiteralPath` instead.
+
+**Bodies the reader cannot verify.** When no target rule blocks first, a body that names a recursive delete is refused with the reason `shell execution source cannot be verified safely.` if it contains any of the following:
+
+- `^`, `%`, or `!`, which cmd uses for escapes and variable expansion.
+- A `"` together with `&` or `|`. The split ignores quotes, so a quoted `&` would hide part of a target.
+- A `cd`, `chdir`, `pushd`, or `popd` word anywhere, including glued forms such as `cd..` and `cd\`.
+- A delete the reader cannot parse, such as `rd/s/q`, a quoted command name, or a parenthesized group.
+
+On the Claude Code hook in standard mode, this refusal can reach you as a permission prompt, as the note at the top of this page describes. A target denial comes first, so `cmd /c 'rmdir /s /q C:\ & echo %DATE%'` still blocks as `cmd.recursive-delete-root-or-home`.
+
+The reader matches text, so it can also block a command that deletes nothing. `cmd /c 'echo rmdir /s /q C:\'` blocks as a drive-root delete. [Known limitations](/guides/known-limitations#windows-command-prompt-and-nested-powershell) lists what the reader does not cover.
+
+### Nested PowerShell scripts
+
+CC Safety Net reads a `powershell` or `pwsh` command, in any case and with or without `.exe`, in every shell mode, but only in one shape:
+
+1. Zero or more of `-NoProfile` (`-nop`), `-NonInteractive` (`-noni`), `-NoLogo`, and `-ExecutionPolicy` (`-ep`) with one value.
+2. Then `-Command` or `-c`.
+3. Then script words that are all literal, with nothing for the outer shell to expand and no `--%`.
+
+The script is analyzed as PowerShell against the outer working directory, in `posix` mode too. `pwsh -NoProfile -c 'Remove-Item -Recurse -Force C:\'` blocks as `powershell.remove-item-recursive-force-root-or-home`.
+
+Any other form is not read. It blocks as `powershell.nested-recursive-delete-unread`, at every safety level and in every permission mode, when its text names a delete command (`Remove-Item`, `ri`, `rm`, `rmdir`, `rd`, `del`, or `erase`) and a recursive switch. A recursive switch is `-r` or a longer prefix of `-Recurse` or `--recursive`, a bundle of `rm` short flags that contains `r` (such as `-fr`), or `/s`. Forms that are not read include another parameter such as `-WorkingDirectory` or `-NoExit`, a `/` or Unicode-dash prefix on a parameter, `-File`, a positional script, and a word the outer shell expands. An unread form that names no recursive delete is not blocked by this rule, but other rules still apply to its words, so `pwsh -NoExit -c git reset --hard` blocks on `git.reset-hard`.
+
+Outside a read script, any word that names `-EncodedCommand` is refused as an unverifiable shell source. That covers abbreviations such as `-e` and `-enc`, the `-ec` alias, and a `/` or Unicode-dash prefix. Scripts run with `-File` and scripts read from stdin are not read.
+
+| Example | Result |
+| --- | --- |
+| `pwsh -NoProfile -c 'Remove-Item -Recurse -Force C:\'` | Blocked as `powershell.remove-item-recursive-force-root-or-home` |
+| `powershell -NoProfile -ExecutionPolicy Bypass -Command 'Remove-Item -Recurse -Force C:\'` | Blocked as `powershell.remove-item-recursive-force-root-or-home` |
+| `pwsh -WorkingDirectory 'C:\' -c 'Remove-Item -Recurse -Force *'` | Blocked as `powershell.nested-recursive-delete-unread` |
+| `pwsh /c 'Remove-Item -Recurse -Force C:\'` | Blocked as `powershell.nested-recursive-delete-unread` |
+| `pwsh -NoExit -c 'rm -fr ~'` | Blocked as `powershell.nested-recursive-delete-unread` |
+| `powershell -NoProfile -EncodedCommand UgBlAG0AbwB2AGUALQBJAHQAZQBtAA==` | Refused as an unverifiable shell source |
+| `pwsh -NoProfile -c 'Remove-Item -Recurse -Force .\build'` | Allowed inside the workspace |
+| `pwsh -File report.ps1 -Action rm -Region east` | Allowed, because no word is a recursive switch |
 
 ### eval and source of a generated command
 

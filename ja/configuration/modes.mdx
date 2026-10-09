@@ -43,15 +43,21 @@ standard はこのほかにも、次のものを意図的に許可します。�
 
 ### standard における機密パスの緩和
 
-standard では、組み込みの機密パスに対してメタデータだけを見るチェックを許可します。対象となるのは `ls`、`stat`、`test -e` と `test -f`、`[ -e ... ]` と `[ -f ... ]`、`git check-ignore`、および `-delete`、`-exec`、`-execdir`、`-ok`、`-okdir`、`-files0-from`、`-fls`、`-fprint`、`-fprint0`、`-fprintf` のいずれも含まない `find` です。このチェックは単独でも、複合コマンドの 1 セグメントとしても許可されるため、`test -f .env && echo present` も `if [ -f ~/.aws/credentials ]; then echo yes; fi` も通ります。別のセグメントに読み取りがあれば引き続きブロックするため、`test -f .env && cat .env` は拒否されます。
+standard では、組み込みの機密パスに対してメタデータだけを見るチェックを許可します。対象となるのは `ls`、`stat`、`test -e` と `test -f`、`[ -e ... ]` と `[ -f ... ]`、`git check-ignore`、`-delete`、`-exec`、`-execdir`、`-ok`、`-okdir`、`-files0-from`、`-fls`、`-fprint`、`-fprint0`、`-fprintf` のいずれも含まない `find`、件数を数えるだけの `wc`、そして出力をファイル名、件数、終了ステータスだけに絞った `grep` または `rg`（`-l`、`-c`、`-q`、`grep -L`）です。このチェックは単独でも、複合コマンドの 1 セグメントとしても許可されるため、`test -f .env && echo present` も `if [ -f ~/.aws/credentials ]; then echo yes; fi` も通ります。別のセグメントに読み取りがあれば引き続きブロックするため、`test -f .env && cat .env` は拒否されます。`wc`、`grep`、`rg` の出力が後ろのパイプ、キャプチャー、コプロセスに届きうる場合は読み取りとして検査するため、`grep -l KEY .env | xargs cat` は拒否されます。
 
-組み込みのファイル名ルールについては、standard は次の 3 つの形も、読み取りではなく単なる言及として扱います。
+組み込みのファイル名ルールについては、standard は次の形も、読み取りではなく単なる言及として扱います。
 
 - 機密ファイル名が既存の**ディレクトリ**を指す場合。`ls credentials` はディレクトリの一覧表示なので許可されます。
 - 空白を含む語で、パスらしい文字（`~`、`.`、`/`、Windows のドライブレター）で始まらず、ディスク上にも存在しないもの。`for c in 'cat ~/.aws/credentials'; do echo "$c"; done` の引用符で囲まれた文字列がこれにあたります。
 - 存在しない機密ファイル名を出力リダイレクトで**新規作成**する場合。`.env` のないディレクトリでの `printf 'KEY=1\n' > .env` などです。
+- `mkdir` または `touch` のオペランド。`touch fx/.env` などです。
+- `tailscale cert` の `--cert-file` または `--key-file` の値と、`openssl x509 -in` の入力ファイル。
 
-あとの 2 つが適用されるのは、語に `$` が含まれない場合だけです。この 3 つはいずれも `secret.home.*` と `secret.cli.*` のルールを緩和しないため、`du -sh ~/.aws` はブロックされたままです。設定した deny path はどのモードでも緩和されず、[strict と paranoid](#strict-mode) ではここに挙げた形をすべてブロックします。ルールそのものは[シークレット保護](/ja/reference/secret-protection)を参照してください。
+空白を含む語とリダイレクトの形が適用されるのは、語に `$` が含まれない場合だけです。これらの形はいずれも `secret.home.*` と `secret.cli.*` のルールを緩和しないため、`du -sh ~/.aws` はブロックされたままです。
+
+standard は、`for` のリストにある語も、ループ変数がほかの検査対象の語に届かなければ検査しません。`for t in .env.local; do grep -c -- "$t" notes.md; done` などです。ファイルシステム操作、コマンド実行、eval の痕跡がある Python と JavaScript のコードでは、文字列リテラルを位置によって判定します。コレクションの要素、辞書の項目、比較のオペランドにあたるリテラルはデータとして扱い、コードが新しく作るファイルの名前を指すだけのリテラルも同様です。上記の各形の正確な条件は、[standard モードが読み取りと見なさないもの](/ja/reference/secret-protection#what-standard-mode-does-not-count-as-a-read)と [standard モードでのインタープリターのリテラル](/ja/reference/secret-protection#interpreter-literals-in-standard-mode)にあります。
+
+設定した deny path はどのモードでも緩和されず、[strict と paranoid](#strict-mode) ではここに挙げた形をすべてブロックします。
 
 <span id="when-standard-cannot-verify-a-command"></span>
 
@@ -75,8 +81,8 @@ strict モードは `fail_closed` 機能を有効にします。厳しくなる�
 - **解析できないコマンドをブロックします。** フォールバックのテキストスキャンで危険なパターンが見つからなかった場合でも、パーサーがトークンに分割できないコマンドは「Command could not be safely analyzed (strict mode)」として拒否します。`echo 'unterminated` は standard では許可されますが、ここではブロックされます。
 - **heredoc を fail closed で扱います。** 次の条件をすべて満たす場合を除き、heredoc を含むコマンドを拒否します。標準入力を対象とする展開されない heredoc が 1 つだけで、他に入力リダイレクトがなく、読み取り側が `cat`、`tee`、`git apply`、`git commit`、`gh pr create`、`gh issue create` のいずれかとしてリテラルに書かれていることが必要です。展開されない heredoc とは、デリミタが引用符で囲まれているもの（`<<'EOF'`）か、引用符がなくても本文に `$`、バッククォート、バックスラッシュが含まれないものを指します。そのため `python3 - <<'PY'` や、本文に `$HOME` を含む `cat <<EOF` は拒否され、`git commit -F - <<'EOF'` と、本文がプレーンテキストだけの `cat <<EOF` は許可されます。正確な条件は [heredoc の解析](/ja/guides/analysis-engine#heredoc-analysis)を参照してください。
 - 下に挙げる 5 つのルールによって、**検証できない破壊的対象をブロックします**。
-- **メタデータのみで機密パスを探る操作をブロックします。** `test -f ~/.ssh/id_rsa` と `find ~/.ssh -type f` は standard では許可され、strict では拒否されます。単独で書かれていても、複合コマンドの 1 セグメントであっても同じです。[standard における機密パスの緩和](#sensitive-path-relaxations-in-standard)に挙げた 3 つの形も、strict では拒否されます。
-- **standard 限定のインラインデータ緩和が無効になります。** standard では、インタープリターのインラインコードに機密パスのリテラルが含まれていても、コード全体にファイルシステム操作、コマンド実行、eval のいずれの痕跡もなければ、実行されないデータとして扱います。痕跡がある場合でも、standard がリテラルをシェルとしてたどるのは、実行呼び出しがそのリテラルを受け取れるときだけです。呼び出しの第 1 引数がリテラルではなく名前の場合はすべてのリテラルが対象になり、そうでない場合は呼び出しの括弧の中にあるリテラルと、括弧なしの `system`、`exec`、`spawn`、`popen` の直後にあるリテラルだけが対象になります。この緩和の対象は POSIX シェル以外のすべてのコードインタープリターです。POSIX シェルのインラインコードは、代わりにシェルとしてたどります。strict ではこの 2 つの緩和がなくなり、リテラルの中身もスキャンします。[シークレット保護](/ja/reference/secret-protection)を参照してください。
+- **メタデータのみで機密パスを探る操作をブロックします。** `test -f ~/.ssh/id_rsa` と `find ~/.ssh -type f` は standard では許可され、strict では拒否されます。単独で書かれていても、複合コマンドの 1 セグメントであっても同じです。[standard における機密パスの緩和](#sensitive-path-relaxations-in-standard)に挙げたほかの形も、strict では拒否されます。
+- **standard 限定のインラインデータ緩和が無効になります。** standard では、インタープリターのインラインコードに機密パスのリテラルが含まれていても、コード全体にファイルシステム操作、コマンド実行、eval のいずれの痕跡もなければ、実行されないデータとして扱います。痕跡がある場合でも、Python と JavaScript のリテラルがコレクションの要素や比較のオペランドなどデータの位置にあれば、standard はデータとして扱います。また、standard がリテラルをシェルとしてたどるのは、実行呼び出しがそのリテラルを受け取れるときだけです。呼び出しの第 1 引数が名前であるか名前を含む場合はすべてのリテラルが対象になり、そうでない場合は呼び出しの括弧の中にあるリテラルと、括弧なしの `system`、`exec`、`spawn`、`popen` の直後にあるリテラルだけが対象になります。この緩和の対象は POSIX シェル以外のすべてのコードインタープリターです。POSIX シェルのインラインコードは、代わりにシェルとしてたどります。strict ではこれらの緩和がなくなり、リテラルの中身もスキャンします。[standard モードでのインタープリターのリテラル](/ja/reference/secret-protection#interpreter-literals-in-standard-mode)を参照してください。
 
 次の 5 つのルールは、`fail_closed` が有効なときにだけ動作します。
 

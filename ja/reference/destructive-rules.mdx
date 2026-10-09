@@ -16,7 +16,7 @@ keywords:
 
 このページでは、すべての組み込みルール ID、ブロックする内容、有効になる条件を示します。ブロックメッセージからルールを調べ、無効にするかどうかを判断するために使ってください。各ルールの境界と具体例については[ブロックされるコマンド](/ja/reference/blocked-commands)を、`destructive_command_protection` スキーマについては[ポリシー](/ja/configuration/policy#destructive-command-protection)を、独自のルールを追加するには[カスタムルール](/ja/configuration/custom-rules)を参照してください。
 
-登録済みのルールは **59 個**です。そのうち 6 個は[致命的な操作に対するルール](#catastrophic-rules)で、無効にできません。それ以外のすべてのルールは、ルール単位の override を受け付けます。ルールによらない拒否には、代わりに[固定の拒否 ID](#fixed-denial-ids) のいずれかが付きます。これらはどの override でも無効にできません。
+登録済みのルールは **68 個**です。そのうち 10 個は[致命的な操作に対するルール](#catastrophic-rules)で、無効にできません。それ以外のすべてのルールは、ルール単位の override を受け付けます。ルールによらない拒否には、代わりに[固定の拒否 ID](#fixed-denial-ids) のいずれかが付きます。これらはどの override でも無効にできません。
 
 <span id="allow-a-built-in-rule"></span>
 
@@ -51,7 +51,7 @@ override はルール全体を無効にするものであり、特定のコマ�
 
 ## 致命的な操作に対するルール
 
-6 個のルールは致命的（catastrophic）としてマークされています。これらは `destructive_command_protection.enabled: false` も `"off"` の override も無視するため、どのポリシーでも、どの安全レベルでもブロックします。対象は、`rm`、`find`、PowerShell による `/` またはホームディレクトリの再帰削除と、Git メタデータの削除です。以下の表では **致命的** と表示しています。
+10 個のルールは致命的（catastrophic）としてマークされています。これらは `destructive_command_protection.enabled: false` も `"off"` の override も無視するため、どのポリシーでも、どの安全レベルでもブロックします。うち 8 個は、`rm`、`find`、PowerShell、`cmd` による `/` またはホームディレクトリの再帰削除と、Git メタデータの削除が対象です。残りの 2 個は、対象を安全に読み取れない再帰削除を扱います。1 つは、引用符の書き方によって対象が分割され、ドライブのルートを指しうる `cmd` の削除、もう 1 つはアナライザーが読み取らない形で `powershell` や `pwsh` に渡された再帰削除です。以下の表では **致命的** と表示しています。
 
 ## 表の読み方
 
@@ -119,6 +119,22 @@ override はルール全体を無効にするものであり、特定のコマ�
 | `powershell.remove-item-recursive-force-outside-cwd` | 元の作業ディレクトリの外に対する PowerShell の再帰的な強制削除をブロックします。 | `Remove-Item ../outside -Recurse -Force` | すべてのレベル |
 | `powershell.remove-item-recursive-force-paranoid` | paranoid rm が有効なとき、一時ディレクトリ以外への PowerShell の再帰的な強制削除をブロックします。 | `Remove-Item ./cache -Recurse -Force` | [Paranoid rm](/ja/configuration/modes#paranoid-rm-check) |
 | `powershell.remove-item-pipeline-dynamic-target` | strict モードで、検証できないパイプライン入力を受け取る PowerShell の Remove-Item をブロックします。 | `Get-ChildItem . -Recurse \| Remove-Item -Force` | [Strict](/ja/configuration/modes#strict-mode) |
+| `powershell.nested-recursive-delete-unread` | リテラルの -Command スクリプト以外の形で powershell または pwsh に渡された再帰削除をブロックします。 | `pwsh -WorkingDirectory C:\ -c 'Remove-Item -Recurse -Force *'` | **致命的**、常に有効 |
+
+## コマンドプロンプトのルール
+
+これらのルールは、`cmd /c` または `cmd /k` の本体にある、`/s` スイッチ付きの `rmdir`、`rd`、`del`、`erase` の対象を判定します。本体の読み取り方は[コマンドプロンプトの本体](/ja/reference/blocked-commands#command-prompt-bodies)を参照してください。
+
+| ルール ID | ブロックする内容 | 例 | 有効になる条件 |
+| --- | --- | --- | --- |
+| `cmd.recursive-delete-root-or-home` | ルートまたはホームのパスに対する cmd の rmdir /s または del /s をブロックします。 | `cmd /c rmdir /s /q C:\` | **致命的**、常に有効 |
+| `cmd.recursive-delete-escaped-quote` | 引用符が `\"` として cmd に届き、対象が分割されてドライブのルートを指しうる cmd の rmdir /s または del /s をブロックします。 | `cmd /c "rmdir /s /q \"build output\""` | **致命的**、常に有効 |
+| `cmd.recursive-delete-git-metadata` | 保護対象の Git メタデータとフックに対する cmd の rmdir /s または del /s をブロックします。 | `cmd /c rmdir /s /q .git` | **致命的**、常に有効 |
+| `cmd.recursive-delete-dynamic-target` | strict モードで、ワイルドカードや変数を対象とする cmd の rmdir /s または del /s をブロックします。 | `cmd /c del /s /q *.log` | [Strict](/ja/configuration/modes#strict-mode) |
+| `cmd.recursive-delete-home-cwd` | ホームで作業中の cmd の rmdir /s または del /s をブロックします。 | `Set-Location $HOME; cmd /c rmdir /s /q build` | すべてのレベル |
+| `cmd.recursive-delete-cwd-self` | カレントディレクトリ自体に対する cmd の rmdir /s または del /s をブロックします。 | `cmd /c rmdir /s /q .` | すべてのレベル |
+| `cmd.recursive-delete-outside-cwd` | 元の作業ディレクトリの外に対する cmd の rmdir /s または del /s をブロックします。 | `cmd /c rmdir /s /q ..\outside` | すべてのレベル |
+| `cmd.recursive-delete-paranoid` | paranoid rm が有効なとき、一時ディレクトリ以外への cmd の rmdir /s または del /s をブロックします。 | `cmd /c rmdir /s /q build` | [Paranoid rm](/ja/configuration/modes#paranoid-rm-check) |
 
 ## 実行のルール
 

@@ -208,6 +208,36 @@ Devin CLI 的配置能解析但结构不对时，`doctor` 按同样的方式处�
 - `Devin CLI config <path> "hooks" must be an object`
 - `Devin CLI config <path> "hooks.PreToolUse" must be an array`
 
+<span id="cursor-through-the-claude-code-plugin"></span>
+
+### 通过 Claude Code 插件保护 Cursor
+
+Claude Code 插件带有 Cursor 插件 manifest，因此 Cursor 可以通过它运行 CC Safety Net。同时满足以下条件时，`doctor` 才认定这条途径：
+
+- Claude Code 显示 `Configured`，即 `cc-safety-net@cc-marketplace` 已安装并启用。
+- 在 Claude Code 配置目录下的 `plugins/installed_plugins.json` 中，该插件的记录里有一条用户范围的条目，且带有 `installPath`。
+- `<installPath>/.cursor-plugin/plugin.json` 能够解析，且其 `hooks` 字段指向的文件存在。
+
+Cursor 只有在导入 Claude Code 插件时才会运行该插件，而 `doctor` 无法检查这一点，下面两条消息都会说明。
+
+如果 `install --cursor` 写入的 hook 也已配置，Cursor 的方式仍为 `hook config`，`doctor` 打印：
+
+```text
+Warning (Cursor): The Claude Code plugin also runs this check in Cursor, so every tool call is checked twice. Cursor runs the Claude Code plugin only while it imports Claude Code plugins, which doctor cannot check. If Cursor runs it, run `cc-safety-net uninstall --cursor` to remove this hook.
+```
+
+`doctor` 不会自行移除该 hook。
+
+插件是唯一途径时，Cursor 显示 `Detected`、`Configured` 和 `Verified`。`doctor --json` 报告的方式为 `Claude Code plugin`，`configPath` 为 manifest 的路径。`doctor` 打印：
+
+```text
+Warning (Cursor): Cursor runs the Claude Code plugin only while it imports Claude Code plugins, which doctor cannot check. If it stops, run `cc-safety-net install --cursor`.
+```
+
+两条警告都不影响退出码。只要这条途径成立，无法解析的 `~/.cursor/hooks.json` 也只按警告打印为 `Warning (Cursor): Failed to parse Cursor hooks config <path>: <reason>`，不会产生 `Cursor inspection failed` Findings 条目。
+
+仅由插件覆盖的 Cursor 在 `~/.cursor/hooks.json` 中没有托管 hook。[`update`](#update) 会跳过它，因此不会把 hook 写回去。交互式选择器在安装时将它显示为 `already installed`，在卸载时显示为 `not installed`。运行 `install --cursor` 仍会写入 hook。
+
 ### 各宿主的配置路径
 
 有几个宿主允许把配置挪到别处。`doctor` 遵循与各宿主相同的覆盖规则，因此挪过位置的配置仍能找到。
@@ -732,7 +762,7 @@ npx -y cc-safety-net@latest update
 
 在 TTY 中直接运行 `update` 时，检测会在安装横幅显示前开始，因此横幅动画会覆盖部分检测时间。如果横幅结束后检测仍在运行，CLI 会显示 `Checking installed integrations…`。按 `Enter` 可跳过动画。从交互式 `install` 选择器中按 `u` 启动 update 时，CLI 会使用已经显示的横幅，不会再显示第二个横幅。非 TTY 不显示横幅或加载指示器。
 
-系统通过读取每个智能体的配置和状态文件来查找目标。只要检测到已安装的集成，它就符合条件，**即使当前处于禁用状态**。Amp Code 通过 `amp plugins list` 的输出获得资格。该输出与 `codex plugin list` 一样以 30 秒超时获取，因为冷启动会通过网络刷新签出，可能超过默认的 5 秒。GitHub Copilot CLI 是例外。它仅在 Copilot 的 `installed-plugins` 目录中存在 CC Safety Net 插件签出时才有资格，因为它的禁用状态与没有安装插件的关闭开关无法区分，而更新绝不能变成安装。系统也会识别仍使用旧 `safety-net@cc-marketplace` 插件 ID 的安装。在 Claude Code 和 Codex 中，这表现为旧插件 ID；在 GitHub Copilot CLI 中，则表现为插件签出 `cc-marketplace/safety-net`。更新会将它们迁移到当前 ID，并尽力移除旧版副本。移除失败只会发出警告，不会使该目标失败。
+系统通过读取每个智能体的配置和状态文件来查找目标。只要检测到已安装的集成，它就符合条件，**即使当前处于禁用状态**。Amp Code 通过 `amp plugins list` 的输出获得资格。该输出与 `codex plugin list` 一样以 30 秒超时获取，因为冷启动会通过网络刷新签出，可能超过默认的 5 秒。GitHub Copilot CLI 是例外。它仅在 Copilot 的 `installed-plugins` 目录中存在 CC Safety Net 插件签出时才有资格，因为它的禁用状态与没有安装插件的关闭开关无法区分，而更新绝不能变成安装。系统也会识别仍使用旧 `safety-net@cc-marketplace` 插件 ID 的安装。在 Claude Code 和 Codex 中，这表现为旧插件 ID；在 GitHub Copilot CLI 中，则表现为插件签出 `cc-marketplace/safety-net`。更新会将它们迁移到当前 ID，并尽力移除旧版副本。移除失败只会发出警告，不会使该目标失败。`doctor` 仅通过 [Claude Code 插件](#cursor-through-the-claude-code-plugin)认定的 Cursor 不符合条件，因此 `update` 不会为它写入 Cursor hook。
 
 所有目标会在同一个 `Updating <n> integration…` 或 `Updating <n> integrations…` 加载指示器后面，并发运行与 `install` 相同的操作。命令会等所有目标结束，然后按固定的集成目录顺序统一打印报告，消息改为 `Updated …` 或 `… up to date`。对于安装过程会驱动智能体自带 CLI 的目标（Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、Hermes Agent、OpenClaw、OpenCode 和 Pi），会先探测厂商的二进制文件：二进制文件缺失时打印 `<Agent> not found; skipped`（例如 `Codex not found; skipped`），运行继续。配置文件类目标（Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build 和 Kimi Code）不需要二进制文件，总是会刷新。对 DeepSeek Harness 也不做探测：它的更新会重新运行安装，对每个 profile 驱动 `dsh`，桌面应用处于打开状态时会失败。Amp Code 不需要单独的探测：仅当 `amp plugins list` 显示个人插件时才会被检测到，其刷新会驱动 amp CLI 发布当前产物。在 Claude Code、Codex 和 GitHub Copilot CLI 上，已注册的市场会在插件步骤之前先刷新（例如 `claude plugin marketplace update cc-marketplace`），而不是依赖无操作的 `add`，因此过时的目录签出不会使更新失败。
 
@@ -804,6 +834,8 @@ Amp Code、DeepSeek Harness、OpenClaw、OpenCode 和 Pi 没有各自的 `hook` 
 ### Cursor 入口点
 
 `install --cursor` 将命令 `npx -y cc-safety-net hook --cursor` 写入 `~/.cursor/hooks.json` 的 `hooks.preToolUse` 下，在一个 `"version": 1` 文档中，带有 30 秒超时和 `failClosed: true`。安装程序会校验文档的版本和结构；遇到无法识别的内容时，它会以描述性的错误信息失败，而不是直接重写。重复的托管条目会被合并成一条。
+
+Claude Code 插件的 Cursor manifest 也使用这个选项，运行的命令是 `node "${CURSOR_PLUGIN_ROOT}/dist/bin/cc-safety-net.js" hook --cursor`。详见 [Cursor 安装](/zh-Hans/installation#cursor-installation)。
 
 运行时，hook 读取 Cursor 的 `Shell` 工具调用，从 `conversation_id` 取得会话 ID，并以 `{ "permission": "deny", … }` 或 `{ "permission": "allow" }` 回应。Cursor 的 `working_directory` 字段会与工作区根目录做包含性检查；该字段已声明却缺失、或指向工作区之外时，会按 fail closed 处理。
 

@@ -1,7 +1,7 @@
 ---
 title: "被阻止的命令及其原因"
 sidebarTitle: "被阻止的命令"
-description: "CC Safety Net 阻止的 Git、rm、find、设备、PowerShell 和敏感路径命令的完整参考，以及每项规则所需的安全级别。"
+description: "CC Safety Net 阻止的 Git、rm、find、设备、PowerShell、cmd 和敏感路径命令的完整参考，以及每项规则所需的安全级别。"
 keywords:
   - "被阻止的命令"
   - "危险命令"
@@ -31,7 +31,7 @@ CC Safety Net 阻止这些命令，因为它们可能永久破坏数据，包括
 | --- | --- |
 | [`standard`](/zh-Hans/configuration/modes#default-mode) | 阻止所有未标记项。`echo 'unterminated` 这类看似安全的无法解析文本可以通过；含有可识别破坏性模式的无法解析文本仍会被启发式扫描阻止；[解析器直接拒绝的 shell 语法](/zh-Hans/guides/analysis-engine#shell-syntax-the-parser-refuses)在这一级别同样会被阻止。动态 `rm -rf` 目标**不会**一律阻止。 |
 | [`strict`](/zh-Hans/configuration/modes#strict-mode) | `standard` 阻止的全部内容，再加上无法解析的命令、无法验证的破坏性目标、[受支持范围之外的 heredoc](#strict-和-paranoid-中的-heredoc)，以及对内置敏感路径的纯元数据发现。 |
-| [`paranoid`](/zh-Hans/configuration/modes#paranoid-mode) | `strict` 阻止的全部内容，再加上即使位于当前工作目录内的非临时递归删除（`rm -r`、`rm -rf`、`find -delete`、`Remove-Item -Recurse -Force`），以及所有解释器单行命令，无论其内容。 |
+| [`paranoid`](/zh-Hans/configuration/modes#paranoid-mode) | `strict` 阻止的全部内容，再加上即使位于当前工作目录内的非临时递归删除（`rm -r`、`rm -rf`、`find -delete`、`Remove-Item -Recurse -Force`、`cmd /c rmdir /s`），以及所有解释器单行命令，无论其内容。 |
 
 <Note>部分灾难性保护不依赖所选安全级别：根目录和主目录的递归删除保护、Git 元数据保护和规范 `policy.json` 保护会忽略主破坏性命令开关和单条规则的 `off` 覆盖。</Note>
 
@@ -193,7 +193,7 @@ Only the user may apply a policy proposal, because it rewrites the configuration
 
 ## PowerShell `Remove-Item`
 
-PowerShell 支持是一个保守子集：`Remove-Item` 及其别名、文件 cmdlet `Get-Content`、`Set-Content`、`Add-Content`、`Copy-Item`、`Move-Item` 及别名 `gc`、`cat`、`type`、`cp`、`mv`，以及现有的跨 shell 规则，而不是通用 PowerShell 解析器。下面的删除规则在 `powershell` 和 `auto` shell 模式中生效；`posix` 模式有意不应用这些规则，但仍保留 `git.reset-hard` 和 `rm.recursive-force-root-or-home` 等跨 shell 规则。敏感路径保护会解析 `$HOME`、`$env:USERPROFILE`、`$env:HOME` 或 `~` 前缀，加上用任一路径分隔符连接的字面量后缀，因此 `Get-Content $HOME\.ssh\id_rsa` 会被阻止；以其他方式拼装的路径，例如字符串拼接、子表达式或 `Join-Path`，不会被求值。
+PowerShell 支持是一个保守子集：`Remove-Item` 及其别名、文件 cmdlet `Get-Content`、`Set-Content`、`Add-Content`、`Copy-Item`、`Move-Item` 及别名 `gc`、`cat`、`type`、`cp`、`mv`，以及现有的跨 shell 规则，而不是通用 PowerShell 解析器。下面的删除规则在 `powershell` 和 `auto` shell 模式中生效；`posix` 模式有意不应用这些规则，但仍保留 `git.reset-hard` 和 `rm.recursive-force-root-or-home` 等跨 shell 规则。例外是嵌套在 `powershell -Command` 或 `pwsh -Command` 中的脚本，它在任何 shell 模式下都按 PowerShell 分析，见[嵌套的 PowerShell 脚本](#nested-powershell-scripts)。敏感路径保护会解析 `$HOME`、`$env:USERPROFILE`、`$env:HOME` 或 `~` 前缀，加上用任一路径分隔符连接的字面量后缀，因此 `Get-Content $HOME\.ssh\id_rsa` 会被阻止；以其他方式拼装的路径，例如字符串拼接、子表达式或 `Join-Path`，不会被求值。
 
 | 命令模式 | 阻止原因 | 级别 |
 | --- | --- | --- |
@@ -253,6 +253,69 @@ command 形式的提取是有界且结构化的：触及结构性 shell 语法�
 | `node -e 'require("child_process").exec("git reset --hard")'` | 默认阻止 |
 
 分析的解释器是 `python`、`python2`、`python3`、`node`、`ruby` 和 `perl`。触发阻止的是嵌入的破坏性命令，默认情况下不会只因单行命令形式而阻止。
+
+<span id="command-prompt-bodies"></span>
+
+### 命令提示符正文
+
+CC Safety Net 在任何 shell 模式下都会读取 `cmd /c` 和 `cmd /k` 的正文。命令头可以是 `cmd` 或 `cmd.exe`，不区分大小写；Git Bash 中的 `//c` 写法同样算在内。这种读取是有界的文本检查，而不是 cmd 解析器。它先去掉一对外层引号，再按 `&` 和 `|` 拆分正文。在拆出的每一段中，它查找带 `/s` 开关的 `rmdir`、`rd`、`del` 或 `erase`；开关合写成 `/s/q`、命令前带 `@`，或位于 `if exist` 条件之后，也都算在内。找到的删除目标以外层工作目录为基准，由 `cmd.recursive-delete-*` 规则判定，路径最后一段的 `*.*` 视为 `*`。其余各段都作为外层 shell 的命令分析，因此 `cmd /c git reset --hard` 会以 `git.reset-hard` 阻止。
+
+| 示例 | 结果 |
+| --- | --- |
+| `cmd /c 'rmdir /s /q C:\'`、`cmd /c "del /s /q C:\*.*"` | 以 `cmd.recursive-delete-root-or-home` 阻止 |
+| `cmd /c 'if exist C:\ rmdir /s /q C:\'` | 以 `cmd.recursive-delete-root-or-home` 阻止 |
+| `cmd /c '@rd /s /q ..\outside'` | 以 `cmd.recursive-delete-outside-cwd` 阻止 |
+| `cmd /c "rmdir /s /q \"build output\""` | 以 `cmd.recursive-delete-escaped-quote` 阻止 |
+| `cmd /c 'cd /d C:\Users && rmdir /s /q build'` | 作为无法验证的 shell 执行来源拒绝 |
+| `cmd /c 'rd/s/q C:\'`、`cmd /c '(rmdir /s /q C:\)'` | 作为无法验证的 shell 执行来源拒绝 |
+| `cmd /c 'if exist node_modules rmdir /s /q node_modules'` | 位于工作区内，允许 |
+| `cmd /c 'del /q build.log'` | 不是递归删除，允许 |
+
+**转义引号。** cmd 不把 `\"` 当作转义，所以用 `\"` 写出的目标可能被拆开，其中一段指向驱动器根目录。因此，含有递归删除写法的正文只要满足下列任一条件，就会以 `cmd.recursive-delete-escaped-quote` 阻止，与安全级别和权限模式无关：
+
+- 正文含有 `\"`。在 PowerShell 下，命令中任一词里的 `\"` 也算。
+- shell 模式为 `posix`，且正文含有任意 `"`。Git Bash 启动 cmd 时会把每个 `"` 重新转义为 `\"`。
+- 删除目标是 `\\?\` 或 `\\.\` 命名空间路径。
+
+阻止消息会要求把每个路径作为单独的带引号参数传入，或改用 `Remove-Item -LiteralPath`。
+
+**无法验证的正文。** 如果没有目标规则先行阻止，含有递归删除写法的正文只要包含下列任一内容，就会以原因 `shell execution source cannot be verified safely.` 拒绝：
+
+- `^`、`%` 或 `!`，cmd 用它们做转义和变量展开。
+- 同时出现 `"` 与 `&` 或 `|`。拆分时不考虑引号，引号内的 `&` 会使部分目标被漏检。
+- 任意位置的 `cd`、`chdir`、`pushd` 或 `popd` 词，包括 `cd..`、`cd\` 这类连写形式。
+- 读取器无法解析的删除，例如 `rd/s/q`、带引号的命令名或括号分组。
+
+在 standard 模式下，Claude Code 的 hook 可能把这一拒绝转为权限提示，条件见本页开头的说明。目标规则的拒绝优先，因此 `cmd /c 'rmdir /s /q C:\ & echo %DATE%'` 仍以 `cmd.recursive-delete-root-or-home` 阻止。
+
+读取器按文本匹配，因此也可能阻止实际上不删除任何内容的命令。`cmd /c 'echo rmdir /s /q C:\'` 会被当作删除驱动器根目录而阻止。读取器不覆盖的情况见[已知限制](/zh-Hans/guides/known-limitations#windows-command-prompt-and-nested-powershell)。
+
+<span id="nested-powershell-scripts"></span>
+
+### 嵌套的 PowerShell 脚本
+
+CC Safety Net 在任何 shell 模式下都会读取 `powershell` 或 `pwsh` 命令（不区分大小写，带不带 `.exe` 均可），但只读取一种形态：
+
+1. 零个或多个 `-NoProfile`（`-nop`）、`-NonInteractive`（`-noni`）、`-NoLogo`，以及带一个值的 `-ExecutionPolicy`（`-ep`）。
+2. 接着是 `-Command` 或 `-c`。
+3. 之后是全部为字面量的脚本词，不含外层 shell 会展开的内容，也不含 `--%`。
+
+该脚本以外层工作目录为基准按 PowerShell 分析，`posix` 模式下也一样。`pwsh -NoProfile -c 'Remove-Item -Recurse -Force C:\'` 会以 `powershell.remove-item-recursive-force-root-or-home` 阻止。
+
+其他形式一律不读取。如果其文本同时包含删除命令（`Remove-Item`、`ri`、`rm`、`rmdir`、`rd`、`del` 或 `erase`）和递归开关，就会以 `powershell.nested-recursive-delete-unread` 阻止，与安全级别和权限模式无关。递归开关指 `-r` 或比它更长的 `-Recurse`、`--recursive` 前缀，包含 `r` 的 `rm` 短标志组合（如 `-fr`），以及 `/s`。不读取的形式包括：`-WorkingDirectory`、`-NoExit` 等其他参数；以 `/` 或 Unicode 破折号开头的参数；`-File`；作为位置参数传入的脚本；由外层 shell 展开的词。不含递归删除的未读取形式不会被这条规则阻止，但其中的词仍适用其他规则，因此 `pwsh -NoExit -c git reset --hard` 会以 `git.reset-hard` 阻止。
+
+在已读取的脚本之外，任何指向 `-EncodedCommand` 的词都会作为无法验证的 shell 执行来源被拒绝，包括 `-e`、`-enc` 等缩写、别名 `-ec`，以及以 `/` 或 Unicode 破折号开头的写法。用 `-File` 运行的脚本和从标准输入读取的脚本都不会被读取。
+
+| 示例 | 结果 |
+| --- | --- |
+| `pwsh -NoProfile -c 'Remove-Item -Recurse -Force C:\'` | 以 `powershell.remove-item-recursive-force-root-or-home` 阻止 |
+| `powershell -NoProfile -ExecutionPolicy Bypass -Command 'Remove-Item -Recurse -Force C:\'` | 以 `powershell.remove-item-recursive-force-root-or-home` 阻止 |
+| `pwsh -WorkingDirectory 'C:\' -c 'Remove-Item -Recurse -Force *'` | 以 `powershell.nested-recursive-delete-unread` 阻止 |
+| `pwsh /c 'Remove-Item -Recurse -Force C:\'` | 以 `powershell.nested-recursive-delete-unread` 阻止 |
+| `pwsh -NoExit -c 'rm -fr ~'` | 以 `powershell.nested-recursive-delete-unread` 阻止 |
+| `powershell -NoProfile -EncodedCommand UgBlAG0AbwB2AGUALQBJAHQAZQBtAA==` | 作为无法验证的 shell 执行来源拒绝 |
+| `pwsh -NoProfile -c 'Remove-Item -Recurse -Force .\build'` | 位于工作区内，允许 |
+| `pwsh -File report.ps1 -Action rm -Region east` | 没有属于递归开关的词，允许 |
 
 <span id="eval-and-source-of-a-generated-command"></span>
 

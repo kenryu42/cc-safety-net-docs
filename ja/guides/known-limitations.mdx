@@ -1,7 +1,7 @@
 ---
 title: "既知の制限と注意点"
 sidebarTitle: "既知の制限"
-description: "CC Safety Net が検出できない範囲を説明します。不透明なコマンドプロキシ、バイナリ内部の動作、ファイルシステムの封じ込めとネットワーク、シンボリックリンクの TOCTOU、インタープリターのフラグ、コメント内の引用符、eval による動的実行、Codex の対話セッションと workdir の隙間、fail open のホスト（Grok Build、Factory Droid、Devin CLI）、DeepSeek Harness のオプションバンドルと run_code の隙間、Hermes Agent と OpenClaw の対象境界（OpenClaw のセッションの作業ディレクトリを含む）を扱います。"
+description: "CC Safety Net が検出できない範囲を説明します。不透明なコマンドプロキシ、バイナリ内部の動作、ファイルシステムの封じ込めとネットワーク、シンボリックリンクの TOCTOU、インタープリターのフラグ、コメント内の引用符、cmd と入れ子の PowerShell の読み取り、eval による動的実行、Codex の対話セッションと workdir の隙間、fail open のホスト（Grok Build、Factory Droid、Devin CLI）、DeepSeek Harness のオプションバンドルと run_code の隙間、Hermes Agent と OpenClaw の対象境界（OpenClaw のセッションの作業ディレクトリを含む）を扱います。"
 ---
 
 CC Safety Net が解析するのは、エージェントが実行しようとするコマンド文字列です。既知の破壊的な git 操作やファイルシステム操作によるデータ消失を防ぐためのガードですが、完全なセキュリティ対策ではありません。このページでは、現時点の制限と、代わりに[サンドボックス](/ja/guides/vs-sandboxing)を使うべき場面を示します。
@@ -78,6 +78,14 @@ CC Safety Net は、インタープリター（`python`、`python2`、`python3`�
 
 これは、実行前にコマンドを解析するあらゆるツールに共通する問題です。完全に塞ぐにはカーネル内で動作するかシステムコールを横取りする必要があり、hook の範囲を超えます。より積極的にブロックしたい運用者向けには、[paranoid rm](/ja/configuration/modes#paranoid-rm-check) モード（`CC_SAFETY_NET_PARANOID_RM=1`）という厳しい選択肢があります。
 
+<span id="windows-command-prompt-and-nested-powershell"></span>
+
+### Windows のコマンドプロンプトと入れ子の PowerShell
+
+CC Safety Net は、`cmd /c` や `cmd /k` の本体を限定的なテキスト検査で読み取ります。cmd のパーサーではありません。この検査は、本体を分割した各部分のどこにある削除の語でも拾うため、何も削除しないコマンドをブロックすることがあります。`cmd /c 'echo rmdir /s /q C:\'` は、ドライブのルートの削除としてブロックされます。本体が実行するバッチファイルの中身は開かず、遅延展開（`!VAR!`）も評価しません。そのため、ファイルの中の削除や、実行時に組み立てられる削除は検出できません。
+
+入れ子の `powershell` や `pwsh` は、[入れ子の PowerShell スクリプト](/ja/reference/blocked-commands#nested-powershell-scripts)で説明する形のときだけ読み取ります。`-File` で実行するスクリプトや標準入力から読むスクリプトは読み取らないため、`pwsh -File cleanup.ps1` はファイルの内容にかかわらず許可されます。読み取らない形がブロックされるのは、そのテキスト自体に削除コマンドと再帰のスイッチがある場合だけです。
+
 ## 保護の対象外
 
 ここでは、CC Safety Net が扱わない領域を示します。その多くは、意味解析ではなく別のレイヤーによる**封じ込め**を必要とします。それぞれに対応するサンドボックス側の説明は、[CC Safety Net が対処できない範囲](/ja/guides/vs-sandboxing#where-cc-safety-net-cannot-help)を参照してください。
@@ -91,7 +99,8 @@ CC Safety Net は機密パスを保護し、[組み込みの機密情報の一�
 残る制限は、対象範囲そのものにあります。これは汎用の読み取り境界ではなく、対応する形式に向けた**範囲の限られたパターン群**にとどまります。
 
 - ファイル名や拡張子がパターン一覧にないファイルに置かれた資格情報は、認識されません。
-- standard モードでは、組み込みの機密パスに対するメタデータのみのチェック（`test -f ~/.ssh/id_rsa`、`find ~/.ssh -type f`、`ls -la ~/.ssh`、`stat .env` など）が、単独でも `test -f .env && echo present` のように複合コマンドの 1 セグメントとしても許可されます。組み込みのファイル名ルールについては、次の 3 つの形も読み取りではなく単なる言及として扱われます。既存のディレクトリを指す機密ファイル名、パスらしい文字で始まらずディスク上にも存在しない空白を含む語、そして存在しない機密ファイル名を作る出力リダイレクトです。この 3 つは `secret.home.*` と `secret.cli.*` のルールには適用されません。[strict と paranoid](/ja/configuration/modes#strict-mode) では、ここに挙げた形をすべてブロックします。なお、設定した deny path はどのモードでも緩和されません。正確な条件は [standard における機密パスの緩和](/ja/configuration/modes#sensitive-path-relaxations-in-standard)にあります。
+- standard モードでは、組み込みの機密パスに対するメタデータのみのチェック（`test -f ~/.ssh/id_rsa`、`find ~/.ssh -type f`、`ls -la ~/.ssh`、`stat .env`、`wc -l .env`、`grep -l KEY .env` など）が、単独でも `test -f .env && echo present` のように複合コマンドの 1 セグメントとしても許可されます。組み込みのファイル名ルールについては、いくつかの形も読み取りではなく単なる言及として扱われます。既存のディレクトリを指す機密ファイル名、リダイレクトや `mkdir`、`touch` が作るファイル、データの位置にある Python や JavaScript の文字列リテラルなどです。これらの形は `secret.home.*` と `secret.cli.*` のルールには適用されません。[strict と paranoid](/ja/configuration/modes#strict-mode) では、ここに挙げた形をすべてブロックします。なお、設定した deny path はどのモードでも緩和されません。正確な条件は [standard モードが読み取りと見なさないもの](/ja/reference/secret-protection#what-standard-mode-does-not-count-as-a-read)にあります。
+- standard モードは、名前を後の読み取りまで追跡しません。コレクションに入れた文字列リテラルは、コードが後でそれを開く場合でもデータとして扱うため、`python3 -c "for f in {'.env'}: print(open(f).read())"` は許可されます。ループがファイルに書き出した `for` のループ変数を、後のコマンドが読み戻す場合も追跡しません。strict モードではどちらもブロックされます。
 - `policy.json` の `secret_protection.enabled` を `false` にすると、deny path も含めてこのステージ全体が無効になります。
 
 認識対象だけでなく*すべて*の読み取りを制限したい場合は、[サンドボックス](/ja/guides/vs-sandboxing#where-cc-safety-net-cannot-help)を使ってください。

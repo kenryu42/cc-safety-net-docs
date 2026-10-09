@@ -43,15 +43,21 @@ CC Safety Net 有三个**安全级别**：`standard`、`strict` 和 `paranoid`�
 
 ### `standard` 对敏感路径的放宽
 
-`standard` 允许对内置敏感路径做仅元数据检查。可识别的形式有 `ls`、`stat`、`test -e` 和 `test -f`、`[ -e ... ]` 和 `[ -f ... ]`、`git check-ignore`，以及不含 `-delete`、`-exec`、`-execdir`、`-ok`、`-okdir`、`-files0-from`、`-fls`、`-fprint`、`-fprint0`、`-fprintf` 的 `find`。这类检查既可以单独出现，也可以只是复合命令中的一段，因此 `test -f .env && echo present` 和 `if [ -f ~/.aws/credentials ]; then echo yes; fi` 都会放行。但只要有哪一段真的读取了该路径，仍会被阻止，所以 `test -f .env && cat .env` 会被拒绝。
+`standard` 允许对内置敏感路径做仅元数据检查。可识别的形式有 `ls`、`stat`、`test -e` 和 `test -f`、`[ -e ... ]` 和 `[ -f ... ]`、`git check-ignore`，不含 `-delete`、`-exec`、`-execdir`、`-ok`、`-okdir`、`-files0-from`、`-fls`、`-fprint`、`-fprint0`、`-fprintf` 的 `find`，只做计数的 `wc`，以及把输出限定为文件名、计数或退出状态的 `grep` 或 `rg`（`-l`、`-c`、`-q` 或 `grep -L`）。这类检查既可以单独出现，也可以只是复合命令中的一段，因此 `test -f .env && echo present` 和 `if [ -f ~/.aws/credentials ]; then echo yes; fi` 都会放行。但只要有哪一段真的读取了该路径，仍会被阻止，所以 `test -f .env && cat .env` 会被拒绝。如果 `wc`、`grep` 或 `rg` 的输出可能流入后面的管道、被捕获或进入协进程，就按读取检查，所以 `grep -l KEY .env | xargs cat` 会被拒绝。
 
-对内置的文件名规则，`standard` 还会把下面三种形式当作提及而不是读取：
+对内置的文件名规则，`standard` 还会把下面这些形式当作提及而不是读取：
 
 - 机密文件名对应一个已存在的**目录**。`ls credentials` 列出的是目录，因此放行。
 - 含空白字符的词，既不以路径字符（`~`、`.`、`/` 或 Windows 盘符）开头，磁盘上也不存在，例如 `for c in 'cat ~/.aws/credentials'; do echo "$c"; done` 中被引号括起的那段文本。
 - 输出重定向**新建**了一个原本不存在的机密文件名，例如在没有 `.env` 的目录中执行 `printf 'KEY=1\n' > .env`。
+- `mkdir` 或 `touch` 的操作数，例如 `touch fx/.env`。
+- `tailscale cert` 的 `--cert-file` 或 `--key-file` 取值，以及 `openssl x509 -in` 的输入文件。
 
-后两种只在该词不含 `$` 时适用。这三种都不会放宽 `secret.home.*` 和 `secret.cli.*` 规则，因此 `du -sh ~/.aws` 仍被阻止。任何模式都不会放宽配置的拒绝路径。[strict 和 paranoid](#strict-mode) 会阻止这里列出的全部形式。规则本身见[机密保护](/zh-Hans/reference/secret-protection)。
+含空白字符的词和重定向这两种形式，只在该词不含 `$` 时适用。这些形式都不会放宽 `secret.home.*` 和 `secret.cli.*` 规则，因此 `du -sh ~/.aws` 仍被阻止。
+
+如果 `for` 循环变量没有流入其他受检查的词，`standard` 也会跳过该循环的列表词，例如 `for t in .env.local; do grep -c -- "$t" notes.md; done`。在含有文件系统、命令执行或 eval 标记的 Python 和 JavaScript 代码中，`standard` 按位置判定每个字符串字面量：作为容器元素、字典条目或比较操作数的字面量属于数据，只用来指明代码所新建文件的字面量也一样。以上各种形式的确切条件见 [standard 模式不算作读取的情形](/zh-Hans/reference/secret-protection#what-standard-mode-does-not-count-as-a-read)和 [standard 模式下的解释器字面量](/zh-Hans/reference/secret-protection#interpreter-literals-in-standard-mode)。
+
+任何模式都不会放宽配置的拒绝路径。[strict 和 paranoid](#strict-mode) 会阻止这里列出的全部形式。
 
 <span id="when-standard-cannot-verify-a-command"></span>
 
@@ -75,8 +81,8 @@ Strict 模式开启 `fail_closed` 能力。它会收紧以下五类检查，不�
 - **阻止无法解析的命令。** 解析器无法拆分成 token 的任何命令都会被拒绝，即使后备文本扫描没有发现危险模式，原因也为 `Command could not be safely analyzed (strict mode)`。`echo 'unterminated` 在 `standard` 中允许，在此级别中阻止。
 - **Heredoc 会 fail closed。** 含有 heredoc 的命令只有在以下条件全部满足时才会被允许：仅有一个不展开的 heredoc、用于标准输入、没有其他输入重定向，并且消费者是字面量 `cat`、`tee`、`git apply`、`git commit`、`gh pr create` 或 `gh issue create`。所谓不展开，指分隔符带引号（`<<'EOF'`），或者分隔符不带引号且正文中不含 `$`、反引号或反斜杠。因此，`python3 - <<'PY'` 和正文中出现 `$HOME` 的 `cat <<EOF` 都会在此级别被拒绝，而 `git commit -F - <<'EOF'` 和正文为纯文本的 `cat <<EOF` 仍可通过。准确的判定条件见 [Heredoc 分析](/zh-Hans/guides/analysis-engine#heredoc-analysis)。
 - **阻止无法验证的破坏性目标**，由下面列出的五条规则负责。
-- **阻止仅元数据的敏感路径发现。** `test -f ~/.ssh/id_rsa` 和 `find ~/.ssh -type f` 在 `standard` 中允许，在 `strict` 中拒绝，无论它们是单独出现还是作为复合命令中的一段。[`standard` 对敏感路径的放宽](#sensitive-path-relaxations-in-standard)中列出的三种形式，在 `strict` 中同样被拒绝。
-- **禁用仅限 `standard` 的内联数据放宽。** 在 `standard` 中，只要解释器内联代码整体没有出现文件系统、命令执行或 eval 标记，其中的敏感路径字面量就视为惰性数据。即使出现了这类标记，`standard` 也只在执行调用能接收到该字面量时，才把它当作 shell 文本遍历：调用的第一个参数是名称而不是字面量时，遍历该段代码中的全部字面量；否则只遍历该调用括号内的字面量，以及紧跟在不带括号的 `system`、`exec`、`spawn`、`popen` 之后的字面量。这条放宽适用于除 POSIX shell 以外的所有代码解释器；POSIX shell 的内联代码则由防护阶段改按 shell 遍历。Strict 会移除这两条放宽，并且连字面量内部也会扫描。参见[机密保护](/zh-Hans/reference/secret-protection)。
+- **阻止仅元数据的敏感路径发现。** `test -f ~/.ssh/id_rsa` 和 `find ~/.ssh -type f` 在 `standard` 中允许，在 `strict` 中拒绝，无论它们是单独出现还是作为复合命令中的一段。[`standard` 对敏感路径的放宽](#sensitive-path-relaxations-in-standard)中列出的其他形式，在 `strict` 中同样被拒绝。
+- **禁用仅限 `standard` 的内联数据放宽。** 在 `standard` 中，只要解释器内联代码整体没有出现文件系统、命令执行或 eval 标记，其中的敏感路径字面量就视为惰性数据。即使出现了这类标记，只要 Python 或 JavaScript 字面量位于容器元素、比较操作数等数据位置，`standard` 仍视其为数据。此外，`standard` 只在执行调用能接收到该字面量时，才把它当作 shell 文本遍历：调用的第一个参数是名称或含有名称时，遍历该段代码中的全部字面量；否则只遍历该调用括号内的字面量，以及紧跟在不带括号的 `system`、`exec`、`spawn`、`popen` 之后的字面量。这条放宽适用于除 POSIX shell 以外的所有代码解释器；POSIX shell 的内联代码则由防护阶段改按 shell 遍历。Strict 会移除这些放宽，并且连字面量内部也会扫描。参见 [standard 模式下的解释器字面量](/zh-Hans/reference/secret-protection#interpreter-literals-in-standard-mode)。
 
 以下五条规则仅在 `fail_closed` 开启时启用：
 

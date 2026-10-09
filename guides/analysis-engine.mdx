@@ -40,15 +40,16 @@ Standard blocks recognizable destructive commands. It is deliberately **not** ad
 
 - **Unparseable commands are blocked.** `echo 'unterminated` denies with a reason stating the command could not be safely analyzed.
 - **Metadata-only sensitive-path discovery is blocked.** `test -f ~/.ssh/id_rsa` and `find ~/.ssh -type f` are allowed in standard and blocked in strict.
-- **The standard-only inline-data relaxation is disabled.** In standard, a sensitive path literal inside an interpreter's inline code stays inert data unless the code names a filesystem, command-execution, or eval marker. Strict keeps every literal and scans inside literal text as well.
+- **The standard-only inline-data relaxation is disabled.** In standard, a sensitive path literal inside an interpreter's inline code stays inert data unless the code names a filesystem, command-execution, or eval marker. With such a marker, a Python or JavaScript literal in a data position, such as a collection element or a comparison operand, stays data too. Strict keeps every literal and scans inside literal text as well. See [Interpreter literals in standard mode](/reference/secret-protection#interpreter-literals-in-standard-mode).
 - **Heredocs fail closed.** Before the other analyzers run on a segment, a command containing a heredoc is denied unless it passes the narrow supported gate described under [Heredoc analysis](#heredoc-analysis): exactly one unexpanded heredoc, on stdin, no other input redirection, and one of six literal data consumers. An unquoted delimiter with an expandable body denies with "Unquoted heredoc input is not supported safely. Quote the delimiter or ask the user to verify."; every other failure denies with "This heredoc form or stdin consumer is not supported safely. Use a quoted heredoc with a supported consumer (cat, tee, git apply, git commit, gh pr create, gh issue create), or ask the user to verify." So `python3 - <<'PY'` is denied here, and so is `cat <<EOF` whose body mentions `$HOME`, while a plain-text `cat <<EOF` passes.
-- **Unverifiable destructive targets are blocked.** Five rules are gated on the fail-closed capability, so they are allowed in standard and blocked in strict:
+- **Unverifiable destructive targets are blocked.** Six rules are gated on the fail-closed capability, so they are allowed in standard and blocked in strict:
 
 | Rule id | Example | Intent |
 | --- | --- | --- |
 | `rm.recursive-force-dynamic-target` | `rm -rf "$target"` | `scope_down` |
 | `powershell.remove-item-recursive-force-dynamic-target` | `Remove-Item $target -Recurse -Force` | `scope_down` |
 | `powershell.remove-item-pipeline-dynamic-target` | `Get-ChildItem . -Recurse \| Remove-Item -Force` | `scope_down` |
+| `cmd.recursive-delete-dynamic-target` | `cmd /c del /s /q *.log` | `scope_down` |
 | `shell.dynamic-executable` | `$(printf r)m -rf /` | `manual_only` |
 | `shell.dynamic-structure` | `git reset $(printf --hard)` | `stop_and_explain` |
 
@@ -58,14 +59,14 @@ Individual strict-tier rules can be turned off, but **strict is still strict** f
 
 [Paranoid mode](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) is strict plus two capabilities.
 
-- [Paranoid `rm`](/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1) blocks non-temp recursive removal even *inside* the current working directory. `rm -rf ./cache`, `rm -r ./cache`, and `Remove-Item ./cache -Recurse -Force` all block, and so does `find ./cache -delete`. Temp targets and configured allow paths remain allowed.
+- [Paranoid `rm`](/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1) blocks non-temp recursive removal even *inside* the current working directory. `rm -rf ./cache`, `rm -r ./cache`, `Remove-Item ./cache -Recurse -Force`, and `cmd /c rmdir /s /q cache` all block, and so does `find ./cache -delete`. Temp targets and configured allow paths remain allowed.
 - [Paranoid interpreters](/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1) blocks every interpreter one-liner regardless of content, including `python -c "print(1)"`.
 
 ### Per-rule overrides versus levels
 
 For non-catastrophic rules, precedence is: the master switch `destructive_command_protection` first, then the resolved preset capability, then the per-rule `"on"` / `"off"` override. Any strict- or paranoid-tier rule can be force-enabled under standard with an `"on"` override.
 
-**Catastrophic rules ignore both the master switch and any `"off"` override.** They are `rm.recursive-force-root-or-home`, `rm.git-metadata`, `powershell.remove-item-root-or-home`, `powershell.remove-item-recursive-force-root-or-home`, `powershell.remove-item-git-metadata`, and `find.delete-git-metadata`, alongside the always-on policy-file guard.
+**Catastrophic rules ignore both the master switch and any `"off"` override.** They are `rm.recursive-force-root-or-home`, `rm.git-metadata`, `powershell.remove-item-root-or-home`, `powershell.remove-item-recursive-force-root-or-home`, `powershell.remove-item-git-metadata`, `powershell.nested-recursive-delete-unread`, `cmd.recursive-delete-root-or-home`, `cmd.recursive-delete-escaped-quote`, `cmd.recursive-delete-git-metadata`, and `find.delete-git-metadata`, alongside the always-on policy-file guard.
 
 ## Shell wrappers and interpreter one-liners
 
@@ -83,6 +84,15 @@ Where the dangerous text sits decides how standard reads it. Text outside every 
 A shell wrapper's `-c` body has its literal positional arguments substituted for `$N`, `${N}`, `$@`, and `$*` before the nested analysis runs, so `sh -c 'rm -rf "$1"' _ /` blocks on `rm.recursive-force-root-or-home`. A reference inside a single-quoted string within the body stays as written. An unquoted reference splits on the default `IFS` into separate words, so `sh -c 'rm -rf $1' _ 'dist /'` blocks on the `/` operand. The body is left unchanged when any argument is not literal, when the body mentions `IFS`, when an unquoted value holds a glob character, or when the expansion runs past the parser's input cap.
 
 `busybox` dispatch is handled as a special case: the subcommand is shifted into the command position and re-analyzed. `awk`/`gawk`/`mawk` programs are scanned for `system()` calls and backtick command substitutions.
+
+### Command Prompt and nested PowerShell
+
+Two Windows shells get their own readers in every shell mode. Neither is a full parser.
+
+- **`cmd /c` and `cmd /k`.** The body is split on `&` and `|`. A piece holding `rmdir`, `rd`, `del`, or `erase` with `/s` has its targets classified like `rm` targets against the outer working directory, under the `cmd.recursive-delete-*` rule ids. Every other piece is analyzed recursively as a command of the outer shell. A body with `\"` quoting blocks at every level as `cmd.recursive-delete-escaped-quote`. A body the reader cannot verify, such as one holding `%` or a `cd`, is refused as an unverifiable shell source when no target rule has blocked it.
+- **`powershell` and `pwsh`.** A fully literal `-Command` script that follows only `-NoProfile`, `-NonInteractive`, `-NoLogo`, or `-ExecutionPolicy` is analyzed recursively as PowerShell, in the `posix` dialect too. Any other form is not read. If its text names a delete command and a recursive switch, it blocks at every level as `powershell.nested-recursive-delete-unread`.
+
+[Command Prompt bodies](/reference/blocked-commands#command-prompt-bodies) and [Nested PowerShell scripts](/reference/blocked-commands#nested-powershell-scripts) give the exact conditions with examples.
 
 ### Transparent wrappers
 
@@ -288,7 +298,7 @@ Allow paths must be absolute or `~/`-prefixed directories. They apply in **every
 
 The recursive option (`-r`, `-R`, or `--recursive`) is enough for this classification to run, with or without `-f`. A plain `rm -r` denial reuses the `rm -rf` rule ids and reasons, so `rm -r ../outside` blocks as `rm.recursive-force-outside-cwd`. A non-recursive `rm` gets only the Git-metadata check. Path comparison uses canonical (realpath) resolution, so a symlink to `/` is correctly classified as dangerous, and `/tmp-malicious` does not match the `/tmp` temp rule.
 
-On Windows, Git Bash and other MSYS shells hand over `/c/Users/...` spellings, which the Windows path APIs read as paths under the current drive. Before any comparison, a leading `/<drive-letter>` followed by `/` or the end of the string becomes `<drive-letter>:/`, so `/c/Users/you` compares as `c:/Users/you`. Only that leading segment changes. Other platforms are untouched, and POSIX paths, UNC paths, and native Windows drive-letter paths pass through unchanged. The rewrite runs before `rm` target classification, before policy-file and Git-metadata protection, and before sensitive-path protection. It also rewrites `HOME` and `CC_SAFETY_NET_HOME` when the environment is captured, so those roots and the command operands compare in the same form. Temp-root comparison also folds case on Windows, so a lowercase MSYS path under the native temp directory classifies as a temp target instead of an outside-cwd one.
+On Windows, Git Bash and other MSYS shells hand over `/c/Users/...` spellings, which the Windows path APIs read as paths under the current drive. Before any comparison, a leading `/<drive-letter>` followed by `/` or the end of the string becomes `<drive-letter>:/`, so `/c/Users/you` compares as `c:/Users/you`. Only that leading segment changes. Other platforms are untouched, and POSIX paths, UNC paths, and native Windows drive-letter paths pass through unchanged. The rewrite runs before `rm` target classification, before policy-file and Git-metadata protection, and before sensitive-path protection. It also rewrites `HOME` and `CC_SAFETY_NET_HOME` when the environment is captured, so those roots and the command operands compare in the same form. A POSIX `cd` operand gets the same rewrite before [working-directory tracking](#working-directory-tracking) resolves it, so `cd /d/project && rm -rf build` tracks `d:/project` and judges `build` inside it. A PowerShell `Set-Location` operand is not rewritten. Temp-root comparison also folds case on Windows, so a lowercase MSYS path under the native temp directory classifies as a temp target instead of an outside-cwd one.
 
 <Note>
   The important distinction for everyday use: `rm -rf ./subdir` (within cwd) is **allowed**, but `rm -rf .` (the cwd itself) is **blocked**. See [Allowed commands](/reference/allowed-commands).
@@ -303,7 +313,7 @@ On Windows, Git Bash and other MSYS shells hand over `/c/Users/...` spellings, w
 - Aliases and abbreviated parameters resolve, so `ri . -r -fo` blocks. Invocation-operator forms (`& Remove-Item …`, `& { … }`, `. { … }`) are analyzed, as are `Invoke-Expression` with a literal string and `$(…)` subexpressions.
 - `#` line comments and `<# … #>` block comments (including nested ones) are ignored, but real commands after them still block. Malformed or depth-limited block comments and subexpressions fail closed.
 - PowerShell wildcards **do** match dot-entries, unlike a POSIX `*` glob. That is why `Remove-Item .git -Recurse -Force` and a PowerShell wildcard at a repository root both hit Git-metadata protection, while POSIX `./*` does not cover `.git`.
-- Shell selection matters: the `posix` dialect deliberately does not apply the PowerShell removal rules, while `auto` detects an explicit `Remove-Item`, the `Get-Content`, `Set-Content`, `Add-Content`, `Copy-Item`, and `Move-Item` cmdlets, and an alias such as `gc` or `cp` whose argument is spelled as a PowerShell path expression (`gc $HOME\.ssh\id_rsa`). Cross-shell rules such as `git.reset-hard` stay in force either way.
+- Shell selection matters: the `posix` dialect deliberately does not apply the PowerShell removal rules outside a nested `powershell` or `pwsh` `-Command` script, while `auto` detects an explicit `Remove-Item`, the `Get-Content`, `Set-Content`, `Add-Content`, `Copy-Item`, and `Move-Item` cmdlets, and an alias such as `gc` or `cp` whose argument is spelled as a PowerShell path expression (`gc $HOME\.ssh\id_rsa`). Cross-shell rules such as `git.reset-hard` stay in force either way.
 
 ### Device and disk destruction
 

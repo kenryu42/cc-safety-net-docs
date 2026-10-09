@@ -42,15 +42,16 @@ standard は、認識できる破壊的コマンドをブロックします。�
 
 - **解析できないコマンドをブロックします。** `echo 'unterminated` は、安全に解析できなかったという理由で拒否されます。
 - **メタデータのみで機密パスを探る操作をブロックします。** `test -f ~/.ssh/id_rsa` と `find ~/.ssh -type f` は standard では許可され、strict ではブロックされます。
-- **standard 限定のインラインデータ緩和が無効になります。** standard では、インタープリターのインラインコードに含まれる機密パスのリテラルは、コードにファイルシステム操作、コマンド実行、eval のいずれの痕跡もなければ、実行されないデータのままです。strict はすべてのリテラルを候補として残し、リテラルの中身もスキャンします。
+- **standard 限定のインラインデータ緩和が無効になります。** standard では、インタープリターのインラインコードに含まれる機密パスのリテラルは、コードにファイルシステム操作、コマンド実行、eval のいずれの痕跡もなければ、実行されないデータのままです。痕跡がある場合でも、コレクションの要素や比較のオペランドなど、データの位置にある Python や JavaScript のリテラルはデータのままです。strict はすべてのリテラルを候補として残し、リテラルの中身もスキャンします。[standard モードでのインタープリターのリテラル](/ja/reference/secret-protection#interpreter-literals-in-standard-mode)を参照してください。
 - **heredoc が fail closed になります。** heredoc を含むコマンドは、他のアナライザーがそのセグメントを処理する前に、[heredoc の解析](#heredoc-analysis)で説明する狭い条件を満たさないかぎり拒否されます。条件とは、標準入力に接続された展開されない heredoc が 1 つだけで、他に入力リダイレクトがなく、読み取り側がリテラルで書かれた 6 つの候補のいずれかであることです。デリミタに引用符がなく、シェルが本文を展開する場合は「Unquoted heredoc input is not supported safely. Quote the delimiter or ask the user to verify.」で拒否され、条件を満たさないそれ以外の場合は「This heredoc form or stdin consumer is not supported safely. Use a quoted heredoc with a supported consumer (cat, tee, git apply, git commit, gh pr create, gh issue create), or ask the user to verify.」で拒否されます。そのため `python3 - <<'PY'` と、本文に `$HOME` を含む `cat <<EOF` はここで拒否され、本文がプレーンテキストだけの `cat <<EOF` は通過します。
-- **検証できない破壊的対象をブロックします。** 次の 5 つのルールは fail closed 機能によって切り替わるため、standard では許可され、strict ではブロックされます。
+- **検証できない破壊的対象をブロックします。** 次の 6 つのルールは fail closed 機能によって切り替わるため、standard では許可され、strict ではブロックされます。
 
 | ルール ID | 例 | intent |
 | --- | --- | --- |
 | `rm.recursive-force-dynamic-target` | `rm -rf "$target"` | `scope_down` |
 | `powershell.remove-item-recursive-force-dynamic-target` | `Remove-Item $target -Recurse -Force` | `scope_down` |
 | `powershell.remove-item-pipeline-dynamic-target` | `Get-ChildItem . -Recurse \| Remove-Item -Force` | `scope_down` |
+| `cmd.recursive-delete-dynamic-target` | `cmd /c del /s /q *.log` | `scope_down` |
 | `shell.dynamic-executable` | `$(printf r)m -rf /` | `manual_only` |
 | `shell.dynamic-structure` | `git reset $(printf --hard)` | `stop_and_explain` |
 
@@ -60,14 +61,14 @@ strict 相当の各ルールは個別に無効化できます。ただし、破�
 
 [paranoid モード](/ja/configuration/modes#paranoid-mode)は、strict に 2 つの機能を追加します。
 
-- [paranoid の `rm`](/ja/configuration/modes#paranoid-rm-check)は、カレントディレクトリの*内側*であっても、一時ディレクトリ以外を対象とする再帰的な削除をブロックします。`rm -rf ./cache`、`rm -r ./cache`、`Remove-Item ./cache -Recurse -Force` はいずれもブロックされ、`find ./cache -delete` も同様です。一時ディレクトリと設定済みの allow path は引き続き許可されます。
+- [paranoid の `rm`](/ja/configuration/modes#paranoid-rm-check)は、カレントディレクトリの*内側*であっても、一時ディレクトリ以外を対象とする再帰的な削除をブロックします。`rm -rf ./cache`、`rm -r ./cache`、`Remove-Item ./cache -Recurse -Force`、`cmd /c rmdir /s /q cache` はいずれもブロックされ、`find ./cache -delete` も同様です。一時ディレクトリと設定済みの allow path は引き続き許可されます。
 - [paranoid interpreters](/ja/configuration/modes#paranoid-interpreters)は、内容にかかわらず、`python -c "print(1)"` を含むすべてのインタープリター 1 行コードをブロックします。
 
 ### ルール単位の override とレベルの関係
 
 致命的な操作以外のルールには、まずマスタースイッチ `destructive_command_protection`、次に解決済みの preset の機能、最後にルール単位の `"on"` / `"off"` の override を適用します。strict 相当や paranoid 相当のルールも、`"on"` の override を使えば standard で強制的に有効にできます。
 
-**致命的な操作に対するルールは、マスタースイッチも `"off"` の override も無視します。** 対象は `rm.recursive-force-root-or-home`、`rm.git-metadata`、`powershell.remove-item-root-or-home`、`powershell.remove-item-recursive-force-root-or-home`、`powershell.remove-item-git-metadata`、`find.delete-git-metadata` です。これらは、常時有効なポリシーファイルのガードと同じ扱いになります。
+**致命的な操作に対するルールは、マスタースイッチも `"off"` の override も無視します。** 対象は `rm.recursive-force-root-or-home`、`rm.git-metadata`、`powershell.remove-item-root-or-home`、`powershell.remove-item-recursive-force-root-or-home`、`powershell.remove-item-git-metadata`、`powershell.nested-recursive-delete-unread`、`cmd.recursive-delete-root-or-home`、`cmd.recursive-delete-escaped-quote`、`cmd.recursive-delete-git-metadata`、`find.delete-git-metadata` です。これらは、常時有効なポリシーファイルのガードと同じ扱いになります。
 
 ## シェルラッパーとインタープリターの 1 行コード
 
@@ -85,6 +86,17 @@ strict 相当の各ルールは個別に無効化できます。ただし、破�
 シェルラッパーの `-c` の本体では、入れ子の解析に入る前に、`$N`、`${N}`、`$@`、`$*` をリテラルな位置パラメーターの値に置き換えます。そのため `sh -c 'rm -rf "$1"' _ /` は `rm.recursive-force-root-or-home` でブロックされます。本体の中でさらにシングルクォートに囲まれた参照は、書かれたまま残ります。引用符のない参照は既定の `IFS` で複数の語に分割するため、`sh -c 'rm -rf $1' _ 'dist /'` は `/` のオペランドでブロックされます。リテラルでない引数がある場合、本体が `IFS` に言及している場合、引用符のない値が glob 文字を含む場合、展開がパーサーの入力上限を超える場合は、本体を書き換えません。
 
 `busybox` の呼び出しは特別扱いし、サブコマンドをコマンドの位置に移して解析し直します。`awk`／`gawk`／`mawk` のプログラムについては、`system()` の呼び出しとバッククォートによるコマンド置換をスキャンします。
+
+<span id="command-prompt-and-nested-powershell"></span>
+
+### コマンドプロンプトと入れ子の PowerShell
+
+Windows の 2 つのシェルには、どのシェルモードでも専用の読み取り処理が働きます。どちらも完全なパーサーではありません。
+
+- **`cmd /c` と `cmd /k`**：本体を `&` と `|` で分割します。`/s` 付きの `rmdir`、`rd`、`del`、`erase` を含む部分は、その対象を外側の作業ディレクトリを基準に `rm` の対象と同じように分類し、`cmd.recursive-delete-*` のルール ID で判定します。それ以外の部分は、外側のシェルのコマンドとして再帰的に解析します。`\"` で引用した本体は、どのレベルでも `cmd.recursive-delete-escaped-quote` でブロックされます。`%` や `cd` を含むなど、読み取り処理が検証できない本体は、対象に対するルールでブロックされなかった場合に、検証できないシェルの実行元として拒否されます。
+- **`powershell` と `pwsh`**：`-Command` の前にあるのが `-NoProfile`、`-NonInteractive`、`-NoLogo`、`-ExecutionPolicy` だけで、スクリプトが完全にリテラルな場合は、`posix` の方言でも PowerShell として再帰的に解析します。それ以外の形は読み取りません。そのテキストに削除コマンドと再帰のスイッチがあれば、どのレベルでも `powershell.nested-recursive-delete-unread` でブロックされます。
+
+条件の詳細と例は、[コマンドプロンプトの本体](/ja/reference/blocked-commands#command-prompt-bodies)と[入れ子の PowerShell スクリプト](/ja/reference/blocked-commands#nested-powershell-scripts)を参照してください。
 
 ### transparent wrapper
 
@@ -312,7 +324,7 @@ allow path は、絶対パスか `~/` で始まるディレクトリである必
 
 この分類は、再帰オプション（`-r`、`-R`、`--recursive`）があれば実行します。`-f` の有無は問いません。`-f` のない `rm -r` を拒否する場合も `rm -rf` と同じルール ID と理由を使うため、`rm -r ../outside` は `rm.recursive-force-outside-cwd` としてブロックされます。再帰しない `rm` には Git メタデータのチェックだけを適用します。パスの比較には正規化（realpath）した結果を使います。そのため、`/` を指すシンボリックリンクは危険として正しく分類され、`/tmp-malicious` が `/tmp` の一時ディレクトリのルールに一致することもありません。
 
-Windows では、Git Bash などの MSYS シェルが `/c/Users/...` 形式のパスを渡します。Windows のパス API はこれをカレントドライブ配下のパスとして解釈します。そこで比較の前に、先頭の `/<drive-letter>` の後ろに `/` か文字列の終端が続く場合、その部分を `<drive-letter>:/` へ書き換えます。`/c/Users/you` は `c:/Users/you` として比較されます。書き換わるのは先頭のこの部分だけです。Windows 以外のプラットフォームには影響せず、通常の POSIX パス、UNC パス、Windows 本来のドライブレター表記もそのままです。この書き換えは、`rm` の対象分類、ポリシーファイルと Git メタデータの保護、シークレット保護のいずれよりも前に実行します。環境の取り込み時には `HOME` と `CC_SAFETY_NET_HOME` も書き換えるため、これらのルートとコマンドの引数を同じ表記で比較できます。信頼された一時ルートとの比較も、Windows では大文字小文字を区別しません。小文字の MSYS パスが Windows 本来の一時ディレクトリ配下にあれば、カレントディレクトリ外ではなく一時ディレクトリの対象として分類されます。
+Windows では、Git Bash などの MSYS シェルが `/c/Users/...` 形式のパスを渡します。Windows のパス API はこれをカレントドライブ配下のパスとして解釈します。そこで比較の前に、先頭の `/<drive-letter>` の後ろに `/` か文字列の終端が続く場合、その部分を `<drive-letter>:/` へ書き換えます。`/c/Users/you` は `c:/Users/you` として比較されます。書き換わるのは先頭のこの部分だけです。Windows 以外のプラットフォームには影響せず、通常の POSIX パス、UNC パス、Windows 本来のドライブレター表記もそのままです。この書き換えは、`rm` の対象分類、ポリシーファイルと Git メタデータの保護、シークレット保護のいずれよりも前に実行します。環境の取り込み時には `HOME` と `CC_SAFETY_NET_HOME` も書き換えるため、これらのルートとコマンドの引数を同じ表記で比較できます。POSIX の `cd` のオペランドも、[作業ディレクトリの追跡](#working-directory-tracking)で解決する前に同じ書き換えを受けます。そのため `cd /d/project && rm -rf build` は `d:/project` を作業ディレクトリとして追跡し、`build` をその中の対象として判定します。PowerShell の `Set-Location` のオペランドは書き換えません。信頼された一時ルートとの比較も、Windows では大文字小文字を区別しません。小文字の MSYS パスが Windows 本来の一時ディレクトリ配下にあれば、カレントディレクトリ外ではなく一時ディレクトリの対象として分類されます。
 
 <Note>
 日常的な利用で効いてくる違いがあります。`rm -rf ./subdir`（カレントディレクトリの中）は**許可**されますが、`rm -rf .`（カレントディレクトリそのもの）は**ブロック**されます。[許可されるコマンド](/ja/reference/allowed-commands)を参照してください。
@@ -327,7 +339,7 @@ Windows では、Git Bash などの MSYS シェルが `/c/Users/...` 形式の�
 - 別名と省略されたパラメーターも解決するため、`ri . -r -fo` はブロックされます。呼び出し演算子を使った形式（`& Remove-Item …`、`& { … }`、`. { … }`）も解析対象で、リテラル文字列を渡す `Invoke-Expression` と `$(…)` の部分式も解析します。
 - `#` の行コメントと `<# … #>` のブロックコメント（入れ子を含む）は無視しますが、その後ろにある実際のコマンドはブロックします。形式が不正なブロックコメントや部分式、深さの上限を超えたものは fail closed になります。
 - PowerShell のワイルドカードは、POSIX の `*` glob とは違ってドットで始まるエントリにも**一致します**。そのため、`Remove-Item .git -Recurse -Force` も、リポジトリルートでの PowerShell のワイルドカードも Git メタデータの保護に該当しますが、POSIX の `./*` は `.git` を含みません。
-- どのシェルとして解析するかも重要です。`posix` の方言では意図的に PowerShell の削除ルールを適用しませんが、`auto` であれば明示的な `Remove-Item` に加えて `Get-Content`、`Set-Content`、`Add-Content`、`Copy-Item`、`Move-Item` を検出し、`gc` や `cp` のような別名も引数が PowerShell のパス式で書かれていれば検出します（`gc $HOME\.ssh\id_rsa`）。どちらの場合も、`git.reset-hard` のようなシェル共通のルールは引き続き有効です。
+- どのシェルとして解析するかも重要です。`posix` の方言では、入れ子の `powershell` や `pwsh` の `-Command` スクリプトを除き、意図的に PowerShell の削除ルールを適用しません。一方 `auto` であれば、明示的な `Remove-Item` に加えて `Get-Content`、`Set-Content`、`Add-Content`、`Copy-Item`、`Move-Item` を検出し、`gc` や `cp` のような別名も引数が PowerShell のパス式で書かれていれば検出します（`gc $HOME\.ssh\id_rsa`）。どちらの場合も、`git.reset-hard` のようなシェル共通のルールは引き続き有効です。
 
 ### デバイスとディスクの破壊
 

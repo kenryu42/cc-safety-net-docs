@@ -103,7 +103,7 @@ heredoc 必须是不展开的：分隔符带引号（`<<'EOF'`），或者分隔
 | `Get-ChildItem . -Recurse \| Remove-Item -Force` | 无法验证的 PowerShell 管道输入 |
 | `$(printf r)m -rf /`、`c=rm; "$c" -rf dir`、`$CMD --version` | 动态可执行文件名，命令头来自替换或变量 |
 | `git reset $(printf --hard)`、`rm $(printf -- '-rf') dir` | 动态结构，参数由替换拼接而成 |
-| `test -f ~/.ssh/id_rsa`、`find ~/.ssh -type f`、`ls -la ~/.ssh`、`stat .env`、`git check-ignore .env && git status --short` | 对内置敏感路径的纯元数据发现，不访问内容。不限于整条命令，复合命令中的一个命令段同样计入 |
+| `test -f ~/.ssh/id_rsa`、`find ~/.ssh -type f`、`ls -la ~/.ssh`、`stat .env`、`wc -l .env`、`grep -l KEY .env`、`git check-ignore .env && git status --short` | 对内置敏感路径的纯元数据发现，不访问内容。不限于整条命令，复合命令中的一个命令段同样计入 |
 | `W='rm -rf ~'; echo "$W"` | 能够干净解析的带引号字面量赋值中的危险文本。变量始终只作为带引号的参数数据使用时，阻止会推迟到使用时判定 |
 | `f() { rm -rf "$1"; }; f ~` | 被调用的函数正文内，位置参数仍未绑定，因此目标是动态的，与 `rm -rf "$target"` 采用相同的权衡 |
 | `eval "$(ssh-agent -s)"`、`source <(kubectl completion bash)` | 单条完全字面的本地生成命令。其*形态*可验证，输出则无法验证 |
@@ -157,23 +157,27 @@ heredoc 必须是不展开的：分隔符带引号（`<<'EOF'`），或者分隔
 | `find . -name .env` | `-name` 给出的是搜索*模式*，而不是要读取的路径 | 全部 |
 | `find src -type f` | 没有敏感路径作为根 | 全部 |
 | `custom-tool README.md`、`make FOO=bar`、`xxd README.md` | 未列入名单的命令上的良性操作数 | 全部 |
-| `cat .env.example`（也包括 `.env.sample`、`.env.template`、`.env.defaults`） | env 模板里放的是占位值，不是机密，因此在其他所有敏感路径规则之前豁免 | 全部 |
+| `cat .env.example`（也包括 `.env.sample`、`.env.template`、`.env.tpl`、`.env.defaults`） | env 模板里放的是占位值，不是机密，因此豁免除主目录规则以外的所有敏感路径规则 | 全部 |
 | `cat node_modules/x/fixture.pem` | 供应商目录会抑制扩展名规则和宽泛的无扩展名密钥基名规则 | 全部 |
 | `test -f ~/.ssh/id_rsa` | 只做元数据层面的存在性检查，不访问内容 | **仅 `standard`** |
 | `find ~/.ssh -type f` | 只做元数据层面的列举，不访问内容 | **仅 `standard`** |
 | `ls -la ~/.ssh`、`stat .env` | 只做目录列举和文件状态查看，不访问内容 | **仅 `standard`** |
 | `git check-ignore .env && git status --short`、`if [ -f ~/.aws/credentials ]; then echo present; fi` | 复合命令中只做元数据查看的命令段，不访问内容 | **仅 `standard`** |
-| 包含敏感路径字面量的解释器内联代码 | 代码中没有出现文件系统、命令执行或 eval 标记时，字面量仍是惰性数据。POSIX shell 代码除外，因为防护阶段会把它按 shell 遍历 | **仅 `standard`** |
+| `wc -l .env`、`grep -l KEY .env`、`grep -q KEY .env \|\| echo missing` | 只输出计数、匹配的文件名或退出状态，且输出不会流入后面的管道 | **仅 `standard`** |
+| `mkdir -p fx/credentials && touch fx/.env` | `mkdir` 和 `touch` 只是新建路径，不读取 | **仅 `standard`** |
+| `tailscale cert --cert-file crt.pem --key-file key.pem host`、`openssl x509 -in crt.pem -noout -enddate` | `tailscale cert` 写入这些文件，`openssl x509` 只输出证书数据 | **仅 `standard`** |
+| `for t in .env.local; do grep -c -- "$t" notes.md; done` | 循环变量只用作 `grep` 的匹配模式，没有流向任何读取 | **仅 `standard`** |
+| 包含敏感路径字面量的解释器内联代码 | 代码中没有出现文件系统、命令执行或 eval 标记时，字面量仍是惰性数据。即使有标记，位于容器元素、比较操作数等数据位置的 Python 或 JavaScript 字面量，以及只指明代码所写新文件的字面量，也仍是数据。POSIX shell 代码除外，因为防护阶段会把它按 shell 遍历 | **仅 `standard`** |
 
-纯元数据的形式是一份固定清单：`ls`、`stat`、`test -e <path>`、`test -f <path>`、`[ -e <path> ]`、`[ -f <path> ]`、`git check-ignore`，以及不带任何读写动作的 `find`。在 `standard` 中，只被这类形式提到的敏感路径会被忽略；这类形式是整条命令还是复合命令中的一段，并不影响结果。但只要有哪一段真的读取了该路径，仍会被阻止，因此 `test -f .env && cat .env` 会被拒绝。哪些 `find` 动作会取消这一资格，见[机密保护参考](/zh-Hans/reference/secret-protection)。
+纯元数据的形式是一份固定清单：`ls`、`stat`、`test -e <path>`、`test -f <path>`、`[ -e <path> ]`、`[ -f <path> ]`、`git check-ignore`、不带任何读写动作的 `find`、只做计数的 `wc`，以及把输出限定为文件名、计数或退出状态的 `grep` 或 `rg`。在 `standard` 中，只被这类形式提到的敏感路径会被忽略；这类形式是整条命令还是复合命令中的一段，并不影响结果。但只要有哪一段真的读取了该路径，仍会被阻止，因此 `test -f .env && cat .env` 会被拒绝。如果 `wc`、`grep` 或 `rg` 的输出可能流入后面的管道、被捕获或进入协进程，就按读取检查，因此 `grep -l KEY .env | xargs cat` 会被拒绝。符合条件的选项、哪些 `find` 动作会取消这一资格，以及本表中的其他形式，见 [standard 模式不算作读取的情形](/zh-Hans/reference/secret-protection#what-standard-mode-does-not-count-as-a-read)。
 
 其中两项允许的边界很明确，值得了解：
 
-- **env 模板。** `.env.example`、`.env.sample`、`.env.template` 和 `.env.defaults` 这几个精确基名，以及任何以 `.env.example.` 或 `.env.sample.` 开头的名称，例如 `.env.example.local`，会在其他敏感路径规则运行前豁免。因此，即使位于受保护的主目录内也可读可写。这种前缀形式不适用于另外两个模板：`.env.template.local` 和其他所有 `.env.*` 名称一样，会被 `secret.pattern.env-variant` 阻止。
+- **env 模板。** `.env.example`、`.env.sample`、`.env.template`、`.env.tpl` 和 `.env.defaults` 这几个精确基名，以及任何以 `.env.example.` 或 `.env.sample.` 开头的名称，例如 `.env.example.local`，豁免除主目录规则以外的所有敏感路径规则；主目录规则先于豁免运行。它们在其他位置可读可写，但 `cat ~/.ssh/.env.tpl` 会被 `secret.home.ssh` 阻止。这种前缀形式不适用于另外两个模板：`.env.template.local` 和其他所有 `.env.*` 名称一样，会被 `secret.pattern.env-variant` 阻止。
 - **供应商目录。** 当任意路径段是 `node_modules` 或 `__pycache__`，或者出现相邻的 `vendor/bundle` 或 `vendor/cache` 组合（单独一个 `vendor` 段不算）时，恰好有两组规则被抑制：扩展名规则（`.pem`、`.p12`、`.key` 等）和宽泛的无扩展名密钥基名规则 `secret.pattern.ssh-key-basename`（`*_rsa`、`*_dsa`、`*_ed25519`、`*_ecdsa`）。其余规则在那里照常生效。`node_modules/x/.env` 和 `node_modules/x/id_rsa` 仍会被阻止。`.git` **不在**跳过集合内，因此 `.git` 树内的密钥材料（例如 `.git/hooks/deploy_key_rsa`）和在其他任何位置一样匹配规则。
 
 <Warning>
-  `standard` 从不放宽对敏感**内容**的访问，也从不放宽配置的拒绝路径。`cat ~/.ssh/id_rsa`、`find ~/.ssh -type f -exec cat {} +`、`find ~/.ssh -type f -fprint .env`、`test -f ~/.ssh/id_rsa && cat ~/.ssh/id_rsa` 和 `test -f "$(cat ~/.ssh/id_rsa)"` 在 `standard` 中同样保持阻止。拒绝路径及其子路径在内置规则之前匹配，并且不受两项仅 `standard` 放宽的影响。
+  `standard` 从不放宽对敏感**内容**的访问，也从不放宽配置的拒绝路径。`cat ~/.ssh/id_rsa`、`find ~/.ssh -type f -exec cat {} +`、`find ~/.ssh -type f -fprint .env`、`test -f ~/.ssh/id_rsa && cat ~/.ssh/id_rsa` 和 `test -f "$(cat ~/.ssh/id_rsa)"` 在 `standard` 中同样保持阻止。拒绝路径及其子路径在内置规则之前匹配，并且不受任何仅 `standard` 放宽的影响。
 </Warning>
 
 ## Worktree 模式例外

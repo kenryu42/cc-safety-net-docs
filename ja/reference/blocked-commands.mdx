@@ -1,7 +1,7 @@
 ---
 title: "ブロックされるコマンドと理由"
 sidebarTitle: "ブロックされるコマンド"
-description: "CC Safety Net がブロックする Git、rm、find、デバイス系、PowerShell、機密パスのコマンドと、各ルールに必要な安全レベルを一覧するリファレンスです。"
+description: "CC Safety Net がブロックする Git、rm、find、デバイス系、PowerShell、cmd、機密パスのコマンドと、各ルールに必要な安全レベルを一覧するリファレンスです。"
 keywords:
   - "ブロックされるコマンド"
   - "危険なコマンド"
@@ -31,7 +31,7 @@ keywords:
 | --- | --- |
 | [standard](/ja/configuration/modes#default-mode) | 印の付いていない行をすべてブロックします。`echo 'unterminated` のように安全に見える解析不能なテキストは許可しますが、認識できる破壊的パターンを含む解析不能なテキストは、ヒューリスティックによって引き続きブロックします。[パーサーが拒否するシェル構文](/ja/guides/analysis-engine#shell-syntax-the-parser-refuses)も、このレベルでブロックします。動的な `rm -rf` の対象は一律にはブロック**しません**。 |
 | [strict](/ja/configuration/modes#strict-mode) | standard がブロックする形式すべてに加えて、解析できないコマンドを一律にブロックし、検証できない破壊的対象、[限られた対応形式から外れる heredoc](#heredocs-in-strict-and-paranoid)、組み込みの機密パスに対するメタデータのみの探索もブロックします。 |
-| [paranoid](/ja/configuration/modes#paranoid-mode) | strict がブロックする形式すべてに加えて、カレントディレクトリ配下であっても一時パス以外への再帰的な削除（`rm -r`、`rm -rf`、`find -delete`、`Remove-Item -Recurse -Force`）をブロックし、内容にかかわらずすべてのインタープリター 1 行コードをブロックします。 |
+| [paranoid](/ja/configuration/modes#paranoid-mode) | strict がブロックする形式すべてに加えて、カレントディレクトリ配下であっても一時パス以外への再帰的な削除（`rm -r`、`rm -rf`、`find -delete`、`Remove-Item -Recurse -Force`、`cmd /c rmdir /s`）をブロックし、内容にかかわらずすべてのインタープリター 1 行コードをブロックします。 |
 
 <Note>
   一部の重要な保護は、選択した安全レベルに依存しません。root とホームディレクトリの再帰削除、Git メタデータの保護、正規の `policy.json` の保護は、破壊的コマンドのマスタースイッチも、ルール単位の `off` の override も無視します。
@@ -216,7 +216,7 @@ Only the user may apply a policy proposal, because it rewrites the configuration
 
 ## PowerShell `Remove-Item`
 
-PowerShell への対応は限定的なサブセットです。対象は、`Remove-Item` とその別名、ファイル系コマンドレットの `Get-Content`、`Set-Content`、`Add-Content`、`Copy-Item`、`Move-Item` と別名 `gc`、`cat`、`type`、`cp`、`mv`、および既存のシェル共通ルールです。汎用の PowerShell パーサーではありません。以下の削除ルールは `powershell` と `auto` のシェルモードで適用されます。`posix` モードでは意図的に適用しませんが、`git.reset-hard` や `rm.recursive-force-root-or-home` のようなシェル共通のルールは引き続き適用されます。機密パスの保護は、`$HOME`、`$env:USERPROFILE`、`$env:HOME`、`~` のいずれかの先頭部分に、どちらのパス区切りでリテラルの末尾部分を連結した形式を解決します。そのため `Get-Content $HOME\.ssh\id_rsa` はブロックされます。それ以外の方法で組み立てたパス、たとえば文字列連結、部分式、`Join-Path` を使ったものは評価しません。
+PowerShell への対応は限定的なサブセットです。対象は、`Remove-Item` とその別名、ファイル系コマンドレットの `Get-Content`、`Set-Content`、`Add-Content`、`Copy-Item`、`Move-Item` と別名 `gc`、`cat`、`type`、`cp`、`mv`、および既存のシェル共通ルールです。汎用の PowerShell パーサーではありません。以下の削除ルールは `powershell` と `auto` のシェルモードで適用されます。`posix` モードでは意図的に適用しませんが、`git.reset-hard` や `rm.recursive-force-root-or-home` のようなシェル共通のルールは引き続き適用されます。例外は `powershell -Command` または `pwsh -Command` に入れ子で渡したスクリプトで、どのシェルモードでも PowerShell として解析します。[入れ子の PowerShell スクリプト](#nested-powershell-scripts)を参照してください。機密パスの保護は、`$HOME`、`$env:USERPROFILE`、`$env:HOME`、`~` のいずれかの先頭部分に、どちらのパス区切りでリテラルの末尾部分を連結した形式を解決します。そのため `Get-Content $HOME\.ssh\id_rsa` はブロックされます。それ以外の方法で組み立てたパス、たとえば文字列連結、部分式、`Join-Path` を使ったものは評価しません。
 
 | コマンド形式 | ブロックする理由 | レベル |
 | --- | --- | --- |
@@ -276,6 +276,69 @@ PowerShell への対応は限定的なサブセットです。対象は、`Remov
 | `node -e 'require("child_process").exec("git reset --hard")'` | 既定でブロック |
 
 解析対象のインタープリターは、`python`、`python2`、`python3`、`node`、`ruby`、`perl` です。ブロックの原因になるのは埋め込まれた破壊的コマンドであり、1 行コードという形式そのものは既定では許可されます。
+
+<span id="command-prompt-bodies"></span>
+
+### コマンドプロンプトの本体
+
+CC Safety Net は、どのシェルモードでも `cmd /c` と `cmd /k` の本体を読み取ります。先頭のコマンドは `cmd` でも `cmd.exe` でもよく、大文字と小文字は区別しません。Git Bash で使う `//c` という書き方も対象です。この読み取りは限定的なテキスト検査であり、cmd のパーサーではありません。外側の引用符を 1 組外してから、本体を `&` と `|` で分割します。分割した各部分では、`/s` スイッチ付きの `rmdir`、`rd`、`del`、`erase` を探します。`/s/q` のようにまとめたスイッチ、先頭の `@`、`if exist` による条件の後ろにある場合も対象です。見つけた削除の対象は、外側の作業ディレクトリを基準に `cmd.recursive-delete-*` のルールで判定します。パスの最後の `*.*` は `*` として扱います。それ以外の部分は外側のシェルのコマンドとして解析するため、`cmd /c git reset --hard` は `git.reset-hard` でブロックされます。
+
+| 例 | 結果 |
+| --- | --- |
+| `cmd /c 'rmdir /s /q C:\'`、`cmd /c "del /s /q C:\*.*"` | `cmd.recursive-delete-root-or-home` でブロック |
+| `cmd /c 'if exist C:\ rmdir /s /q C:\'` | `cmd.recursive-delete-root-or-home` でブロック |
+| `cmd /c '@rd /s /q ..\outside'` | `cmd.recursive-delete-outside-cwd` でブロック |
+| `cmd /c "rmdir /s /q \"build output\""` | `cmd.recursive-delete-escaped-quote` でブロック |
+| `cmd /c 'cd /d C:\Users && rmdir /s /q build'` | 検証できないシェルの実行元として拒否 |
+| `cmd /c 'rd/s/q C:\'`、`cmd /c '(rmdir /s /q C:\)'` | 検証できないシェルの実行元として拒否 |
+| `cmd /c 'if exist node_modules rmdir /s /q node_modules'` | ワークスペース内なので許可 |
+| `cmd /c 'del /q build.log'` | 再帰削除ではないので許可 |
+
+**エスケープした引用符。** cmd は `\"` をエスケープとして扱わないため、`\"` を使って書いた対象が分割され、ドライブのルートを指すことがあります。そのため、再帰削除の記述を含む本体は、次のいずれかに当てはまると、安全レベルや permission mode にかかわらず `cmd.recursive-delete-escaped-quote` でブロックされます。
+
+- 本体に `\"` が含まれる場合。PowerShell では、コマンドのどの語に含まれる `\"` も対象です。
+- シェルモードが `posix` で、本体に `"` が 1 つでも含まれる場合。Git Bash は cmd を起動するときに、`"` をすべて `\"` にエスケープし直します。
+- 削除の対象が `\\?\` や `\\.\` の名前空間パスである場合。
+
+ブロックメッセージは、パスを 1 つずつ引用符で囲んだ引数として渡すか、代わりに `Remove-Item -LiteralPath` を使うよう求めます。
+
+**検証できない本体。** 対象に対するルールで先にブロックされなかった場合、再帰削除の記述を含む本体に次のいずれかが含まれていれば、理由 `shell execution source cannot be verified safely.` で拒否されます。
+
+- `^`、`%`、`!`。cmd がエスケープと変数展開に使う文字です。
+- `"` と、`&` または `|` の組み合わせ。分割は引用符を考慮しないため、引用符の中の `&` によって対象の一部が見落とされるおそれがあります。
+- `cd`、`chdir`、`pushd`、`popd` の語。位置は問わず、`cd..` や `cd\` のように続けて書いた形も含みます。
+- この読み取り処理が解析できない削除。`rd/s/q`、引用符で囲んだコマンド名、括弧で囲んだグループなどです。
+
+standard モードの Claude Code の hook では、この拒否が権限確認のプロンプトになることがあります。条件はこのページ冒頭の注記のとおりです。対象に対する拒否が先に判定されるため、`cmd /c 'rmdir /s /q C:\ & echo %DATE%'` は引き続き `cmd.recursive-delete-root-or-home` でブロックされます。
+
+この読み取りはテキストの照合なので、何も削除しないコマンドをブロックすることもあります。`cmd /c 'echo rmdir /s /q C:\'` は、ドライブのルートの削除としてブロックされます。読み取りの対象外については[既知の制限](/ja/guides/known-limitations#windows-command-prompt-and-nested-powershell)を参照してください。
+
+<span id="nested-powershell-scripts"></span>
+
+### 入れ子の PowerShell スクリプト
+
+CC Safety Net は、`powershell` と `pwsh` のコマンドを、大文字と小文字や `.exe` の有無にかかわらず、どのシェルモードでも読み取ります。ただし、読み取るのは次の形だけです。
+
+1. `-NoProfile`（`-nop`）、`-NonInteractive`（`-noni`）、`-NoLogo`、値を 1 つ取る `-ExecutionPolicy`（`-ep`）が 0 個以上並ぶ。
+2. 続いて `-Command` または `-c` がある。
+3. その後に、すべてリテラルのスクリプトの語が続く。外側のシェルが展開するものと `--%` は含まない。
+
+このスクリプトは、`posix` モードでも、外側の作業ディレクトリを基準に PowerShell として解析します。`pwsh -NoProfile -c 'Remove-Item -Recurse -Force C:\'` は `powershell.remove-item-recursive-force-root-or-home` でブロックされます。
+
+それ以外の形は読み取りません。そのテキストに削除コマンド（`Remove-Item`、`ri`、`rm`、`rmdir`、`rd`、`del`、`erase`）と再帰のスイッチがあれば、安全レベルや permission mode にかかわらず `powershell.nested-recursive-delete-unread` でブロックされます。再帰のスイッチとは、`-Recurse` と `--recursive` およびその省略形（`-r` や `-rec` など）、`r` を含む `rm` の短いフラグをまとめたもの（`-fr` など）、`/s` のことです。読み取らない形には、`-WorkingDirectory` や `-NoExit` などの他のパラメーター、`/` や Unicode のダッシュで始まるパラメーター、`-File`、位置引数として渡したスクリプト、外側のシェルが展開する語があります。再帰削除を含まない形はこのルールではブロックされませんが、その語には他のルールが引き続き適用されます。そのため `pwsh -NoExit -c git reset --hard` は `git.reset-hard` でブロックされます。
+
+読み取ったスクリプトの外に `-EncodedCommand` を指す語があると、検証できないシェルの実行元として拒否されます。`-e` や `-enc` などの省略形、別名の `-ec`、`/` や Unicode のダッシュで始まる形も対象です。`-File` で実行するスクリプトと、標準入力から読むスクリプトは読み取りません。
+
+| 例 | 結果 |
+| --- | --- |
+| `pwsh -NoProfile -c 'Remove-Item -Recurse -Force C:\'` | `powershell.remove-item-recursive-force-root-or-home` でブロック |
+| `powershell -NoProfile -ExecutionPolicy Bypass -Command 'Remove-Item -Recurse -Force C:\'` | `powershell.remove-item-recursive-force-root-or-home` でブロック |
+| `pwsh -WorkingDirectory 'C:\' -c 'Remove-Item -Recurse -Force *'` | `powershell.nested-recursive-delete-unread` でブロック |
+| `pwsh /c 'Remove-Item -Recurse -Force C:\'` | `powershell.nested-recursive-delete-unread` でブロック |
+| `pwsh -NoExit -c 'rm -fr ~'` | `powershell.nested-recursive-delete-unread` でブロック |
+| `powershell -NoProfile -EncodedCommand UgBlAG0AbwB2AGUALQBJAHQAZQBtAA==` | 検証できないシェルの実行元として拒否 |
+| `pwsh -NoProfile -c 'Remove-Item -Recurse -Force .\build'` | ワークスペース内なので許可 |
+| `pwsh -File report.ps1 -Action rm -Region east` | 再帰のスイッチにあたる語がないので許可 |
 
 <span id="eval-and-source-of-a-generated-command"></span>
 

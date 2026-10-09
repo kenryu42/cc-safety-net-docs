@@ -1,7 +1,7 @@
 ---
 title: "本地仪表板"
 sidebarTitle: "仪表板"
-description: "使用 cc-safety-net gui 启动本地 CC Safety Net 仪表板，并通过概览、活动、策略、规则、集成和设置六个视图检查判定、编辑策略和管理智能体 hook。"
+description: "使用 cc-safety-net gui 启动本地 CC Safety Net 仪表板，并通过概览、活动、保护、自定义规则、智能体和设置六个视图检查判定、编辑策略和管理智能体 hook。"
 ---
 
 `cc-safety-net gui` 会打开本地仪表板。你可以查看本机判定，了解阻止原因，并直接修改策略，无需手动编辑 JSON。
@@ -49,38 +49,77 @@ cc-safety-net gui --no-open
 
 ## 六个视图
 
-侧边栏有六个视图，采用 hash 路由，因此可以在同一会话内链接或收藏其中某个视图：
+侧边栏有六个视图。每个视图都有自己的地址 hash，因此可以在同一会话内链接或收藏其中某个视图：
 
-| 视图 | 回答什么问题 |
-| --- | --- |
-| **概览** | CC Safety Net 最近在这台机器上做了什么？ |
-| **活动** | 分析了哪些命令，每条命令的结果如何？ |
-| **策略** | CC Safety Net 应阻止什么？ |
-| **规则** | 当前实际执行哪些自定义 rulebook 规则？ |
-| **集成** | 本机上哪些编码智能体已安装 hook？ |
-| **设置** | 文件在哪里、日志保留多久、如何重置？ |
+| 视图 | Hash | 回答什么问题 |
+| --- | --- | --- |
+| **概览**（Overview） | `#overview` | CC Safety Net 最近在这台机器上做了什么？ |
+| **活动**（Activity） | `#activity` | 智能体运行了哪些命令，每条命令的结果如何？ |
+| **保护**（Protections） | `#policy` | CC Safety Net 应阻止什么？ |
+| **自定义规则**（Custom rules） | `#rules` | 当前实际执行哪些自定义 rulebook 规则？ |
+| **智能体**（Agents） | `#integrations` | 本机上哪些编码智能体已安装 hook？ |
+| **设置**（Settings） | `#settings` | 日志保留多久、文件在哪里、如何重置？ |
 
-无法识别的 hash 会回退到概览。集成和规则视图在首次访问时才加载数据。
+无法识别的 hash 会回退到概览。自定义规则视图在首次打开时才加载 rulebook。智能体检测在启动时进行，因为概览要显示各智能体的 hook 状态。
+
+某项保护关闭时，或因配置错误导致运行时正在执行 fallback 配置时，每个视图上方都会出现横幅，每种情况一行：
+
+- `Command protection is off: built-in destructive command rules are not enforced. Catastrophic and custom rules still apply.`
+- `Secret protection is off: sensitive files and deny paths are not blocked.`
+- `A fallback configuration is being enforced: <reason>`
+
+在保护视图以外，横幅末尾会附带 `Open Protections` 链接。横幅反映的是已保存的策略，不反映未保存的编辑。
+
+### 保存在页面地址中的过滤条件
+
+活动、保护和自定义规则视图会读取 hash 中的参数，例如 `#activity?decision=error`。在活动和保护视图中修改过滤条件时，页面会原地改写地址，处于默认值的过滤条件不写入地址。因此，重新加载页面或用浏览器后退回来，都会恢复过滤后的视图；而通过侧边栏链接打开的视图总是使用默认过滤条件。
+
+| 视图 | 参数 | 取值 |
+| --- | --- | --- |
+| 活动 | `days` | 时间窗口的天数。默认为 `7`，超出保留期的值会被收窄到保留期 |
+| 活动 | `decision` | `deny`（界面上的 `Blocked`，默认）、`allow`、`error`、`suspect` 或 `all` |
+| 活动 | `agent` | 审计日志中记录的智能体名称。默认为 `all` |
+| 活动 | `q` | 搜索文本 |
+| 活动 | `command` | 命令签名。只列出签名与之完全一致的条目 |
+| 保护 | `q` | 搜索文本。与某个 rule ID 相同时，页面会滚动到该规则 |
+| 保护 | `show` | 设为 `changed` 时只列出与默认值不同的保护。默认为 `all` |
+| 自定义规则 | `focus` | 自定义规则 ID，可以带也可以不带 `custom.` 前缀。页面会高亮该规则并滚动到它 |
+| 自定义规则 | `compose` | 预填到 `What should be blocked?` 输入框中的文本 |
 
 ## 概览
 
-概览汇总的是一个**保留窗口**内的数据，而不是历史总量。该窗口为最近 7 天；保留期短于 7 天时，则为整个保留窗口。标题会以 `Last N day(s)` 说明它实际使用的窗口。
+概览汇总的是一个**保留窗口**内的数据，而不是历史总量。该窗口为最近 7 天；保留期短于 7 天时，则为整个保留窗口。指标卡和 Most-triggered rules 的标签会以 `last N days` 说明实际使用的窗口。
 
-**指标卡。** **已阻止**和**已分析**两个计数器各有一张按天绘制的迷你图，时间从旧到新。每张图按自身最大值缩放，因此两张图的柱高不能直接比较。请比较数字。
+**状态卡片。** 顶部卡片显示下列标题之一：
 
-**保护状态。** 卡片显示你的安全级别；override 偏离预设时会追加 `· Customized`；同时报告有多少条规则生效、机密保护是否开启。此卡只反映**已保存**的状态：策略视图中暂存的未保存开关在保存前不会影响它。破坏性命令保护或机密保护关闭时，或因配置中某项无法加载而正在执行 fallback 配置时，会显示横幅。
+| 标题 | 出现条件 |
+| --- | --- |
+| `Your policy file needs repair` | 已保存的策略文件有错误 |
+| `Checking your agents…` | 智能体检测尚未完成 |
+| `Not checking any agent yet` | 检测到的智能体都没有处于活动状态的 hook |
+| `Partly protected` | 命令保护或机密保护已关闭 |
+| `Protected` | 以上都不满足 |
 
-**健康状态条。** 报告 hook 是否在检测到的智能体中处于活动状态，或者检测到了智能体但 hook 未激活，又或者根本没有检测到智能体 hook。它还会提示可用的更新。有需要处理的问题时，它会链接到集成视图。
+标题下方先显示预设；override 偏离预设时追加 `, customized`。接着报告有多少条命令规则开启、机密保护是否开启，或者哪项保护已关闭。最后列出 hook 处于活动状态的智能体。没有任何智能体的 hook 处于活动状态时，卡片链接到智能体视图（`Install a hook`）；否则链接到保护视图（`Configure`，文件有错误时为 `Repair`）。此卡只反映**已保存**的策略：保护视图中未保存的编辑在保存前不会影响它。
 
-**阻止次数最多的命令和规则。** 两个面板各显示前五项，统计窗口与指标卡相同。选择某条命令会跳到活动视图，并应用一个可移除的精确命令签名过滤条件，只显示阻止记录。选择某条规则则按规则命名空间跳转：`custom.*` rule ID 进入规则视图，内置 rule ID 进入活动视图，并把该 rule ID 预填进搜索框。
+**Needs attention。** 只有存在需要处理的事项时才会出现这个列表。每一项都链接到可以处理它的位置：
 
-**防护错误。** 窗口内如果有拒绝来自评估失败而非策略，就会出现一个按钮，文案为 <code>{'N guard error(s) in the last N days \u2014 commands blocked because evaluation failed, not by policy. Click to view.'}</code>。点击后会打开活动视图，并过滤为错误判定。这些拒绝属于 fail-closed：CC Safety Net 无法完成分析，因此拒绝了命令。如果反复出现，请参阅[故障排除](/zh-Hans/guides/troubleshooting)。
+- `<Agent> is detected but its hook is disabled.` 打开智能体视图。
+- `N blocks in the last N days look like a false positive.` 打开过滤为疑似误报的活动视图。
+- `N guard errors in the last N days: commands blocked because evaluation failed, not by policy.` 打开过滤为错误判定的活动视图。这些拒绝属于 fail-closed：CC Safety Net 无法完成分析，因此拒绝了命令。如果反复出现，请参阅[故障排除](/zh-Hans/guides/troubleshooting)。
+- `Version <version> is available.` 打开 GitHub 上的发布说明。
+
+**指标卡。** `Blocked` 和 `Commands checked` 两张指标卡各显示一个计数和一张按天绘制的迷你图，时间从旧到新。每张图按自身最大值缩放，因此请比较数字，不要比较柱高。
+
+**Recent blocks。** 列出最近 8 条被阻止的命令，附带时间、智能体、命令和 rule ID。因评估失败而拒绝的条目显示 `guard error`，而不是 rule ID。选择带 `custom.*` rule ID 的行，会在自定义规则视图中打开该规则；带内置 rule ID 的行会跳到活动视图，并把该 rule ID 填进搜索框；没有 rule ID 的行直接打开活动视图。`All activity` 同样打开活动视图。
+
+**Most-triggered rules。** 列出窗口内阻止次数最多的前五个 rule ID，计数显示为 `N blocks`。选择后的跳转方式与 Recent blocks 相同。
 
 <span id="activity"></span>
 
 ## 活动
 
-活动视图按时间倒序列出本地审计日志中的命令。命令在写入时就已脱敏，在任何内容进入日志之前完成；脱敏只覆盖已识别的凭证形式，因此条目中仍可能包含路径、主机名和名称。分享此视图中的内容前，请先参阅[审计日志](/zh-Hans/reference/audit-log#secret-redaction)，了解记录 schema 和准确的脱敏范围。
+活动视图按时间倒序列出智能体运行过的命令，并按 `Today`、`Yesterday` 以及更早的日期分组。每次写入前都会先做机密脱敏，但脱敏只识别已知的凭证形式，因此条目中仍可能包含路径、主机名和名称。分享此视图中的内容前，请先参阅[审计日志](/zh-Hans/reference/audit-log#secret-redaction)，了解记录 schema 和脱敏范围。
 
 <span id="windows-are-derived-from-retention"></span>
 
@@ -96,80 +135,101 @@ cc-safety-net gui --no-open
 | 90 天 | 7、30、90 |
 | 365 天 | 7、30、90、180、365 |
 
+活动视图打开时显示最近 7 天。页面地址指定了保留期内的其他窗口时（例如保留期为 30 天时的 `days=14`），选择器也会列出该窗口。
+
 窗口按完整的本地日历日计算，即今天加之前的若干天，因此概览中按天分桶的迷你图之和与总数完全一致。请求超过保留期的窗口会被拒绝；缩短保留期后，当前选择会自动收窄。保留期本身如何配置和执行，见[审计日志](/zh-Hans/reference/audit-log#retention)。
 
 ### 过滤器
 
+- **判定**：`Blocked`、`Allowed` 和 `All` 始终存在，并各自显示计数。默认选中 `Blocked`，其中也包括防护错误。`Errors` 仅在窗口内含防护错误时出现；`Likely false positive` 仅在启发式找到候选项时出现。该启发式会标记带失败阶段的拒绝，以及在同一会话中被拒绝两次及以上的命令签名。
+- **搜索**：`Search commands or rule IDs` 输入框匹配 rule ID 和命令文本，不区分大小写，并忽略首尾空格。
+- **智能体**：一个选择器，包含 `All agents` 和每个智能体的选项，并各自显示计数。只有窗口内出现至少两个已知智能体时才显示。
 - **窗口**：上文所述的、由保留期派生的选择器。
-- **判定 chip**：`All`、`Blocked` 和 `Allowed` 始终存在；`Errors` 仅在窗口内含防护错误时出现；`Likely false positive` 仅在启发式找到候选项时出现。该启发式会标记带失败阶段的拒绝，以及在同一会话中被拒绝两次及以上的命令签名。
-- **智能体 chip**：只有窗口内出现至少两个不同的已知智能体时才显示，并提供 `All agents` chip 用于清除过滤。
-- **命令 pill**：精确匹配命令签名、且只显示阻止记录的过滤条件；从概览点击跳转时添加，可在此处移除。
-- **搜索**：顶栏输入框（`Filter by rule or command`）以不区分大小写的子串匹配 rule ID 和命令文本。
+- **命令签名**：页面地址中的 `command` 参数会把列表限定为某一个命令签名。`Showing blocks of <command>` 这一行会显示该签名，点击 `Show all blocks` 即可清除。切换判定或输入搜索内容也会清除它。
 
-重新加载时，无效过滤条件会自动修复。如果已过滤的智能体不再出现，或窗口内不再有错误或疑似误报，对应条件会重置，而不是显示空列表。
+重新加载列表时，无效过滤条件会自动复位。已过滤的智能体不再出现时，选择器回到 `All agents`；窗口内不再有错误或疑似误报时，判定回到 `Blocked`。使用默认过滤条件且没有任何阻止记录时，列表显示 `Nothing was blocked in the last N days.`，并提供 `Show all activity`。
 
 ### 刷新
 
-刷新按钮会同时重新加载**概览和活动**，避免指标卡与活动列表不一致。即使本地刷新很快，按钮也会短暂旋转，以确认操作已经执行。
+页面标题旁的刷新图标（`Refresh activity`）会同时重新加载**概览和活动**，避免指标卡与活动列表不一致。重新加载完成前，按钮保持禁用。
 
 ### 渲染条目与计数
 
 活动列表最多呈现 **500 个条目**。上限按判定类别分配：每类保证获得一半容量，并把未使用的容量借给另一类。因此，大量拒绝不会让允许记录完全消失。
 
-计数不受 500 条显示上限影响。Chip、指标卡和排名面板使用服务器端完整窗口聚合，与列表实际呈现的内容无关。页脚用 `Showing X of Y entries from the last N day(s)` 同时说明显示数和总数；发生截断时再添加 `(capped at 500, newest of each decision)`。
+计数不受 500 条显示上限影响。判定和智能体的计数、指标卡以及 Most-triggered rules 都使用服务器端的完整窗口聚合，与列表实际呈现的内容无关。唯一的例外是 `Likely false positive` 的计数，它由页面根据已加载的条目计算。
 
-只有一种情况会使计数本身不完整：某些审计日志来源无法读取时，页脚会追加 `N audit log source(s) could not be read, so this list is incomplete.`。聚合也会缺少这些条目，因此在来源恢复可读前，列表和计数都只能视为下限，不能视为总数。
+页脚显示 `Showing X of Y entries from the last N days.`。X 是当前过滤条件下显示的条目数，Y 是窗口内的条目总数。列表因上限被截断时，页脚追加 `Only the newest 500 entries of each decision are loaded; narrow the time window to see older ones.`。
+
+只有一种情况会使计数本身不完整：某些审计日志来源无法读取时，页脚会追加 `N log files could not be read, so this list is incomplete.`。聚合也会缺少这些条目，因此在来源恢复可读前，列表和计数都只能视为下限，不能视为总数。
 
 <Note>
-浏览列表并据此下结论之前，请先读页脚。`Showing 500 of 4,120` 表示列表只是最近的一个切片，而每个 chip 和指标卡仍反映全部 4,120 个条目。
+浏览列表并据此下结论之前，请先读页脚。`Showing 500 of 4,120 entries` 表示列表只是最近的一个切片，而各判定的计数仍反映全部 4,120 个条目。
 </Note>
 
 ### 每个条目的操作
 
-每个条目都显示判定 badge（`Blocked`、`Allowed` 或 `Error`）、智能体 badge、rule ID chip、相对时间戳，以及把原始日志条目复制为 JSON 的按钮。过长的命令会被折叠，并提供 Show more 开关。复制出来的是原始审计记录，字段说明见[审计日志](/zh-Hans/reference/audit-log#record-schema)。
+每一行显示时间、判定 badge（`Blocked`、`Allowed` 或 `Error`）、智能体、命令和 rule ID。选择某一行即可展开。展开后，如果命令在行内被截断，会先显示完整命令，然后是操作按钮，再往下是适用的详情行：`Full command`（匹配到的片段与完整命令不同时）、`Reason`、`Rule`、`Folder` 和 `Time`。内置 rule ID 链接到保护视图中的对应规则，`custom.*` rule ID 链接到自定义规则视图中的对应规则。
 
-被拒绝的条目提供**报告误报**，点击会打开一个对话框，准备一份预填好的**公开** GitHub issue。继续之前，命令和日志条目都可以编辑；项目路径会被替换为 `<project>`，主目录被替换为 `~`；在你自己到 GitHub 上提交之前，不会提交任何内容。
+- 被阻止的条目（包括错误）提供 **Report false positive**，见下一节。
+- 被允许的条目提供 **Block this in future**。它会打开自定义规则视图，并把该命令预填到 `What should be blocked?` 输入框中，但不会自行创建规则。参见下文[自定义规则](#custom-rules)。
+- 每个条目都提供 **Copy log entry**，把原始审计记录复制为 JSON。字段说明见[审计日志](/zh-Hans/reference/audit-log#record-schema)。
 
-被允许的条目提供**今后阻止此命令**操作。它会把命令预填到规则视图的 prompt composer 中，但不会创建规则。参见下文[规则](#规则)。
+### 报告误报
 
-## 策略
+**Report false positive** 会打开 `Report a false positive` 对话框，用项目的误报表单准备一份**公开**的 GitHub issue。每个字段都可以编辑：
 
-策略视图用于选择 CC Safety Net 应阻止的内容。此视图中的所有内容都是**内置**保护：安全预设、破坏性命令规则，以及 CC Safety Net 自带的机密保护模式。自定义 rulebook 属于独立机制，不在此处编辑。
+- `Why should it have been allowed? (optional)`：留空则不发送。
+- `Title`：预填为 <code>{'[False Positive]: <rule-id> blocked \u0060<command>\u0060'}</code>。其中的命令部分取被阻止片段的第一行，最长 80 个字符。
+- `Blocked command`：完整命令。
+- `Audit log entry`：JSON 格式的条目。
 
-此视图写入文件的完整字段约定见[策略](/zh-Hans/configuration/policy)。
+填入字段之前，对话框会把项目路径替换为 `<project>`，把主目录替换为 `~`。其他路径和名称会保留，不想公开的内容请自行修改。`Open GitHub form` 会在新标签页中打开已填好这些字段的 issue 表单。在你自己到 GitHub 上提交之前，不会提交任何内容。
+
+预填后的地址超过 8,000 个字符时，对话框会从最长的字段开始逐个省略，直到地址长度符合要求，并把省略的字段复制到剪贴板。`Report too long to prefill` 提示会说明需要粘贴到表单中的字段；剪贴板不可用时，提示会说明哪个字段被省略了。
+
+## 保护
+
+保护视图用于选择 CC Safety Net 应阻止的内容，地址为 `#policy`。此视图中的所有内容都是**内置**保护：安全预设、破坏性命令规则，以及 CC Safety Net 自带的机密保护模式。自定义 rulebook 属于独立机制，不在此处编辑。
+
+视图顶部有 `My policy` 和 `Project policy` 两个按钮，用于选择要编辑的策略，另有一个 `Test a command` 按钮。此视图写入文件的完整字段约定见[策略](/zh-Hans/configuration/policy)。
 
 ### 已保存与未保存
 
 编辑会累积到草稿中，只有保存时才生效。
 
-- 草稿与磁盘内容不一致时，策略视图会出现保存栏，带有**丢弃**和**保存**两个按钮。
-- 其他每个视图的顶栏都会出现 `Unsaved policy changes · Review` chip，点击即跳转到这里。
-- 在同一浏览器会话内重新加载页面，草稿依然保留；保存、丢弃、修复或重置都会清除它。
+- 草稿与磁盘内容不一致时会出现保存栏。保存栏以 `N unsaved changes` 显示更改数量，列出最多三项更改，并提供 **Discard** 和 **Save** 两个按钮。
+- 无论位于哪个视图，侧边栏中保护视图的链接都会显示 `Unsaved`。
+- 在同一浏览器会话内重新加载页面，草稿依然保留，页面会提示 `Restored your unsaved changes`。保存、丢弃、修复或重置都会清除它。
 - 带着未保存的更改离开页面时，会先弹出提示。
 
-保存操作会写入策略文件，并报告路径。磁盘上的策略存在错误时，表单控件显示内置默认值，不显示运行时从文件中保留的有效值。只有原始 JSON 镜像仍显示文件内容。此时保存会被拒绝，并提示 `Repair policy before saving changes.`，以免默认值覆盖文件。请先修复，再保存。修复后，表单会重新加载保留下来的设置。
+保存操作会写入策略文件，并报告路径。磁盘上的策略存在错误时，仪表板会切换到保护视图。此时表单控件显示内置默认值，不显示运行时从文件中保留的有效值；只有 Policy JSON 卡片仍显示文件内容。这种状态下 **Save** 不可用，因此默认值不会覆盖文件。请先修复策略。修复后，表单会重新加载保留下来的设置。
 
 <span id="draft-a-project-policy"></span>
 
 ### 起草项目策略
 
-视图顶部的 `Draft project policy` 会把整个策略视图切换为项目文件的草稿。草稿栏列出写入路径，并说明这个文件遵循的规则：`Only the fields you mark are written here; everything else keeps inheriting from each member's own policy.` `Exit draft` 返回编辑你自己的策略。在提供原生目录选择器的环境中会出现 `Change…`，确认后丢弃当前草稿并改用另一个目录。在你改动之前，目标就是仪表板的启动目录。
+视图顶部的 `Project policy` 会把整个保护视图切换为项目文件的草稿。项目草稿以已保存的策略为起点，因此有未保存的更改时，仪表板会先询问是否丢弃（`Discard unsaved changes?`）。草稿栏显示 `Editing the project policy` 和写入路径，并说明这个文件遵循的规则：`Only settings tagged Project are written. Everything else keeps following each person's own policy. Click a Project tag to stop setting that field.`
 
-**标记与继承。** 每个控件都会带上一个 chip，说明它显示的值来自哪里。`Inherited` 表示该字段不写入项目文件，每位成员继续使用自己的值。`Set by project` 表示草稿会写入该字段，点击这个 chip 即可退回继承。编辑控件就会标记它对应的字段。被标记的路径列表只显示项目自己的条目，因此刚标记时是空的，不会把你的个人路径发布到仓库里。
+`My policy` 返回编辑你自己的策略；草稿有更改时会先确认。在提供原生目录选择器的环境中会出现 `Change folder…`，确认后丢弃当前草稿并改用另一个目录。在你改动之前，目标就是仪表板的启动目录。
 
-**复核并应用。** **Save** 变成 **Review & apply**。点击后向服务器请求差异，并打开 `Apply this project policy?` 对话框，其中给出写入路径，以及一张按 `Setting` / `Now` / `After` 排列的生效策略前后对照表；某一侧没有该字段时显示 `(unset)`。没有差异时，表格位置显示 `No change to the effective policy.`。表格下方逐条列出草稿相对用户策略削弱的字段，措辞与[策略](/zh-Hans/configuration/policy#reported-weakenings)中记载的一致；磁盘上已有的文件无法读取时，还会加上 `The existing project policy file is invalid and will be replaced.`。表格和警告都不考虑 `CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY`，显示的是未设置该开关的成员得到的结果。默认获得焦点的是 Cancel。
+**标记与继承。** 每个控件都会带上一个标签，说明它显示的值来自哪里。`Inherited` 表示该字段不写入项目文件，每位成员继续使用自己的值。`Project` 表示草稿会写入该字段，点击这个标签即可退回继承。编辑控件就会标记它对应的字段。在草稿中点击某条规则的 `Reset`，同样会让该规则退回继承。被标记的路径列表只显示项目自己的条目，因此刚标记时是空的，不会把你的个人路径发布到仓库里。
 
-差异加载期间修改表单，应用会被拒绝并提示 `Error: the draft changed while the review was loading. Review it again.`，需要重新复核一次。如果另一个标签页改动了项目目录，草稿会按新目标重新加载，并要求你在应用前再复核一遍。
+**复核并应用。** **Save** 变成 **Review and apply**。点击后向服务器请求差异，并打开 `Apply this project policy?` 对话框，其中说明 `Everyone who works in this project gets these settings on top of their own policy.`，给出写入路径，以及一张按 `Setting` / `Now` / `After` 排列的生效策略前后对照表；某一侧没有该字段时显示 `(unset)`。没有差异时，表格位置显示 `No change to the effective policy.`。表格下方逐条列出草稿相对用户策略削弱的字段，措辞与[策略](/zh-Hans/configuration/policy#reported-weakenings)中记载的一致；磁盘上已有的文件无法读取时，还会加上 `The existing project policy file is invalid and will be replaced.`。表格和警告都不考虑 `CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY`，显示的是未设置该开关的成员得到的结果。点击 `Apply project policy` 才会写入文件。默认获得焦点的是 Cancel。
 
-**草稿无法启动的情况。** 用户策略有错误时，运行时会退回到保护性默认值；以这些值为基础起草，会让默认值看起来像团队继承的基线。因此仪表板拒绝起草，并连同诊断信息提示 `Error: repair your user policy before drafting a project policy.`。项目文件存在但读不出来则是另一回事：草稿从空白开始，并把该文件的诊断信息显示在表单上方。
+在草稿中点击 **Discard**，确认后草稿会回到项目文件现有的设置。
 
-**目标是用户配置目录的情况。** 从存放用户 `.cc-safety-net/` 的目录启动时，草稿要写入的就是你的用户策略。草稿仍会打开，`Change…` 依然可用，但草稿栏会显示一行诊断信息，所有控件都显示 `Inherited`，复核和应用都以同一段文字失败：
+差异加载期间修改表单，需要重新复核一次，页面会提示 `Review again` 和 `The draft changed while the review was loading.`。如果另一个标签页改动了项目目录，草稿会按新目标重新加载并提示 `The project folder changed`，要求你在应用前再复核一遍。
+
+**草稿无法启动的情况。** 用户策略有错误时，运行时会退回到保护性默认值；以这些值为基础起草，会让默认值看起来像团队继承的基线。因此仪表板拒绝起草，并提示 `Repair your policy first`。如果是服务器发现了错误，提示还会附带 `Your own policy file must be repaired before you can edit a project policy.` 和诊断信息。项目文件存在但读不出来则是另一回事：草稿从空白开始，并把该文件的诊断信息显示在表单上方。
+
+**目标是用户配置目录的情况。** 从存放用户 `.cc-safety-net/` 的目录启动时，草稿要写入的就是你的用户策略。草稿仍会打开，`Change folder…` 依然可用，但草稿栏下方会显示一行诊断信息，所有控件都显示 `Inherited`，复核和应用都以同一段文字失败：
 
 ```text
 <dir>/.cc-safety-net/policy.json is the user policy, not a project policy; choose a project directory, or run the GUI from one
 ```
 
-`Review & apply` 会把它报告为 `Review failed`。用 `Change…` 选一个项目目录，草稿就能正常读取。如果另一个标签页改动了项目目录，上文所述的草稿重新加载仍然优先。这指的是哪个目录，以及该比较如何解析 `CC_SAFETY_NET_HOME` 和通过符号链接到达的主目录，见[策略](/zh-Hans/configuration/policy#the-user-config-directory-is-not-a-project)。
+`Review and apply` 会把它报告为 `Review failed`。用 `Change folder…` 选一个项目目录，草稿就能正常读取。如果另一个标签页改动了项目目录，上文所述的草稿重新加载仍然优先。这指的是哪个目录，以及该比较如何解析 `CC_SAFETY_NET_HOME` 和通过符号链接到达的主目录，见[策略](/zh-Hans/configuration/policy#the-user-config-directory-is-not-a-project)。
 
 **与 CLI 相同的保证。** 这份草稿就是表单形式的 `cc-safety-net policy check` 和 `cc-safety-net policy apply`。它写入同样稀疏的文件，针对同一份运行时用户基线计算差异，在你确认之前不写入任何内容。文件约定和两个范围的合并规则见[策略](/zh-Hans/configuration/policy#project-policy)。
 
@@ -177,91 +237,108 @@ cc-safety-net gui --no-open
 
 ### 测试命令
 
-把 shell 命令粘贴到**测试命令**中，就能看到它是否会被阻止。测试基于你**当前未保存的编辑**进行评估，因此可以先验证改动，再决定是否采用。
+`Test a command` 会打开一个对话框。输入 shell 命令并点击 `Test`，就能看到它是否会被阻止。命令不会被执行。测试基于你**当前未保存的编辑**进行评估，因此可以在保存前验证改动的效果。
 
-在项目草稿中，测试评估的是运行时真正会加载的内容，也就是继承的基线叠加草稿标记的字段。路径列表按你自己的条目与草稿条目的并集处理，因为加载器也是这样合并的。此视图的保护状态和每条规则的状态行使用同一份评估结果，所以被标记的路径列表在界面上显示为空，并不会把你自己的路径说成没有保护。
+会被阻止时，结果显示 `Blocked`、rule ID 和原因；对于复合命令，还会指出被阻止的部分。不会被阻止时，结果显示 `Allowed. No rule blocks this command.`，并提供 `Create a rule to block it` 链接，打开自定义规则视图并预填该命令。结果中的 rule ID 链接到保护视图或自定义规则视图中的对应规则。
+
+在项目草稿中，测试评估的是运行时真正会加载的内容，也就是继承的基线叠加草稿标记的字段。路径列表按你自己的条目与草稿条目的并集处理，因为加载器也是这样合并的。此视图的保护摘要和每条规则的注记使用同一份评估结果，所以被标记的路径列表在界面上显示为空，并不会让你自己的路径看起来没有受到保护。
 
 测试同样会执行从磁盘加载的自定义 rulebook 规则，尽管 rulebook 无法在仪表板中编辑。把它当作真实判定的预览，而不只是内置层的预览。要在终端里做同样的分析，参见 [`explain`](/zh-Hans/reference/cli-commands#explain)。
 
 ### 安全预设
 
-此视图提供三个安全预设，界面标签为 **Standard**、**Strict** 和 **Paranoid**。它们是工作区后续自定义所继承的默认值，严格程度逐级提高。各预设和能力的准确变化以[模式](/zh-Hans/configuration/modes)为准。
+此视图以卡片形式提供三个安全预设：**Standard**、**Strict** 和 **Paranoid**。每个预设都包含前一个预设的全部内容，并提供可自定义的继承默认值。override 偏离预设时，标题旁会显示 `<Preset>, customized`。各预设和能力的准确变化以[模式](/zh-Hans/configuration/modes)为准。
 
-此处会列出提高保护强度的环境变量，用于解释界面级别与实际行为的差异。默认折叠的 **Advanced overrides** 区域显示预设解析出的各项能力，包括 fail closed、paranoid `rm -rf` 检查和 paranoid 解释器。你可以单独调整某项能力，不必更改预设。工作流例外与安全级别分开配置。
+有环境变量提高保护强度时，此处会显示 `An environment variable raises protection beyond these settings:`，后跟变量名，用于解释实际行为为何比界面上的预设更严格。
 
-### 破坏性命令保护
+默认折叠的 **Advanced settings** 卡片为每项能力提供一个选择器：`Fail closed`、`Paranoid rm -rf checks` 和 `Paranoid interpreters`。每个选择器提供 `From preset (on)` 或 `From preset (off)`、`Always on`、`Always off`，因此可以单独调整某项能力，不必更改预设。同一张卡片中还有工作流开关 `Allow discarding local changes in linked git worktrees`，它只放宽 linked worktree 内的丢弃检查。
 
-这里有一个 master switch，其下的规则分为四个可折叠 tier：
+### 搜索保护
 
-| Tier | 子标签 |
+保护面板上方的搜索框显示 `Type / to search by name, path or rule ID`。它匹配规则名称、rule ID、描述、类别，以及机密规则保护的路径。在保护视图中任意位置按 `/` 即可聚焦搜索框，但正在输入框中输入或有对话框打开时除外。
+
+`All` 和 `Changed from default` 决定显示哪些规则。`Changed from default` 显示一个计数，列出带有你的 override 的规则，以及值由 Advanced settings 或环境变量决定的命令规则。
+
+规则分组默认折叠。搜索或选择 `Changed from default` 时，所有含匹配项的分组都会展开。
+
+### 命令保护
+
+**Command protection** 面板包含内置的破坏性命令规则。面板标题中有 master switch、`Reset all` 按钮，以及形如 `N on · N off · N always on` 的摘要。
+
+规则分组显示。排在最前的 `Always on` 组列出灾难性规则，计数显示为 `N rules · can't be turned off`，这些规则显示锁形图标而不是开关。之后按规则类别分组，例如 `Git` 和 `Filesystem`。每个组标题显示规则数，有规则关闭时追加 `N off`。
+
+每条规则所在行显示开关、规则名称、rule ID 和描述。需要某个预设能力的规则带有 `Strict` 或 `Paranoid` badge。信息按钮会弹出该规则所阻止命令的示例。规则的值不是直接来自预设时，注记会说明原因：
+
+| 注记 | 含义 |
 | --- | --- |
-| **始终执行** | 无法被任何预设、规则 override 或允许路径禁用 |
-| **每个预设中都可用** | 无需额外能力 |
-| **Strict tier** | 继承自 Fail closed |
-| **Paranoid tier** | 继承自 Paranoid rm 或 Paranoid 解释器 |
+| `Changed by you` | 你的 override 决定了该规则。旁边的 `Reset` 可删除 override |
+| `<Capability> forced on in Advanced` 或 `<Capability> forced off in Advanced` | 规则的值由 Advanced settings 中的设置决定 |
+| `Set by environment: <variable>` | 环境变量开启了该规则 |
+| `Needs the Strict preset` 或 `Needs the Paranoid preset` | 当前预设不包含该规则所需的能力，因此规则处于关闭状态 |
 
-所有 tier 默认折叠。在策略视图中搜索时，含匹配项的 tier 会自动展开。**始终执行** tier 没有开关，也没有单条规则的复选框。它的标题把规则数显示为 `N protections`，每条规则都标记为 `Always enforced`，并带一个 `?` 示例弹窗。
+切换规则会存储显式 `on` 或 `off` override。把规则恢复为继承值时会**删除** override，而不是存储冗余值。规则上的 `Reset` 会直接完成此操作。`Reset all` 在确认后清除面板中的所有 override；没有任何 override 时，提示 `Nothing to reset: every rule already uses its default`。
 
-三个可配置 tier 会在标题中显示 `N on · N off` 计数，旁边是标记为 `All <tier> protections` 的 tier 开关。只要该 tier 中至少有一条规则处于开启状态，开关就是选中的。master switch 关闭时，tier 开关会被禁用。拨动它会批量写入与单条复选框相同的 per-rule override。最终与继承值一致的规则不会保留 override，因此没有单独保存的分组设置。
-
-master switch 开启时，面板摘要显示 `N active, N disabled`。关闭后，摘要改为 `Configurable protection disabled. Catastrophic protections remain active; saved rule settings and allow paths are preserved.`。始终执行 tier 仍会继续阻止。
-
-每张可配置规则卡片都有 `?` 弹窗，其中给出该规则阻止的具体命令示例。状态行说明当前值的来源。例如，<code>{'Off \u2014 destructive-command protection disabled'}</code> 表示 master switch 优先于你的 override。
-
-切换规则会存储显式 `on` 或 `off` override。把规则恢复为继承值时会**删除** override，而不是存储冗余值。每条规则还提供 `Use inherited setting` 直接完成此操作。面板标题中的 `Restore defaults` 会一次清除所有 override。
-
-**允许路径**也在此面板中。指向列表内路径的递归删除不会被阻止，这正是 `/tmp` 可用的原因。条目必须是绝对路径或以 `~/` 开头的目录，主目录会被拒绝。完整的校验表见[允许路径](/zh-Hans/configuration/policy#allow-paths)。允许路径放宽和保留的规则见[允许的命令](/zh-Hans/reference/allowed-commands#configured-allow-paths)。
+关闭 master switch 后，摘要改为 `Off. Built-in rules are not enforced; catastrophic and custom rules still apply. Your rule settings are kept.`。`Always on` 组仍会继续阻止。
 
 <span id="secret-protection"></span>
 
 ### 机密保护
 
-此区域包含 master switch 和按类别分组的 per-pattern 复选框，范围从默认敏感路径（主目录路径、凭证 basename、扩展名和变体）到 **Coding CLI credential** 和 **Coding CLI config** 位置。每个组标题是可折叠按钮，显示 `N on · N off`；旁边的组开关标记为 `All <category> protections`。它与破坏性规则 tier 开关行为相同：组内任一规则开启时即为选中，master switch 关闭时禁用，并批量写入 per-rule override。组默认折叠，在策略搜索期间会自动展开。
+**Secret protection** 面板包含 master switch、`Reset all` 按钮，以及形如 `N on · N off` 的摘要。规则按类别分为 `Sensitive file names`、`Sensitive file name patterns`、`Sensitive home folders`、`Key file name variants`、`Sensitive file extensions`、`Sensitive extension patterns`、`Coding agent credentials` 和 `Coding agent settings` 几组。每个组标题显示规则数，组内只有部分规则关闭时追加 `N off`，并带有一个控制整组的开关。组内任一规则开启时，组开关即为开启；master switch 关闭时，组开关被禁用。组开关写入的是逐条规则的 override。
 
-保护具体文件路径的规则带有 `?` 按钮，点击可打开**受保护的路径**弹窗，其中准确列出该规则覆盖了哪些路径。
+保护具体文件路径的规则带有信息按钮，点击可打开 `Protected paths` 弹窗，其中准确列出该规则覆盖了哪些路径。
 
-并非所有规则都默认开启。**Coding CLI config** 规则出厂时为**关闭**。settings 和 MCP 配置文件内嵌了凭证，但智能体也会在日常工作中编辑它们，因此需要逐条主动开启。只有当复选框状态偏离规则默认值时，系统才会存储 override。勾选一条默认关闭的规则会写入 `on` override，取消勾选则删除该 override。对默认开启的规则，取消勾选会写入 `off`，重新勾选则删除 override。
+并非所有规则都默认开启。`Coding agent settings` 组的规则（即 Coding CLI config 规则）出厂时为**关闭**，并显示 `Off by default`。settings 和 MCP 配置文件可能包含凭证，但智能体也会在日常工作中编辑它们，因此需要逐条主动开启。只有当开关状态偏离规则默认值时，才会存储 override。开启一条默认关闭的规则会写入 `on` override，再次关闭则删除该 override。对默认开启的规则，关闭会写入 `off`，重新开启则删除 override。带 override 的规则显示 `Changed by you` 和 `Reset` 按钮。
 
-master switch 开启时，面板摘要显示 `N active, N disabled`。关闭时显示 `Protection disabled. Saved rule settings and deny paths are preserved.` 已保存的机密允许路径同样保留在草稿中。
+关闭 master switch 后，摘要改为 `Off. Sensitive files and deny paths are not blocked. Your rule settings and paths are kept.`。
 
-**拒绝路径**也在此面板中。机密保护开启时，配置的路径及其下的所有内容都会被阻止。拒绝路径依赖 master switch。关闭机密保护后，系统不再执行这些拒绝路径。可接受的条目形式见[拒绝路径](/zh-Hans/configuration/policy#deny-paths)。
+### 例外和额外路径
 
-**允许路径**同样在此面板中。可以让某个具体文件或目录树免于内置的模式规则，但拒绝路径和 Coding CLI 保护仍然适用。每个新增条目在进入草稿前都会经过仪表板校验：glob 模式、覆盖主目录的路径以及防护自身的配置都会被拒绝。完整的优先级和校验规则见[机密允许路径](/zh-Hans/configuration/policy#secret-allow-paths)。
+**Exceptions and extra paths** 面板包含三个路径列表。条目可以是绝对路径，也可以以 `~/` 开头；主目录本身或其上级文件夹会被拒绝。粘贴多行内容即可一次添加多个条目。
+
+| 列表 | 策略字段 | 作用 |
+| --- | --- | --- |
+| `Allow recursive deletes in` | `destructive_command_protection.allow_paths` | 这些路径内的递归删除不会被阻止，`/tmp` 下的临时目录正是靠它才能正常使用。命令保护关闭期间，该列表不可编辑 |
+| `Always block access to` | `secret_protection.deny_paths` | 机密保护开启时，这些路径及其下的所有内容都会被阻止 |
+| `Exempt from secret patterns` | `secret_protection.allow_paths` | 让文件、目录，或某个目录下的某一个文件名（例如 `~/code/**/.env.local`）免于内置的模式规则。拒绝路径和编码智能体凭证的保护仍然适用 |
+
+机密保护关闭期间，拒绝路径列表和豁免列表不可编辑。每个新增条目在进入草稿前都会经过仪表板校验。被拒绝的条目显示 `Not added: <paths>. <reason>`，已在列表中的条目显示 `Already listed: <paths>`。
+
+允许路径放宽和不放宽的范围见[允许路径](/zh-Hans/configuration/policy#allow-paths)和[允许的命令](/zh-Hans/reference/allowed-commands#configured-allow-paths)，可接受的条目形式见[拒绝路径](/zh-Hans/configuration/policy#deny-paths)，优先级和校验规则见[机密允许路径](/zh-Hans/configuration/policy#secret-allow-paths)。
 
 ### 策略 JSON
 
-**Policy JSON** 面板位于此视图底部，是带复制按钮的只读镜像，不是第二个编辑器。面板副标题说明你看到的是什么。
+**Policy JSON** 卡片位于此视图底部，默认折叠。它是带 `Copy` 按钮的只读镜像，不是第二个编辑器。卡片副标题说明你看到的是什么：
 
 | 副标题 | 文本框中的内容 |
 | --- | --- |
-| `Read-only mirror of the controls.` | 表单将要保存的用户策略 |
-| `Read-only original policy JSON. Repair preserves valid settings and writes canonical JSON.` | 策略有错误期间，磁盘上文件的原样内容 |
-| `Only the fields marked for this project. Writes to <path>.` | 项目应用将要写入的那份稀疏文件 |
+| `Read-only. Mirrors the settings above.` | 表单将要保存的用户策略 |
+| `The file as it is on disk.` | 策略文件有错误期间，文件的原样内容 |
+| `Only the fields set by this project. Written to <path>.` | 项目应用将要写入的那份稀疏文件 |
 
 ### 要求确认的操作
 
-单条规则的开关、预设变更以及添加或删除路径都会暂存在草稿中，由**保存**统一提交，因此不会单独确认。仪表板只对降低保护强度或丢弃配置的操作弹出模态确认：
+单条规则的开关、预设变更以及添加或删除路径都会暂存在草稿中，由 **Save** 统一提交，因此不会单独确认。仪表板只对降低保护强度或丢弃配置的操作弹出模态确认：
 
-| 操作 | 确认对话框告诉你什么 |
-| --- | --- |
-| 关闭破坏性命令保护 | 可配置的内置破坏性 Git、文件系统和执行保护将停止阻止，直到你重新开启此设置。始终执行的保护和自定义规则仍然有效。 |
-| 关闭机密保护 | 默认敏感路径、Coding CLI credential 位置和拒绝路径将停止阻止访问，直到你重新开启。 |
-| 恢复破坏性规则默认值 | 所有内置破坏性命令规则都将恢复为其继承的预设设置。 |
-| 恢复机密规则默认值 | 所有内置机密规则都将恢复为其继承的预设设置。 |
-| 丢弃未保存的更改 | 自上次保存以来的所有更改都将被撤销。 |
-| 修复策略 | 写入规范化的策略 JSON；保留有效设置，丢弃无效字段。 |
-| 重置策略 | 在配置的路径上恢复默认策略 JSON。 |
-| 缩短保留期 | 早于新窗口的审计条目将在下次清理时删除，且无法恢复。 |
+| 操作 | 对话框标题 | 对话框告诉你什么 |
+| --- | --- | --- |
+| 关闭命令保护 | `Turn off command protection?` | 内置的破坏性 git、文件系统和执行规则将停止阻止命令，直到你重新开启。灾难性规则和自定义规则仍然有效。 |
+| 关闭机密保护 | `Turn off secret protection?` | 敏感文件、编码智能体凭证和拒绝路径将不再被阻止，直到你重新开启。 |
+| 在保护面板上点击 `Reset all` | `Reset every rule to its default?` | 所有命令规则（或所有机密规则）都恢复为其预设给出的设置。保存前仍可丢弃。 |
+| 丢弃未保存的更改 | `Discard unsaved changes?` | 自上次保存以来的所有更改都将被撤销。 |
+| 修复 | `Repair your policy file?` | 保留有效设置，丢弃无效设置。JSON 完全无法读取时恢复默认值。 |
+| 重置策略（设置视图） | `Reset your policy?` | 策略文件将被替换为默认值，所有自定义都会丢失。 |
+| 缩短保留期（设置视图） | `Keep logs for only N days?` | 早于 N 天的日志条目将在下次清理时删除，且无法恢复。 |
 
 在上述每个对话框中，取消都是默认焦点。
 
 <Warning>
-关闭破坏性命令保护或机密保护后，该层中的所有可配置规则都会停止阻止，直到重新开启。只有始终执行的破坏性规则 tier 会继续阻止。应优先使用单项规则 override 或较低的预设，而不是关闭 master switch。
+关闭命令保护或机密保护后，该层中的所有可配置规则都会停止阻止，直到重新开启。只有 `Always on` 组的命令规则会继续阻止。应优先使用单项规则 override 或较低的预设，而不是关闭 master switch。
 </Warning>
 
 ### 修复
 
-磁盘上的策略文件存在错误时，此视图会显示**策略修复可用**横幅和一个 `Repair` 按钮。修复会写入规范化的 JSON，保留所有有效设置并丢弃无效字段。如果 JSON 完全无法解析，则改为恢复默认值。加载的策略没有错误时，该按钮不起作用。
+磁盘上的策略文件存在错误时，保护视图会显示 `Your policy file needs repair`、错误内容和一个 `Repair` 按钮。修复会写入规范化的 JSON，保留所有有效设置并丢弃无效字段。如果 JSON 完全无法解析，则改为恢复默认值。
 
 <Warning>
 修复会丢弃无效字段，并在文件无法解析时回退到默认值。如果文件中有你在意的手写配置，请先备份到安全的地方，再执行修复。
@@ -269,78 +346,96 @@ master switch 开启时，面板摘要显示 `N active, N disabled`。关闭时�
 
 ### 重置
 
-重置有意**不**放在此视图，而是位于设置视图的危险区域中。
+重置有意**不**放在此视图，而是位于设置视图的 Danger zone 中。
 
-## 规则
+<span id="custom-rules"></span>
 
-规则视图显示你编写的自定义 rulebook，与策略视图中的内置保护不同。rulebook 的格式、范围、override 和校验方式见[自定义规则](/zh-Hans/configuration/custom-rules)，本页不再重述。
+## 自定义规则
+
+自定义规则视图显示你编写的自定义 rulebook，地址为 `#rules`，与保护视图中的内置保护不同。rulebook 的格式、范围、override 和校验方式见[自定义规则](/zh-Hans/configuration/custom-rules)。
 
 <Warning>
-规则视图**不是** rulebook 编辑器。CC Safety Net 绝不会从仪表板写入 rulebook。此视图以只读方式显示实际执行的规则，并生成 prompt 文本，供你复制给负责编写规则的编码智能体。
+自定义规则视图**不是** rulebook 编辑器。CC Safety Net 绝不会从仪表板写入 rulebook。此视图以只读方式显示实际执行的规则，并生成 prompt 文本，供你复制给负责编写规则的编码智能体。
 </Warning>
 
-### Rulebook 面板（只读）
+### Rulebook 列表（只读）
 
-每张 rulebook 卡片显示名称、版本 badge、与名称不同时显示的 source spec、范围（`All projects` 或 `This project`）以及规则数量。
+每个 rulebook 显示名称、`v<version>` badge、范围（`All projects` 或 `This project`）和规则数量；source spec 与名称不同时也会显示。每条规则显示它匹配的命令和子命令、`custom.<name>` 形式的 ID、原因，以及在 `Blocks when any of these arguments is present:` 之后列出的触发参数。
 
-列表显示 **override 生效后实际执行的规则**。被 override 禁用的规则仍属于原 rulebook，也仍在文件清单中，但不会显示在列表里。因此，这里展示的是生效后的 rulebook，不是原始文件内容。刷新按钮会重新读取磁盘。
+列表显示 **override 生效后实际执行的规则**。被 override 禁用的规则仍属于原 rulebook，但不会显示在列表里。因此，这里展示的是生效后的 rulebook，不是原始文件内容。刷新图标（`Refresh custom rules`）会重新读取文件。
 
-没有配置任何 rulebook 时，面板会指引你运行 `cc-safety-net rule init`。若已有 rulebook 但全部被丢弃，面板会说明这一点，并把你引向诊断面板。
+没有配置任何 rulebook 时，列表显示 `No custom rules yet.`，并指引你使用 `Create a rule` 或运行 `npx -y cc-safety-net rule init`。若已有 rulebook 但全部被丢弃，则显示 `Every rulebook was skipped because of errors, so no custom rule is enforced. See Problems above.`
 
-### 诊断
+打开指向 `#rules?focus=custom.<name>` 的链接（例如概览或活动视图中的自定义 rule ID）时，页面会高亮该规则并滚动到它。没有任何 rulebook 包含该规则时，页面提示 `custom.<name> is not in any rulebook`。
 
-没有问题时，诊断面板会隐藏。面板出现时，其中的错误表示某个 rulebook 已被**丢弃**，其规则未执行。你编写的规则未触发时，应先检查这里。
+### Problems
 
-### Prompt composer（仅复制）
+没有问题时，**Problems** 区域会隐藏。区域出现时，其中的错误表示某个 rulebook 已被**跳过**，其规则全部未执行。你编写的规则未触发时，应先检查这里。
 
-Composer 为编码智能体构建 prompt。唯一操作是**复制 prompt**。此视图中没有创建、保存或写入控件，服务器也没有写入 rulebook 的路由。
+### Create a rule（仅复制）
+
+**Create a rule** 区域为编码智能体构建 prompt。唯一操作是 **Copy prompt**。此视图中没有创建、保存或写入控件，服务器也没有写入 rulebook 的路由。
 
 输入：
 
-- **范围**：`Project` 或 `All projects`。
-- **项目路径**：仅在项目范围下显示，默认预填仪表板的启动目录。在提供原生目录选择器的环境中，该字段为只读，并配有 `Choose…` 按钮；运行时没有可用选择器时，该字段改为可编辑。
-- **请求**：描述你想要的规则。规则匹配的是命令、它的子命令路径和精确参数，而不是文件路径或模式。
-- **示例**：一键填入的起始文案，分别用于建议规则、阻止命令和校验现有规则。
+- **Applies to**：`This project` 或 `All projects`。
+- **Project folder**：仅在选择 `This project` 时显示，默认预填仪表板的启动目录。路径较长时显示末尾部分，鼠标悬停可查看完整路径。在提供原生目录选择器的环境中，该字段为只读，并配有 `Choose…` 按钮；选择器不可用时，该字段改为可编辑。
+- **What should be blocked?**：描述你想要的规则。规则匹配的是命令、它的子命令和精确参数，而不是文件路径或模式。
+- **Try**：一键填入的起始文案，包括 `Suggest rules`、`Block a command` 和 `Verify rules`。
 
-生成的 prompt 会要求智能体使用 `cc-safety-net` skill；该 skill 不可用时，先运行 `npx -y cc-safety-net rule doc`，并以其输出作为 schema、路径和校验的准绳。prompt 包含范围、项目路径和现有 rulebook 名称，帮助智能体选择未占用的名称。它**只**包含 rulebook 名称。规则名称、被阻止的参数、原因和版本不会随 prompt 离开你的机器。
+生成的 prompt 会要求智能体使用 `cc-safety-net` skill；该 skill 不可用时，先运行 `npx -y cc-safety-net rule doc`，并以其输出作为 schema、路径和校验的准绳。prompt 包含范围、项目路径和现有 rulebook 名称，帮助智能体选择未占用的名称。它**只**包含 rulebook 名称，不包含规则名称、被阻止的参数、原因和版本。
 
-规则尚未加载、请求为空，或选择了项目范围却没有项目路径时，复制会被拒绝，并给出具体的提示信息。
+规则尚未加载（`Rules have not loaded yet`）、请求为空（`Describe what should be blocked first`），或选择了 `This project` 却没有项目目录（`Enter the project folder the rule belongs to`）时，复制会被拒绝。复制成功后，请求输入框会清空，页面提示 `Prompt copied`。
 
-## 集成
+## 智能体
 
-集成视图为本机上的每个编码智能体安装或删除 CC Safety Net hook。**智能体**面板列出检测到的 CLI 及其 hook 状态。每个智能体的连接方式见[集成架构](/zh-Hans/guides/integration-architecture)，GUI 外的等效步骤见[安装](/zh-Hans/installation)。
+智能体视图为本机上的每个编码智能体安装或删除 CC Safety Net hook，地址为 `#integrations`。每个智能体的连接方式见[集成架构](/zh-Hans/guides/integration-architecture)，GUI 外的等效步骤见[安装](/zh-Hans/installation)。
+
+此视图把智能体分为三个列表：
+
+- **Installed**：hook 处于活动状态的智能体。
+- **Detected on this machine**：在本机找到、但 hook 未处于活动状态的智能体。没有任何智能体安装 hook 时，该列表会说明 `No agent has the hook yet. Install it for each agent you use; until then its commands are not checked.`
+- **Not detected on this machine**：未找到的智能体，默认折叠。
+
+每一行显示智能体名称、版本（未找到时为 `Not detected`）、状态和操作：
 
 | 状态 | 含义 | 提供的操作 |
 | --- | --- | --- |
-| **已安装** | hook 已配置且处于活动状态。 | `Uninstall` |
-| **已禁用** | 本机上有该 CLI，但未配置 hook。 | `Enable` |
-| **未检查** | 检测到了该 CLI，但无法读取其状态文件，因此状态未知。 | `Install` |
-| **未安装** | 本机上有该 CLI，但没有 hook。 | `Install` |
-| **未检测到** | 本机上未找到该 CLI。 | 无 |
+| `Hook installed` | hook 已配置且处于活动状态。 | `Uninstall` |
+| `Hook disabled` | 本机上有该智能体，但其 hook 已被禁用。 | `Enable` |
+| `Status unknown: its settings file could not be read` | 找到了该智能体，但无法读取其状态文件。仍会提供安装操作。 | `Install` |
+| 无状态 | 本机上有该智能体，但没有 hook。 | `Install` |
+| 版本列显示 `Not detected` | 本机上未找到该智能体。 | 无 |
 
-`Not inspected` 附带一条 tooltip 说明这一点：`This runtime's state file could not be read, so its status is unknown.` CLI 本身已找到，因此仍会提供安装操作。
+检测结果决定可用操作。未检测到智能体时不会显示按钮，因为没有可安装 hook 的目标。安装和卸载按顺序执行，不会交错。请求执行期间，按钮显示 `Installing…` 或 `Uninstalling…` 并被禁用；完成后，命令输出会显示在该行下方。失败时会报告 `Install failed` 或 `Uninstall failed`，不会静默回退。
 
-检测结果决定可用操作。未检测到 CLI 时不会显示按钮，因为没有可安装 hook 的目标。安装和卸载按顺序执行，不会交错。请求执行期间，按钮会被禁用。失败时会报告 `Install failed` 或 `Uninstall failed`，不会静默回退。
-
-刷新按钮会重新检测每个智能体，适合在安装 CLI 或手动编辑智能体配置后使用。下方的**系统**面板报告 CC Safety Net 版本、Node.js 版本和本机检测到的平台。
+刷新图标（`Refresh agents`）会重新检测每个智能体，适合在安装 CLI 或手动编辑智能体配置后使用。
 
 ## 设置
 
-设置视图涵盖外观、文件位置和维护操作。
+设置视图涵盖外观、审计日志、文件位置、版本信息和重置。
 
-**外观。** 主题控件按 `Auto → Light → Dark` 循环切换。该偏好存储在当前浏览器中，不写入策略。
+**外观。** `Theme` 提供 `Auto`、`Light` 和 `Dark` 三个选项。该偏好保存在当前浏览器中，不写入策略。
 
-**文件。** 只读信息行，显示 CC Safety Net 在本机上的读写位置：策略文件和审计日志目录。有项目策略生效时，两行之间会出现 **Project policy** 行；信息行下方还有一条以 `Merged on top of this file:` 开头的提示，列出这个文件带来的每一处削弱。设置了 `CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY` 时不会合并任何削弱，这条提示也不会出现。
+**审计日志。** `Keep logs for` 设置审计记录保留的天数。可接受的范围、记录内容和清理方式见[审计日志](/zh-Hans/reference/audit-log#retention)。`Log folder` 行显示审计日志目录，并带有 `Copy` 按钮。
 
-**审计日志保留期。** 可接受的天数、记录内容和清理方式见[审计日志](/zh-Hans/reference/audit-log#retention)。与策略视图不同，保留期**一改动就立即保存**，没有保存栏。策略视图存在未保存的更改时，无法保存保留期。你需要先保存或丢弃这些更改。保留期只属于用户范围，因此项目草稿打开期间同样无法保存。磁盘上的策略有错误时，策略保存按钮不可用，但保留期控件仍能保存。此时表单中只有默认值，修改保留期会写入一份除新保留期外全部使用默认值的文档。因此，修改保留期前请先修复策略。
+与保护视图不同，保留期**一改动就立即保存**，没有保存栏。以下情况会拒绝修改，并提示 `Retention unchanged`：
+
+- 策略文件需要修复：`Repair your policy file in Protections first.`
+- 项目草稿处于打开状态（保留期只属于用户范围）：`Apply or leave your project policy draft first.`
+- 保护视图有未保存的更改：`Save or discard your unsaved Protections changes first.`
+
+其他策略写入正在进行时，该字段也会被禁用。超出可接受范围的值会提示 `Enter a whole number of days from 1 to 365.`
 
 <Warning>
-缩短保留期不可逆。早于新窗口的审计条目会在下次清理时删除，且无法恢复。活动视图之后只能回溯到新的保留期。仪表板会在缩短保留期前要求确认，并列出要清理的日志目录。请先导出需要的内容。活动列表中的每个条目都可以复制为 JSON。
+缩短保留期不可逆。早于新窗口的审计条目会在下次清理时删除，且无法恢复。活动视图之后只能回溯到新的保留期。仪表板会在缩短保留期前要求确认，并列出要清理的日志目录。请先导出需要的内容。活动列表中的每个条目都可以用 `Copy log entry` 复制为 JSON。
 </Warning>
 
-**版本。** 一行只读信息，显示当前运行的 CC Safety Net 版本。
+**文件。** 只读信息行，显示 CC Safety Net 在本机上的读写位置。`Policy file` 行显示用户策略路径，文件尚不存在时追加 `(not created yet)`。有项目策略生效时，还会出现 `Project policy` 行。每行的 `Copy` 按钮只复制路径本身。项目策略削弱了你的设置时，信息行下方会出现一条以 `The project policy changes these settings:` 开头的提示，逐条列出每一处削弱。设置了 `CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY` 时不会合并任何削弱，这条提示也不会出现。
 
-**危险区域。** 只有**重置策略**这一项操作。它会在配置的路径上恢复默认策略 JSON。
+**About。** 只读信息行，显示 CC Safety Net 版本、Node.js 版本和本机检测到的平台。
+
+**Danger zone。** 只有 **Reset policy** 这一项操作。它会在配置的路径上恢复默认策略 JSON。项目草稿处于打开状态时不可用（`Reset unavailable`），其他策略写入正在进行时也会被禁用。
 
 <Warning>
 重置会丢弃已保存的配置。所有预设选择、规则 override、允许路径和拒绝路径都会恢复默认，且无法撤销。重置只影响策略文件。自定义 rulebook 是独立文件，不会被改动。

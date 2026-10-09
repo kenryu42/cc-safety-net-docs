@@ -210,6 +210,36 @@ Devin CLI の設定ファイルがパースできても形式が合わない場�
 - `Devin CLI config <path> "hooks" must be an object`
 - `Devin CLI config <path> "hooks.PreToolUse" must be an array`
 
+<span id="cursor-through-the-claude-code-plugin"></span>
+
+### Claude Code プラグイン経由の Cursor
+
+Claude Code プラグインには Cursor 用のプラグインマニフェストが入っているため、Cursor はこのプラグインから CC Safety Net を実行できます。`doctor` は、次の条件をすべて満たす場合にこの経路を数えます。
+
+- Claude Code が `Configured` である。つまり `cc-safety-net@cc-marketplace` がインストール済みで、有効になっている。
+- Claude Code の設定ディレクトリにある `plugins/installed_plugins.json` で、このプラグインの記録にユーザースコープのエントリがあり、`installPath` が入っている。
+- `<installPath>/.cursor-plugin/plugin.json` をパースでき、その `hooks` フィールドが指すファイルが存在する。
+
+Cursor が Claude Code プラグインを実行するのは、Claude Code プラグインをインポートする場合だけです。`doctor` はインポートしているかどうかを確認できないため、以下の 2 つのメッセージはどちらもそのことに触れています。
+
+`install --cursor` の hook も設定されている場合、Cursor の方式は `hook config` のままで、`doctor` は次のように出力します。
+
+```text
+Warning (Cursor): The Claude Code plugin also runs this check in Cursor, so every tool call is checked twice. Cursor runs the Claude Code plugin only while it imports Claude Code plugins, which doctor cannot check. If Cursor runs it, run `cc-safety-net uninstall --cursor` to remove this hook.
+```
+
+`doctor` が hook を自動で削除することはありません。
+
+プラグインが唯一の経路の場合、Cursor は `Detected`、`Configured`、`Verified` になります。`doctor --json` は方式として `Claude Code plugin` を、`configPath` としてマニフェストのパスを報告します。`doctor` の出力は次のとおりです。
+
+```text
+Warning (Cursor): Cursor runs the Claude Code plugin only while it imports Claude Code plugins, which doctor cannot check. If it stops, run `cc-safety-net install --cursor`.
+```
+
+どちらの警告も終了コードには影響しません。この経路が数えられている間は、パースできない `~/.cursor/hooks.json` も警告 `Warning (Cursor): Failed to parse Cursor hooks config <path>: <reason>` として表示され、`Cursor inspection failed` の finding は発生しません。
+
+プラグインだけで保護されている Cursor には、`~/.cursor/hooks.json` に管理対象の hook がありません。[`update`](#update) はこの Cursor をスキップするため、hook を書き戻しません。対話形式のセレクターでは、install 時は `already installed`、uninstall 時は `not installed` と表示されます。`install --cursor` を実行すれば、hook は書き込まれます。
+
 ### ホストごとの設定の場所
 
 設定の場所を移動できるホストがいくつかあります。`doctor` は各ホストと同じ上書きルールに従うため、移動した設定でも見つけられます。
@@ -734,7 +764,7 @@ npx -y cc-safety-net@latest update
 
 TTY で `update` を直接実行すると、インストールバナーを表示する前に検出を開始するため、バナーのアニメーション中にも検出が進みます。バナーの後も検出が続く場合は、`Checking installed integrations…` を表示します。`Enter` を押すとアニメーションをスキップできます。対話型の `install` セレクターで `u` を押して update を開始した場合、すでに表示したバナーを使い、2 つ目のバナーは表示しません。TTY でない場合、バナーとスピナーは表示しません。
 
-ターゲットは、各エージェントの設定ファイルと状態ファイルを読み取って検出します。現在無効な場合でも、インストール済みと検出される連携が対象です。Amp Code は `amp plugins list` の出力によって対象になります。この出力は、`codex plugin list` と同じく 30 秒のタイムアウトで取得します。コールドラン時は checkout をネットワーク経由で更新するため、既定の 5 秒を超えることがあるからです。GitHub Copilot CLI は例外です。Copilot の `installed-plugins` ディレクトリに CC Safety Net プラグインの checkout がある場合だけ対象になります。無効状態と、何もインストールされていない kill-switch 状態を区別できず、update が install になることを防ぐためです。改名前の `safety-net@cc-marketplace` プラグイン ID を使うインストール（Claude Code、Codex、および GitHub Copilot CLI のプラグイン checkout `cc-marketplace/safety-net`）も検出されます。更新時に現在の ID へ移行し、レガシーコピーをベストエフォートで削除します。レガシーコピーの削除に失敗しても、ターゲットは失敗せず警告になります。
+ターゲットは、各エージェントの設定ファイルと状態ファイルを読み取って検出します。現在無効な場合でも、インストール済みと検出される連携が対象です。Amp Code は `amp plugins list` の出力によって対象になります。この出力は、`codex plugin list` と同じく 30 秒のタイムアウトで取得します。コールドラン時は checkout をネットワーク経由で更新するため、既定の 5 秒を超えることがあるからです。GitHub Copilot CLI は例外です。Copilot の `installed-plugins` ディレクトリに CC Safety Net プラグインの checkout がある場合だけ対象になります。無効状態と、何もインストールされていない kill-switch 状態を区別できず、update が install になることを防ぐためです。改名前の `safety-net@cc-marketplace` プラグイン ID を使うインストール（Claude Code、Codex、および GitHub Copilot CLI のプラグイン checkout `cc-marketplace/safety-net`）も検出されます。更新時に現在の ID へ移行し、レガシーコピーをベストエフォートで削除します。レガシーコピーの削除に失敗しても、ターゲットは失敗せず警告になります。`doctor` が [Claude Code プラグイン](#cursor-through-the-claude-code-plugin)経由でしか数えていない Cursor は対象外です。そのため、`update` がこの Cursor に hook を書き込むことはありません。
 
 すべてのターゲットは、1 つの `Updating <n> integration…` または `Updating <n> integrations…` スピナーの後ろで、`install` と同じ操作を並列に実行します。すべてのターゲットが完了した後、レポートを安定したカタログ順でまとめて出力します。メッセージだけが `Updated …` または `… up to date` に変わります。インストール時にエージェント自身の CLI を使うターゲットでは、先にベンダーバイナリを調べます。対象は Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、Hermes Agent、OpenClaw、OpenCode、Pi です。バイナリがない場合は `<Agent> not found; skipped`（例は `Codex not found; skipped`）を出力して処理を続けます。設定ファイルを使うターゲット、つまり Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build、Kimi Code にはバイナリが不要で、常に更新されます。DeepSeek Harness もバイナリは調べません。更新では install を再実行し、プロファイルごとに `dsh` を動かします。デスクトップアプリが起動中の場合は失敗します。Amp Code には別途の検査は不要です。`amp plugins list` がパーソナルプラグインを表示する場合にのみ検出され、その更新は amp CLI を実行して現在の成果物を公開します。Claude Code、Codex、GitHub Copilot CLI では、登録済みのマーケットプレイスをプラグイン処理の前に更新します（例は `claude plugin marketplace update cc-marketplace`）。何もしない `add` に頼らないため、古いカタログ checkout が更新を失敗させることはありません。
 
@@ -806,6 +836,8 @@ Amp Code、DeepSeek Harness、OpenClaw、OpenCode、Pi には、独自の `hook`
 ### Cursor エントリーポイント
 
 `install --cursor` は、コマンド `npx -y cc-safety-net hook --cursor` を `~/.cursor/hooks.json` の `hooks.preToolUse` に書き込みます。`"version": 1` のドキュメントで、30 秒のタイムアウトと `failClosed: true` を設定します。インストーラーはドキュメントのバージョンと形式を検証し、認識できないものを書き換えず、説明付きエラーで失敗します。重複する管理対象エントリは 1 つにまとめられます。
+
+Claude Code プラグインの Cursor 用マニフェストも同じフラグを使い、`node "${CURSOR_PLUGIN_ROOT}/dist/bin/cc-safety-net.js" hook --cursor` を実行します。詳しくは [Cursor のインストール](/ja/installation#cursor-installation)を参照してください。
 
 実行時、hook は Cursor の `Shell` ツール呼び出しを読み取り、`conversation_id` からセッション ID を取得して、`{ "permission": "deny", … }` または `{ "permission": "allow" }` を返します。Cursor の `working_directory` フィールドは、ワークスペースのルート内に収まっているかを検査されます。宣言されているのに値がない場合、またはワークスペースのルートの外を指す場合は fail closed になります。
 

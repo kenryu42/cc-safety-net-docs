@@ -16,7 +16,7 @@ keywords:
 
 本页列出每个内置规则 ID、它阻止的内容以及生效条件。你可以据此从阻止消息中查找规则，并决定是否关闭它。各规则的边界和示例见[被阻止的命令](/zh-Hans/reference/blocked-commands)，`destructive_command_protection` schema 见[策略](/zh-Hans/configuration/policy#destructive-command-protection)，添加自己的规则见[自定义规则](/zh-Hans/configuration/custom-rules)。
 
-共有 **59 条已注册规则**。其中 6 条是[灾难性规则](#catastrophic-rules)，无法关闭。其余所有规则都接受单条规则的覆盖。不是由任何规则产生的拒绝会改用某个[固定拒绝 ID](#fixed-denial-ids)，任何覆盖都无法关闭它们。
+共有 **68 条已注册规则**。其中 10 条是[灾难性规则](#catastrophic-rules)，无法关闭。其余所有规则都接受单条规则的覆盖。不是由任何规则产生的拒绝会改用某个[固定拒绝 ID](#fixed-denial-ids)，任何覆盖都无法关闭它们。
 
 <span id="allow-a-built-in-rule"></span>
 
@@ -51,7 +51,7 @@ keywords:
 
 ## 灾难性规则
 
-有 6 条规则被标记为灾难性规则。它们忽略 `destructive_command_protection.enabled: false`，也忽略 `"off"` 覆盖，因此在任何策略下、任何安全级别都会阻止。它们涵盖用 `rm`、`find` 和 PowerShell 递归删除 `/` 或主目录，以及删除 Git 元数据。下表中以 **灾难性** 标出。
+有 10 条规则被标记为灾难性规则。它们忽略 `destructive_command_protection.enabled: false`，也忽略 `"off"` 覆盖，因此在任何策略下、任何安全级别都会阻止。其中 8 条涵盖用 `rm`、`find`、PowerShell 和 `cmd` 递归删除 `/` 或主目录，以及删除 Git 元数据。另外 2 条针对目标无法安全读取的递归删除：一是引号写法可能把目标拆开、使其中一段指向驱动器根目录的 `cmd` 删除，二是以分析器不读取的形式交给 `powershell` 或 `pwsh` 的递归删除。下表中以 **灾难性** 标出。
 
 ## 如何阅读表格
 
@@ -119,6 +119,22 @@ keywords:
 | `powershell.remove-item-recursive-force-outside-cwd` | 阻止对原始工作目录之外的 PowerShell 递归强制删除。 | `Remove-Item ../outside -Recurse -Force` | 所有级别 |
 | `powershell.remove-item-recursive-force-paranoid` | 在启用 paranoid rm 时阻止对非临时路径的 PowerShell 递归强制删除。 | `Remove-Item ./cache -Recurse -Force` | [Paranoid rm](/zh-Hans/configuration/modes#paranoid-rm-check) |
 | `powershell.remove-item-pipeline-dynamic-target` | 在 strict 模式下阻止管道输入无法验证的 PowerShell Remove-Item。 | `Get-ChildItem . -Recurse \| Remove-Item -Force` | [Strict](/zh-Hans/configuration/modes#strict-mode) |
+| `powershell.nested-recursive-delete-unread` | 阻止以字面 -Command 脚本之外的任何形式交给 powershell 或 pwsh 的递归删除。 | `pwsh -WorkingDirectory C:\ -c 'Remove-Item -Recurse -Force *'` | **灾难性**，始终开启 |
+
+## 命令提示符规则
+
+这些规则判定 `cmd /c` 或 `cmd /k` 正文中带 `/s` 开关的 `rmdir`、`rd`、`del`、`erase` 的目标。正文的读取方式见[命令提示符正文](/zh-Hans/reference/blocked-commands#command-prompt-bodies)。
+
+| 规则 ID | 阻止的内容 | 示例 | 生效条件 |
+| --- | --- | --- | --- |
+| `cmd.recursive-delete-root-or-home` | 阻止对根目录或主目录路径的 cmd rmdir /s 或 del /s。 | `cmd /c rmdir /s /q C:\` | **灾难性**，始终开启 |
+| `cmd.recursive-delete-escaped-quote` | 阻止引号可能以 `\"` 形式到达 cmd、把目标拆开、使其中一段指向驱动器根目录的 cmd rmdir /s 或 del /s。 | `cmd /c "rmdir /s /q \"build output\""` | **灾难性**，始终开启 |
+| `cmd.recursive-delete-git-metadata` | 阻止用 cmd rmdir /s 或 del /s 删除受保护的 Git 元数据和钩子。 | `cmd /c rmdir /s /q .git` | **灾难性**，始终开启 |
+| `cmd.recursive-delete-dynamic-target` | 在 strict 模式下阻止目标含通配符或变量的 cmd rmdir /s 或 del /s。 | `cmd /c del /s /q *.log` | [Strict](/zh-Hans/configuration/modes#strict-mode) |
+| `cmd.recursive-delete-home-cwd` | 阻止在主目录中工作时的 cmd rmdir /s 或 del /s。 | `Set-Location $HOME; cmd /c rmdir /s /q build` | 所有级别 |
+| `cmd.recursive-delete-cwd-self` | 阻止对当前目录本身的 cmd rmdir /s 或 del /s。 | `cmd /c rmdir /s /q .` | 所有级别 |
+| `cmd.recursive-delete-outside-cwd` | 阻止对原始工作目录之外的 cmd rmdir /s 或 del /s。 | `cmd /c rmdir /s /q ..\outside` | 所有级别 |
+| `cmd.recursive-delete-paranoid` | 在启用 paranoid rm 时阻止对非临时路径的 cmd rmdir /s 或 del /s。 | `cmd /c rmdir /s /q build` | [Paranoid rm](/zh-Hans/configuration/modes#paranoid-rm-check) |
 
 ## 执行规则
 

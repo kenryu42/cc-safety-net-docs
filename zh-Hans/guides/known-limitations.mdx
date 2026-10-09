@@ -1,7 +1,7 @@
 ---
 title: "已知限制和易错点"
 sidebarTitle: "已知限制"
-description: "CC Safety Net 无法捕获的内容：不透明命令代理、二进制文件内部行为、文件系统隔离和网络、符号链接 TOCTOU、解释器标志、解释器注释中的引号、基于 eval 的执行、Codex 的交互会话缺口和 workdir 缺口、fail-open 的宿主（Grok Build、Factory Droid、Devin CLI）、DeepSeek Harness 的可选 bundle 与 run_code 缺口、OpenClaw 的会话工作目录，以及 Hermes Agent 和 OpenClaw 的覆盖边界。"
+description: "CC Safety Net 无法捕获的内容：不透明命令代理、二进制文件内部行为、文件系统隔离和网络、符号链接 TOCTOU、解释器标志、解释器注释中的引号、cmd 与嵌套 PowerShell 的读取方式、基于 eval 的执行、Codex 的交互会话缺口和 workdir 缺口、fail-open 的宿主（Grok Build、Factory Droid、Devin CLI）、DeepSeek Harness 的可选 bundle 与 run_code 缺口、OpenClaw 的会话工作目录，以及 Hermes Agent 和 OpenClaw 的覆盖边界。"
 ---
 
 CC Safety Net 分析智能体尝试运行的命令字符串。它能阻止已知的破坏性 Git 和文件系统操作，降低意外丢失数据的风险，但不是完整的安全方案。本页列出仍存在的**残余**限制，并说明何时应改用<a href="/zh-Hans/guides/vs-sandboxing">沙箱</a>。
@@ -76,6 +76,14 @@ CC Safety Net 提取传给解释器 `-c` 或 `-e` 标志的代码（适用于 `p
 
 所有执行前命令分析工具都有这一固有限制。要彻底消除它，就得在内核中运行或拦截系统调用，这超出了 hook 的范围。<a href="/zh-Hans/configuration/modes#paranoid-rm-check">paranoid rm</a> 模式（`CC_SAFETY_NET_PARANOID_RM=1`）可为希望更激进地拦截的运维人员提供更严格的策略。
 
+<span id="windows-command-prompt-and-nested-powershell"></span>
+
+### Windows 命令提示符与嵌套的 PowerShell
+
+CC Safety Net 用有界的文本检查读取 `cmd /c` 或 `cmd /k` 的正文，而不是 cmd 解析器。这项检查会在正文拆出的每一段里任意位置查找删除词，因此可能阻止实际上不删除任何内容的命令。`cmd /c 'echo rmdir /s /q C:\'` 会被当作删除驱动器根目录而阻止。它不会打开正文运行的批处理文件，也不会求值延迟展开（`!VAR!`），所以文件里的删除和运行时才拼出的删除都看不到。
+
+嵌套的 `powershell` 或 `pwsh` 只有在[嵌套的 PowerShell 脚本](/zh-Hans/reference/blocked-commands#nested-powershell-scripts)所述的形态下才会被读取。用 `-File` 运行或从标准输入读取的脚本不会被读取，因此无论文件做什么，`pwsh -File cleanup.ps1` 都会被允许。未读取的形式只有在其自身文本同时包含删除命令和递归开关时才会被阻止。
+
 ## 范围外保护
 
 下列边界不属于 CC Safety Net 的覆盖目标。它们大多需要**隔离**而不是语义分析，属于另一个保护层。每一项对应的沙箱能力见 <a href="/zh-Hans/guides/vs-sandboxing#where-cc-safety-net-cannot-help">CC Safety Net 无法提供帮助的范围</a>。
@@ -89,7 +97,8 @@ CC Safety Net **确实**保护敏感路径。对<a href="/zh-Hans/reference/secr
 残余限制在于，它是**针对受支持形式的有界模式集**，而不是通用的读取边界：
 
 - 凭证所在文件的名称和扩展名不在模式列表中时，不会被识别。
-- Standard 模式允许对内置敏感路径做仅元数据检查，例如 `test -f ~/.ssh/id_rsa`、`find ~/.ssh -type f`、`ls -la ~/.ssh` 或 `stat .env`；这类检查既可以单独出现，也可以像 `test -f .env && echo present` 那样只占复合命令中的一段。对内置的文件名规则，下面三种形式也被当作提及而不是读取：机密文件名对应一个已存在的目录；含空白字符的词既不以路径字符开头，磁盘上也不存在；输出重定向新建了一个原本不存在的机密文件名。这三种都不适用于 `secret.home.*` 和 `secret.cli.*` 规则。<a href="/zh-Hans/configuration/modes#strict-mode">Strict 和 paranoid</a> 会阻止这里列出的全部形式。任何模式都不会放宽配置的拒绝路径。准确条件见 <a href="/zh-Hans/configuration/modes#sensitive-path-relaxations-in-standard">`standard` 对敏感路径的放宽</a>。
+- Standard 模式允许对内置敏感路径做仅元数据检查，例如 `test -f ~/.ssh/id_rsa`、`find ~/.ssh -type f`、`ls -la ~/.ssh`、`stat .env`、`wc -l .env` 或 `grep -l KEY .env`；这类检查既可以单独出现，也可以像 `test -f .env && echo present` 那样只占复合命令中的一段。对内置的文件名规则，一些形式也被当作提及而不是读取，例如：对应已存在目录的机密文件名；由重定向、`mkdir` 或 `touch` 新建的文件；位于数据位置的 Python 或 JavaScript 字符串字面量。这些形式都不适用于 `secret.home.*` 和 `secret.cli.*` 规则。<a href="/zh-Hans/configuration/modes#strict-mode">Strict 和 paranoid</a> 会阻止这里列出的全部形式。任何模式都不会放宽配置的拒绝路径。准确条件见 <a href="/zh-Hans/reference/secret-protection#what-standard-mode-does-not-count-as-a-read">standard 模式不算作读取的情形</a>。
+- Standard 模式不会把名称追踪到后续的读取。放在容器中的字符串字面量，即使代码随后打开它，也仍按数据处理，所以 `python3 -c "for f in {'.env'}: print(open(f).read())"` 会被允许。`for` 循环把循环变量写入文件、再由后续命令读回时，同样不会被追踪。Strict 模式会阻止这两种情况。
 - 在 `policy.json` 中把 `secret_protection.enabled` 设置为 `false` 会关闭整个阶段，包括拒绝路径。
 
 如果需要限制*所有*读取而不是已识别集合，请使用<a href="/zh-Hans/guides/vs-sandboxing#where-cc-safety-net-cannot-help">沙箱</a>。
