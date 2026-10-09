@@ -238,6 +238,38 @@ Warning (Cursor): Cursor runs the Claude Code plugin only while it imports Claud
 
 仅由插件覆盖的 Cursor 在 `~/.cursor/hooks.json` 中没有托管 hook。[`update`](#update) 会跳过它，因此不会把 hook 写回去。交互式选择器在安装时将它显示为 `already installed`，在卸载时显示为 `not installed`。运行 `install --cursor` 仍会写入 hook。
 
+<span id="cursor-through-a-native-cursor-plugin"></span>
+
+### 通过原生 Cursor 插件保护 Cursor
+
+Cursor 也可以把 CC Safety Net 作为原生 Cursor 插件运行，该插件通过 `cursor-agent` 以个人市场的形式添加到你的 Cursor 账号。`install --cursor` 从不设置这条途径，只写入 hook。Cursor 会把市场插件固定在添加时的那个提交上，因此 [`update`](#update) 无法让这样的插件保持最新。不过，`doctor` 仍会报告你自己安装的插件。
+
+`doctor` 认定该插件的条件是：`~/.cursor/plugins/cache/cc-safety-net/cc-safety-net` 下的某个版本目录中存在 `.cache-complete` 文件，Cursor 用它标记下载已完成。这条途径优先于[通过 Claude Code 插件](#cursor-through-the-claude-code-plugin)的途径。两者同时存在时，`doctor --json` 报告的方式为 `Cursor plugin`，`configPath` 为该版本目录。
+
+哪些插件处于启用状态由 Cursor 账号记录，`doctor` 无法读取该记录。卸载插件后 Cursor 仍会保留它的文件，因此缓存目录的存在并不能证明插件还在运行。下面两条消息都会说明这两点，并都指出 `update` 无法更新该插件。
+
+如果 `install --cursor` 写入的 hook 也已配置，Cursor 的方式仍为 `hook config`，`doctor` 打印：
+
+```text
+Warning (Cursor): The Cursor plugin also runs this check, so every tool call is checked twice. Cursor records enabled plugins on your Cursor account, which doctor cannot check, and keeps a plugin's files after it is uninstalled. Cursor pins marketplace plugins to the commit they were added at, so `cc-safety-net update` cannot update this plugin, while the npx hook (`cc-safety-net install --cursor`) stays current. If the plugin is installed, run `cc-safety-net uninstall --cursor`, uninstall CC Safety Net from /plugins in cursor-agent, then run `cc-safety-net install --cursor`.
+```
+
+插件是唯一途径时，Cursor 显示 `Detected`、`Configured` 和 `Verified`，`doctor` 打印：
+
+```text
+Warning (Cursor): Cursor records enabled plugins on your Cursor account, which doctor cannot check, and keeps a plugin's files after it is uninstalled. Cursor pins marketplace plugins to the commit they were added at, so `cc-safety-net update` cannot update this plugin, while the npx hook (`cc-safety-net install --cursor`) stays current. If /plugins in cursor-agent does not list CC Safety Net as installed, run `cc-safety-net install --cursor`.
+```
+
+`update` 会跳过 `doctor` 仅通过这条途径认定的 Cursor，绝不会为它写入 npx hook。交互式选择器在安装时将它显示为 `already installed`，在卸载时保持可选，因为 [`uninstall --cursor`](#uninstall) 同时会移除市场。
+
+缓存目录存在但无法列出时，`doctor` 既不能确认也不能排除该插件。已配置的 hook 仍为 `Configured`，并多出一条警告：
+
+```text
+Warning (Cursor): Cannot read <home>/.cursor/plugins/cache/cc-safety-net/cc-safety-net, so doctor cannot tell whether the Cursor plugin also runs this check.
+```
+
+没有已配置的 hook 时，Cursor 的三列都显示 `Not inspected`。
+
 ### 各宿主的配置路径
 
 有几个宿主允许把配置挪到别处。`doctor` 遵循与各宿主相同的覆盖规则，因此挪过位置的配置仍能找到。
@@ -735,11 +767,11 @@ CC Safety Net 使用三种安装机制：
 
 在配置文件安装（Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build 或 Kimi Code）或 Hermes Agent 安装写入任何内容之前，它会先清除 `npx` 缓存中过时的 `cc-safety-net` 副本：npm 缓存的 `_npx` 目录下，每个 `node_modules` 含有 `cc-safety-net` 的条目都会被移除。缓存路径为 `$npm_config_cache`（如果已设置）；否则在 macOS 和 Linux 上为 `~/.npm`，在 Windows 上为 `%LOCALAPPDATA%\npm-cache`。这七个集成都通过 `npx` 运行 hook，因此新安装的 hook 会解析到最新版本，而不是缓存版本。
 
-**Kimi Code 有两种安装方式。** 在终端中，`install --kimi-code`（或在选择器中选中 Kimi Code）会打开一个单选提示：现在安装全局 hook，或改为打印原生 Kimi 插件的步骤（在 Kimi Code 内运行 `/plugins install https://github.com/kenryu42/cc-safety-net`，信任提示默认是取消，然后运行 `/reload` 或开始新会话）。选择插件方式不会写入任何内容，只打印步骤。非交互式会话会跳过该提示，直接安装全局 hook。由于该提示是拿到插件步骤的唯一途径，即使全局 hook 已配置，安装时 Kimi Code 那一行依然可选，只是标记为 `(global hook installed)`。
+**Kimi Code 有两种安装方式。** 在终端中，`install --kimi-code`（或在选择器中选中 Kimi Code）会打开一个单选提示：现在安装全局 hook，或改为打印原生 Kimi 插件的步骤（在 Kimi Code 内运行 `/plugins install https://github.com/kenryu42/cc-safety-net/tree/plugin`，信任提示默认是取消，然后运行 `/reload` 或开始新会话）。选择插件方式不会写入任何内容，只打印步骤。非交互式会话会跳过该提示，直接安装全局 hook。由于该提示是拿到插件步骤的唯一途径，即使全局 hook 已配置，安装时 Kimi Code 那一行依然可选，只是标记为 `(global hook installed)`。
 
 ### 选择目标
 
-- **无标志，交互式终端：** 会出现一个方向键多选提示。每个目标都会被探测是否可用：未安装的智能体显示 `CLI not installed`，已经配置好的显示 `already installed`，卸载时未配置的显示 `not installed`。在 Windows 上，探测和安装本身一样，都会通过 shell 解析 npm 的 `.cmd` shim，因此用 npm 安装的 CLI 能被正常检测到，而不会显示 `CLI not installed`。
+- **无标志，交互式终端：** 会出现一个方向键多选提示。每个目标都会被探测是否可用：未安装的智能体显示 `CLI not installed`，已经配置好的显示 `already installed`，卸载时未配置的显示 `not installed`。在 Windows 上，探测和安装本身一样，都会通过 shell 解析 npm 的 `.cmd` shim，因此用 npm 安装的 CLI 能被正常检测到，而不会显示 `CLI not installed`。只有 Cursor 会探测两次：先运行 `cursor --version`，只有它失败时才运行 `cursor-agent --version`，因此在只装了独立 `cursor-agent` CLI、没有 `cursor` 二进制文件的机器上，仍然可以选中 Cursor。
 - **带目标标志：** 只能提供**正好一个**目标标志。多于一个会引发 `Choose exactly one install|uninstall target:`，并显示完整的标志列表。未知的 `-` 参数和多余的位置参数同样是错误。
 
 选择器会在页脚中打印按键绑定。安装期间，页脚显示：
@@ -762,7 +794,7 @@ npx -y cc-safety-net@latest update
 
 在 TTY 中直接运行 `update` 时，检测会在安装横幅显示前开始，因此横幅动画会覆盖部分检测时间。如果横幅结束后检测仍在运行，CLI 会显示 `Checking installed integrations…`。按 `Enter` 可跳过动画。从交互式 `install` 选择器中按 `u` 启动 update 时，CLI 会使用已经显示的横幅，不会再显示第二个横幅。非 TTY 不显示横幅或加载指示器。
 
-系统通过读取每个智能体的配置和状态文件来查找目标。只要检测到已安装的集成，它就符合条件，**即使当前处于禁用状态**。Amp Code 通过 `amp plugins list` 的输出获得资格。该输出与 `codex plugin list` 一样以 30 秒超时获取，因为冷启动会通过网络刷新签出，可能超过默认的 5 秒。GitHub Copilot CLI 是例外。它仅在 Copilot 的 `installed-plugins` 目录中存在 CC Safety Net 插件签出时才有资格，因为它的禁用状态与没有安装插件的关闭开关无法区分，而更新绝不能变成安装。系统也会识别仍使用旧 `safety-net@cc-marketplace` 插件 ID 的安装。在 Claude Code 和 Codex 中，这表现为旧插件 ID；在 GitHub Copilot CLI 中，则表现为插件签出 `cc-marketplace/safety-net`。更新会将它们迁移到当前 ID，并尽力移除旧版副本。移除失败只会发出警告，不会使该目标失败。`doctor` 仅通过 [Claude Code 插件](#cursor-through-the-claude-code-plugin)认定的 Cursor 不符合条件，因此 `update` 不会为它写入 Cursor hook。
+系统通过读取每个智能体的配置和状态文件来查找目标。只要检测到已安装的集成，它就符合条件，**即使当前处于禁用状态**。Amp Code 通过 `amp plugins list` 的输出获得资格。该输出与 `codex plugin list` 一样以 30 秒超时获取，因为冷启动会通过网络刷新签出，可能超过默认的 5 秒。GitHub Copilot CLI 是例外。它仅在 Copilot 的 `installed-plugins` 目录中存在 CC Safety Net 插件签出时才有资格，因为它的禁用状态与没有安装插件的关闭开关无法区分，而更新绝不能变成安装。系统也会识别仍使用旧 `safety-net@cc-marketplace` 插件 ID 的安装。在 Claude Code 和 Codex 中，这表现为旧插件 ID；在 GitHub Copilot CLI 中，则表现为插件签出 `cc-marketplace/safety-net`。更新会将它们迁移到当前 ID，并尽力移除旧版副本。移除失败只会发出警告，不会使该目标失败。`doctor` 仅通过 [Claude Code 插件](#cursor-through-the-claude-code-plugin)或[原生 Cursor 插件](#cursor-through-a-native-cursor-plugin)认定的 Cursor 不符合条件，因此 `update` 不会为它写入 Cursor hook。
 
 所有目标会在同一个 `Updating <n> integration…` 或 `Updating <n> integrations…` 加载指示器后面，并发运行与 `install` 相同的操作。命令会等所有目标结束，然后按固定的集成目录顺序统一打印报告，消息改为 `Updated …` 或 `… up to date`。对于安装过程会驱动智能体自带 CLI 的目标（Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、Hermes Agent、OpenClaw、OpenCode 和 Pi），会先探测厂商的二进制文件：二进制文件缺失时打印 `<Agent> not found; skipped`（例如 `Codex not found; skipped`），运行继续。配置文件类目标（Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build 和 Kimi Code）不需要二进制文件，总是会刷新。对 DeepSeek Harness 也不做探测：它的更新会重新运行安装，对每个 profile 驱动 `dsh`，桌面应用处于打开状态时会失败。Amp Code 不需要单独的探测：仅当 `amp plugins list` 显示个人插件时才会被检测到，其刷新会驱动 amp CLI 发布当前产物。在 Claude Code、Codex 和 GitHub Copilot CLI 上，已注册的市场会在插件步骤之前先刷新（例如 `claude plugin marketplace update cc-marketplace`），而不是依赖无操作的 `add`，因此过时的目录签出不会使更新失败。
 
@@ -796,6 +828,15 @@ npx -y cc-safety-net uninstall --cursor
 ```
 
 对于配置文件类目标，卸载只移除 CC Safety Net 管理的条目（按它自己的 hook 命令字符串匹配），文件中的其他内容原样保留。
+
+只有 Cursor 会移除配置条目以外的内容。当 `~/.cursor/plugins/cache/cc-safety-net` 或 `~/.cursor/plugins/marketplaces/github.com/kenryu42/cc-safety-net` 存在时，`uninstall --cursor` 还会运行 `cursor-agent plugin marketplace remove cc-safety-net`，随后删除这两个目录。输出中带有 `No marketplace matches` 的失败视为已经移除。此时报告会多出两行：
+
+```text
+Removed the cc-safety-net marketplace from your Cursor account.
+If /plugins in cursor-agent still lists CC Safety Net as installed, uninstall it there.
+```
+
+两个目录都不存在时，`uninstall --cursor` 不会运行任何 `cursor-agent` 命令，只打印 hook 的报告。详见[通过原生 Cursor 插件保护 Cursor](#cursor-through-a-native-cursor-plugin)。
 
 ## hook
 

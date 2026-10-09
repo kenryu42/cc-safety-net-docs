@@ -210,6 +210,8 @@ npx -y cc-safety-net@latest uninstall --cursor
 
 Claude Code 插件还带有一个 Cursor 插件 manifest，即 `.cursor-plugin/plugin.json`。它指向的 hook 配置 `hooks/cursor.json` 注册了一个不带 matcher 的 `preToolUse` hook，以 `timeout: 30` 和 `failClosed: true` 运行 `node "${CURSOR_PLUGIN_ROOT}/dist/bin/cc-safety-net.js" hook --cursor`。Cursor 导入 Claude Code 插件时，会从已启用的 [Claude Code 插件](#claude-code-installation)运行这个 hook。如果 `install --cursor` 写入的 hook 也已存在，Cursor 会把每次工具调用检查两遍。`doctor` 会报告这两种配置，详见[通过 Claude Code 插件保护 Cursor](/zh-Hans/reference/cli-commands#cursor-through-the-claude-code-plugin)。
 
+Cursor 还可以从个人市场把 CC Safety Net 安装为原生 Cursor 插件。`install --cursor` 不提供这条途径：Cursor 会把市场插件固定在添加时的那个提交上，因此 `cc-safety-net update` 无法把它换到更新的版本，而 `npx` hook 每次调用都会解析到当前版本。如果该插件是你自己安装的，`doctor` 会在 `~/.cursor/plugins/cache/cc-safety-net/cc-safety-net` 下找到它，并警告 hook 会把同一套检查再执行一遍。此时 `uninstall --cursor` 会在移除 hook 的同时移除市场。详见[通过原生 Cursor 插件保护 Cursor](/zh-Hans/reference/cli-commands#cursor-through-a-native-cursor-plugin)。
+
 <span id="deepseek-harness-installation"></span>
 
 ## DeepSeek Harness 安装
@@ -471,8 +473,10 @@ npx -y cc-safety-net@latest uninstall --kimi-code
 要改用原生插件，请在 Kimi Code 中运行：
 
 ```text
-/plugins install https://github.com/kenryu42/cc-safety-net
+/plugins install https://github.com/kenryu42/cc-safety-net/tree/plugin
 ```
+
+该 URL 指向仓库的 `plugin` 分支，每个版本都会发布这个分支。分支中只有插件 manifest、打包好的 hook、hook 配置、`cc-safety-net` 技能、logo 和许可证。不加 `/tree/plugin` 后缀时，Kimi Code 会安装整个仓库。
 
 确认信任提示（默认选项是取消），然后运行 `/reload` 或开始新会话。插件声明一个没有工具 matcher 的 `PreToolUse` hook。它对每个工具调用运行 `node ./dist/bin/cc-safety-net.js hook --kimi-code`，超时为 30 秒，并使用与全局 hook 相同的适配器。
 

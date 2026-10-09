@@ -198,6 +198,8 @@ npx -y cc-safety-net@latest uninstall --cursor
 
 The Claude Code plugin also carries a Cursor plugin manifest, `.cursor-plugin/plugin.json`. Its hook config, `hooks/cursor.json`, registers a `preToolUse` hook with no matcher that runs `node "${CURSOR_PLUGIN_ROOT}/dist/bin/cc-safety-net.js" hook --cursor` with `timeout: 30` and `failClosed: true`. When Cursor imports Claude Code plugins, it runs this hook from an enabled [Claude Code plugin](#claude-code-installation). If the `install --cursor` hook is also in place, Cursor checks every tool call twice. `doctor` reports both setups. See [Cursor through the Claude Code plugin](/reference/cli-commands#cursor-through-the-claude-code-plugin).
 
+Cursor can also install CC Safety Net as a native Cursor plugin from a personal marketplace. `install --cursor` does not offer that route. Cursor pins a marketplace plugin to the commit it was added at, so `cc-safety-net update` cannot move it to a newer release, while the `npx` hook resolves the current release on every call. If you added the plugin yourself, `doctor` finds it under `~/.cursor/plugins/cache/cc-safety-net/cc-safety-net` and warns that the hook runs the same check a second time. `uninstall --cursor` then removes the marketplace along with the hook. See [Cursor through a native Cursor plugin](/reference/cli-commands#cursor-through-a-native-cursor-plugin).
+
 ## DeepSeek Harness installation
 
 ```bash
@@ -443,8 +445,10 @@ npx -y cc-safety-net@latest uninstall --kimi-code
 To use the native plugin instead, run this inside Kimi Code:
 
 ```text
-/plugins install https://github.com/kenryu42/cc-safety-net
+/plugins install https://github.com/kenryu42/cc-safety-net/tree/plugin
 ```
+
+The URL names the repository's `plugin` branch, which every release publishes. That branch carries the plugin manifests, the bundled hook, the hook configs, the `cc-safety-net` skill, the logos, and the license, and nothing else. Without the `/tree/plugin` suffix, Kimi Code installs the whole repository.
 
 Confirm the trust prompt, which defaults to cancel. Then run `/reload` or start a new session. The plugin declares one `PreToolUse` hook with no tool matcher. It runs `node ./dist/bin/cc-safety-net.js hook --kimi-code` for every tool call with a 30-second timeout and uses the same adapter as the global hook.
 

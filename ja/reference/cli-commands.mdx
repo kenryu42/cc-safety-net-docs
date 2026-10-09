@@ -240,6 +240,38 @@ Warning (Cursor): Cursor runs the Claude Code plugin only while it imports Claud
 
 プラグインだけで保護されている Cursor には、`~/.cursor/hooks.json` に管理対象の hook がありません。[`update`](#update) はこの Cursor をスキップするため、hook を書き戻しません。対話形式のセレクターでは、install 時は `already installed`、uninstall 時は `not installed` と表示されます。`install --cursor` を実行すれば、hook は書き込まれます。
 
+<span id="cursor-through-a-native-cursor-plugin"></span>
+
+### ネイティブ Cursor プラグイン経由の Cursor
+
+Cursor は、ネイティブ Cursor プラグインからも CC Safety Net を実行できます。このプラグインは、`cursor-agent` で個人マーケットプレイスとして Cursor アカウントに追加します。`install --cursor` がこの経路を設定することはなく、書き込むのは hook だけです。Cursor はマーケットプレイスのプラグインを追加時のコミットに固定するため、[`update`](#update) ではそのプラグインを最新に保てません。ただし、自分でインストールしたプラグインは `doctor` が報告します。
+
+`doctor` がこのプラグインを数えるのは、`~/.cursor/plugins/cache/cc-safety-net/cc-safety-net` 配下のバージョンディレクトリに `.cache-complete` ファイルがある場合です。Cursor はこのファイルでダウンロードの完了を示します。この経路は [Claude Code プラグイン](#cursor-through-the-claude-code-plugin)経由よりも優先されます。両方そろっている場合、`doctor --json` は方式として `Cursor plugin` を、`configPath` としてそのバージョンディレクトリを報告します。
+
+どのプラグインを有効にしているかは Cursor アカウント側の記録であり、`doctor` はこれを読み取れません。また Cursor はアンインストール後もプラグインのファイルを残すため、キャッシュディレクトリがあっても、プラグインがまだ動いている証拠にはなりません。以下の 2 つのメッセージは、どちらもこの 2 点に触れ、さらに `update` ではこのプラグインを更新できないことも伝えます。
+
+`install --cursor` の hook も設定されている場合、Cursor の方式は `hook config` のままで、`doctor` は次のように出力します。
+
+```text
+Warning (Cursor): The Cursor plugin also runs this check, so every tool call is checked twice. Cursor records enabled plugins on your Cursor account, which doctor cannot check, and keeps a plugin's files after it is uninstalled. Cursor pins marketplace plugins to the commit they were added at, so `cc-safety-net update` cannot update this plugin, while the npx hook (`cc-safety-net install --cursor`) stays current. If the plugin is installed, run `cc-safety-net uninstall --cursor`, uninstall CC Safety Net from /plugins in cursor-agent, then run `cc-safety-net install --cursor`.
+```
+
+プラグインが唯一の経路の場合、Cursor は `Detected`、`Configured`、`Verified` になり、`doctor` は次のように出力します。
+
+```text
+Warning (Cursor): Cursor records enabled plugins on your Cursor account, which doctor cannot check, and keeps a plugin's files after it is uninstalled. Cursor pins marketplace plugins to the commit they were added at, so `cc-safety-net update` cannot update this plugin, while the npx hook (`cc-safety-net install --cursor`) stays current. If /plugins in cursor-agent does not list CC Safety Net as installed, run `cc-safety-net install --cursor`.
+```
+
+`doctor` がこの経路でしか数えていない Cursor は `update` の対象外です。そのため、`update` が npx hook を書き込むことはありません。対話形式のセレクターでは、install 時は `already installed` と表示され、uninstall 時は選択可能なままです。[`uninstall --cursor`](#uninstall) がマーケットプレイスも削除するからです。
+
+キャッシュディレクトリが存在するのに一覧を取得できない場合、`doctor` はプラグインの有無を判断できません。設定済みの hook は `Configured` のままで、警告が 1 つ増えます。
+
+```text
+Warning (Cursor): Cannot read <home>/.cursor/plugins/cache/cc-safety-net/cc-safety-net, so doctor cannot tell whether the Cursor plugin also runs this check.
+```
+
+hook が設定されていない場合、Cursor の 3 つの列はすべて `Not inspected` になります。
+
 ### ホストごとの設定の場所
 
 設定の場所を移動できるホストがいくつかあります。`doctor` は各ホストと同じ上書きルールに従うため、移動した設定でも見つけられます。
@@ -737,11 +769,11 @@ CC Safety Net は、3 つのインストール方法を使います。
 
 Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build、Kimi Code の設定ファイルへのインストールと、Hermes Agent へのインストールでは、何かを書き込む前に `npx` キャッシュから古い `cc-safety-net` を削除します。npm キャッシュの `_npx` ディレクトリ（`$npm_config_cache` が設定されている場合はその場所。それ以外は macOS と Linux で `~/.npm`、Windows で `%LOCALAPPDATA%\npm-cache`）の下にあり、`node_modules` が `cc-safety-net` を含むすべてのエントリを削除します。この 7 つの連携は `npx` で hook を実行するため、この処理により、新しくインストールした hook はキャッシュ済みのバージョンではなく最新版を解決します。
 
-**Kimi Code には 2 つのインストール方式があります。** ターミナルで `install --kimi-code` を実行するか、ピッカーで Kimi Code を選択すると、単一選択プロンプトが開きます。グローバル hook を今インストールするか、代わりにネイティブ Kimi プラグインの手順を表示するかを選びます（Kimi Code 内で `/plugins install https://github.com/kenryu42/cc-safety-net` を実行し、次に `/reload` を実行するか新しいセッションを開始します。信頼プロンプトの既定はキャンセルです）。プラグイン方式を選んでも何も書き込まれず、手順を表示するだけです。非対話セッションではプロンプトをスキップして、グローバル hook を直接インストールします。このプロンプトがプラグイン手順への唯一の経路であるため、グローバル hook が設定済みでも install 時の Kimi Code の行は選択可能なままで、`(global hook installed)` と表示されます。
+**Kimi Code には 2 つのインストール方式があります。** ターミナルで `install --kimi-code` を実行するか、ピッカーで Kimi Code を選択すると、単一選択プロンプトが開きます。グローバル hook を今インストールするか、代わりにネイティブ Kimi プラグインの手順を表示するかを選びます（Kimi Code 内で `/plugins install https://github.com/kenryu42/cc-safety-net/tree/plugin` を実行し、次に `/reload` を実行するか新しいセッションを開始します。信頼プロンプトの既定はキャンセルです）。プラグイン方式を選んでも何も書き込まれず、手順を表示するだけです。非対話セッションではプロンプトをスキップして、グローバル hook を直接インストールします。このプロンプトがプラグイン手順への唯一の経路であるため、グローバル hook が設定済みでも install 時の Kimi Code の行は選択可能なままで、`(global hook installed)` と表示されます。
 
 ### ターゲットの選択
 
-- **フラグなしの対話型ターミナル：** 矢印キーを使う複数選択プロンプトが表示されます。各ターゲットの使用可否を調べます。そのため、エージェントがインストールされていない場合は `CLI not installed`、設定済みの場合は `already installed`、uninstall 時に未設定の場合は `not installed` と表示されます。Windows では、この使用可否の検査もインストール自体も npm の `.cmd` シムをシェル経由で解決するため、npm でインストールした CLI が `CLI not installed` と表示されることなく検出されます。
+- **フラグなしの対話型ターミナル：** 矢印キーを使う複数選択プロンプトが表示されます。各ターゲットの使用可否を調べます。そのため、エージェントがインストールされていない場合は `CLI not installed`、設定済みの場合は `already installed`、uninstall 時に未設定の場合は `not installed` と表示されます。Windows では、この使用可否の検査もインストール自体も npm の `.cmd` シムをシェル経由で解決するため、npm でインストールした CLI が `CLI not installed` と表示されることなく検出されます。使用可否の検査が 2 つあるターゲットは Cursor だけです。まず `cursor --version` を実行し、それが失敗したときにかぎり `cursor-agent --version` を実行します。そのため、`cursor` バイナリがなくスタンドアロンの `cursor-agent` CLI だけがあるマシンでも Cursor を選択できます。
 - **ターゲットフラグあり：** 正確に 1 つのターゲットフラグを指定します。複数指定すると `Choose exactly one install|uninstall target:` の後に完全なフラグリストを表示します。不明な `-` 引数と余分な位置引数もエラーです。
 
 セレクターのキーバインドはフッターに表示されます。install 時のフッターは次のとおりです。
@@ -764,7 +796,7 @@ npx -y cc-safety-net@latest update
 
 TTY で `update` を直接実行すると、インストールバナーを表示する前に検出を開始するため、バナーのアニメーション中にも検出が進みます。バナーの後も検出が続く場合は、`Checking installed integrations…` を表示します。`Enter` を押すとアニメーションをスキップできます。対話型の `install` セレクターで `u` を押して update を開始した場合、すでに表示したバナーを使い、2 つ目のバナーは表示しません。TTY でない場合、バナーとスピナーは表示しません。
 
-ターゲットは、各エージェントの設定ファイルと状態ファイルを読み取って検出します。現在無効な場合でも、インストール済みと検出される連携が対象です。Amp Code は `amp plugins list` の出力によって対象になります。この出力は、`codex plugin list` と同じく 30 秒のタイムアウトで取得します。コールドラン時は checkout をネットワーク経由で更新するため、既定の 5 秒を超えることがあるからです。GitHub Copilot CLI は例外です。Copilot の `installed-plugins` ディレクトリに CC Safety Net プラグインの checkout がある場合だけ対象になります。無効状態と、何もインストールされていない kill-switch 状態を区別できず、update が install になることを防ぐためです。改名前の `safety-net@cc-marketplace` プラグイン ID を使うインストール（Claude Code、Codex、および GitHub Copilot CLI のプラグイン checkout `cc-marketplace/safety-net`）も検出されます。更新時に現在の ID へ移行し、レガシーコピーをベストエフォートで削除します。レガシーコピーの削除に失敗しても、ターゲットは失敗せず警告になります。`doctor` が [Claude Code プラグイン](#cursor-through-the-claude-code-plugin)経由でしか数えていない Cursor は対象外です。そのため、`update` がこの Cursor に hook を書き込むことはありません。
+ターゲットは、各エージェントの設定ファイルと状態ファイルを読み取って検出します。現在無効な場合でも、インストール済みと検出される連携が対象です。Amp Code は `amp plugins list` の出力によって対象になります。この出力は、`codex plugin list` と同じく 30 秒のタイムアウトで取得します。コールドラン時は checkout をネットワーク経由で更新するため、既定の 5 秒を超えることがあるからです。GitHub Copilot CLI は例外です。Copilot の `installed-plugins` ディレクトリに CC Safety Net プラグインの checkout がある場合だけ対象になります。無効状態と、何もインストールされていない kill-switch 状態を区別できず、update が install になることを防ぐためです。改名前の `safety-net@cc-marketplace` プラグイン ID を使うインストール（Claude Code、Codex、および GitHub Copilot CLI のプラグイン checkout `cc-marketplace/safety-net`）も検出されます。更新時に現在の ID へ移行し、レガシーコピーをベストエフォートで削除します。レガシーコピーの削除に失敗しても、ターゲットは失敗せず警告になります。`doctor` が [Claude Code プラグイン](#cursor-through-the-claude-code-plugin)または[ネイティブ Cursor プラグイン](#cursor-through-a-native-cursor-plugin)経由でしか数えていない Cursor は対象外です。そのため、`update` がこの Cursor に hook を書き込むことはありません。
 
 すべてのターゲットは、1 つの `Updating <n> integration…` または `Updating <n> integrations…` スピナーの後ろで、`install` と同じ操作を並列に実行します。すべてのターゲットが完了した後、レポートを安定したカタログ順でまとめて出力します。メッセージだけが `Updated …` または `… up to date` に変わります。インストール時にエージェント自身の CLI を使うターゲットでは、先にベンダーバイナリを調べます。対象は Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、Hermes Agent、OpenClaw、OpenCode、Pi です。バイナリがない場合は `<Agent> not found; skipped`（例は `Codex not found; skipped`）を出力して処理を続けます。設定ファイルを使うターゲット、つまり Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build、Kimi Code にはバイナリが不要で、常に更新されます。DeepSeek Harness もバイナリは調べません。更新では install を再実行し、プロファイルごとに `dsh` を動かします。デスクトップアプリが起動中の場合は失敗します。Amp Code には別途の検査は不要です。`amp plugins list` がパーソナルプラグインを表示する場合にのみ検出され、その更新は amp CLI を実行して現在の成果物を公開します。Claude Code、Codex、GitHub Copilot CLI では、登録済みのマーケットプレイスをプラグイン処理の前に更新します（例は `claude plugin marketplace update cc-marketplace`）。何もしない `add` に頼らないため、古いカタログ checkout が更新を失敗させることはありません。
 
@@ -798,6 +830,15 @@ npx -y cc-safety-net uninstall --cursor
 ```
 
 設定ファイルを使うターゲットでは、uninstall は CC Safety Net が管理するエントリだけを削除します。エントリは CC Safety Net 固有の hook コマンド文字列で照合され、ファイル内のほかのものは変更しません。
+
+設定エントリ以外のものまで削除するターゲットは Cursor だけです。`~/.cursor/plugins/cache/cc-safety-net` または `~/.cursor/plugins/marketplaces/github.com/kenryu42/cc-safety-net` がある場合、`uninstall --cursor` は `cursor-agent plugin marketplace remove cc-safety-net` も実行し、その後どちらのディレクトリも削除します。出力に `No marketplace matches` を含む失敗は、すでに削除済みとして扱います。このとき、レポートには次の 2 行が追加されます。
+
+```text
+Removed the cc-safety-net marketplace from your Cursor account.
+If /plugins in cursor-agent still lists CC Safety Net as installed, uninstall it there.
+```
+
+どちらのディレクトリもない場合、`uninstall --cursor` は `cursor-agent` コマンドを実行せず、hook のレポートだけを表示します。詳しくは[ネイティブ Cursor プラグイン経由の Cursor](#cursor-through-a-native-cursor-plugin)を参照してください。
 
 ## hook
 

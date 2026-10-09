@@ -236,6 +236,36 @@ Neither warning changes the exit code. While the plugin route counts, a `~/.curs
 
 A Cursor covered only by the plugin has no managed hook in `~/.cursor/hooks.json`. [`update`](#update) skips it, so it does not write the hook back. The interactive selector shows it as `already installed` during install and `not installed` during uninstall. `install --cursor` still writes the hook.
 
+### Cursor through a native Cursor plugin
+
+Cursor can also run CC Safety Net as a native Cursor plugin, added to your Cursor account as a personal marketplace through `cursor-agent`. `install --cursor` never sets that route up; it writes only the hook. Cursor pins a marketplace plugin to the commit it was added at, so [`update`](#update) cannot keep such a plugin current. `doctor` does report a plugin you installed yourself.
+
+`doctor` counts the plugin when a version directory under `~/.cursor/plugins/cache/cc-safety-net/cc-safety-net` holds a `.cache-complete` file, which is how Cursor marks a finished download. This route takes precedence over the [Claude Code plugin](#cursor-through-the-claude-code-plugin) route. With both in place, `doctor --json` reports the method `Cursor plugin` and the version directory as `configPath`.
+
+Cursor records which plugins are enabled on your Cursor account, and `doctor` cannot read that record. Cursor also keeps a plugin's files after you uninstall it, so the cache directory is not proof that the plugin still runs. Both messages below state both of those facts, and both add that `update` cannot update the plugin.
+
+When the `install --cursor` hook is also configured, Cursor keeps the method `hook config` and `doctor` prints:
+
+```text
+Warning (Cursor): The Cursor plugin also runs this check, so every tool call is checked twice. Cursor records enabled plugins on your Cursor account, which doctor cannot check, and keeps a plugin's files after it is uninstalled. Cursor pins marketplace plugins to the commit they were added at, so `cc-safety-net update` cannot update this plugin, while the npx hook (`cc-safety-net install --cursor`) stays current. If the plugin is installed, run `cc-safety-net uninstall --cursor`, uninstall CC Safety Net from /plugins in cursor-agent, then run `cc-safety-net install --cursor`.
+```
+
+When the plugin is the only route, Cursor reads `Detected`, `Configured`, and `Verified`, and `doctor` prints:
+
+```text
+Warning (Cursor): Cursor records enabled plugins on your Cursor account, which doctor cannot check, and keeps a plugin's files after it is uninstalled. Cursor pins marketplace plugins to the commit they were added at, so `cc-safety-net update` cannot update this plugin, while the npx hook (`cc-safety-net install --cursor`) stays current. If /plugins in cursor-agent does not list CC Safety Net as installed, run `cc-safety-net install --cursor`.
+```
+
+`update` skips a Cursor that `doctor` counts only through this route, so it never writes the npx hook for it. The interactive selector shows that Cursor as `already installed` during install and keeps it selectable during uninstall, because [`uninstall --cursor`](#uninstall) also removes the marketplace.
+
+When the cache directory exists but cannot be listed, `doctor` can neither confirm nor rule out the plugin. A configured hook stays configured and gains one more warning:
+
+```text
+Warning (Cursor): Cannot read <home>/.cursor/plugins/cache/cc-safety-net/cc-safety-net, so doctor cannot tell whether the Cursor plugin also runs this check.
+```
+
+With no configured hook, all three Cursor columns read `Not inspected`.
+
 ### Host configuration paths
 
 Several hosts let you move their configuration elsewhere. `doctor` follows the same overrides each host follows, so a relocated config is still found.
@@ -733,11 +763,11 @@ CC Safety Net uses three installation mechanisms:
 
 Before a config-file install for Antigravity CLI, Cursor, Devin CLI, Factory Droid, Grok Build, or Kimi Code, or a Hermes Agent install writes anything, it clears stale `cc-safety-net` copies from the `npx` cache. It removes each entry under the npm cache's `_npx` directory whose `node_modules` contains `cc-safety-net`. The npm cache is `$npm_config_cache` when set, otherwise `~/.npm` on macOS and Linux or `%LOCALAPPDATA%\npm-cache` on Windows. These seven integrations run the hook through `npx`, so the new hook resolves the latest version instead of a cached one.
 
-**Kimi Code has two install methods.** In a terminal, `install --kimi-code` or selecting Kimi Code in the picker opens a single-select prompt. You can install the global hook or print the native Kimi plugin steps. For the plugin, run `/plugins install https://github.com/kenryu42/cc-safety-net` inside Kimi Code. The trust prompt defaults to cancel. Then run `/reload` or start a new session. Choosing the plugin method writes nothing; it only prints the steps. A non-interactive session skips the prompt and installs the global hook directly. The Kimi Code picker row stays selectable during install even when the global hook is configured because the prompt is the only path to the plugin steps. The row is then labelled `(global hook installed)`.
+**Kimi Code has two install methods.** In a terminal, `install --kimi-code` or selecting Kimi Code in the picker opens a single-select prompt. You can install the global hook or print the native Kimi plugin steps. For the plugin, run `/plugins install https://github.com/kenryu42/cc-safety-net/tree/plugin` inside Kimi Code. The trust prompt defaults to cancel. Then run `/reload` or start a new session. Choosing the plugin method writes nothing; it only prints the steps. A non-interactive session skips the prompt and installs the global hook directly. The Kimi Code picker row stays selectable during install even when the global hook is configured because the prompt is the only path to the plugin steps. The row is then labelled `(global hook installed)`.
 
 ### Selecting a target
 
-- **No flag, interactive terminal:** an arrow-key multi-select prompt appears. Each target is probed for availability, so an agent that is not installed shows `CLI not installed`, one already set up shows `already installed`, and one that is not configured shows `not installed` during uninstall. On Windows, the probes, like the installs themselves, resolve npm `.cmd` shims through the shell, so a CLI installed with npm is detected instead of showing `CLI not installed`.
+- **No flag, interactive terminal:** an arrow-key multi-select prompt appears. Each target is probed for availability, so an agent that is not installed shows `CLI not installed`, one already set up shows `already installed`, and one that is not configured shows `not installed` during uninstall. On Windows, the probes, like the installs themselves, resolve npm `.cmd` shims through the shell, so a CLI installed with npm is detected instead of showing `CLI not installed`. Cursor is the one target with two probes. `cursor --version` runs first, and `cursor-agent --version` runs only when that fails, so a machine that has the standalone `cursor-agent` CLI and no `cursor` binary can still select Cursor.
 - **With a target flag:** provide exactly one target flag. More than one raises `Choose exactly one install|uninstall target:` followed by the full flag list. Unknown `-` arguments and stray positional arguments are also errors.
 
 The selector's key bindings are printed in its footer. During install that footer reads:
@@ -760,7 +790,7 @@ npx -y cc-safety-net@latest update
 
 In a TTY, a direct `update` starts detection before it shows the install banner, so the banner animation covers part of the detection time. If detection is still running after the banner, the CLI shows `Checking installed integrations…`. Press `Enter` to skip the animation. When you start update with `u` in the interactive `install` selector, the CLI uses the banner that it already showed and does not print a second one. A non-TTY shows no banner or spinner.
 
-`update` reads each agent's configuration and state files. An integration qualifies when it is installed, **even when it is disabled**. Amp Code qualifies through `amp plugins list`, which uses a 30-second timeout like `codex plugin list` because a cold run refreshes checkouts over the network and can outlast the default 5 seconds. GitHub Copilot CLI is the exception. It qualifies only when a CC Safety Net checkout exists in Copilot's `installed-plugins` directory, because its disabled state is indistinguishable from a bare kill switch with nothing installed and `update` must never install something new. Installations that still use the old `safety-net@cc-marketplace` id in Claude Code or Codex also qualify. The GitHub Copilot CLI checkout `cc-marketplace/safety-net` also qualifies. Updating migrates them to the current id and removes the legacy copy on a best-effort basis, so a failed removal warns without failing the target. A Cursor that `doctor` counts only through the [Claude Code plugin](#cursor-through-the-claude-code-plugin) does not qualify, so `update` never writes a Cursor hook for it.
+`update` reads each agent's configuration and state files. An integration qualifies when it is installed, **even when it is disabled**. Amp Code qualifies through `amp plugins list`, which uses a 30-second timeout like `codex plugin list` because a cold run refreshes checkouts over the network and can outlast the default 5 seconds. GitHub Copilot CLI is the exception. It qualifies only when a CC Safety Net checkout exists in Copilot's `installed-plugins` directory, because its disabled state is indistinguishable from a bare kill switch with nothing installed and `update` must never install something new. Installations that still use the old `safety-net@cc-marketplace` id in Claude Code or Codex also qualify. The GitHub Copilot CLI checkout `cc-marketplace/safety-net` also qualifies. Updating migrates them to the current id and removes the legacy copy on a best-effort basis, so a failed removal warns without failing the target. A Cursor that `doctor` counts only through the [Claude Code plugin](#cursor-through-the-claude-code-plugin) or a [native Cursor plugin](#cursor-through-a-native-cursor-plugin) does not qualify, so `update` never writes a Cursor hook for it.
 
 All targets run the same operation as `install` concurrently behind one `Updating <n> integration…` or `Updating <n> integrations…` spinner. The command waits for every target to settle, then prints all reports in stable catalog order, with messages changed to `Updated …` or `… up to date`. For the targets whose install drives the agent's own CLI, Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Hermes Agent, OpenClaw, OpenCode, and Pi, the vendor binary is probed first: a missing binary prints `<Agent> not found; skipped` (for example `Codex not found; skipped`) and the run continues. The config-file targets, Antigravity CLI, Cursor, Devin CLI, Factory Droid, Grok Build, and Kimi Code, need no binary and always refresh. DeepSeek Harness is not probed either. Its update re-runs the install, which drives `dsh` for each profile and fails while the Desktop app is open. Amp Code needs no separate probe: it is detected only when `amp plugins list` shows the personal plugin, and its refresh drives the amp CLI to publish the current artifact. On Claude Code, Codex, and GitHub Copilot CLI, an already-registered marketplace is refreshed before the plugin step (for example `claude plugin marketplace update cc-marketplace`) instead of relying on a no-op `add`, so a stale catalog checkout cannot fail the update.
 
@@ -794,6 +824,15 @@ npx -y cc-safety-net uninstall --cursor
 ```
 
 For the config-file targets, uninstall removes only the entries CC Safety Net manages, matched by its own hook command string, and leaves everything else in the file untouched.
+
+Cursor is the one target that removes more than a config entry. When `~/.cursor/plugins/cache/cc-safety-net` or `~/.cursor/plugins/marketplaces/github.com/kenryu42/cc-safety-net` exists, `uninstall --cursor` also runs `cursor-agent plugin marketplace remove cc-safety-net`, then deletes both directories. A failure whose output contains `No marketplace matches` counts as already removed. The report then gains two lines:
+
+```text
+Removed the cc-safety-net marketplace from your Cursor account.
+If /plugins in cursor-agent still lists CC Safety Net as installed, uninstall it there.
+```
+
+With neither directory on disk, `uninstall --cursor` runs no `cursor-agent` command and prints only the hook report. See [Cursor through a native Cursor plugin](#cursor-through-a-native-cursor-plugin).
 
 ## hook
 
