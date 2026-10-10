@@ -222,7 +222,7 @@ PowerShell 支持是一个保守子集：`Remove-Item` 及其别名、文件 cmd
 
 敏感路径保护是独立的防护阶段，在命令分析前运行。它涵盖受支持的 **command**、**path**、**search**（grep/glob）和 **patch** 形式，也会检查未知工具，但绝不会将未知工具的任意文本视为 shell 命令。
 
-内置敏感集合不只阻止写入，也阻止读取：`cat .env`、`env cat .env`、`sudo command cat .env`、`strings id_rsa`、`xxd .env`、`base64 .env`、`dd if=.env`、`cat ~/.ssh/id_rsa`、`bash -c "cat .env"` 和 `node -e 'require("child_process").execSync("cat .env")'` 都会被阻止。
+内置敏感集合不只阻止写入，也阻止读取：`cat .env`、`env cat .env`、`sudo command cat .env`、`strings id_rsa`、`xxd .env`、`base64 .env`、`dd if=.env`、`cat ~/.ssh/id_rsa`、`bash -c "cat .env"`、`pwsh -c 'Get-Content ~/.ssh/config'` 和 `node -e 'require("child_process").execSync("cat .env")'` 都会被阻止。
 
 command 形式的提取是有界且结构化的：触及结构性 shell 语法限制时按 fail closed 处理，解析无效时抛出错误。配置的拒绝路径在内置规则之前匹配，且不受 `standard` 模式下任何放宽的影响。
 
@@ -316,6 +316,8 @@ CC Safety Net 在任何 shell 模式下都会读取 `powershell` 或 `pwsh` 命�
 | `powershell -NoProfile -EncodedCommand UgBlAG0AbwB2AGUALQBJAHQAZQBtAA==` | 作为无法验证的 shell 执行来源拒绝 |
 | `pwsh -NoProfile -c 'Remove-Item -Recurse -Force .\build'` | 位于工作区内，允许 |
 | `pwsh -File report.ps1 -Action rm -Region east` | 没有属于递归开关的词，允许 |
+
+敏感路径保护也会在自己的防护阶段读取同一份 `-Command` 脚本，因此 `pwsh -c 'Get-Content ~/.ssh/config'` 会在 `secret.home.ssh` 下被阻止，见[运行位置](/zh-Hans/reference/secret-protection#where-it-runs)。
 
 <span id="eval-and-source-of-a-generated-command"></span>
 

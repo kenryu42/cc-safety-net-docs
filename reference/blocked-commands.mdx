@@ -222,7 +222,7 @@ Aliases and abbreviated parameters are resolved, so `ri . -r -fo` blocks. Invoca
 
 Sensitive-path protection is a separate guard stage that runs before command analysis. It applies across the supported **command**, **path**, **search** (grep/glob), and **patch** shapes, and it also inspects unknown tools, without ever treating an unknown tool's arbitrary text as a shell command.
 
-Reads are blocked for the built-in sensitive set, not just writes: `cat .env`, `env cat .env`, `sudo command cat .env`, `strings id_rsa`, `xxd .env`, `base64 .env`, `dd if=.env`, `cat ~/.ssh/id_rsa`, `bash -c "cat .env"`, and `node -e 'require("child_process").execSync("cat .env")'` are all blocked.
+Reads are blocked for the built-in sensitive set, not just writes: `cat .env`, `env cat .env`, `sudo command cat .env`, `strings id_rsa`, `xxd .env`, `base64 .env`, `dd if=.env`, `cat ~/.ssh/id_rsa`, `bash -c "cat .env"`, `pwsh -c 'Get-Content ~/.ssh/config'`, and `node -e 'require("child_process").execSync("cat .env")'` are all blocked.
 
 Command-shape extraction is bounded and structural: it fails closed on a structural shell-syntax limit and throws on an invalid parse. Configured deny paths are matched before the built-in rules and are never relaxed by any standard-mode allowance.
 
@@ -310,6 +310,8 @@ Outside a read script, any word that names `-EncodedCommand` is refused as an un
 | `powershell -NoProfile -EncodedCommand UgBlAG0AbwB2AGUALQBJAHQAZQBtAA==` | Refused as an unverifiable shell source |
 | `pwsh -NoProfile -c 'Remove-Item -Recurse -Force .\build'` | Allowed inside the workspace |
 | `pwsh -File report.ps1 -Action rm -Region east` | Allowed, because no word is a recursive switch |
+
+Sensitive-path protection reads the same `-Command` script in its own guard stage, so `pwsh -c 'Get-Content ~/.ssh/config'` blocks under `secret.home.ssh`. See [Where it runs](/reference/secret-protection#where-it-runs).
 
 ### eval and source of a generated command
 

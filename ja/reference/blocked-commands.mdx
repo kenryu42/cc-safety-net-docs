@@ -245,7 +245,7 @@ PowerShell への対応は限定的なサブセットです。対象は、`Remov
 
 機密パスの保護は、コマンド解析より前に実行される別のガードステージです。対応する **コマンド**、**パス**、**検索**（grep／glob）、**patch** の各形式に適用され、未知のツールについても、その任意のテキストをシェルコマンドとして扱うことなく検査します。
 
-書き込みだけでなく、組み込みの機密ファイル群の読み取りもブロックします。`cat .env`、`env cat .env`、`sudo command cat .env`、`strings id_rsa`、`xxd .env`、`base64 .env`、`dd if=.env`、`cat ~/.ssh/id_rsa`、`bash -c "cat .env"`、`node -e 'require("child_process").execSync("cat .env")'` は、いずれもブロックされます。
+書き込みだけでなく、組み込みの機密ファイル群の読み取りもブロックします。`cat .env`、`env cat .env`、`sudo command cat .env`、`strings id_rsa`、`xxd .env`、`base64 .env`、`dd if=.env`、`cat ~/.ssh/id_rsa`、`bash -c "cat .env"`、`pwsh -c 'Get-Content ~/.ssh/config'`、`node -e 'require("child_process").execSync("cat .env")'` は、いずれもブロックされます。
 
 コマンドの形の抽出は、上限を設けたうえで構造的に行います。シェル構文の構造的な上限を超えた場合は fail closed になり、パースが不正な場合は例外になります。設定済みの deny path は組み込みルールより先に照合され、standard モードの緩和によって外れることはありません。
 
@@ -339,6 +339,8 @@ CC Safety Net は、`powershell` と `pwsh` のコマンドを、大文字と小
 | `powershell -NoProfile -EncodedCommand UgBlAG0AbwB2AGUALQBJAHQAZQBtAA==` | 検証できないシェルの実行元として拒否 |
 | `pwsh -NoProfile -c 'Remove-Item -Recurse -Force .\build'` | ワークスペース内なので許可 |
 | `pwsh -File report.ps1 -Action rm -Region east` | 再帰のスイッチにあたる語がないので許可 |
+
+機密パスの保護も、独自のガードステージで同じ `-Command` スクリプトを読み取ります。そのため `pwsh -c 'Get-Content ~/.ssh/config'` は `secret.home.ssh` でブロックされます。[動作する場所](/ja/reference/secret-protection#where-it-runs)を参照してください。
 
 <span id="eval-and-source-of-a-generated-command"></span>
 
