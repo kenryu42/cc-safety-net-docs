@@ -53,6 +53,8 @@ Standard、strict 和 paranoid 是三个预设，为 `fail_closed`、`paranoid_r
 
 启用机密保护时，安全级别不会放宽已匹配敏感**内容**的访问，也不会放宽用户配置的拒绝路径及其后代。配置的 `secret_protection.allow_paths` 条目可以让字面文件或目录树豁免于非 CLI 的内置机密规则；拒绝路径和 `secret.cli.*` 规则仍然优先。灾难性保护始终强制执行，包括递归删除根目录或用户主目录、对受保护 Git 元数据的破坏性更改，以及对用户或项目 `policy.json` 的破坏性更改。
 
+磁盘设备破坏同样在每个级别都会被阻止，但这些规则不是灾难性规则，因此主破坏性命令开关和单条规则的覆盖仍然适用。这一类包括 `of=` 指向设备的 `dd`，作用于 `/dev/` 目标的 `mkfs`、`mke2fs`、`newfs` 格式化命令，`diskutil` 的擦除和分区子命令，`wipefs -a`/`-o`，`sgdisk` 的写入操作，`parted` 的标签和分区改动，以及写向字面磁盘设备路径的输出重定向。实际反馈中出现其他磁盘工具时会继续补充。各种形式见[设备和磁盘破坏](/zh-Hans/reference/blocked-commands#device-and-disk-destruction)。
+
 对内置的文件名规则，standard 还会把一些形式当作提及而不是读取，例如：机密文件名对应一个已存在的目录；含空白字符的词既不像路径，磁盘上也不存在；重定向、`mkdir` 或 `touch` 新建了机密同名文件；`tailscale cert` 的输出文件；`openssl x509 -in` 的输入；以及位于列表元素等数据位置的 Python 或 JavaScript 字符串字面量。`secret.home.*` 和 `secret.cli.*` 规则不会因此被放宽。准确条件见 [standard 模式不算作读取的情形](/zh-Hans/reference/secret-protection#what-standard-mode-does-not-count-as-a-read)。
 
 ## 配置恢复边界

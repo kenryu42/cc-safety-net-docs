@@ -124,15 +124,23 @@ heredoc 必须是不展开的：分隔符带引号（`<<'EOF'`），或者分隔
 
 ## 设备命令
 
-`dd`、`mkfs` 和 `shred` 在每个级别都会被分析，但只有真正具有破坏性的形式才会被阻止。
+`dd`、`mkfs`/`mke2fs`/`newfs` 这几类格式化命令、`shred`、`diskutil`、`wipefs`、`sgdisk` 和 `parted` 在每个级别都会被分析，但只有真正具有破坏性的形式才会被阻止。
 
 | 命令模式 | 安全原因 |
 | --- | --- |
 | `dd if=/dev/sda of=./backup.img` | 从设备*读取*到文件。只有 `of=/dev/...`，也就是直接写入设备，才会被阻止 |
 | `dd if=x.iso of=./out.img`、`dd if=/dev/urandom of=random.dat` | 输出目标是普通文件 |
-| `mkfs.ext4 disk.img`、`mkfs.ext4 ./loop.img` | 格式化的是文件镜像，而不是 `/dev/` 设备 |
+| `dd if=big.bin of=/dev/null bs=1M`、`of=/dev/zero`、`of=/dev/full` | 这三个目标只会丢弃写进去的数据，所以常用的读速测试可以照常运行。换成其他 `/dev/` 名字仍然被阻止，`of=/dev/nullx` 也一样 |
+| `mkfs.ext4 disk.img`、`mkfs.ext4 ./loop.img`、`mke2fs disk.img`、`newfs_hfs disk.img` | 格式化的是文件镜像，而不是 `/dev/` 设备 |
+| `diskutil list`、`diskutil info disk4` | 子命令既不是擦除类也不是分区类。只有 `eraseDisk`、`eraseVolume`、`reformat`、`partitionDisk`、`zeroDisk`、`randomDisk` 和 `secureErase` 会被阻止 |
+| `wipefs /dev/sdb` | 不带 `-a`/`--all` 或 `-o`/`--offset` 时，`wipefs` 只打印它找到的签名 |
+| `sgdisk -p /dev/sda`、`sgdisk --print -v /dev/sda`、`sgdisk -E /dev/sda`、`sgdisk -i1 /dev/sda`、`sgdisk -pv /dev/sda` | 只读的 `sgdisk` 选项用于打印分区表、扇区或对齐信息。合并写法的短选项只在以 `-i` 或 `-b` 开头、或其中每个字母都是只读选项时才算只读 |
+| `parted /dev/sda print`、`parted -l` | 两者都没有使用改写分区表的子命令 |
+| `wipefs -a disk.img`、`sgdisk -Z disk.img`、`parted disk.img mklabel gpt` | 目标是镜像文件，不是 `/dev/` 设备 |
+| `echo x > /dev/null`、`echo x > /dev/tty`、`echo x > /dev/cu.usbmodem1` | 重定向目标不是磁盘设备名 |
+| `cat < /dev/sda > disk.img` | 从设备*读取*。只有写向磁盘设备的输出重定向才会被阻止 |
 | 不带操作数的 `shred` | `shred` 规则至少需要一个目标。`shred --help` 和 `shred --version` **会被阻止**，因为任何操作数都算数 |
-| `ldd ./bin`、`ddrescue if=/dev/sda of=./out.img` | 按单词边界匹配。仅把 `dd` 或 `shred` 作为子串包含的命令头不算规则命令头 |
+| `ldd ./bin`、`ddrescue if=/dev/sda of=./out.img`、`mkfsx /dev/sda1`、`newfsx /dev/disk3` | 按单词边界匹配。仅把 `dd`、`shred`、`mkfs` 或 `newfs` 作为子串包含的命令头不算规则命令头 |
 
 ## PowerShell 命令
 

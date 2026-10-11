@@ -107,6 +107,10 @@ CC Safety Net **确实**保护敏感路径。对<a href="/zh-Hans/reference/secr
 
 CC Safety Net 在工具调用运行前拒绝它，但不会强制执行文件系统权限。阻止消息是给智能体的指导，并不等于对文件系统的完整强制执行。灾难性保护始终强制执行，包括递归删除根目录或主目录、受保护的 Git 元数据集合和两个范围的 `policy.json`；但当你需要完整保护而不是尽力拦截时，请使用可信写入代理、操作系统权限、沙箱或同等的运行时强制执行机制。
 
+### 磁盘工具的覆盖范围是一份明确清单
+
+磁盘破坏规则只匹配列出的命令头和子命令，并不涵盖覆写设备的所有方式。`fdisk`、`sfdisk`、`gdisk`、`mkswap` 和 `blkdiscard` 都不在分析范围内，`diskutil apfs` 的子命令也一样，因此 `fdisk /dev/sda` 和 `diskutil apfs deleteContainer disk4` 都被允许。用 `dd` 之外的命令写入设备同样不在覆盖范围内，`tee /dev/sda` 和 `cp img.raw /dev/sda` 都能运行。重定向规则只读取字面目标，所以无论 `DEV` 取什么值，`echo x > $DEV` 都被允许。如需覆盖团队用到的工具，请添加[自定义规则](/zh-Hans/configuration/custom-rules)。
+
 ### 没有网络层
 
 运行时评估不发出网络请求，防护管线也不检查或过滤出站流量。通过网络外泄数据、域名允许列表和容器边界都不在产品范围内，而这些正是沙箱的网络限制所要解决的问题。

@@ -103,6 +103,10 @@ For a boundary that constrains *all* reads rather than a recognized set, use [sa
 
 CC Safety Net denies a tool call before it runs; it does not enforce filesystem permissions. The block message is guidance to the agent, not a claim of complete filesystem enforcement. Catastrophic protections (recursive deletion of root or home, the protected Git metadata set, and `policy.json` in both scopes) are always enforced, but when you need complete protection rather than best-effort interception, use a trusted write broker, operating-system permissions, a sandbox, or equivalent runtime enforcement.
 
+### Disk-tool coverage is a named list
+
+The disk-destruction rules match named heads and verbs, not every way to overwrite a device. `fdisk`, `sfdisk`, `gdisk`, `mkswap`, and `blkdiscard` are not analyzed, and neither are the `diskutil apfs` subcommands, so `fdisk /dev/sda` and `diskutil apfs deleteContainer disk4` are allowed. Writing to a device through a command other than `dd` is also uncovered, so `tee /dev/sda` and `cp img.raw /dev/sda` both run. The redirect rule reads literal targets only, so `echo x > $DEV` is allowed however `DEV` is set. Add a [custom rule](/configuration/custom-rules) for the tools your team uses.
+
 ### No network layer
 
 Runtime evaluation performs no network requests, and nothing in the guard pipeline inspects or filters egress. Data exfiltration over the network, domain allowlisting, and container boundaries are outside the product. Those are exactly what sandboxing's network restrictions address.

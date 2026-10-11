@@ -16,7 +16,7 @@ Destructive-command protection is the command-analysis stage that blocks command
 
 This page lists every built-in rule id, what it blocks, and when it is active. Use it to look up a rule from a block message and decide whether to turn it off. See [Blocked commands](/reference/blocked-commands) for the boundary of each rule with worked examples, [Policy](/configuration/policy#destructive-command-protection) for the `destructive_command_protection` schema, and [Custom rules](/configuration/custom-rules) to add rules of your own.
 
-There are **68 registered rules**. Ten are [catastrophic](#catastrophic-rules) and cannot be turned off. Every other rule accepts a per-rule override. A deny that no rule produced carries one of the [fixed denial ids](#fixed-denial-ids) instead, and no override can turn those off.
+There are **70 registered rules**. Ten are [catastrophic](#catastrophic-rules) and cannot be turned off. Every other rule accepts a per-rule override. A deny that no rule produced carries one of the [fixed denial ids](#fixed-denial-ids) instead, and no override can turn those off.
 
 ## Allow a built-in rule
 
@@ -98,9 +98,11 @@ Ten rules are marked catastrophic. They ignore `destructive_command_protection.e
 | `find.delete` | Blocks unsafe find -delete operations. | `find . -delete` | All levels |
 | `find.delete-git-metadata` | Blocks a find that selects protected Git metadata and hooks for deletion, through `-delete` or through an `-exec` or `-execdir` that hands `{}` to rm or rmdir. | `find .git -delete` | **Catastrophic**, always on |
 | `find.exec-rm-recursive-force` | Blocks find -exec rm -rf operations. | `find . -exec rm -rf {} +` | All levels |
-| `dd.device-write` | Blocks dd writing to a /dev device. | `dd if=/dev/zero of=/dev/sda` | All levels |
-| `mkfs.device` | Blocks mkfs formatting a /dev device. | `mkfs.ext4 /dev/sda1` | All levels |
+| `dd.device-write` | Blocks dd writing to a /dev device other than /dev/null, /dev/zero, or /dev/full. | `dd if=/dev/zero of=/dev/sda` | All levels |
+| `mkfs.device` | Blocks mkfs, mke2fs, and newfs formatting a /dev device. | `mkfs.ext4 /dev/sda1` | All levels |
+| `disk.erase` | Blocks diskutil erase and partition verbs, wipefs -a/-o, sgdisk writes, and parted label or partition edits on a /dev device. | `diskutil eraseDisk APFS Untitled disk4` | All levels |
 | `shred.target` | Blocks shred against any target, including shred --help and shred --version. | `shred -u secret.txt` | All levels |
+| `redirect.block-device` | Blocks output redirects whose literal target is a disk device path under /dev. | `cat disk.img > /dev/sda` | All levels |
 
 ## PowerShell rules
 

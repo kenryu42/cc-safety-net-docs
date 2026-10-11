@@ -144,17 +144,28 @@ Git は、ネットワーク操作中に任意のプログラムを実行する�
 
 Git メタデータと動的な対象は、設定済みの allow path より先に分類されます。そのため、`destructive_command_protection.allow_paths` の項目によって Git メタデータの保護が緩和されることはなく、検証できない対象にも適用されません。
 
+<span id="device-and-disk-destruction"></span>
+
 ## デバイスとディスクの破壊
 
-CC Safety Net は、どの安全レベルでも `dd`、`mkfs`、`shred` を解析します。これらは致命的な操作のルールではないため、破壊的コマンドのマスタースイッチやルール単位の `off` の override を適用できます。
+CC Safety Net は、どの安全レベルでも `dd`、`mkfs`・`mke2fs`・`newfs` のフォーマッター、`shred`、`diskutil`、`wipefs`、`sgdisk`、`parted`、およびディスクデバイスへの出力リダイレクトを解析します。これらは致命的な操作のルールではないため、破壊的コマンドのマスタースイッチやルール単位の `off` の override を適用できます。
 
 | コマンド形式 | ブロックする理由 |
 | --- | --- |
 | `dd ... of=/dev/...` | デバイスパスへの `dd` の直接書き込みは、ディスクやパーティションを破壊しうる。オペランドの順序を入れ替えた形や引用符で囲んだ形も対象（`dd of=/dev/nvme0n1 if=/dev/zero`、`of="/dev/sda"`） |
-| `mkfs /dev/...` と `mkfs.*` の各形式 | デバイスのフォーマットはすべてのデータを消去する（`mkfs.ext4 /dev/sda1`、`mkfs -t ext4 /dev/sdb`） |
+| `mkfs /dev/...`、`mkfs.*` の各形式、`mke2fs /dev/...`、`/dev/...` に対する `newfs`・`newfs_*` | デバイスのフォーマットはすべてのデータを消去する（`mkfs.ext4 /dev/sda1`、`mkfs -t ext4 /dev/sdb`、`mke2fs -t ext4 /dev/sde`、`newfs_hfs /dev/disk2s1`） |
+| 消去系またはパーティション系のサブコマンドを伴う `diskutil` | `eraseDisk`、`eraseVolume`、`reformat`、`partitionDisk`、`zeroDisk`、`randomDisk`、`secureErase` はいずれも対象を破壊する。サブコマンドの照合は大文字小文字を区別せず、対象の書き方も問わないため、`diskutil erasedisk APFS X disk4` は `/dev/` のパスがなくてもブロックされる |
+| `/dev/...` を対象とする `wipefs -a` または `wipefs -o` | ファイルシステムのシグネチャを消すと、ディスクは読めなくなる（`wipefs -a /dev/sdb`、`wipefs --all /dev/sdb`、`wipefs -af /dev/sdb`、`wipefs --offset=0x438 /dev/sdb`） |
+| `/dev/...` を対象とし、書き込み系のオプションを伴う `sgdisk` | パーティションテーブルへの書き込みで、すべてのパーティションが失われうる（`sgdisk -Z /dev/sdc`、`sgdisk --zap-all /dev/sdd`、`sgdisk -n 1:0:0 /dev/sdd`）。`-Zo` や `-pZ` のようにまとめた短形式オプションは、すべての文字が読み取り専用のフラグではないためブロックされる |
+| `/dev/...` を対象とし、`mklabel`、`mktable`、`mkpart`、`rm`、`resizepart` のいずれかを伴う `parted` | どのサブコマンドもパーティションテーブルを書き換える（`parted /dev/sde mklabel gpt`、`parted -s /dev/sdf rm 3`）。照合は大文字小文字を区別しない |
+| 出力先がリテラルで書かれたディスクデバイスである出力リダイレクト | `echo x > /dev/sda` は `dd of=/dev/sda` と同じようにディスクを上書きする。`>`、`>\|`、`>>`、`<>`、`>&` のいずれも対象になるため、`printf x >> /dev/disk4` と `echo x &> /dev/sdb` もブロックされる |
 | `shred <target>` | `shred` は渡したものを永久に破壊するため、`shred --help` と `shred --version` を含むすべての対象をブロックする |
 
-`dd` のルールが働くのは、デバイスへの*書き込み*だけです。デバイスからファイルへの読み出し（`dd if=/dev/sda of=./backup.img`）や、ファイルとして存在するイメージに対する `mkfs.ext4 disk.img` は許可します。この 3 つのルールは、ラッパーや他のコマンド経由の実行にも適用されます。`bash -c "dd if=/dev/zero of=/dev/sda"`、`sudo mkfs.ext4 /dev/sda`、`env dd of=/dev/sda if=/dev/zero`、`eval "shred secret"` は、いずれもブロックされます。
+リダイレクトのルールは、出力先をディスクデバイスの名前の一覧と照合します。対象は `/dev/disk4` と `/dev/rdisk4`、`/dev/sda`、`/dev/hda`、`/dev/vda`、`/dev/xvda`、`/dev/nvme0n1`、`/dev/mmcblk0`、`/dev/md0`、`/dev/dm-0`、`/dev/loop0`、`/dev/mapper/` 配下、`/dev/disk/` 配下です。この一覧に当てはまらない `/dev/null` や `/dev/tty` などの `/dev/` パスは、通常のリダイレクト先として扱います。
+
+`dd` のルールが働くのは、デバイスへの*書き込み*だけです。デバイスからファイルへの読み出し（`dd if=/dev/sda of=./backup.img`）や、ファイルとして存在するイメージに対する `mkfs.ext4 disk.img` は許可します。これらのルールは、ラッパーや他のコマンド経由の実行にも適用されます。`bash -c "dd if=/dev/zero of=/dev/sda"`、`sudo mkfs.ext4 /dev/sda`、`env dd of=/dev/sda if=/dev/zero`、`nice wipefs -a /dev/sdb`、`timeout 5 sgdisk -Z /dev/sdc`、`sh -c "echo x > /dev/sda"`、`eval "shred secret"` は、いずれもブロックされます。
+
+`/dev/null`、`/dev/zero`、`/dev/full` への `dd` の書き込みは何も壊さないため許可します。読み取り速度を測る `dd if=big.bin of=/dev/null bs=1M` はそのまま実行できます。それ以外の `/dev/` の対象は引き続きブロックし、`of=/dev/nullx` のような紛らわしい名前も対象です。この除外が効くのは、解析できたコマンドの `dd` ルールだけです。解析できないテキストでは、ヒューリスティックなスキャンが `dd of=/dev/null` に一致して `raw-text.dangerous-command` で拒否します。
 
 <span id="git-metadata"></span>
 

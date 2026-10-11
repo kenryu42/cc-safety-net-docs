@@ -16,7 +16,7 @@ keywords:
 
 このページでは、すべての組み込みルール ID、ブロックする内容、有効になる条件を示します。ブロックメッセージからルールを調べ、無効にするかどうかを判断するために使ってください。各ルールの境界と具体例については[ブロックされるコマンド](/ja/reference/blocked-commands)を、`destructive_command_protection` スキーマについては[ポリシー](/ja/configuration/policy#destructive-command-protection)を、独自のルールを追加するには[カスタムルール](/ja/configuration/custom-rules)を参照してください。
 
-登録済みのルールは **68 個**です。そのうち 10 個は[致命的な操作に対するルール](#catastrophic-rules)で、無効にできません。それ以外のすべてのルールは、ルール単位の override を受け付けます。ルールによらない拒否には、代わりに[固定の拒否 ID](#fixed-denial-ids) のいずれかが付きます。これらはどの override でも無効にできません。
+登録済みのルールは **70 個**です。そのうち 10 個は[致命的な操作に対するルール](#catastrophic-rules)で、無効にできません。それ以外のすべてのルールは、ルール単位の override を受け付けます。ルールによらない拒否には、代わりに[固定の拒否 ID](#fixed-denial-ids) のいずれかが付きます。これらはどの override でも無効にできません。
 
 <span id="allow-a-built-in-rule"></span>
 
@@ -102,9 +102,11 @@ override はルール全体を無効にするものであり、特定のコマ�
 | `find.delete` | 安全でない find -delete をブロックします。 | `find . -delete` | すべてのレベル |
 | `find.delete-git-metadata` | 保護対象の Git メタデータとフックを削除対象にする find をブロックします。`-delete` に加えて、`{}` を rm や rmdir に渡す `-exec` と `-execdir` も対象です。 | `find .git -delete` | **致命的**、常に有効 |
 | `find.exec-rm-recursive-force` | find -exec rm -rf をブロックします。 | `find . -exec rm -rf {} +` | すべてのレベル |
-| `dd.device-write` | /dev デバイスへの dd 書き込みをブロックします。 | `dd if=/dev/zero of=/dev/sda` | すべてのレベル |
-| `mkfs.device` | /dev デバイスをフォーマットする mkfs をブロックします。 | `mkfs.ext4 /dev/sda1` | すべてのレベル |
+| `dd.device-write` | /dev/null、/dev/zero、/dev/full 以外の /dev デバイスへの dd 書き込みをブロックします。 | `dd if=/dev/zero of=/dev/sda` | すべてのレベル |
+| `mkfs.device` | /dev デバイスをフォーマットする mkfs、mke2fs、newfs をブロックします。 | `mkfs.ext4 /dev/sda1` | すべてのレベル |
+| `disk.erase` | diskutil の消去系とパーティション系のサブコマンド、および /dev デバイスに対する wipefs -a/-o、sgdisk の書き込み、parted のラベルまたはパーティションの変更をブロックします。 | `diskutil eraseDisk APFS Untitled disk4` | すべてのレベル |
 | `shred.target` | shred --help と shred --version を含む、あらゆるターゲットに対する shred をブロックします。 | `shred -u secret.txt` | すべてのレベル |
+| `redirect.block-device` | 出力先がリテラルで書かれた /dev 配下のディスクデバイスパスである出力リダイレクトをブロックします。 | `cat disk.img > /dev/sda` | すべてのレベル |
 
 ## PowerShell のルール
 

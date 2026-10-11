@@ -106,7 +106,7 @@ Standard 会阻止可识别的破坏性命令，但**不具备**对抗级保护�
 
 声明为**透明包装器**的代理命令也会被剥离。声明和约束方式见[自定义规则](/zh-Hans/configuration/custom-rules#transparent-wrappers)；对分类而言，重要的是引擎如何展开它们。
 
-展开过程会查找包装器标志和环境变量赋值后的第一个*可保护*子命令，或显式 `--` 后的 token。设备命令（`dd`、`shred`、`mkfs` 以及 `mkfs.*` 写法）也算可保护，因此 `nice dd of=/dev/disk0` 会进入设备判定。展开后，内置分析和**自定义规则**都会应用于子命令：`rtk git reset --hard` 会命中内置规则，`rtk docker system prune` 会命中匹配的自定义规则。没有任何保护适用的子命令不会被展开。
+展开过程会查找包装器标志和环境变量赋值后的第一个*可保护*子命令，或显式 `--` 后的 token。设备命令也算可保护，因此 `nice dd of=/dev/disk0` 和 `nice wipefs -a /dev/sdb` 会进入设备判定。可保护的命令头有 `dd` 和 `shred`，`mkfs`、`mkfs.*`、`mke2fs`、`newfs`、`newfs_*` 这几类格式化命令，以及 `diskutil`、`wipefs`、`sgdisk`、`parted` 这四个磁盘工具。展开后，内置分析和**自定义规则**都会应用于子命令：`rtk git reset --hard` 会命中内置规则，`rtk docker system prune` 会命中匹配的自定义规则。没有任何保护适用的子命令不会被展开。
 
 未声明的代理，或改写、隐藏子命令而不是执行可见子命令的代理，不会被展开。只有顶层危险文本 fallback 扫描可能捕获它。
 
@@ -337,11 +337,19 @@ Git 支持用 `GIT_SSH_COMMAND` 和 `GIT_SSH` 在网络操作期间运行任意�
 
 | 命令 | 触发条件 | Rule id | Intent |
 | --- | --- | --- | --- |
-| `dd` | 匹配 `of=/dev/…` 的操作数，也就是直接写入设备路径。从设备读取本身不构成触发条件。 | `dd.device-write` | `manual_only` |
-| `mkfs` | 命令头是 `mkfs` 或任意 `mkfs.*` 变体，且某个操作数以 `/dev/` 开头 | `mkfs.device` | `manual_only` |
+| `dd` | 匹配 `of=/dev/…` 的操作数，也就是直接写入设备路径。从设备读取本身不构成触发条件，`of=/dev/null`、`of=/dev/zero` 和 `of=/dev/full` 这三个目标按精确匹配豁免。 | `dd.device-write` | `manual_only` |
+| `mkfs`、`mke2fs`、`newfs` | 命令头是 `mkfs`、任意 `mkfs.*` 变体、`mke2fs`、`newfs` 或任意 `newfs_*` 变体，且某个操作数以 `/dev/` 开头 | `mkfs.device` | `manual_only` |
+| `diskutil` | 第一个非选项操作数是擦除或分区子命令：`eraseDisk`、`eraseVolume`、`reformat`、`partitionDisk`、`zeroDisk`、`randomDisk` 或 `secureErase`。比较前先转成小写，也不要求有 `/dev/` 操作数，因为 `diskutil` 同样接受 `disk4` 这样的写法。 | `disk.erase` | `manual_only` |
+| `wipefs` | 有 `/dev/` 操作数，同时带擦除类选项：`-a`、`--all`、`-o`、`--offset`，或者含有 `a` 或 `o` 的合并写法的短选项 | `disk.erase` | `manual_only` |
+| `sgdisk` | 有 `/dev/` 操作数，同时至少有一个只读集合之外的选项。只读集合为 `-p`/`--print`、`-i`/`--info`、`-v`/`--verify`、`-O`/`--print-mbr`、`-E`/`--end-of-largest`、`-F`/`--first-in-largest`、`-f`/`--first-aligned-in-largest`、`-D`/`--display-alignment`、`-L`/`--list-types`、`-P`/`--pretend`、`-b`/`--backup`、`-V`/`--version`、`-?`/`--help` 和 `--usage`。 | `disk.erase` | `manual_only` |
+| `parted` | 有 `/dev/` 操作数，同时带改写分区表的子命令：`mklabel`、`mktable`、`mkpart`、`rm` 或 `resizepart`，比较前先转成小写 | `disk.erase` | `manual_only` |
 | `shred` | **任何**目标，包括 `shred --help` 和 `shred --version` | `shred.target` | `use_alternative` |
 
-这三个命令也会出现在无法解析文本的启发式扫描中。因此，无法解析文本中的 `dd of=/dev/…`、`mkfs /dev/…` 和 `shred <arg>` 会以 `raw-text.dangerous-command` 阻止，除非文本以 `echo ` 或 `rg ` 开头。这三条规则都不是灾难性规则，因此遵循 master switch 和 per-rule override 的优先级。
+`sgdisk` 的短选项会按字母拆成一个合并组来读，因此 `sgdisk -i1 /dev/sda` 和 `sgdisk -pv /dev/sda` 仍然允许。合并组在两种情况下算只读：首字母是 `i`、`b` 这两个带值的只读选项之一，或者组内每个字母都是只读选项。首字母决定整组的判定，所以 `sgdisk -iZ /dev/sda` 允许，而 `sgdisk -Zo /dev/sda` 和 `sgdisk -pZ /dev/sda` 被阻止。
+
+输出重定向有自己的判定，与命令头无关。`>`、`>|`、`>>`、`<>` 或 `>&` 的目标写成字面磁盘设备路径时，以 `redirect.block-device` 阻止，intent 为 `manual_only`。该判定按磁盘设备名匹配路径（`/dev/disk4`、`/dev/rdisk4`、`/dev/sda`、`/dev/hda`、`/dev/vda`、`/dev/xvda`、`/dev/nvme0n1`、`/dev/mmcblk0`、`/dev/md0`、`/dev/dm-0`、`/dev/loop0`、`/dev/mapper/…`、`/dev/disk/…`），因此 `/dev/null`、`/dev/tty*`、`/dev/shm`、`/dev/tcp` 和 `/dev/cu.*` 保持允许。只含一个重定向的命令段同样会进入该判定，所以 `echo x &> /dev/sdb` 也被阻止，尽管 shell 会在 `&` 处把这条命令拆开；嵌套 `sh -c` 的正文也按同样方式判定。`> $DEV` 这类非字面目标不会进入该判定。跟踪只在命中时记录该判定，因此其他命令的 `explain` 输出不受影响。
+
+`dd`、`mkfs` 和 `shred` 规则也会出现在无法解析文本的启发式扫描中。因此，无法解析文本中的 `dd of=/dev/…`、`mkfs /dev/…` 和 `shred <arg>` 会以 `raw-text.dangerous-command` 阻止，除非文本以 `echo ` 或 `rg ` 开头。该扫描没有 `disk.erase` 这些工具的模式，也没有设备重定向的模式，而且不带 `dd` 的目标豁免，所以无法解析文本中的 `dd of=/dev/null` 仍会被拒绝。这些规则都不是灾难性规则，因此遵循 master switch 和 per-rule override 的优先级。
 
 <span id="dynamic-target-analyzers-for-find-xargs-and-parallel"></span>
 

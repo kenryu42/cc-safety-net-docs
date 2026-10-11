@@ -127,15 +127,24 @@ Git metadata and dynamic targets are both classified before configured allow pat
 
 ## Device and disk destruction
 
-CC Safety Net analyzes `dd`, `mkfs`, and `shred` at every safety level. These rules are not catastrophic, so the master destructive-command switch and a per-rule `off` override still apply.
+CC Safety Net analyzes `dd`, the `mkfs`, `mke2fs`, and `newfs` formatters, `shred`, `diskutil`, `wipefs`, `sgdisk`, `parted`, and output redirects onto a disk device at every safety level. These rules are not catastrophic, so the master destructive-command switch and a per-rule `off` override still apply.
 
 | Command pattern | Why it's blocked |
 | --- | --- |
 | `dd ... of=/dev/...` | A direct `dd` write to a device path can destroy a disk or partition. Reordered and quoted operands are covered (`dd of=/dev/nvme0n1 if=/dev/zero`, `of="/dev/sda"`) |
-| `mkfs /dev/...` and any `mkfs.*` variant | Formatting a device erases everything on it (`mkfs.ext4 /dev/sda1`, `mkfs -t ext4 /dev/sdb`) |
+| `mkfs /dev/...`, any `mkfs.*` variant, `mke2fs /dev/...`, and `newfs`/`newfs_*` on `/dev/...` | Formatting a device erases everything on it (`mkfs.ext4 /dev/sda1`, `mkfs -t ext4 /dev/sdb`, `mke2fs -t ext4 /dev/sde`, `newfs_hfs /dev/disk2s1`) |
+| `diskutil` with an erase or partition verb | `eraseDisk`, `eraseVolume`, `reformat`, `partitionDisk`, `zeroDisk`, `randomDisk`, and `secureErase` all destroy the target. The verb match ignores case, and the target can be any form, so `diskutil erasedisk APFS X disk4` blocks without a `/dev/` path |
+| `wipefs -a` or `wipefs -o` on a `/dev/...` target | Wiping the filesystem signatures makes the disk unreadable (`wipefs -a /dev/sdb`, `wipefs --all /dev/sdb`, `wipefs -af /dev/sdb`, `wipefs --offset=0x438 /dev/sdb`) |
+| `sgdisk` with a write option on a `/dev/...` target | A partition-table write can lose every partition (`sgdisk -Z /dev/sdc`, `sgdisk --zap-all /dev/sdd`, `sgdisk -n 1:0:0 /dev/sdd`). A grouped short option such as `-Zo` or `-pZ` blocks, because not every letter in it is a read-only flag |
+| `parted` with `mklabel`, `mktable`, `mkpart`, `rm`, or `resizepart` on a `/dev/...` target | Each verb rewrites the partition table (`parted /dev/sde mklabel gpt`, `parted -s /dev/sdf rm 3`). The verb match ignores case |
+| An output redirect whose literal target is a disk device | `echo x > /dev/sda` overwrites the disk the same way `dd of=/dev/sda` does. The `>`, `>\|`, `>>`, `<>`, and `>&` operators are all covered, so `printf x >> /dev/disk4` and `echo x &> /dev/sdb` block too |
 | `shred <target>` | `shred` permanently destroys its target, so every target is blocked. This includes `shred --help` and `shred --version` |
 
-Only a *write* to a device triggers the `dd` rule. Reading from a device into a file (`dd if=/dev/sda of=./backup.img`) is allowed, and so is `mkfs.ext4 disk.img` against a file-backed image. All three rules also apply through wrappers and carriers: `bash -c "dd if=/dev/zero of=/dev/sda"`, `sudo mkfs.ext4 /dev/sda`, `env dd of=/dev/sda if=/dev/zero`, and `eval "shred secret"` are all blocked.
+The redirect rule matches the target against a list of disk device names: `/dev/disk4` and `/dev/rdisk4`, `/dev/sda`, `/dev/hda`, `/dev/vda`, `/dev/xvda`, `/dev/nvme0n1`, `/dev/mmcblk0`, `/dev/md0`, `/dev/dm-0`, `/dev/loop0`, anything under `/dev/mapper/`, and anything under `/dev/disk/`. A `/dev/` path outside that list, such as `/dev/null` or `/dev/tty`, is a redirect target like any other.
+
+Only a *write* to a device triggers the `dd` rule. Reading from a device into a file (`dd if=/dev/sda of=./backup.img`) is allowed, and so is `mkfs.ext4 disk.img` against a file-backed image. These rules also apply through wrappers and carriers: `bash -c "dd if=/dev/zero of=/dev/sda"`, `sudo mkfs.ext4 /dev/sda`, `env dd of=/dev/sda if=/dev/zero`, `nice wipefs -a /dev/sdb`, `timeout 5 sgdisk -Z /dev/sdc`, `sh -c "echo x > /dev/sda"`, and `eval "shred secret"` are all blocked.
+
+`dd` writing to `/dev/null`, `/dev/zero`, or `/dev/full` destroys nothing and is allowed, so the read-speed test `dd if=big.bin of=/dev/null bs=1M` runs. Every other `/dev/` target still blocks, including a near-miss name such as `of=/dev/nullx`. The exemption applies to the parsed `dd` rule only. In unparseable text the heuristic scan still matches `dd of=/dev/null` and denies as `raw-text.dangerous-command`.
 
 ## Git metadata
 

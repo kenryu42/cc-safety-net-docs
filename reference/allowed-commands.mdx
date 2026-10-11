@@ -118,15 +118,23 @@ The generator allowance checks the command's shape, not its author. There is no 
 
 ## Device commands
 
-`dd`, `mkfs`, and `shred` are analyzed in every level, but only the genuinely destructive shapes are blocked.
+`dd`, the `mkfs`, `mke2fs`, and `newfs` formatters, `shred`, `diskutil`, `wipefs`, `sgdisk`, and `parted` are analyzed in every level, but only the genuinely destructive shapes are blocked.
 
 | Command pattern | Why it's safe |
 | --- | --- |
 | `dd if=/dev/sda of=./backup.img` | Reading *from* a device into a file. Only `of=/dev/...`, a direct write to a device, is blocked |
 | `dd if=x.iso of=./out.img`, `dd if=/dev/urandom of=random.dat` | The output target is an ordinary file |
-| `mkfs.ext4 disk.img`, `mkfs.ext4 ./loop.img` | Formatting a file-backed image, not a `/dev/` device |
+| `dd if=big.bin of=/dev/null bs=1M`, `of=/dev/zero`, `of=/dev/full` | These three sinks discard what they are given, so the usual read-speed test runs. A different `/dev/` name, including `of=/dev/nullx`, still blocks |
+| `mkfs.ext4 disk.img`, `mkfs.ext4 ./loop.img`, `mke2fs disk.img`, `newfs_hfs disk.img` | Formatting a file-backed image, not a `/dev/` device |
+| `diskutil list`, `diskutil info disk4` | The verb is not an erase or partition verb. Only `eraseDisk`, `eraseVolume`, `reformat`, `partitionDisk`, `zeroDisk`, `randomDisk`, and `secureErase` block |
+| `wipefs /dev/sdb` | Without `-a`/`--all` or `-o`/`--offset`, `wipefs` only prints the signatures it finds |
+| `sgdisk -p /dev/sda`, `sgdisk --print -v /dev/sda`, `sgdisk -E /dev/sda`, `sgdisk -i1 /dev/sda`, `sgdisk -pv /dev/sda` | Read-only `sgdisk` options print table, sector, or alignment information. A grouped short option is read-only when it starts with `-i` or `-b` or when every letter in it is a read-only flag |
+| `parted /dev/sda print`, `parted -l` | Neither names a table-editing verb |
+| `wipefs -a disk.img`, `sgdisk -Z disk.img`, `parted disk.img mklabel gpt` | The target is an image file, not a `/dev/` device |
+| `echo x > /dev/null`, `echo x > /dev/tty`, `echo x > /dev/cu.usbmodem1` | The redirect target is not a disk device name |
+| `cat < /dev/sda > disk.img` | Reading *from* a device. Only an output redirect onto a disk device blocks |
 | `shred` with no operand | The `shred` rule requires at least one target. `shred --help` and `shred --version` **are** blocked, because any operand counts |
-| `ldd ./bin`, `ddrescue if=/dev/sda of=./out.img` | Word-boundary match, a head that merely contains `dd` or `shred` as a substring is not the rule head |
+| `ldd ./bin`, `ddrescue if=/dev/sda of=./out.img`, `mkfsx /dev/sda1`, `newfsx /dev/disk3` | Word-boundary match, a head that merely contains `dd`, `shred`, `mkfs`, or `newfs` as a substring is not the rule head |
 
 ## PowerShell commands
 

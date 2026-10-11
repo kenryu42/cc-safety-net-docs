@@ -106,7 +106,7 @@ Windows の 2 つのシェルには、どのシェルモードでも専用の読
 
 **transparent wrapper** として宣言したプロキシコマンドも同様に取り除きます。宣言の方法と制約は[カスタムルール](/ja/configuration/custom-rules#transparent-wrappers)を参照してください。ここでは、エンジンがラッパーをどう透過するかを説明します。
 
-透過するときは、ラッパーのフラグと環境変数の代入より後にある最初の*保護対象になりうる*子コマンド、または明示的な `--` の直後のトークンを探します。デバイス系コマンド（`dd`、`shred`、`mkfs`、および `mkfs.*` の表記）も保護対象になりうるため、`nice dd of=/dev/disk0` はデバイスの判定に届きます。透過した後は、組み込みの解析と**カスタムルール**の両方をその子コマンドに適用します。`rtk git reset --hard` は組み込みのルールでブロックされ、`rtk docker system prune` は該当するカスタムルールに一致します。保護対象になりうる子コマンドがない場合は、透過しません。
+透過するときは、ラッパーのフラグと環境変数の代入より後にある最初の*保護対象になりうる*子コマンド、または明示的な `--` の直後のトークンを探します。デバイス系コマンドも保護対象になりうるため、`nice dd of=/dev/disk0` と `nice wipefs -a /dev/sdb` はデバイスの判定に届きます。保護対象になりうる先頭コマンドは、`dd`、`shred`、`mkfs`・`mkfs.*`・`mke2fs`・`newfs`・`newfs_*` のフォーマッター、およびディスク系の 4 つのツール `diskutil`、`wipefs`、`sgdisk`、`parted` です。透過した後は、組み込みの解析と**カスタムルール**の両方をその子コマンドに適用します。`rtk git reset --hard` は組み込みのルールでブロックされ、`rtk docker system prune` は該当するカスタムルールに一致します。保護対象になりうる子コマンドがない場合は、透過しません。
 
 宣言されていないプロキシや、見える形で子コマンドを実行せずに書き換えたり隠したりするプロキシは、透過できません。これらを拾える可能性があるのは、最上位で行う危険な文字列のフォールバックスキャンだけです。
 
@@ -345,11 +345,19 @@ Windows では、Git Bash などの MSYS シェルが `/c/Users/...` 形式の�
 
 | コマンド | トリガー | ルール ID | intent |
 | --- | --- | --- | --- |
-| `dd` | `of=/dev/…` に一致する operand。device path への直接書き込み。device からの読み取りだけでは対象にならない | `dd.device-write` | `manual_only` |
-| `mkfs` | 先頭が `mkfs` または `mkfs.*` の variant で、いずれかの operand が `/dev/` から始まる | `mkfs.device` | `manual_only` |
+| `dd` | `of=/dev/…` に一致するオペランド。デバイスパスへの直接書き込み。デバイスからの読み取りだけでは対象にならず、`of=/dev/null`、`of=/dev/zero`、`of=/dev/full` の 3 つの出力先は完全一致で除外する | `dd.device-write` | `manual_only` |
+| `mkfs`、`mke2fs`、`newfs` | 先頭が `mkfs`、`mkfs.*` の各形式、`mke2fs`、`newfs`、`newfs_*` の各形式のいずれかであり、`/dev/` から始まるオペランドが 1 つ以上ある | `mkfs.device` | `manual_only` |
+| `diskutil` | オプションではない最初のオペランドが消去系またはパーティション系のサブコマンド（`eraseDisk`、`eraseVolume`、`reformat`、`partitionDisk`、`zeroDisk`、`randomDisk`、`secureErase`）。照合は小文字にそろえて行う。`diskutil` は `disk4` のような指定も受け付けるため、`/dev/` のオペランドは不要 | `disk.erase` | `manual_only` |
+| `wipefs` | `/dev/` のオペランドと、消去系のオプション（`-a`、`--all`、`-o`、`--offset`、または `a` か `o` を含むまとめた短形式オプション） | `disk.erase` | `manual_only` |
+| `sgdisk` | `/dev/` のオペランドと、読み取り専用の集合に含まれないオプションが 1 つ以上。読み取り専用の集合は `-p`／`--print`、`-i`／`--info`、`-v`／`--verify`、`-O`／`--print-mbr`、`-E`／`--end-of-largest`、`-F`／`--first-in-largest`、`-f`／`--first-aligned-in-largest`、`-D`／`--display-alignment`、`-L`／`--list-types`、`-P`／`--pretend`、`-b`／`--backup`、`-V`／`--version`、`-?`／`--help`、`--usage` | `disk.erase` | `manual_only` |
+| `parted` | `/dev/` のオペランドと、テーブルを書き換えるサブコマンド（`mklabel`、`mktable`、`mkpart`、`rm`、`resizepart`）。照合は小文字にそろえて行う | `disk.erase` | `manual_only` |
 | `shred` | `shred --help` と `shred --version` を含む**すべての**対象 | `shred.target` | `use_alternative` |
 
-この 3 つの形式は、解析できないテキストに対するヒューリスティックなスキャンにも含まれます。そのため、`echo ` や `rg ` で始まる場合を除き、解析できないテキストの中にある `dd of=/dev/…`、`mkfs /dev/…`、`shred <arg>` は `raw-text.dangerous-command` としてブロックされます。いずれも致命的な操作のルールではないため、マスタースイッチとルール単位の override の優先順位に従います。
+`sgdisk` の短形式オプションは文字のまとまりとして読むため、`sgdisk -i1 /dev/sda` と `sgdisk -pv /dev/sda` は許可されたままです。まとまりが読み取り専用と見なされるのは、先頭の文字が値を取る読み取り専用オプションの `i` か `b` である場合、またはすべての文字が読み取り専用のフラグである場合です。先頭の文字がまとまり全体の判定を決めるため、`sgdisk -iZ /dev/sda` は許可され、`sgdisk -Zo /dev/sda` と `sgdisk -pZ /dev/sda` はブロックされます。
+
+出力リダイレクトは、先頭のコマンドに関係なく独自の判定を受けます。`>`、`>|`、`>>`、`<>`、`>&` のいずれかで、出力先がリテラルで書かれたディスクデバイスパスである場合は、intent `manual_only` の `redirect.block-device` としてブロックされます。この判定はパスをディスクデバイスの名前（`/dev/disk4`、`/dev/rdisk4`、`/dev/sda`、`/dev/hda`、`/dev/vda`、`/dev/xvda`、`/dev/nvme0n1`、`/dev/mmcblk0`、`/dev/md0`、`/dev/dm-0`、`/dev/loop0`、`/dev/mapper/…`、`/dev/disk/…`）と照合するため、`/dev/null`、`/dev/tty*`、`/dev/shm`、`/dev/tcp`、`/dev/cu.*` は許可されます。リダイレクトだけのセグメントもこの判定に届くので、シェルが `&` で分割する `echo x &> /dev/sdb` もブロックされ、入れ子の `sh -c` の本体も同じように判定されます。`> $DEV` のようにリテラルではない出力先は追跡しません。トレースにこの判定が記録されるのは一致したときだけなので、それ以外のコマンドの `explain` の出力は変わりません。
+
+`dd`、`mkfs`、`shred` のルールは、解析できないテキストに対するヒューリスティックなスキャンにも含まれます。そのため、`echo ` や `rg ` で始まる場合を除き、解析できないテキストの中にある `dd of=/dev/…`、`mkfs /dev/…`、`shred <arg>` は `raw-text.dangerous-command` としてブロックされます。このスキャンには `disk.erase` のツール用のパターンもデバイスへのリダイレクト用のパターンもなく、`dd` の出力先の除外も適用されません。そのため、解析できないテキストの中の `dd of=/dev/null` は引き続き拒否されます。これらはいずれも致命的な操作のルールではないため、マスタースイッチとルール単位の override の優先順位に従います。
 
 <span id="dynamic-target-analyzers-for-find-xargs-and-parallel"></span>
 

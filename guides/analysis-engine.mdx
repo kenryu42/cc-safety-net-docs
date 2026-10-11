@@ -102,7 +102,7 @@ Eight more commands always run a visible child, so the engine looks through them
 
 The engine also strips proxy commands that you declared as **transparent wrappers**. [Custom rules](/configuration/custom-rules#transparent-wrappers) explains how to declare and constrain them.
 
-Unwrapping finds the first *protectable* child command after wrapper flags and environment assignments, or the token right after an explicit `--`. A device command (`dd`, `shred`, `mkfs`, and the `mkfs.*` spellings) counts as protectable, so `nice dd of=/dev/disk0` reaches the device check. Once unwrapped, both built-in analysis and **custom rules** apply to the child: `rtk git reset --hard` blocks on the built-in rule, and `rtk docker system prune` hits a matching custom rule. Child commands that nothing protects are not unwrapped.
+Unwrapping finds the first *protectable* child command after wrapper flags and environment assignments, or the token right after an explicit `--`. A device command counts as protectable, so `nice dd of=/dev/disk0` and `nice wipefs -a /dev/sdb` reach the device check. The protectable heads are `dd`, `shred`, the `mkfs`, `mkfs.*`, `mke2fs`, `newfs`, and `newfs_*` formatters, and the four disk tools `diskutil`, `wipefs`, `sgdisk`, and `parted`. Once unwrapped, both built-in analysis and **custom rules** apply to the child: `rtk git reset --hard` blocks on the built-in rule, and `rtk docker system prune` hits a matching custom rule. Child commands that nothing protects are not unwrapped.
 
 The engine does not unwrap an undeclared proxy or a proxy that rewrites or hides its child command instead of executing a visible child. Only the top-level dangerous-text fallback scan may catch it.
 
@@ -319,11 +319,19 @@ On Windows, Git Bash and other MSYS shells hand over `/c/Users/...` spellings, w
 
 | Command | Trigger | Rule id | Intent |
 | --- | --- | --- | --- |
-| `dd` | An operand matching `of=/dev/…`, which writes directly to a device path. Reading from a device is not itself the trigger. | `dd.device-write` | `manual_only` |
-| `mkfs` | Head is `mkfs` or any `mkfs.*` variant and some operand starts with `/dev/` | `mkfs.device` | `manual_only` |
+| `dd` | An operand matching `of=/dev/…`, which writes directly to a device path. Reading from a device is not itself the trigger, and the three sinks `of=/dev/null`, `of=/dev/zero`, and `of=/dev/full` are exempt by exact match. | `dd.device-write` | `manual_only` |
+| `mkfs`, `mke2fs`, `newfs` | Head is `mkfs`, any `mkfs.*` variant, `mke2fs`, `newfs`, or any `newfs_*` variant, and some operand starts with `/dev/` | `mkfs.device` | `manual_only` |
+| `diskutil` | The first non-option operand is an erase or partition verb: `eraseDisk`, `eraseVolume`, `reformat`, `partitionDisk`, `zeroDisk`, `randomDisk`, or `secureErase`. The comparison lowercases the verb, and no `/dev/` operand is required, because `diskutil` also accepts a bare `disk4`. | `disk.erase` | `manual_only` |
+| `wipefs` | A `/dev/` operand plus an erase option: `-a`, `--all`, `-o`, `--offset`, or a grouped short option containing `a` or `o` | `disk.erase` | `manual_only` |
+| `sgdisk` | A `/dev/` operand plus at least one option outside the read-only set. The read-only set is `-p`/`--print`, `-i`/`--info`, `-v`/`--verify`, `-O`/`--print-mbr`, `-E`/`--end-of-largest`, `-F`/`--first-in-largest`, `-f`/`--first-aligned-in-largest`, `-D`/`--display-alignment`, `-L`/`--list-types`, `-P`/`--pretend`, `-b`/`--backup`, `-V`/`--version`, `-?`/`--help`, and `--usage`. | `disk.erase` | `manual_only` |
+| `parted` | A `/dev/` operand plus a table-editing verb: `mklabel`, `mktable`, `mkpart`, `rm`, or `resizepart`, compared after lowercasing | `disk.erase` | `manual_only` |
 | `shred` | **Any** target, including `shred --help` and `shred --version` | `shred.target` | `use_alternative` |
 
-All three also appear in the unparseable-text heuristic scan. Thus, `dd of=/dev/…`, `mkfs /dev/…`, and `shred <arg>` inside otherwise unparseable text block as `raw-text.dangerous-command`, except when the text starts with `echo ` or `rg `. None of the three is catastrophic, so they follow the master-switch and per-rule-override precedence.
+A short `sgdisk` option is read as a group of letters, so `sgdisk -i1 /dev/sda` and `sgdisk -pv /dev/sda` stay allowed. The group counts as read-only when its first letter is one of the two value-taking read-only options, `i` or `b`, or when every letter is a read-only flag. That first-letter rule decides the whole group, so `sgdisk -iZ /dev/sda` is allowed while `sgdisk -Zo /dev/sda` and `sgdisk -pZ /dev/sda` block.
+
+An output redirect reaches its own check, independent of the command head. A `>`, `>|`, `>>`, `<>`, or `>&` whose target is a literal disk device path blocks as `redirect.block-device` with intent `manual_only`. The check matches the path against disk device names (`/dev/disk4`, `/dev/rdisk4`, `/dev/sda`, `/dev/hda`, `/dev/vda`, `/dev/xvda`, `/dev/nvme0n1`, `/dev/mmcblk0`, `/dev/md0`, `/dev/dm-0`, `/dev/loop0`, `/dev/mapper/…`, `/dev/disk/…`), which leaves `/dev/null`, `/dev/tty*`, `/dev/shm`, `/dev/tcp`, and `/dev/cu.*` allowed. A segment that holds only a redirect reaches the check too, so `echo x &> /dev/sdb` blocks even though the shell splits that command at the `&`, and the body of a nested `sh -c` is checked the same way. A non-literal target such as `> $DEV` is not followed. The trace records this check only when it matches, so `explain` output for every other command is unchanged.
+
+The `dd`, `mkfs`, and `shred` rules also appear in the unparseable-text heuristic scan. Thus, `dd of=/dev/…`, `mkfs /dev/…`, and `shred <arg>` inside otherwise unparseable text block as `raw-text.dangerous-command`, except when the text starts with `echo ` or `rg `. The scan has no pattern for the `disk.erase` tools or for a device redirect, and it does not carry the `dd` sink exemption, so `dd of=/dev/null` in unparseable text still denies. None of these rules is catastrophic, so they follow the master-switch and per-rule-override precedence.
 
 ## Dynamic-target analyzers for `find`, `xargs`, and `parallel`
 

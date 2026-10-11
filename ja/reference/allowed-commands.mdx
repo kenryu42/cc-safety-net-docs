@@ -124,15 +124,23 @@ allow path が他の範囲を広げることはありません。機密パス保
 
 ## デバイスコマンド
 
-`dd`、`mkfs`、`shred` はすべてのレベルで解析されますが、実際に破壊的な形式のみがブロックされます。
+`dd`、`mkfs`・`mke2fs`・`newfs` のフォーマッター、`shred`、`diskutil`、`wipefs`、`sgdisk`、`parted` はすべてのレベルで解析されますが、実際に破壊的な形式のみがブロックされます。
 
 | コマンドパターン | 安全な理由 |
 | --- | --- |
 | `dd if=/dev/sda of=./backup.img` | デバイスからファイルへ読み取る。ブロックされるのは、デバイスへ直接書き込む `of=/dev/...` のみ |
 | `dd if=x.iso of=./out.img`、`dd if=/dev/urandom of=random.dat` | 出力先が通常のファイル |
-| `mkfs.ext4 disk.img`、`mkfs.ext4 ./loop.img` | `/dev/` デバイスではなく、ファイルベースのイメージをフォーマットする |
+| `dd if=big.bin of=/dev/null bs=1M`、`of=/dev/zero`、`of=/dev/full` | この 3 つの出力先は渡したデータを捨てるだけなので、よく使う読み取り速度の測定はそのまま実行できる。それ以外の `/dev/` の名前は、`of=/dev/nullx` を含めて引き続きブロックされる |
+| `mkfs.ext4 disk.img`、`mkfs.ext4 ./loop.img`、`mke2fs disk.img`、`newfs_hfs disk.img` | `/dev/` デバイスではなく、ファイルベースのイメージをフォーマットする |
+| `diskutil list`、`diskutil info disk4` | サブコマンドが消去系でもパーティション系でもない。ブロックされるのは `eraseDisk`、`eraseVolume`、`reformat`、`partitionDisk`、`zeroDisk`、`randomDisk`、`secureErase` のみ |
+| `wipefs /dev/sdb` | `-a`／`--all` も `-o`／`--offset` もない `wipefs` は、見つけたシグネチャを表示するだけ |
+| `sgdisk -p /dev/sda`、`sgdisk --print -v /dev/sda`、`sgdisk -E /dev/sda`、`sgdisk -i1 /dev/sda`、`sgdisk -pv /dev/sda` | 読み取り専用の `sgdisk` のオプションは、テーブル、セクタ、アラインメントの情報を表示する。まとめた短形式オプションが読み取り専用になるのは、先頭が `-i` か `-b` の場合、またはすべての文字が読み取り専用のフラグの場合 |
+| `parted /dev/sda print`、`parted -l` | どちらもテーブルを書き換えるサブコマンドを指定していない |
+| `wipefs -a disk.img`、`sgdisk -Z disk.img`、`parted disk.img mklabel gpt` | 対象が `/dev/` デバイスではなくイメージファイル |
+| `echo x > /dev/null`、`echo x > /dev/tty`、`echo x > /dev/cu.usbmodem1` | リダイレクト先がディスクデバイスの名前ではない |
+| `cat < /dev/sda > disk.img` | デバイスから*読み取る*。ブロックされるのは、ディスクデバイスへの出力リダイレクトのみ |
 | オペランドがない `shred` | `shred` ルールには少なくとも 1 つの対象が必要。`shred --help` と `shred --version` は、すべてのオペランドが対象になるため**ブロックされる** |
-| `ldd ./bin`、`ddrescue if=/dev/sda of=./out.img` | ワード境界で一致する。`dd` または `shred` を部分文字列として含むだけの先頭コマンドは、ルールが対象とする先頭コマンドではない |
+| `ldd ./bin`、`ddrescue if=/dev/sda of=./out.img`、`mkfsx /dev/sda1`、`newfsx /dev/disk3` | ワード境界で一致する。`dd`、`shred`、`mkfs`、`newfs` を部分文字列として含むだけの先頭コマンドは、ルールが対象とする先頭コマンドではない |
 
 ## PowerShell コマンド
 

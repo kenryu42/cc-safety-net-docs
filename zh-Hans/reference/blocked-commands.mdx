@@ -125,17 +125,28 @@ Git 接受 `GIT_SSH_COMMAND` 和 `GIT_SSH` 以在网络操作期间运行任意�
 
 Git 元数据和动态目标都会在配置的允许路径之前分类，因此 `destructive_command_protection.allow_paths` 中的项绝不会放宽 Git 元数据保护，也绝不会应用于无法验证的目标。
 
+<span id="device-and-disk-destruction"></span>
+
 ## 设备和磁盘破坏
 
-CC Safety Net 在每个安全级别分析 `dd`、`mkfs` 和 `shred`。这些规则不是灾难性规则，因此主破坏性命令开关和单条规则的 `off` 覆盖仍然适用。
+CC Safety Net 在每个安全级别分析 `dd`、`mkfs`/`mke2fs`/`newfs` 这几类格式化命令、`shred`、`diskutil`、`wipefs`、`sgdisk`、`parted`，以及写向磁盘设备的输出重定向。这些规则不是灾难性规则，因此主破坏性命令开关和单条规则的 `off` 覆盖仍然适用。
 
 | 命令模式 | 阻止原因 |
 | --- | --- |
 | `dd ... of=/dev/...` | 用 `dd` 直接写入设备路径可能破坏磁盘或分区。重新排序和带引号的操作数也涵盖在内（`dd of=/dev/nvme0n1 if=/dev/zero`、`of="/dev/sda"`） |
-| `mkfs /dev/...` 和任何 `mkfs.*` 变体 | 格式化设备会清除其中的全部内容（`mkfs.ext4 /dev/sda1`、`mkfs -t ext4 /dev/sdb`） |
+| `mkfs /dev/...`、任何 `mkfs.*` 变体、`mke2fs /dev/...`，以及作用于 `/dev/...` 的 `newfs`/`newfs_*` | 格式化设备会清除其中的全部内容（`mkfs.ext4 /dev/sda1`、`mkfs -t ext4 /dev/sdb`、`mke2fs -t ext4 /dev/sde`、`newfs_hfs /dev/disk2s1`） |
+| 带擦除或分区子命令的 `diskutil` | `eraseDisk`、`eraseVolume`、`reformat`、`partitionDisk`、`zeroDisk`、`randomDisk` 和 `secureErase` 都会破坏目标。子命令匹配不区分大小写，目标写成什么形式都算，所以 `diskutil erasedisk APFS X disk4` 不带 `/dev/` 路径也会被阻止 |
+| 作用于 `/dev/...` 目标的 `wipefs -a` 或 `wipefs -o` | 擦掉文件系统签名会让磁盘无法读取（`wipefs -a /dev/sdb`、`wipefs --all /dev/sdb`、`wipefs -af /dev/sdb`、`wipefs --offset=0x438 /dev/sdb`） |
+| 作用于 `/dev/...` 目标并带写入类选项的 `sgdisk` | 写入分区表可能丢掉全部分区（`sgdisk -Z /dev/sdc`、`sgdisk --zap-all /dev/sdd`、`sgdisk -n 1:0:0 /dev/sdd`）。`-Zo`、`-pZ` 这类合并写法的短选项会被阻止，因为其中并非每个字母都是只读选项 |
+| 作用于 `/dev/...` 目标并带 `mklabel`、`mktable`、`mkpart`、`rm` 或 `resizepart` 的 `parted` | 这些子命令都会重写分区表（`parted /dev/sde mklabel gpt`、`parted -s /dev/sdf rm 3`）。匹配不区分大小写 |
+| 目标写成字面磁盘设备路径的输出重定向 | `echo x > /dev/sda` 与 `dd of=/dev/sda` 一样会覆盖磁盘。`>`、`>\|`、`>>`、`<>`、`>&` 都涵盖在内，所以 `printf x >> /dev/disk4` 和 `echo x &> /dev/sdb` 同样被阻止 |
 | `shred <target>` | `shred` 会永久破坏交给它的任何目标，因此 `shred --help` 和 `shred --version` 也会被阻止 |
 
-只有对设备的*写入*会触发 `dd` 规则。从设备读取到文件（`dd if=/dev/sda of=./backup.img`）是允许的，对文件镜像运行 `mkfs.ext4 disk.img` 同样允许。三条规则也适用于包装器和载体：`bash -c "dd if=/dev/zero of=/dev/sda"`、`sudo mkfs.ext4 /dev/sda`、`env dd of=/dev/sda if=/dev/zero` 和 `eval "shred secret"` 都会被阻止。
+重定向规则按一份磁盘设备名清单匹配目标：`/dev/disk4` 和 `/dev/rdisk4`、`/dev/sda`、`/dev/hda`、`/dev/vda`、`/dev/xvda`、`/dev/nvme0n1`、`/dev/mmcblk0`、`/dev/md0`、`/dev/dm-0`、`/dev/loop0`、`/dev/mapper/` 下的任意路径，以及 `/dev/disk/` 下的任意路径。清单之外的 `/dev/` 路径（例如 `/dev/null` 或 `/dev/tty`）与普通重定向目标一样处理。
+
+只有对设备的*写入*会触发 `dd` 规则。从设备读取到文件（`dd if=/dev/sda of=./backup.img`）是允许的，对文件镜像运行 `mkfs.ext4 disk.img` 同样允许。这些规则也适用于包装器和载体：`bash -c "dd if=/dev/zero of=/dev/sda"`、`sudo mkfs.ext4 /dev/sda`、`env dd of=/dev/sda if=/dev/zero`、`nice wipefs -a /dev/sdb`、`timeout 5 sgdisk -Z /dev/sdc`、`sh -c "echo x > /dev/sda"` 和 `eval "shred secret"` 都会被阻止。
+
+`dd` 写入 `/dev/null`、`/dev/zero` 或 `/dev/full` 不会破坏任何东西，因此允许；读速测试 `dd if=big.bin of=/dev/null bs=1M` 可以照常运行。其他 `/dev/` 目标仍然被阻止，包括 `of=/dev/nullx` 这类只差一点的相近名字。该豁免只适用于解析后的 `dd` 规则。在无法解析的文本中，启发式扫描仍会匹配 `dd of=/dev/null` 并以 `raw-text.dangerous-command` 拒绝。
 
 <span id="git-metadata"></span>
 
