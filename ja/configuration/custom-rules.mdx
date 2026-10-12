@@ -42,6 +42,7 @@ CC Safety Net は、2 つのスコープから rulebook を読み込んでマー
 - **各スコープの `overrides` は、そのスコープ自身のルールにのみ適用されます。** ユーザースコープのルールを指定したプロジェクト側の override は警告とともに無視され、そのルールはユーザー設定の状態を保ちます。プロジェクトの設定から、ユーザーのルールを無効にしたり書き換えたりすることはできません。
 - どの既知のルールにも一致しない override のキーは、警告とともに無視されます。他の override とルールは設定どおりのまま有効です。
 - `transparent_wrappers` は、両スコープの内容を統合します。
+- `command_tools` は、ユーザースコープを先にして両スコープの内容をマージします。同じツール名を両方のスコープが宣言している場合は、ユーザースコープのエントリが優先され、プロジェクト側のエントリは破棄されます。そのため、作業ディレクトリをどの引数から読み取るかを、プロジェクトの設定から変更することはできません。
 
 どちらの場所にも設定が見つからない場合は、組み込みのルールだけが適用されます。
 
@@ -182,7 +183,75 @@ npx -y cc-safety-net rule wrapper add rtk --global
 - 組み込みでもなく、ここにも登録されていないラッパーや、見える形で子コマンドを exec せずに書き換えたり隠したりするラッパーは、透過処理の対象になりません。そうしたコマンドを拾える可能性があるのは、トップレベルの危険な文字列に対するフォールバックスキャンだけです。
 
 <Warning>
-`transparent_wrappers` は `rule.json` の中にあります。あるスコープの `rule.json` が読み取れなくなると、そのスコープで宣言したラッパーは適用されなくなりますが、組み込みの 7 つのラッパーは引き続き有効です。設定が実行中のスナップショットから破棄されたときに、組み込みの保護範囲まで狭まるのはここだけです。**rulebook** の読み込みに失敗した場合でも、`rule.json` 自体は読み取れるため、宣言したラッパーは維持されます。
+`transparent_wrappers` は `rule.json` の中にあります。あるスコープの `rule.json` が読み取れなくなると、そのスコープで宣言したラッパーは適用されなくなりますが、組み込みの 7 つのラッパーは引き続き有効です。設定が破棄されたときに組み込みの保護範囲まで狭まるのは、ここと[宣言済みのコマンド用ツール](#community-shell-tools)です。**rulebook** の読み込みに失敗した場合でも、`rule.json` 自体は読み取れるため、宣言したラッパーは維持されます。
+</Warning>
+
+<span id="community-shell-tools"></span>
+
+## コミュニティ製のシェルツール
+
+プラグインは、エージェントに独自のシェルツールを追加できます。たとえば `dsh-ops` プラグインは `ops_bash` と `ops_run_background` を追加します。CC Safety Net はこれらの名前を知らないため、連携は未知のツールとして振り分けます。パスの値については保護対象のパスを検査しますが、`command` をシェルコマンドとしてパースすることはありません。宣言するまでは、`ops_bash` が実行する `git reset --hard` はブロックされません。
+
+ツールを宣言すると、CC Safety Net はそのコマンドを解析します。
+
+```bash
+# Declare one or more tools in the user config
+npx -y cc-safety-net rule tool add ops_bash ops_run_background
+
+# Name the argument that carries the working directory
+npx -y cc-safety-net rule tool add ops_run_background --cwd-arg dir
+
+# Write the project config instead
+npx -y cc-safety-net rule tool add team_shell --project
+
+# List every declared tool in both scopes, or stop analyzing one
+npx -y cc-safety-net rule tool list
+npx -y cc-safety-net rule tool remove ops_bash
+```
+
+これで `command_tools` 配列が書き込まれます。
+
+```json
+{
+  "version": 1,
+  "rules": [],
+  "overrides": {},
+  "transparent_wrappers": [],
+  "command_tools": ["ops_bash", { "name": "ops_run_background", "cwd": "dir" }]
+}
+```
+
+次のツール呼び出しから、宣言したツールの呼び出しは組み込みのシェルツールと同じように解析されます。組み込みルールもカスタムルールも同じで、自分の安全レベルと、そのレベルにおける機密パスの扱いの厳しさがそのまま適用されます。`ops_bash` が実行する `git reset --hard` は `git.reset-hard` でブロックされ、許可された呼び出しは `Bash` の呼び出しと同じように、コマンドと作業ディレクトリが監査ログに記録されます。
+
+`rule` の他のサブコマンドはプロジェクトの設定に書き込むため、ユーザースコープを対象にするには `-g`／`--global` が必要です。`rule tool` はこれが逆で、既定がユーザースコープです。フラグを付け忘れても、1 つのプロジェクトの外でツールが解析されないまま残ることはありません。コマンドインターフェースとエラーメッセージは [`rule tool`](/ja/reference/cli-commands#rule-tool) を参照してください。
+
+このフィールドには、次の規則があります。
+
+- **各項目は、ツール名か `{ "name": "ops_bash", "cwd": "dir" }` のようなオブジェクトです。** オブジェクトの `cwd` には、作業ディレクトリを渡す引数の名前を指定します。
+- **名前は、エージェントが送るツール名と完全に一致している必要があります。** 組み込みのツール名は大文字小文字と区切り文字を無視して比較しますが、宣言した名前はそうではありません。
+- 名前は空でなく、256 文字以内で、空白文字と制御文字を含まない必要があります。`mcp__server__tool` のような MCP 形式の名前も使えます。同じ名前を 1 つのファイル内で 2 回宣言するとエラーになります。
+- **宣言が効くのは、連携が未知のツールとして振り分けたツールだけです。** 組み込みツールの扱いを変えることはできず、`rule tool add` は、どの連携のものであれ組み込みのシェルツール名とファイルツール名を拒否します。
+- **解析の対象になるのは、空でない文字列の `command` だけです。** `command` を持たない宣言済みツールの呼び出しは未知のツールの経路に留まり、パスの検査だけを受けます。
+
+<span id="the-working-directory-of-a-declared-call"></span>
+
+### 宣言したツール呼び出しの作業ディレクトリ
+
+`rm -rf build` が破壊的かどうかは、どこで実行するかで決まります。そのため、宣言したツールの作業ディレクトリが判定を左右します。CC Safety Net は、`cwd` で指定した引数から作業ディレクトリを読み取ります。宣言に `cwd` がない場合は、`workdir`、`cwd`、`working_directory` の 3 つを読み取ります。この 3 つに優先順位はありません。
+
+| 呼び出しの作業ディレクトリ引数 | 結果 |
+| --- | --- |
+| 指定がない | セッションのワークスペースを使って解析する |
+| 存在するディレクトリを指す絶対パス | ディスク上のどこにあっても、そのディレクトリを使って解析する |
+| 相対パス | セッションのワークスペースを基準に解決し、その結果を正規化する |
+| 空白のみ、または文字列でない | fail closed で拒否する |
+| 既定の 3 つのキーのうち 2 つが異なる値を持つ | fail closed で拒否する |
+| 存在しないディレクトリ、または Windows の名前空間パス | `cwd.requested-unusable` で拒否する |
+
+読み取るのは `cwd` で指定した引数だけなので、同じ呼び出しに `workdir` の値があっても無視されます。DeepSeek Harness、Amp Code、Gemini CLI のアダプターと同様に、宣言したツールはセッションのワークスペース内に限らず、存在するディレクトリであればどこでも指定できます。
+
+<Warning>
+`command_tools` は `rule.json` の中にあります。あるスコープの `rule.json` が読み取れなくなると、そのスコープの宣言は適用されなくなり、診断メッセージに示されたファイルを直すまで、そのツールは解析されない状態に戻ります。もう一方のスコープの宣言は影響を受けません。ファイルを手作業で編集した後は `cc-safety-net rule verify` を実行してください。そこで宣言された組み込みのツール名も報告されます。
 </Warning>
 
 ## 最初のカスタムルールを作る
@@ -265,7 +334,7 @@ npx -y cc-safety-net rule verify
 
 ## `rule.json` のスキーマ
 
-最上位の `rule.json` は、どの rulebook を有効にするかを選び、override を適用し、transparent wrapper を宣言します。安全レベル、組み込み保護、パスの許可と拒否、監査ログの保持期間を設定する `policy.json` とは別のファイルです。`policy.json` については[ポリシー](/ja/configuration/policy)を参照してください。
+最上位の `rule.json` は、どの rulebook を有効にするかを選び、override を適用し、transparent wrapper とコミュニティ製のシェルツールを宣言します。安全レベル、組み込み保護、パスの許可と拒否、監査ログの保持期間を設定する `policy.json` とは別のファイルです。`policy.json` については[ポリシー](/ja/configuration/policy)を参照してください。
 
 <ParamField body="version" type="integer" required>
 スキーマのバージョン。`1` である必要があります。
@@ -281,6 +350,10 @@ rulebook の設定元を表す文字列のリストです。既定値は空の�
 
 <ParamField body="transparent_wrappers" type="array">
 保護対象の子コマンドをそのまま実行するコマンド名です。解析はこれらを透過して子コマンドを見ます。既定値は空の配列ですが、その場合も組み込みの 7 つのラッパーは有効です。各項目は一意で、予約済みコマンドであってはいけません。[transparent wrapper](#transparent-wrappers)を参照してください。
+</ParamField>
+
+<ParamField body="command_tools" type="array">
+プラグインがエージェントに追加した、CC Safety Net が知らないシェルツールです。ここで宣言すると、CC Safety Net はその `command` を組み込みのシェルツールと同じように解析します。各項目は、ツール名か、作業ディレクトリを渡す引数を指定する `{ "name": "ops_bash", "cwd": "dir" }` のようなオブジェクトです。既定値は空の配列です。名前はファイル内で一意である必要があり、組み込みのツール名は指定できません。[コミュニティ製のシェルツール](#community-shell-tools)を参照してください。
 </ParamField>
 
 次の override は、メッセージとエージェント向けの intent を変更します。
@@ -314,7 +387,7 @@ CC Safety Net は `rule.json` の JSON Schema を公開しています。この�
 }
 ```
 
-このスキーマがカバーするのは、上で説明した `rule.json` のフィールド（`version`、`rules`、`overrides`、`transparent_wrappers`）だけです。`rule verify` を実行すると、この `$schema` の指定がない有効なルール設定に対して、指定が自動的に追加されます。`policy.json` に対応する公開スキーマはありません。
+このスキーマがカバーするのは、上で説明した `rule.json` のフィールド（`version`、`rules`、`overrides`、`transparent_wrappers`、`command_tools`）だけです。`rule verify` を実行すると、この `$schema` の指定がない有効なルール設定に対して、指定が自動的に追加されます。`policy.json` に対応する公開スキーマはありません。
 
 ## rulebook のスキーマ
 

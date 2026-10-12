@@ -42,6 +42,7 @@ Local rulebook sources are referenced by bare names like `project-rules`. GitHub
 - **Each scope's `overrides` apply to that scope's own rules.** CC Safety Net ignores a project override that names a user-scoped rule and reports a warning. The rule keeps its user-configured state. Project config cannot disable or rewrite a user rule.
 - An override key that matches no known rule is ignored with a warning; other overrides and rules keep their configured state.
 - `transparent_wrappers` from both scopes are unioned.
+- `command_tools` from both scopes are merged, user scope first. When both scopes declare the same tool name, the user entry wins and the project entry is dropped, so a project config cannot change which argument holds the working directory.
 
 If no config is found in either location, only built-in rules apply.
 
@@ -172,7 +173,71 @@ Rules for the field:
 - A wrapper that is neither built in nor listed here, or one that rewrites or hides its child command rather than exec'ing a visible child, is still not unwrapped. Only the top-level dangerous-text fallback scan may catch such a command.
 
 <Warning>
-  `transparent_wrappers` lives in `rule.json`. If a scope's `rule.json` becomes unreadable, the wrappers that scope declared stop applying, while the seven built-in ones keep working. This is the one place where dropped configuration reduces built-in coverage. A **rulebook** that fails to load leaves `rule.json` readable, so declared wrappers survive it.
+  `transparent_wrappers` lives in `rule.json`. If a scope's `rule.json` becomes unreadable, the wrappers that scope declared stop applying, while the seven built-in ones keep working. Dropped configuration reduces built-in coverage here and for [declared command tools](#community-shell-tools). A **rulebook** that fails to load leaves `rule.json` readable, so declared wrappers survive it.
+</Warning>
+
+## Community shell tools
+
+A plugin can give an agent its own shell tool. The `dsh-ops` plugin, for example, adds `ops_bash` and `ops_run_background`. CC Safety Net does not know those names, so the integration routes them as unknown tools. It inspects their path values for protected paths, but it never parses their `command` as a shell command. Until you declare them, `ops_bash` can run `git reset --hard` unblocked.
+
+Declare the tool and CC Safety Net analyzes its commands:
+
+```bash
+# Declare one or more tools in the user config
+npx -y cc-safety-net rule tool add ops_bash ops_run_background
+
+# Name the argument that carries the working directory
+npx -y cc-safety-net rule tool add ops_run_background --cwd-arg dir
+
+# Write the project config instead
+npx -y cc-safety-net rule tool add team_shell --project
+
+# List every declared tool in both scopes, or stop analyzing one
+npx -y cc-safety-net rule tool list
+npx -y cc-safety-net rule tool remove ops_bash
+```
+
+That writes the `command_tools` array:
+
+```json
+{
+  "version": 1,
+  "rules": [],
+  "overrides": {},
+  "transparent_wrappers": [],
+  "command_tools": ["ops_bash", { "name": "ops_run_background", "cwd": "dir" }]
+}
+```
+
+From the next tool call, CC Safety Net analyzes a declared call the way it analyzes a built-in shell tool: the same built-in rules, the same custom rules, your own safety level, and that level's sensitive-path strictness. `ops_bash` running `git reset --hard` is then blocked by `git.reset-hard`, and an allowed call is audited with its command and working directory, as a `Bash` call is.
+
+Other `rule` subcommands write the project config and need `-g`/`--global` for the user scope. `rule tool` reverses that: the user scope is the default, so a missed flag cannot leave a tool unanalyzed outside one project. [`rule tool`](/reference/cli-commands#rule-tool) covers the command surface and its error messages.
+
+Rules for the field:
+
+- **An entry is a tool name, or an object like `{ "name": "ops_bash", "cwd": "dir" }`** whose `cwd` names the argument that carries the working directory.
+- **The name must match the tool name the agent sends exactly.** Built-in tool names are compared case- and separator-insensitively; a declaration is not.
+- A name must be non-empty, at most 256 characters, and free of whitespace and control characters. MCP-style names such as `mcp__server__tool` are fine. Declaring the same name twice in one file is an error.
+- **A declaration reaches only a tool the integration routed as unknown.** It cannot change how a built-in tool is handled, and `rule tool add` refuses a built-in shell or file name of any integration.
+- **Only a non-empty string `command` is analyzed.** A declared call that carries no `command` stays on the unknown-tool route and keeps path inspection alone.
+
+### The working directory of a declared call
+
+Whether `rm -rf build` is destructive depends on where it runs, so the declared tool's working directory decides the verdict. CC Safety Net reads it from the argument that `cwd` names. A declaration without `cwd` reads `workdir`, `cwd`, and `working_directory`, with no precedence among the three.
+
+| The call's working-directory argument | Result |
+| --- | --- |
+| Absent | Analysis uses the session workspace |
+| An absolute path to an existing directory | Analysis uses that directory, wherever it is on disk |
+| A relative path | Resolved against the session workspace, then canonicalized |
+| Blank, or not a string | Denied, failing closed |
+| Two of the three default keys carrying different values | Denied, failing closed |
+| A directory that does not exist, or a Windows namespace path | Denied with `cwd.requested-unusable` |
+
+The argument `cwd` names is the only key read, so a `workdir` value sent alongside it is ignored. Like the DeepSeek Harness, Amp Code, and Gemini CLI adapters, a declared tool may name any existing directory rather than one inside the session workspace.
+
+<Warning>
+  `command_tools` lives in `rule.json`. If a scope's `rule.json` becomes unreadable, that scope's declarations stop applying and its tools go back to being unanalyzed, until you fix the file named in the diagnostic. Declarations in the other scope are unaffected. Run `cc-safety-net rule verify` after editing the file by hand; it also reports a built-in name declared there.
 </Warning>
 
 ## Create your first custom rule
@@ -253,7 +318,7 @@ npx -y cc-safety-net rule verify
 
 ## `rule.json` schema
 
-The top-level `rule.json` selects active rulebooks, applies overrides, and declares transparent wrappers. It is separate from `policy.json`, which configures safety levels, built-in protections, allow and deny paths, and audit retention. See [Policy](/configuration/policy) for that file.
+The top-level `rule.json` selects active rulebooks, applies overrides, and declares transparent wrappers and community shell tools. It is separate from `policy.json`, which configures safety levels, built-in protections, allow and deny paths, and audit retention. See [Policy](/configuration/policy) for that file.
 
 <ParamField body="version" type="integer" required>
   Schema version. Must be `1`.
@@ -269,6 +334,10 @@ The top-level `rule.json` selects active rulebooks, applies overrides, and decla
 
 <ParamField body="transparent_wrappers" type="array">
   Command names that transparently execute a visible protected child command, so analysis looks through them. Defaults to an empty array, which still leaves the seven built-in wrappers in force. Entries must be unique and must not be reserved commands. See [Transparent wrappers](#transparent-wrappers).
+</ParamField>
+
+<ParamField body="command_tools" type="array">
+  Shell tools a plugin added to your agent that CC Safety Net does not know. Declaring one here makes CC Safety Net analyze its `command` like a built-in shell tool's. Each entry is a tool name, or an object like `{ "name": "ops_bash", "cwd": "dir" }` naming the argument that carries the working directory. Defaults to an empty array. Names must be unique within the file and must not be built-in tool names. See [Community shell tools](#community-shell-tools).
 </ParamField>
 
 An override that changes both the message and the agent-facing intent looks like this:
@@ -302,7 +371,7 @@ CC Safety Net publishes a JSON Schema for `rule.json`. The file is maintained by
 }
 ```
 
-It covers exactly the `rule.json` fields above: `version`, `rules`, `overrides`, and `transparent_wrappers`. Running `rule verify` adds this `$schema` reference to a valid rules config that lacks one. There is no published schema for `policy.json`.
+It covers exactly the `rule.json` fields above: `version`, `rules`, `overrides`, `transparent_wrappers`, and `command_tools`. Running `rule verify` adds this `$schema` reference to a valid rules config that lacks one. There is no published schema for `policy.json`.
 
 ## Rulebook schema
 

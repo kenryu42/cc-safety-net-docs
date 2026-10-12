@@ -35,7 +35,7 @@ The CLI registers twelve commands. This is the order they appear in `cc-safety-n
 | [`doctor`](#doctor) | `doctor [options]` | Run diagnostic checks across installation and configuration |
 | [`logs`](#logs) | `logs [options]` | Browse audit log entries recorded by the hooks |
 | [`explain`](#explain) | `explain [options] <command>` | Trace how a command is analyzed |
-| [`rule`](#rule) | `rule <subcommand>` | Manage rule config, rulebook sources, and transparent wrappers |
+| [`rule`](#rule) | `rule <subcommand>` | Manage rule config, rulebook sources, transparent wrappers, and declared command tools |
 | [`policy`](#policy) | `policy <subcommand>` | Check and apply project or user policy proposals |
 | [`install`](#install) | `install [TARGET_FLAG]` | Install CC Safety Net into a coding agent CLI |
 | [`update`](#update) | `update` | Update every installed integration in place |
@@ -404,7 +404,7 @@ See the [Explain trace reference](/reference/explain-trace) for the `--json` sch
 
 ## rule
 
-`rule` manages your rule config, rulebook sources, and transparent command wrappers. This section is the command surface; the rulebook schema, lifecycle, and override semantics live in [Custom rules](/configuration/custom-rules).
+`rule` manages your rule config, rulebook sources, transparent command wrappers, and the community shell tools you declare for analysis. This section is the command surface; the rulebook schema, lifecycle, and override semantics live in [Custom rules](/configuration/custom-rules).
 
 Running `rule` with no subcommand prints help and exits `1`. `rule --help` prints the same help and exits `0`.
 
@@ -412,13 +412,17 @@ Running `rule` with no subcommand prints help and exits `1`. `rule --help` print
 
 | Flag | Description | Valid with |
 | --- | --- | --- |
-| `-g`, `--global` | Use the user-scope rule config instead of the project scope | Every subcommand except `list` and `migrate` |
+| `-g`, `--global` | Use the user-scope rule config instead of the project scope | Every subcommand except `list`, `migrate`, and `tool` |
+| `--project` | Use the project-scope rule config instead of the user scope | `tool add` and `tool remove` only |
 | `--cleanup` | Delete legacy files after `rule migrate` verifies them | `migrate` only |
 | `--delete-source` | Delete a clean local source directory when removing it | `remove` only |
 | `--example` | Create an inactive example rulebook | `init` only |
 | `--ref <ref>` | Use a branch, tag, or commit | `add` only |
 | `--only <rulebook...>` | Add only these repository rulebooks | `add` only |
+| `--cwd-arg <name>` | Name the argument that carries the working directory | `tool add` only |
 | `-h`, `--help` | Show help | Any |
+
+[`rule tool`](#rule-tool) is the one subcommand whose default scope is the user config, so it takes `--project` instead of `--global` and rejects `--global` with `Unknown option for rule tool: --global`.
 
 From the directory that holds the user `.cc-safety-net/`, `<cwd>/.cc-safety-net/rules/rule.json` is the user rule config. The subcommands that write the project scope refuse there. `rule init`, `rule add`, `rule remove`, `rule update`, `rule sync`, `rule wrapper add`, and `rule wrapper remove` without `--global` print one error and exit `1` before writing anything:
 
@@ -426,13 +430,19 @@ From the directory that holds the user `.cc-safety-net/`, `<cwd>/.cc-safety-net/
 <cwd>/.cc-safety-net/rules/rule.json is the user rule config, not a project rule config; use --global for the user scope, or run from a project directory
 ```
 
-Reads are unchanged, so `rule list` and `rule wrapper list` still work there, and so does every subcommand under `--global`. [`rule migrate`](#rule-migrate) has no `--global` and handles that directory differently.
+`rule tool add` and `rule tool remove` refuse there only when you pass `--project`, and name that flag in the repair:
+
+```text
+<cwd>/.cc-safety-net/rules/rule.json is the user rule config, not a project rule config; drop --project for the user scope, or run from a project directory
+```
+
+Reads are unchanged, so `rule list`, `rule wrapper list`, and `rule tool list` still work there, and so does every subcommand under `--global`. [`rule migrate`](#rule-migrate) has no `--global` and handles that directory differently.
 
 `--check` is no longer accepted. Every subcommand rejects it with `Unknown option for rule: --check`. Rulebooks are read from disk on every command, so an `add` or `update` dry run would have to fetch and validate the candidate to mean anything. [`rule verify`](#rule-verify) is the offline validation command.
 
 ### rule init
 
-Create a rule configuration for the current scope. If the file exists, the command rewrites it in the canonical format and preserves `rules`, `overrides`, and `transparent_wrappers`. It creates no cache directory.
+Create a rule configuration for the current scope. If the file exists, the command rewrites it in the canonical format and preserves `rules`, `overrides`, `transparent_wrappers`, and `command_tools`. It creates no cache directory. `rule add`, `rule remove`, `rule wrapper add`, and `rule migrate` preserve the same fields when they rewrite the file.
 
 ```bash
 npx -y cc-safety-net rule init
@@ -585,6 +595,57 @@ npx -y cc-safety-net rule wrapper remove rtk
 
 Registered wrappers show up in [explain traces](/reference/explain-trace) as `transparent-wrapper` steps.
 
+### rule tool
+
+Declare the community shell tools CC Safety Net should analyze. An integration routes a plugin's shell tool as an unknown tool until you declare it, so its `command` is never parsed. [Community shell tools](/configuration/custom-rules#community-shell-tools) covers what changes at runtime once you declare one.
+
+```bash
+npx -y cc-safety-net rule tool list
+npx -y cc-safety-net rule tool add ops_bash ops_run_background
+npx -y cc-safety-net rule tool add ops_run_background --cwd-arg dir
+npx -y cc-safety-net rule tool remove ops_bash --project
+```
+
+- The action is required and must be exactly `add`, `remove`, or `list`.
+- **The user scope is the default**, so a missed flag leaves a tool analyzed everywhere rather than unanalyzed outside one project. `--project` writes the project config instead, and `--global` is rejected.
+- `add` and `remove` each take one or more names. A name repeated in one invocation counts once, and `--cwd-arg` applies to every name in the invocation.
+- Adding a name that is already declared replaces its entry in place, which is how you change or drop its `--cwd-arg`. `remove` filters by name and writes the file whether or not the name was there.
+
+`add` is all or nothing. Every invalid or built-in name prints in red as `Error: <message>`, the command exits `1`, and nothing is written:
+
+| Name | Message |
+| --- | --- |
+| Empty, over 256 characters, or carrying whitespace or a control character | `"<name>" is not a tool name: non-empty, at most 256 characters, no whitespace or control characters.` |
+| A `--cwd-arg` value that fails the same test | `"<name>" is not an argument name: non-empty, at most 256 characters, no whitespace or control characters.` |
+| A built-in shell tool of one or more integrations | `"bash" is a built-in shell tool of Claude Code, Codex, DeepSeek Harness, GitHub Copilot CLI, Kimi Code, OpenCode and Pi, and is already analyzed. Built-in tools cannot be declared.` |
+| A built-in file tool such as `read`, `Write`, `Grep`, `glob`, or `apply_patch` | `"<name>" is a built-in file tool, and is already analyzed. Built-in tools cannot be declared.` |
+
+The shell-tool message names every integration that owns the name, in alphabetical order. Matching ignores case and the `-`, `_`, and space separators, so `Run-Shell-Command` is refused as Gemini CLI's `run_shell_command`. The names it checks are the command tools of every integration, listed per agent in [Integration architecture](/guides/integration-architecture). Only `add` refuses them, so `rule tool remove bash` still clears a built-in name that was declared by hand.
+
+`add` and `remove` print one line per name, then one scope line naming the file written:
+
+```text
+Added command tool: ops_bash
+Added command tool: ops_run_background (cwd argument: dir)
+Scope: user (/Users/you/.cc-safety-net/rules/rule.json)
+```
+
+`tool list` reads both scopes and takes no further argument. Each entry prints with its scope, and the `Cwd argument:` row appears only for an entry that declares one:
+
+```text
+Command tools (3):
+  - [user] ops_bash
+  - [user] ops_run_background
+      Cwd argument: cwd
+  - [project] team_shell
+```
+
+With nothing declared it prints `Command tools: (none)`. From the user config directory it lists the user scope once, because the project scope is that same file.
+
+A `rule.json` that does not parse stops the command. `tool list` prints `<path>: Invalid JSON` and exits `1`. `tool add` prints `Invalid JSON`, exits `1`, and leaves the file as it was.
+
+Usage errors exit `1` before any write: `rule tool requires add, remove, or list` with no action, `Unknown rule tool action: <name>` for anything but those three, `rule tool add requires a tool name` and the same for `remove`, `Unexpected rule tool argument: <arg>` for an argument after `tool list`, and `Unknown option for rule tool list: --project` or `Unknown option for rule tool remove: --cwd-arg` for a flag outside the action that accepts it.
+
 ### rule verify
 
 Validate the rule config files in both scopes, including legacy paths and schema-kind detection. Use it after editing a config by hand:
@@ -593,7 +654,7 @@ Validate the rule config files in both scopes, including legacy paths and schema
 npx -y cc-safety-net rule verify
 ```
 
-Exits `0` when everything is valid, non-zero when it is not.
+Exits `0` when everything is valid, non-zero when it is not. A `command_tools` entry naming a built-in shell or file tool is an error in whichever scope declares it, reported with the same message [`rule tool add`](#rule-tool) prints.
 
 `rule verify` is not a pure check because it can modify the files it validates. When a scope's `rule.json` validates cleanly but has no `$schema` key, the command rewrites that file and inserts
 

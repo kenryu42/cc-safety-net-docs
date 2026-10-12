@@ -19,7 +19,7 @@ The core trust boundary sits between the AI coding agent and the host shell. CC 
 
 Every command that reaches the shell tool on a supported platform flows through the analysis engine before it is allowed to run. If analysis returns a block reason, the command is denied.
 
-The boundary stops at supported tool names and supported shapes. Adapters grant command-execution capability only to exact, integration-specific tool names; unknown tools keep conservative policy-file, Git-metadata, and sensitive-path inspection but their text is never treated as a shell command. Commands that bypass an installed integration entirely are outside the boundary.
+The boundary stops at supported tool names and supported shapes. Command-execution capability goes only to exact tool names: each adapter's own integration-specific shell tools, plus the ones you declare in [`command_tools`](/configuration/custom-rules#community-shell-tools). A declaration reaches a tool the adapter routed as unknown, and only when the call carries a non-empty string `command`; that command is then analyzed like a built-in shell tool's, at your own safety level. Every other unknown tool keeps conservative policy-file, Git-metadata, and sensitive-path inspection, and its text is never treated as a shell command. Commands that bypass an installed integration entirely are outside the boundary.
 
 ### Secondary boundaries
 
@@ -62,9 +62,9 @@ Configuration is a trust boundary, not a kill switch. Invalid configuration reso
 - **`ready`.** Every active source validated.
 - **`degraded`.** A candidate source was rejected and something safe is enforced in its place: a rulebook file that is missing, unreadable, invalid, or named differently from its source is dropped so that source contributes no rules, a duplicate rulebook name keeps the first claim, an `audit` section in a project policy is ignored, and an unreadable policy file in either scope falls back to the salvaged policy or to built-in protective defaults.
 
-The rejected candidate is never treated as active. Dropping a source removes its denials, which reduces enforcement relative to your configured policy. Every status surface reports that reduction. Dropping a source cannot weaken a built-in rule because rulebooks only add blocking rules. Ignoring an unreadable `rule.json` also restores the built-ins that its `overrides` would have disabled. One documented exception is `transparent_wrappers`, which lives in `rule.json`. An unreadable `rule.json` narrows which wrapped commands built-in analysis unwraps for that scope. No command or path is allowlisted in return because nothing is denied for being unconfigurable.
+The rejected candidate is never treated as active. Dropping a source removes its denials, which reduces enforcement relative to your configured policy. Every status surface reports that reduction. Dropping a source cannot weaken a built-in rule because rulebooks only add blocking rules. Ignoring an unreadable `rule.json` also restores the built-ins that its `overrides` would have disabled. `transparent_wrappers` and `command_tools` are the documented exceptions, because both live in `rule.json`. An unreadable `rule.json` narrows which wrapped commands built-in analysis unwraps for that scope, and stops analyzing the command tools that scope declared. No command or path is allowlisted in return because nothing is denied for being unconfigurable.
 
-Policy-file protection and Git-metadata protection are evaluated **before** the policy snapshot is loaded, so they apply identically in both states and carry no configuration metadata.
+Policy-file protection and Git-metadata protection take no configuration value into their decision, so they apply identically in both states and carry no configuration metadata. For an unknown tool whose input carries a `command`, the snapshot is loaded ahead of them so the guard can resolve a [declared command tool](/configuration/custom-rules#community-shell-tools). That read picks the route the call takes and changes neither verdict.
 
 [Configuration recovery](/configuration/recovery) lists every failure, its fallback, and the recovery commands.
 

@@ -35,7 +35,7 @@ CLI は 12 個のコマンドを登録します。次の順序は、`cc-safety-n
 | [`doctor`](#doctor) | `doctor [options]` | インストールと設定に対する診断検査を実行する |
 | [`logs`](#logs) | `logs [options]` | hook が記録した監査ログエントリを表示する |
 | [`explain`](#explain) | `explain [options] <command>` | コマンドの解析方法をトレースする |
-| [`rule`](#rule) | `rule <subcommand>` | ルール設定、rulebook の設定元、transparent wrapper を管理する |
+| [`rule`](#rule) | `rule <subcommand>` | ルール設定、rulebook の設定元、transparent wrapper、宣言済みのコマンド用ツールを管理する |
 | [`policy`](#policy) | `policy <subcommand>` | プロジェクトまたはユーザーのポリシー提案を検査して適用する |
 | [`install`](#install) | `install [TARGET_FLAG]` | CC Safety Net をコーディングエージェント CLI にインストールする |
 | [`update`](#update) | `update` | インストール済みのすべての連携を更新する |
@@ -410,7 +410,7 @@ npx cc-safety-net explain --json 'loop() { loop; }; loop'
 
 ## rule
 
-`rule` は、ルール設定、rulebook の設定元、transparent wrapper を管理します。このセクションではコマンドインターフェースを説明します。rulebook のスキーマ、ライフサイクル、override の意味については、[カスタムルール](/ja/configuration/custom-rules)を参照してください。
+`rule` は、ルール設定、rulebook の設定元、transparent wrapper、そして解析対象として宣言したコミュニティ製のシェルツールを管理します。このセクションではコマンドインターフェースを説明します。rulebook のスキーマ、ライフサイクル、override の意味については、[カスタムルール](/ja/configuration/custom-rules)を参照してください。
 
 サブコマンドなしで `rule` を実行すると、ヘルプを出力して `1` で終了します。`rule --help` は同じヘルプを出力して `0` で終了します。
 
@@ -418,13 +418,17 @@ npx cc-safety-net explain --json 'loop() { loop; }; loop'
 
 | フラグ | 説明 | 有効な対象 |
 | --- | --- | --- |
-| `-g`, `--global` | プロジェクトスコープではなくユーザースコープのルール設定を使う | `list` と `migrate` 以外のすべてのサブコマンド |
+| `-g`, `--global` | プロジェクトスコープではなくユーザースコープのルール設定を使う | `list`、`migrate`、`tool` 以外のすべてのサブコマンド |
+| `--project` | ユーザースコープではなくプロジェクトスコープのルール設定を使う | `tool add` と `tool remove` のみ |
 | `--cleanup` | `rule migrate` が検証した後にレガシーファイルを削除する | `migrate` のみ |
 | `--delete-source` | 削除時に、中身が `rulebook.json` だけのローカルの設定元ディレクトリも削除する | `remove` のみ |
 | `--example` | 非アクティブなサンプル rulebook を作成する | `init` のみ |
 | `--ref <ref>` | ブランチ、タグ、コミットを指定する | `add` のみ |
 | `--only <rulebook...>` | リポジトリ内の指定した rulebook だけを追加する | `add` のみ |
+| `--cwd-arg <name>` | 作業ディレクトリを渡す引数の名前を指定する | `tool add` のみ |
 | `-h`, `--help` | ヘルプを表示する | すべて |
+
+[`rule tool`](#rule-tool) は、既定のスコープがユーザー設定である唯一のサブコマンドです。そのため `--global` ではなく `--project` を受け取り、`--global` は `Unknown option for rule tool: --global` として拒否します。
 
 ユーザーの `.cc-safety-net/` があるディレクトリでは、`<cwd>/.cc-safety-net/rules/rule.json` がユーザーのルール設定です。そのため、プロジェクトスコープに書き込むサブコマンドは、このディレクトリでの実行を拒否します。`--global` なしの `rule init`、`rule add`、`rule remove`、`rule update`、`rule sync`、`rule wrapper add`、`rule wrapper remove` は、何も書き込まないまま次のエラーを 1 行出力して `1` で終了します。
 
@@ -432,13 +436,19 @@ npx cc-safety-net explain --json 'loop() { loop; }; loop'
 <cwd>/.cc-safety-net/rules/rule.json is the user rule config, not a project rule config; use --global for the user scope, or run from a project directory
 ```
 
-読み取りの動作は変わりません。`rule list` と `rule wrapper list` はこのディレクトリでも動作し、`--global` を付けたサブコマンドも同じです。[`rule migrate`](#rule-migrate) には `--global` がなく、このディレクトリでの扱いも異なります。
+`rule tool add` と `rule tool remove` がこのディレクトリでの実行を拒否するのは `--project` を付けた場合だけで、修復方法にもそのフラグが示されます。
+
+```text
+<cwd>/.cc-safety-net/rules/rule.json is the user rule config, not a project rule config; drop --project for the user scope, or run from a project directory
+```
+
+読み取りの動作は変わりません。`rule list`、`rule wrapper list`、`rule tool list` はこのディレクトリでも動作し、`--global` を付けたサブコマンドも同じです。[`rule migrate`](#rule-migrate) には `--global` がなく、このディレクトリでの扱いも異なります。
 
 `--check` は受け付けなくなりました。どのサブコマンドでも `Unknown option for rule: --check` として拒否されます。rulebook は毎回ディスクから読み込まれるため、`add` や `update` のドライランに意味を持たせるには、結局その候補を取得して検証するほかありません。オフラインでの検証には [`rule verify`](#rule-verify) を使います。
 
 ### rule init
 
-現在のスコープにルール設定を作成します。ファイルが存在する場合は、`rules`、`overrides`、`transparent_wrappers` を維持したまま、正規形式に書き換えます。キャッシュディレクトリは作成しません。
+現在のスコープにルール設定を作成します。ファイルが存在する場合は、`rules`、`overrides`、`transparent_wrappers`、`command_tools` を維持したまま、正規形式に書き換えます。キャッシュディレクトリは作成しません。`rule add`、`rule remove`、`rule wrapper add`、`rule migrate` も、ファイルを書き換えるときに同じフィールドを維持します。
 
 ```bash
 npx -y cc-safety-net rule init
@@ -591,6 +601,57 @@ npx -y cc-safety-net rule wrapper remove rtk
 
 登録済みのラッパーは、[explain トレース](/ja/reference/explain-trace)に `transparent-wrapper` のステップとして表示されます。
 
+### rule tool
+
+CC Safety Net に解析させたい、コミュニティ製のシェルツールを宣言します。連携は、宣言するまでプラグインのシェルツールを未知のツールとして振り分けるため、その `command` はパースされません。宣言すると実行時に何が変わるかは、[コミュニティ製のシェルツール](/ja/configuration/custom-rules#community-shell-tools)を参照してください。
+
+```bash
+npx -y cc-safety-net rule tool list
+npx -y cc-safety-net rule tool add ops_bash ops_run_background
+npx -y cc-safety-net rule tool add ops_run_background --cwd-arg dir
+npx -y cc-safety-net rule tool remove ops_bash --project
+```
+
+- 操作の指定は必須で、`add`、`remove`、`list` のいずれかでなければなりません。
+- **既定はユーザースコープです。** そのため、フラグを付け忘れても、1 つのプロジェクトの外でツールが解析されなくなるのではなく、どこでも解析される状態になります。`--project` を付けるとプロジェクトの設定に書き込み、`--global` は拒否されます。
+- `add` と `remove` は、それぞれ 1 つ以上の名前を受け取ります。1 回の実行で同じ名前を繰り返しても 1 つとして数え、`--cwd-arg` はその実行で指定したすべての名前に適用されます。
+- すでに宣言されている名前を追加すると、そのエントリをその場で置き換えます。`--cwd-arg` を変更したり外したりするには、この方法を使います。`remove` は名前でフィルタリングし、その名前があったかどうかに関係なくファイルを書き込みます。
+
+`add` は、1 つでも失敗すれば何も書き込みません。無効な名前と組み込みの名前はいずれも `Error: <message>` の形で赤字で出力され、コマンドは `1` で終了します。
+
+| 名前 | メッセージ |
+| --- | --- |
+| 空、256 文字超、または空白文字か制御文字を含む | `"<name>" is not a tool name: non-empty, at most 256 characters, no whitespace or control characters.` |
+| 同じ条件を満たさない `--cwd-arg` の値 | `"<name>" is not an argument name: non-empty, at most 256 characters, no whitespace or control characters.` |
+| 1 つ以上の連携の組み込みシェルツール | `"bash" is a built-in shell tool of Claude Code, Codex, DeepSeek Harness, GitHub Copilot CLI, Kimi Code, OpenCode and Pi, and is already analyzed. Built-in tools cannot be declared.` |
+| `read`、`Write`、`Grep`、`glob`、`apply_patch` などの組み込みファイルツール | `"<name>" is a built-in file tool, and is already analyzed. Built-in tools cannot be declared.` |
+
+シェルツールのメッセージは、その名前を持つすべての連携をアルファベット順に列挙します。照合では大文字小文字と `-`、`_`、空白の区切りを無視するため、`Run-Shell-Command` は Gemini CLI の `run_shell_command` として拒否されます。検査の対象になるのは各連携のコマンド用ツールで、エージェントごとの一覧は[連携アーキテクチャ](/ja/guides/integration-architecture)にあります。拒否するのは `add` だけなので、手作業で宣言された組み込みの名前も `rule tool remove bash` で削除できます。
+
+`add` と `remove` は、名前ごとに 1 行を出力し、その後に、書き込んだファイルを示すスコープの行を 1 行出力します。
+
+```text
+Added command tool: ops_bash
+Added command tool: ops_run_background (cwd argument: dir)
+Scope: user (/Users/you/.cc-safety-net/rules/rule.json)
+```
+
+`tool list` は両方のスコープを読み取り、追加の引数を受け取りません。各エントリはスコープ付きで表示され、`Cwd argument:` の行は、それを宣言しているエントリにだけ表示されます。
+
+```text
+Command tools (3):
+  - [user] ops_bash
+  - [user] ops_run_background
+      Cwd argument: cwd
+  - [project] team_shell
+```
+
+何も宣言されていない場合は `Command tools: (none)` を出力します。ユーザー設定のディレクトリで実行した場合は、プロジェクトスコープが同じファイルを指すため、ユーザースコープを 1 回だけ列挙します。
+
+パースできない `rule.json` があると、コマンドは処理を中止します。`tool list` は `<path>: Invalid JSON` を出力して `1` で終了します。`tool add` は `Invalid JSON` を出力して `1` で終了し、ファイルはそのまま残します。
+
+使い方の誤りは、書き込みの前に `1` で終了します。操作を指定しない場合は `rule tool requires add, remove, or list`、その 3 つ以外を指定した場合は `Unknown rule tool action: <name>`、名前を指定しない場合は `rule tool add requires a tool name`（`remove` も同様）、`tool list` の後に引数を付けた場合は `Unexpected rule tool argument: <arg>`、その操作が受け付けないフラグを付けた場合は `Unknown option for rule tool list: --project` や `Unknown option for rule tool remove: --cwd-arg` になります。
+
 ### rule verify
 
 レガシーパスとスキーマ種類の検出を含め、両方のスコープのルール設定ファイルを検証します。設定を手動で編集した後に使います。
@@ -599,7 +660,7 @@ npx -y cc-safety-net rule wrapper remove rtk
 npx -y cc-safety-net rule verify
 ```
 
-すべて有効なら `0`、それ以外はゼロ以外で終了します。
+すべて有効なら `0`、それ以外はゼロ以外で終了します。`command_tools` のエントリが組み込みのシェルツール名やファイルツール名を指している場合は、それを宣言しているスコープでエラーになり、[`rule tool add`](#rule-tool) が出力するものと同じメッセージで報告されます。
 
 `rule verify` は純粋な検査ではなく、検証するファイルを変更することがあります。スコープの `rule.json` が正常に検証されても `$schema` キーがない場合、コマンドはそのファイルを書き換え、次の内容を最初のキーとして挿入します。
 

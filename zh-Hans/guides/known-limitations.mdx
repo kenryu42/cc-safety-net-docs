@@ -33,6 +33,20 @@ npx -y cc-safety-net rule wrapper add rtk
 
 这两种情况下，只有顶层危险文本 fallback 扫描可能捕获命令，而该扫描并不完整。`transparent_wrappers` 位于 `rule.json` 中，因此某个范围的 `rule.json` 无法读取时，在修复之前该范围声明的包装器都会失效；内置的这八个不受影响。见<a href="/zh-Hans/configuration/recovery">配置恢复</a>。
 
+### 插件的 shell 工具在声明之前不被分析
+
+CC Safety Net 只对精确匹配的工具名按命令执行处理。它认识每个受支持智能体自身的 shell 工具，但不认识社区插件添加的那些。`dsh-ops` 插件的 `ops_bash` 和 `ops_run_background` 按未知工具路由，因此其中的路径值会进入敏感路径检查，而它们的 `command` 从不解析。`ops_bash` 执行 `git reset --hard` 会被允许。
+
+声明该工具即可堵住它这一处缺口：
+
+```bash
+npx -y cc-safety-net rule tool add ops_bash ops_run_background
+```
+
+从下一次工具调用起，两者都会像内置 shell 工具一样被分析。工作目录规则以及声明做不到的事，见<a href="/zh-Hans/configuration/custom-rules#community-shell-tools">社区 shell 工具</a>。
+
+残余限制在于你必须知道这个工具存在。CC Safety Net 不会读取智能体的插件列表，因此不会有任何诊断告诉你某个 shell 工具正处于不被分析的状态。运行 `cc-safety-net rule tool list` 可以查看你已经声明了哪些。
+
 ### eval 和动态执行
 
 在运行时构造并执行代码的命令无法完整分析，因为被执行的字符串在分析时并不出现在命令文本里：

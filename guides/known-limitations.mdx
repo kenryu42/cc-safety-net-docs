@@ -35,6 +35,20 @@ The residual limit is narrower than "every proxy":
 
 In both cases only the top-level fallback dangerous-text scan may catch the command, and that scan is incomplete. `transparent_wrappers` lives in `rule.json`, so a scope whose `rule.json` is unreadable loses that scope's declared wrappers until it is fixed. The eight built-in wrappers are not affected. See [Configuration recovery](/configuration/recovery).
 
+### A plugin's shell tool is unanalyzed until you declare it
+
+CC Safety Net grants command-execution treatment to exact tool names. It knows each supported agent's own shell tools, but not the ones a community plugin adds. The `dsh-ops` plugin's `ops_bash` and `ops_run_background` are routed as unknown tools, so their path values reach the sensitive-path checks while their `command` is never parsed. `ops_bash` running `git reset --hard` is allowed.
+
+Declaring the tool closes the gap for that tool:
+
+```bash
+npx -y cc-safety-net rule tool add ops_bash ops_run_background
+```
+
+From the next tool call, both are analyzed like a built-in shell tool. [Community shell tools](/configuration/custom-rules#community-shell-tools) covers the working-directory rules and what a declaration cannot do.
+
+The residual limit is that you have to know the tool is there. CC Safety Net does not read your agent's plugin list, so no diagnostic tells you a shell tool is going unanalyzed. Run `cc-safety-net rule tool list` to see what you have declared.
+
 ### eval and dynamic execution
 
 Commands that construct and execute code at runtime cannot be fully analyzed, because the executed string is not present in the command text at analysis time:

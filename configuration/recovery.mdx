@@ -55,7 +55,7 @@ What stays protected in every state is `policy.json` in both scopes. Policy-file
 | A local source's `rules/<name>/rulebook.json` is missing or was deleted | That one rulebook | Every other rulebook and all built-ins |
 | A rulebook file is not valid JSON or fails the rulebook schema | That one rulebook | Every other rulebook and all built-ins |
 | A rulebook's `name` does not match the source that lists it | That one rulebook | Every other rulebook and all built-ins |
-| `rule.json` is malformed, empty, or has an unsupported `version` | That whole scope, **including its `transparent_wrappers`** | The other scope's verified rules and all built-ins |
+| `rule.json` is malformed, empty, or has an unsupported `version` | That whole scope, **including its `transparent_wrappers` and `command_tools`** | The other scope's verified rules and all built-ins |
 | The policy filesystem cannot be read safely | That scope | The other scope's verified rules and all built-ins |
 
 Every one of these messages names the file or source it rejected and the repair that fits it. A missing rulebook for a remote source ends with ``run `cc-safety-net rule update` to vendor <source>``. A missing rulebook for a local source ends with `create that file or remove that source from the rules config`. An invalid rulebook and a name mismatch both end with `fix that file`.
@@ -100,14 +100,14 @@ The runtime never rewrites `policy.json`. Repair it by hand, or use the repair a
 
 While the file has errors, the dashboard form shows the full defaults instead of the salvaged values. You cannot save until you repair the file. The repair action preserves each recognized valid setting. It replaces the full file with defaults only when it cannot parse the JSON.
 
-## Transparent-wrapper coverage gap
+## Coverage declared in `rule.json`
 
-`transparent_wrappers` is declared in `rule.json`, not in a rulebook, and `rule.json` carries no digest. That has two consequences:
+Two fields widen what built-in analysis reaches rather than adding rules of their own: `transparent_wrappers` and `command_tools`. Both live in `rule.json`, not in a rulebook, and `rule.json` carries no digest. That has two consequences:
 
-- A **dropped rulebook** keeps its scope's wrappers, because `rule.json` itself is still readable.
-- An **unreadable `rule.json`** loses that scope's declared wrappers, because there is no verified copy to fall back to. Analysis stops looking through those wrapper commands to the protected command underneath. The eight built-in wrappers (`caffeinate`, `exec`, `nice`, `nohup`, `setsid`, `stdbuf`, `time`, `timeout`) need no file, so they are unaffected.
+- A **dropped rulebook** keeps both fields, because `rule.json` itself is still readable.
+- An **unreadable `rule.json`** loses both for that scope, because there is no verified copy to fall back to. Analysis stops looking through that scope's wrapper commands to the protected command underneath, and the [community shell tools](/configuration/custom-rules#community-shell-tools) it declared go back to being unanalyzed. The eight built-in wrappers (`caffeinate`, `exec`, `nice`, `nohup`, `setsid`, `stdbuf`, `time`, `timeout`) need no file, so they are unaffected, and the other scope's declarations still apply.
 
-This is the one place where rejected configuration reduces built-in coverage rather than only removing your own rules. Repair `rule.json` first when a scope is dropped for that reason.
+These two fields are where rejected configuration reduces built-in coverage rather than only removing your own rules. Repair `rule.json` first when a scope is dropped for that reason.
 
 ## Fail-closed cases
 

@@ -53,7 +53,7 @@ CC Safety Net 会在每次工具调用时加载策略快照。它读取用户策
 | 本地来源的 `rules/<name>/rulebook.json` 缺失或已被删除 | 该 rulebook | 其他所有 rulebook 和所有内置保护 |
 | rulebook 文件不是有效的 JSON，或未通过 rulebook schema 校验 | 该 rulebook | 其他所有 rulebook 和所有内置保护 |
 | rulebook 的 `name` 与列出它的来源不一致 | 该 rulebook | 其他所有 rulebook 和所有内置保护 |
-| `rule.json` 格式错误、为空或使用了不受支持的 `version` | 整个范围，**包括其 `transparent_wrappers`** | 另一范围中已验证的规则和所有内置保护 |
+| `rule.json` 格式错误、为空或使用了不受支持的 `version` | 整个范围，**包括其 `transparent_wrappers` 和 `command_tools`** | 另一范围中已验证的规则和所有内置保护 |
 | 无法安全读取策略所在的文件系统 | 该范围 | 另一范围中已验证的规则和所有内置保护 |
 
 上述每一条消息都会指明它拒绝的文件或来源，以及对应的修复办法。远程来源缺少 rulebook 时，消息以 ``run `cc-safety-net rule update` to vendor <source>`` 结尾；本地来源缺少 rulebook 时以 `create that file or remove that source from the rules config` 结尾；rulebook 无效和名称不一致这两种情况都以 `fix that file` 结尾。
@@ -94,14 +94,14 @@ CC Safety Net 会在每次工具调用时加载策略快照。它读取用户策
 
 在文件仍有错误期间，仪表板表单显示的是完整默认值，而不是保留下来的值。修复文件之前无法保存。修复操作会保留每个已识别的有效设置；只有在无法解析 JSON 时，它才会用默认值替换整个文件。
 
-## 透明包装器的覆盖缺口
+## 在 `rule.json` 中声明的覆盖范围
 
-`transparent_wrappers` 声明在 `rule.json` 中，而不是在 rulebook 中，并且 `rule.json` 本身没有 digest。这有两个后果：
+有两个字段不提供自己的规则，而是拓宽内置分析能触及的范围：`transparent_wrappers` 和 `command_tools`。两者都声明在 `rule.json` 中，而不是在 rulebook 中，并且 `rule.json` 本身没有 digest。这有两个后果：
 
-- **被丢弃的 rulebook** 仍保留其范围的包装器，因为 `rule.json` 本身仍然可读。
-- **无法读取的 `rule.json`** 会丢失该范围声明的包装器，因为没有经过验证的副本可以回退。分析不再穿透这些包装命令去识别其下受保护的命令。内置的八个包装器（`caffeinate`、`exec`、`nice`、`nohup`、`setsid`、`stdbuf`、`time`、`timeout`）不依赖这个文件，因此不受影响。
+- **被丢弃的 rulebook** 仍保留这两个字段，因为 `rule.json` 本身仍然可读。
+- **无法读取的 `rule.json`** 会让该范围丢失这两个字段，因为没有经过验证的副本可以回退。分析不再穿透该范围的包装命令去识别其下受保护的命令，它声明的[社区 shell 工具](/zh-Hans/configuration/custom-rules#community-shell-tools)也重新回到不被分析的状态。内置的八个包装器（`caffeinate`、`exec`、`nice`、`nohup`、`setsid`、`stdbuf`、`time`、`timeout`）不依赖这个文件，因此不受影响，另一范围的声明也照常生效。
 
-这是唯一一处被拒绝的配置会削弱内置覆盖，而不只是移除你自己的规则。当某个范围因此被丢弃时，请先修复 `rule.json`。
+只有在这两个字段上，被拒绝的配置才会削弱内置覆盖，而不只是移除你自己的规则。当某个范围因此被丢弃时，请先修复 `rule.json`。
 
 ## Fail-closed 情形
 

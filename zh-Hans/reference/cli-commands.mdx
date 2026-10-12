@@ -35,7 +35,7 @@ CLI 注册了十二个命令。这是它们在 `cc-safety-net --help` 中出现�
 | [`doctor`](#doctor) | `doctor [options]` | 对安装和配置运行诊断检查 |
 | [`logs`](#logs) | `logs [options]` | 浏览 hook 记录的审计日志条目 |
 | [`explain`](#explain) | `explain [options] <command>` | 跟踪命令的分析过程 |
-| [`rule`](#rule) | `rule <subcommand>` | 管理规则配置、rulebook 来源和透明包装器 |
+| [`rule`](#rule) | `rule <subcommand>` | 管理规则配置、rulebook 来源、透明包装器和已声明的命令工具 |
 | [`policy`](#policy) | `policy <subcommand>` | 检查并应用项目或用户的策略提案 |
 | [`install`](#install) | `install [TARGET_FLAG]` | 将 CC Safety Net 安装到编码智能体 CLI 中 |
 | [`update`](#update) | `update` | 就地更新所有已安装的集成 |
@@ -408,7 +408,7 @@ npx cc-safety-net explain --json 'loop() { loop; }; loop'
 
 ## rule
 
-`rule` 管理规则配置、rulebook 来源和透明命令包装器。本节说明命令接口；rulebook 的 schema、生命周期和覆盖语义见[自定义规则](/zh-Hans/configuration/custom-rules)。
+`rule` 管理规则配置、rulebook 来源、透明命令包装器，以及你声明交由分析的社区 shell 工具。本节说明命令接口；rulebook 的 schema、生命周期和覆盖语义见[自定义规则](/zh-Hans/configuration/custom-rules)。
 
 不带子命令运行 `rule` 会打印帮助并退出 `1`。`rule --help` 打印相同的帮助并退出 `0`。
 
@@ -416,13 +416,17 @@ npx cc-safety-net explain --json 'loop() { loop; }; loop'
 
 | 标志 | 描述 | 适用于 |
 | --- | --- | --- |
-| `-g`, `--global` | 使用用户范围而不是项目范围的规则配置 | 除 `list` 和 `migrate` 之外的所有子命令 |
+| `-g`, `--global` | 使用用户范围而不是项目范围的规则配置 | 除 `list`、`migrate` 和 `tool` 之外的所有子命令 |
+| `--project` | 使用项目范围而不是用户范围的规则配置 | 仅 `tool add` 和 `tool remove` |
 | `--cleanup` | 在 `rule migrate` 验证通过后删除旧版文件 | 仅 `migrate` |
 | `--delete-source` | 移除来源时，若本地来源目录是干净的，则一并删除 | 仅 `remove` |
 | `--example` | 创建一个非活动的示例 rulebook | 仅 `init` |
 | `--ref <ref>` | 指定分支、标签或提交 | 仅 `add` |
 | `--only <rulebook...>` | 只添加仓库中这些 rulebook | 仅 `add` |
+| `--cwd-arg <name>` | 指出由哪个参数承载工作目录 | 仅 `tool add` |
 | `-h`, `--help` | 显示帮助 | 任意子命令 |
+
+[`rule tool`](#rule-tool) 是唯一默认作用于用户配置的子命令，因此它用 `--project` 而不是 `--global`，并以 `Unknown option for rule tool: --global` 拒绝 `--global`。
 
 在存放用户 `.cc-safety-net/` 的目录下，`<cwd>/.cc-safety-net/rules/rule.json` 就是用户规则配置，因此写入项目范围的子命令会在那里拒绝执行。不带 `--global` 的 `rule init`、`rule add`、`rule remove`、`rule update`、`rule sync`、`rule wrapper add` 和 `rule wrapper remove` 会在写入任何内容之前打印一条错误并退出 `1`：
 
@@ -430,13 +434,19 @@ npx cc-safety-net explain --json 'loop() { loop; }; loop'
 <cwd>/.cc-safety-net/rules/rule.json is the user rule config, not a project rule config; use --global for the user scope, or run from a project directory
 ```
 
-读取不受影响：`rule list` 和 `rule wrapper list` 在那里照常可用，加了 `--global` 的子命令也一样。[`rule migrate`](#rule-migrate) 没有 `--global`，对这个目录的处理方式也不同。
+`rule tool add` 和 `rule tool remove` 只在你传了 `--project` 时才在那里拒绝执行，修复提示也指向这个标志：
+
+```text
+<cwd>/.cc-safety-net/rules/rule.json is the user rule config, not a project rule config; drop --project for the user scope, or run from a project directory
+```
+
+读取不受影响：`rule list`、`rule wrapper list` 和 `rule tool list` 在那里照常可用，加了 `--global` 的子命令也一样。[`rule migrate`](#rule-migrate) 没有 `--global`，对这个目录的处理方式也不同。
 
 CLI 不再接受 `--check`。任何子命令都会以 `Unknown option for rule: --check` 拒绝它。rulebook 在每条命令执行时都从磁盘读取，因此 `add` 或 `update` 的试运行要有意义，就必须先拉取并校验候选内容。离线校验请用 [`rule verify`](#rule-verify)。
 
 ### rule init
 
-为当前范围创建规则配置。如果文件已存在，命令会把它重写为规范格式，并保留 `rules`、`overrides` 和 `transparent_wrappers`。它不会创建缓存目录。
+为当前范围创建规则配置。如果文件已存在，命令会把它重写为规范格式，并保留 `rules`、`overrides`、`transparent_wrappers` 和 `command_tools`。它不会创建缓存目录。`rule add`、`rule remove`、`rule wrapper add` 和 `rule migrate` 重写该文件时也保留同样的字段。
 
 ```bash
 npx -y cc-safety-net rule init
@@ -589,6 +599,57 @@ npx -y cc-safety-net rule wrapper remove rtk
 
 已注册的包装器会在 [Explain 跟踪](/zh-Hans/reference/explain-trace) 中显示为 `transparent-wrapper` 步骤。
 
+### rule tool
+
+声明需要 CC Safety Net 分析的社区 shell 工具。插件的 shell 工具在你声明之前都由集成按未知工具路由，因此其 `command` 从不解析。声明之后运行时有哪些变化，见[社区 shell 工具](/zh-Hans/configuration/custom-rules#community-shell-tools)。
+
+```bash
+npx -y cc-safety-net rule tool list
+npx -y cc-safety-net rule tool add ops_bash ops_run_background
+npx -y cc-safety-net rule tool add ops_run_background --cwd-arg dir
+npx -y cc-safety-net rule tool remove ops_bash --project
+```
+
+- 操作参数必填，且只能是 `add`、`remove` 或 `list`。
+- **默认作用于用户范围**，因此漏掉标志只会让工具在所有地方都被分析，而不会让它在单个项目之外得不到分析。要改写项目配置请加 `--project`，`--global` 会被拒绝。
+- `add` 和 `remove` 各自接受一个或多个名称。同一次调用中重复的名称只算一次，`--cwd-arg` 对本次调用中的每个名称都生效。
+- 添加已声明过的名称会就地替换它的条目，改动或去掉它的 `--cwd-arg` 就是这样做的。`remove` 按名称过滤，无论名称是否存在都会写文件。
+
+`add` 要么全部成功，要么什么都不做。每个无效名称或内置名称都会以红色打印 `Error: <message>`，命令退出 `1`，不写入任何内容：
+
+| 名称 | 消息 |
+| --- | --- |
+| 为空、超过 256 个字符，或含空白字符或控制字符 | `"<name>" is not a tool name: non-empty, at most 256 characters, no whitespace or control characters.` |
+| `--cwd-arg` 的值未通过同一项检查 | `"<name>" is not an argument name: non-empty, at most 256 characters, no whitespace or control characters.` |
+| 一个或多个集成的内置 shell 工具 | `"bash" is a built-in shell tool of Claude Code, Codex, DeepSeek Harness, GitHub Copilot CLI, Kimi Code, OpenCode and Pi, and is already analyzed. Built-in tools cannot be declared.` |
+| `read`、`Write`、`Grep`、`glob`、`apply_patch` 等内置文件工具 | `"<name>" is a built-in file tool, and is already analyzed. Built-in tools cannot be declared.` |
+
+shell 工具的消息会按字母顺序列出拥有该名称的每个集成。匹配忽略大小写以及 `-`、`_` 和空格这几种分隔符，因此 `Run-Shell-Command` 会作为 Gemini CLI 的 `run_shell_command` 被拒绝。它检查的是所有集成的命令工具，按智能体逐一列在[集成架构](/zh-Hans/guides/integration-architecture)中。只有 `add` 会拒绝它们，因此 `rule tool remove bash` 仍能清掉手工声明进去的内置名称。
+
+`add` 和 `remove` 为每个名称打印一行，最后打印一行范围信息，指出写入的文件：
+
+```text
+Added command tool: ops_bash
+Added command tool: ops_run_background (cwd argument: dir)
+Scope: user (/Users/you/.cc-safety-net/rules/rule.json)
+```
+
+`tool list` 读取两个范围，且不接受其他参数。每个条目都带上所属范围打印，只有声明了工作目录参数的条目才会多出 `Cwd argument:` 一行：
+
+```text
+Command tools (3):
+  - [user] ops_bash
+  - [user] ops_run_background
+      Cwd argument: cwd
+  - [project] team_shell
+```
+
+没有任何声明时打印 `Command tools: (none)`。在用户配置目录下，用户范围只列一次，因为项目范围就是同一个文件。
+
+`rule.json` 无法解析会使命令中止。`tool list` 打印 `<path>: Invalid JSON` 并退出 `1`。`tool add` 打印 `Invalid JSON`，退出 `1`，文件保持原样。
+
+用法错误都在写入之前以 `1` 退出：不带操作参数时为 `rule tool requires add, remove, or list`，操作参数不是这三者之一时为 `Unknown rule tool action: <name>`，`rule tool add requires a tool name`（`remove` 同理），`tool list` 后面多出参数时为 `Unexpected rule tool argument: <arg>`，标志用在不接受它的操作上时为 `Unknown option for rule tool list: --project` 或 `Unknown option for rule tool remove: --cwd-arg`。
+
 ### rule verify
 
 校验两个范围内的规则配置文件，包括旧版路径和 schema 类型检测。手动编辑配置后可以用它：
@@ -597,7 +658,7 @@ npx -y cc-safety-net rule wrapper remove rtk
 npx -y cc-safety-net rule verify
 ```
 
-一切有效时退出 `0`，否则退出非零。
+一切有效时退出 `0`，否则退出非零。`command_tools` 中的条目指向内置 shell 工具或文件工具时，在声明它的那个范围内算作错误，报告的消息与 [`rule tool add`](#rule-tool) 打印的相同。
 
 `rule verify` 并非纯检查：它可能修改自己校验的文件。当某个范围的 `rule.json` 校验通过但缺少 `$schema` 键时，命令会重写该文件：把
 

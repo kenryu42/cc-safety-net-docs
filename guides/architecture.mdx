@@ -58,7 +58,7 @@ graph TD
 
 ## Integration adapters
 
-Adapters translate one agent's tool-call payload into a normalized invocation and translate the guard's decision back into that agent's deny format. At the system level, an adapter grants **command-execution capability only to exact, integration-specific tool names**. An unknown tool never gets shell-command treatment; it still receives policy-file, Git-metadata, and sensitive-path inspection, but its text is not parsed as a command.
+Adapters translate one agent's tool-call payload into a normalized invocation and translate the guard's decision back into that agent's deny format. At the system level, command-execution capability goes **only to exact tool names**: each adapter's own shell tools, plus the ones you declare in [`command_tools`](/configuration/custom-rules#community-shell-tools). Every other unknown tool still receives policy-file, Git-metadata, and sensitive-path inspection, but its text is not parsed as a command.
 
 Which agent uses which adapter, its hook flag, and where its config lives are all in [Integration architecture](/guides/integration-architecture); the commands that set them up are in [Installation](/installation).
 
@@ -80,29 +80,30 @@ Every tool call, on every integration, runs this fixed order. Operations that de
 | # | Reported `failureStage` | What happens | Weakenable by policy? |
 | --- | --- | --- | --- |
 | 1 | `policy-protection` | Extract the command from the tool input under traversal bounds (depth, node count, key count, per-string and aggregate byte size). Exceeding a bound fails closed. | No |
-| 2 | Not reported | Build semantic facts from the invocation with one parse that every later stage reuses. | No |
-| 3 | `command-analysis` | Declared-command parser budget exceeded, so the command is denied for hitting the recursion limit. | No |
-| 4 | `command-validation` | Structural command-validation budget exceeded (input length, word count, nesting depth), so the command is denied. | No |
-| 5 | Not reported | Resolve protected Git metadata for the execution working directory. | No |
-| 6 | `policy-protection` | **Policy-file protection.** A write, move, or recursive delete that touches the user `policy.json`, the project `policy.json`, the project file's own `.cc-safety-net` directory, or the user file's directory or any ancestor of it is denied with intent `hard_stop`. An agent that runs `cc-safety-net policy apply` is denied at this stage too, with the same intent. `cc-safety-net policy check` stays allowed. | No |
-| 7 | `policy-protection` | **Git-metadata protection.** A delete, move, redirection, write-tool, patch, or unknown-tool route that targets the resolved `.git` entry, its directories, or its hooks directories is denied with intent `hard_stop`. Read-only tools are exempt on the write-tool, patch, and unknown-tool routes. | No |
-| 8 | `config-load` | **Load the policy snapshot** and resolve the effective safety level from policy plus environment. | Not applicable |
-| 9 | `secret-protection` | **Sensitive-path protection.** The guard inspects command, path, search, and patch shapes for built-in sensitive paths and configured deny paths. A match denies with intent `hard_stop` and carries the matched rule id. The guard skips this stage when the policy disables secret protection. | Yes |
-| 10 | `non-command` | Allow non-command invocations that survived stages 1 to 9. | Not applicable |
-| 11 | `command-validation` | An empty or blank command text fails closed. | No |
-| 12 | `command-analysis` | **Destructive-command analysis** runs with the snapshot, the effective capabilities, the parsed program, the fact store, and the resolved Git metadata. It then either blocks or allows. | Partly |
+| 2 | `command-validation` | **Declared command tools.** When the host routed the call as an unknown tool and its input carries a non-empty string `command`, the guard loads the snapshot here and looks the tool name up in [`command_tools`](/configuration/custom-rules#community-shell-tools). A declared name turns the call into a command invocation with automatic dialect detection and the working directory the call asked for. A working-directory argument that is blank, not a string, or contradicted by another working-directory key carrying a different value fails closed; one naming a directory that does not exist is denied as `cwd.requested-unusable`. | No |
+| 3 | Not reported | Build semantic facts from the invocation with one parse that every later stage reuses. | No |
+| 4 | `command-analysis` | Declared-command parser budget exceeded, so the command is denied for hitting the recursion limit. | No |
+| 5 | `command-validation` | Structural command-validation budget exceeded (input length, word count, nesting depth), so the command is denied. | No |
+| 6 | Not reported | Resolve protected Git metadata for the execution working directory. | No |
+| 7 | `policy-protection` | **Policy-file protection.** A write, move, or recursive delete that touches the user `policy.json`, the project `policy.json`, the project file's own `.cc-safety-net` directory, or the user file's directory or any ancestor of it is denied with intent `hard_stop`. An agent that runs `cc-safety-net policy apply` is denied at this stage too, with the same intent. `cc-safety-net policy check` stays allowed. | No |
+| 8 | `policy-protection` | **Git-metadata protection.** A delete, move, redirection, write-tool, patch, or unknown-tool route that targets the resolved `.git` entry, its directories, or its hooks directories is denied with intent `hard_stop`. Read-only tools are exempt on the write-tool, patch, and unknown-tool routes. | No |
+| 9 | `config-load` | **Load the policy snapshot** and resolve the effective safety level from policy plus environment. A snapshot stage 2 already loaded is reused rather than read again. | Not applicable |
+| 10 | `secret-protection` | **Sensitive-path protection.** The guard inspects command, path, search, and patch shapes for built-in sensitive paths and configured deny paths. A match denies with intent `hard_stop` and carries the matched rule id. The guard skips this stage when the policy disables secret protection. | Yes |
+| 11 | `non-command` | Allow non-command invocations that survived stages 1 to 10. | Not applicable |
+| 12 | `command-validation` | An empty or blank command text fails closed. | No |
+| 13 | `command-analysis` | **Destructive-command analysis** runs with the snapshot, the effective capabilities, the parsed program, the fact store, and the resolved Git metadata. It then either blocks or allows. | Partly |
 
 Three placement facts follow directly from that order:
 
-- **Stages 6 and 7 run before stage 8.** Policy-file protection and Git-metadata protection deny *before* any configuration is loaded. They are always on, they carry no config state, and no preset, override, or master switch can weaken them.
+- **Stages 7 and 8 run before stage 9.** Policy-file protection and Git-metadata protection deny *before* any configuration is read into their decision. The one call that loads the snapshot earlier is a declared-command-tool candidate at stage 2, and that read decides only which route the call takes. Either way the two protections are always on, they carry no config state, and no preset, override, or master switch can weaken them.
 - **Sensitive-path protection runs after the snapshot and before command analysis.** It is the only one of the three hard-stop protections that policy controls, through the master switch, per-pattern overrides, and deny paths.
-- **Only decisions made after stage 8 report a safety level.** Denials from the input bounds, policy-file protection, or Git-metadata protection intentionally carry no `level` and no config-fallback metadata, because neither was known yet.
+- **Only decisions made after stage 9 report a safety level.** Denials from the input bounds, the stage 2 declared-tool check, policy-file protection, or Git-metadata protection intentionally carry no `level` and no config-fallback metadata, because neither was known yet.
 
 Every dependency call inside the guard is wrapped, so a thrown error becomes a fail-closed deny attributed to the stage that threw. When a tool-input bound is the cause, command-substitution-sourced text is stripped from the evidence so oversized input is never echoed back.
 
 ## Inside command analysis
 
-Stage 12 is where the classifier runs. It splits a command by shell operators into segments and walks each segment independently; if any segment blocks, the whole command is denied.
+Stage 13 is where the classifier runs. It splits a command by shell operators into segments and walks each segment independently; if any segment blocks, the whole command is denied.
 
 ```mermaid
 graph LR
@@ -160,7 +161,7 @@ The published runtime target is Node.js 18 or newer.
 ## Key design properties
 
 - **One fixed order, every integration.** The stage table above is the whole contract. There is no per-agent branch in the guard.
-- **Always-on protections precede configuration.** Policy-file and Git-metadata protection cannot be disabled, because they deny before the policy that could disable them is read.
+- **Always-on protections precede configuration.** Policy-file and Git-metadata protection cannot be disabled, because no configuration value enters their decision. Their denials report no safety level and no fallback reason for the same reason.
 - **Fail-closed on the guard's own failure.** A thrown dependency, an exhausted parser budget, or a violated tool-input bound denies rather than allows. The result identifies the stage that failed. Invalid *configuration* is a separate case and does not deny. See [Configuration recovery](/configuration/recovery).
 - **No network, no writes at evaluation time.** Runtime evaluation performs no network requests, and the snapshot loader performs no writes. Nothing in the guard inspects or filters egress.
 - **Platform-agnostic core.** Adapters translate formats; the guard and the classifier are shared verbatim.
@@ -171,7 +172,7 @@ The published runtime target is Node.js 18 or newer.
 The technical guides run from the user-facing lifecycle down to the reasoning behind the design. This page is step 3.
 
 - Back: [Integration architecture](/guides/integration-architecture), which shows how each agent's call reaches the adapters above, and [How it works](/guides/how-it-works), which shows the same sequence at user depth.
-- Next: [Analysis engine](/guides/analysis-engine), which details stage 12: each analyzer, the safety-level boundaries, and the recursive-delete classification order.
+- Next: [Analysis engine](/guides/analysis-engine), which details stage 13: each analyzer, the safety-level boundaries, and the recursive-delete classification order.
 - Then: [Design principles](/guides/design-principles), which explains the order, the always-on protections, and the owned parsers.
 
 Related: [Configuration recovery](/configuration/recovery) for `ready` versus `degraded`, [Security model](/guides/security-model) for trust boundaries, and [Known limitations](/guides/known-limitations) for what this design cannot cover.

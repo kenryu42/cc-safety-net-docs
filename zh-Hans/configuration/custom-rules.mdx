@@ -42,6 +42,7 @@ CC Safety Net 从两个范围加载 rulebook 并将它们合并：
 - **每个范围的 `overrides` 只作用于该范围自己的规则。** 指向用户范围规则的项目覆盖会被忽略并给出警告，该规则保持用户配置的状态。项目配置无法禁用或改写用户规则。
 - 不匹配任何已知规则的覆盖键会被忽略并给出警告；其他覆盖和规则保持各自配置的状态。
 - 两个范围的 `transparent_wrappers` 取并集。
+- 两个范围的 `command_tools` 会合并，用户范围在前。两处声明了同一个工具名时，以用户范围的条目为准，丢弃项目范围的条目，因此项目配置无法改变由哪个参数承载工作目录。
 
 如果两个位置都没有配置，则只有内置规则生效。
 
@@ -180,7 +181,75 @@ npx -y cc-safety-net rule wrapper add rtk --global
 - 既不是内置、这里也**未**列出的包装器，以及重写或隐藏子命令而不是 exec 一个可见子命令的包装器，仍然不会被解包。这类命令只有顶层危险文本 fallback 扫描才可能捕获。
 
 <Warning>
-`transparent_wrappers` 位于 `rule.json` 中。如果某个范围的 `rule.json` 变得不可读，该范围声明的包装器就不再生效，内置的七个仍然有效。这是配置被丢弃会削弱内置覆盖范围的唯一情况。**rulebook** 加载失败不影响 `rule.json` 的可读性，因此声明的包装器不受影响。
+`transparent_wrappers` 位于 `rule.json` 中。如果某个范围的 `rule.json` 变得不可读，该范围声明的包装器就不再生效，内置的七个仍然有效。配置被丢弃会削弱内置覆盖范围，这里和[已声明的命令工具](#community-shell-tools)都是如此。**rulebook** 加载失败不影响 `rule.json` 的可读性，因此声明的包装器不受影响。
+</Warning>
+
+<span id="community-shell-tools"></span>
+
+## 社区 shell 工具
+
+插件可以为智能体添加自带的 shell 工具，例如 `dsh-ops` 插件会加入 `ops_bash` 和 `ops_run_background`。CC Safety Net 不认识这些名称，因此集成把它们按未知工具路由：会检查其中的路径值有没有受保护路径，但绝不把它们的 `command` 解析为 shell 命令。在你声明它们之前，`ops_bash` 执行 `git reset --hard` 不会被阻止。
+
+声明该工具后，CC Safety Net 就会分析它的命令：
+
+```bash
+# Declare one or more tools in the user config
+npx -y cc-safety-net rule tool add ops_bash ops_run_background
+
+# Name the argument that carries the working directory
+npx -y cc-safety-net rule tool add ops_run_background --cwd-arg dir
+
+# Write the project config instead
+npx -y cc-safety-net rule tool add team_shell --project
+
+# List every declared tool in both scopes, or stop analyzing one
+npx -y cc-safety-net rule tool list
+npx -y cc-safety-net rule tool remove ops_bash
+```
+
+这会写入 `command_tools` 数组：
+
+```json
+{
+  "version": 1,
+  "rules": [],
+  "overrides": {},
+  "transparent_wrappers": [],
+  "command_tools": ["ops_bash", { "name": "ops_run_background", "cwd": "dir" }]
+}
+```
+
+从下一次工具调用起，CC Safety Net 分析已声明的调用就和分析内置 shell 工具一样：同样的内置规则、同样的自定义规则、你自己的安全级别，以及该级别对敏感路径的严格程度。此时 `ops_bash` 执行 `git reset --hard` 会被 `git.reset-hard` 阻止；获得允许的调用也会像 `Bash` 调用一样，连同命令和工作目录一起记入审计。
+
+其他 `rule` 子命令写入的是项目配置，要写入用户范围需加 `-g`/`--global`。`rule tool` 正好相反：默认就是用户范围，因此漏掉标志不会导致某个工具在单个项目之外得不到分析。命令接口及其错误消息见 [`rule tool`](/zh-Hans/reference/cli-commands#rule-tool)。
+
+这个字段的规则：
+
+- **条目可以是工具名，也可以是 `{ "name": "ops_bash", "cwd": "dir" }` 这样的对象**，其中 `cwd` 指出由哪个参数承载工作目录。
+- **名称必须与智能体发送的工具名完全一致。** 内置工具名的比较忽略大小写和分隔符差异，声明则不会。
+- 名称必须非空、最多 256 个字符，且不含空白字符和控制字符。`mcp__server__tool` 这类 MCP 风格的名称可以使用。同一个文件中重复声明同一名称属于错误。
+- **声明只对集成按未知工具路由的工具生效。** 它无法改变内置工具的处理方式，而且 `rule tool add` 会拒绝任何集成的内置 shell 工具名和文件工具名。
+- **只有非空字符串 `command` 才会被分析。** 不带 `command` 的已声明调用仍走未知工具路由，只保留路径检查。
+
+<span id="the-working-directory-of-a-declared-call"></span>
+
+### 已声明调用的工作目录
+
+`rm -rf build` 是否具有破坏性取决于它在哪里运行，因此已声明工具的工作目录决定了判定结果。CC Safety Net 从 `cwd` 指定的参数读取工作目录。声明未指定 `cwd` 时，则读取 `workdir`、`cwd` 和 `working_directory` 这三个默认键，三者之间没有优先级之分。
+
+| 调用中的工作目录参数 | 结果 |
+| --- | --- |
+| 不存在 | 分析使用会话工作区 |
+| 指向已存在目录的绝对路径 | 分析使用该目录，无论它在磁盘上的什么位置 |
+| 相对路径 | 基于会话工作区解析，然后规范化 |
+| 只含空白字符，或不是字符串 | 拒绝，fail closed |
+| 三个默认键中有两个的值不同 | 拒绝，fail closed |
+| 目录不存在，或是 Windows 命名空间路径 | 以 `cwd.requested-unusable` 拒绝 |
+
+`cwd` 指定的参数是唯一被读取的键，因此随它一起发送的 `workdir` 值会被忽略。与 DeepSeek Harness、Amp Code 和 Gemini CLI 适配器一样，已声明工具可以指定任何已存在的目录，不必位于会话工作区内。
+
+<Warning>
+`command_tools` 位于 `rule.json` 中。如果某个范围的 `rule.json` 变得不可读，该范围的声明就不再生效，它声明的工具重新回到不被分析的状态，直到你修复诊断中指出的那个文件。另一范围的声明不受影响。手动编辑该文件后请运行 `cc-safety-net rule verify`，它也会报告其中声明的内置工具名。
 </Warning>
 
 ## 创建你的第一个自定义规则
@@ -263,7 +332,7 @@ npx -y cc-safety-net rule verify
 
 ## `rule.json` schema
 
-顶层 `rule.json` 决定哪些 rulebook 生效、应用覆盖并声明透明包装器。它与 `policy.json` 相互独立。`policy.json` 配置安全级别、内置保护、允许路径、拒绝路径和审计保留期，详情见[策略](/zh-Hans/configuration/policy)。
+顶层 `rule.json` 决定哪些 rulebook 生效、应用覆盖，并声明透明包装器和社区 shell 工具。它与 `policy.json` 相互独立。`policy.json` 配置安全级别、内置保护、允许路径、拒绝路径和审计保留期，详情见[策略](/zh-Hans/configuration/policy)。
 
 <ParamField body="version" type="integer" required>
 schema 版本。必须为 `1`。
@@ -279,6 +348,10 @@ rulebook 来源字符串列表。默认为空数组。文件内的来源名称�
 
 <ParamField body="transparent_wrappers" type="array">
 会透明执行可见受保护子命令的命令名称，让分析能够看穿它们。默认为空数组，此时内置的七个包装器依然生效。条目必须唯一，且不能是保留命令。见[透明包装器](#透明包装器)。
+</ParamField>
+
+<ParamField body="command_tools" type="array">
+插件为你的智能体添加、而 CC Safety Net 并不认识的 shell 工具。在这里声明某个工具，CC Safety Net 就会像分析内置 shell 工具一样分析它的 `command`。每个条目可以是工具名，也可以是 `{ "name": "ops_bash", "cwd": "dir" }` 这样的对象，用于指出由哪个参数承载工作目录。默认为空数组。名称在文件内必须唯一，且不能是内置工具名。见[社区 shell 工具](#community-shell-tools)。
 </ParamField>
 
 同时替换消息和面向智能体的意图的覆盖如下所示：
@@ -312,7 +385,7 @@ CC Safety Net 为 `rule.json` 发布了一份 JSON Schema。该文件由人工�
 }
 ```
 
-它涵盖上面列出的 `rule.json` 字段，即 `version`、`rules`、`overrides` 和 `transparent_wrappers`。运行 `rule verify` 会为缺少 `$schema` 的有效规则配置补上这一引用。`policy.json` 没有公开发布的 schema。
+它涵盖上面列出的 `rule.json` 字段，即 `version`、`rules`、`overrides`、`transparent_wrappers` 和 `command_tools`。运行 `rule verify` 会为缺少 `$schema` 的有效规则配置补上这一引用。`policy.json` 没有公开发布的 schema。
 
 ## Rulebook schema
 
