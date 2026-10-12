@@ -154,7 +154,7 @@ heredoc 必须是不展开的：分隔符带引号（`<<'EOF'`），或者分隔
 | `Remove-Item $target -Recurse -Force` | 动态目标。**仅 `standard`** 允许，在 `strict` 和 `paranoid` 中被阻止 |
 | `Get-ChildItem . -Recurse \| Remove-Item -Force` | 无法验证的管道输入，**仅 `standard`** 允许 |
 
-把 shell 模式设为 `posix` 会完全禁用 PowerShell 删除规则，但仍保留 `git.reset-hard`、`rm.recursive-force-root-or-home` 等跨 shell 规则。在 `auto` 模式下，分析器会识别显式的 `Remove-Item`，包括出现在 `;`、换行、`&&` 或 `||` 之后的命令。`Get-Content`、`Set-Content`、`Add-Content`、`Copy-Item`、`Move-Item` 同样会被识别，`gc`、`cp` 之类别名在参数写成 PowerShell 路径表达式时也会被识别。
+把 shell 模式设为 `posix` 会完全禁用 PowerShell 删除规则，但仍保留 `git.reset-hard`、`rm.recursive-force-root-or-home` 等跨 shell 规则。在 `auto` 模式下，分析器会识别显式的 `Remove-Item`，包括出现在 `;`、换行、`&&` 或 `||` 之后的命令。`Get-Content`、`Set-Content`、`Add-Content`、`Copy-Item`、`Move-Item` 同样会被识别，`gc`、`cp` 之类别名在参数写成 PowerShell 路径表达式时也会被识别。`ForEach-Object` 或 `Where-Object` 命令也会选用 PowerShell 解析器，因此 `$records | ForEach-Object { $_.key }` 会按 PowerShell 分析并被允许；若按 POSIX 文本分析，`$_.key` 看起来就像路径操作数。
 
 ## 敏感路径允许
 
@@ -175,7 +175,7 @@ heredoc 必须是不展开的：分隔符带引号（`<<'EOF'`），或者分隔
 | `mkdir -p fx/credentials && touch fx/.env` | `mkdir` 和 `touch` 只是新建路径，不读取 | **仅 `standard`** |
 | `tailscale cert --cert-file crt.pem --key-file key.pem host`、`openssl x509 -in crt.pem -noout -enddate` | `tailscale cert` 写入这些文件，`openssl x509` 只输出证书数据 | **仅 `standard`** |
 | `for t in .env.local; do grep -c -- "$t" notes.md; done` | 循环变量只用作 `grep` 的匹配模式，没有流向任何读取 | **仅 `standard`** |
-| 包含敏感路径字面量的解释器内联代码 | 代码中没有出现文件系统、命令执行或 eval 标记时，字面量仍是惰性数据。即使有标记，位于容器元素、比较操作数等数据位置的 Python 或 JavaScript 字面量，以及只指明代码所写新文件的字面量，也仍是数据。POSIX shell 代码除外，因为防护阶段会把它按 shell 遍历 | **仅 `standard`** |
+| 包含敏感路径字面量的解释器内联代码 | 代码中没有出现文件系统、命令执行或 eval 标记时，字面量仍是惰性数据。即使有标记，位于容器元素、比较操作数、`print` 或 `console.log` 的整个参数等数据位置的 Python 或 JavaScript 字面量，以及只指明代码所写新文件的字面量，也仍是数据。POSIX shell 代码除外，因为防护阶段会把它按 shell 遍历 | **仅 `standard`** |
 
 纯元数据的形式是一份固定清单：`ls`、`stat`、`test -e <path>`、`test -f <path>`、`[ -e <path> ]`、`[ -f <path> ]`、`git check-ignore`、不带任何读写动作的 `find`、只做计数的 `wc`，以及把输出限定为文件名、计数或退出状态的 `grep` 或 `rg`。在 `standard` 中，只被这类形式提到的敏感路径会被忽略；这类形式是整条命令还是复合命令中的一段，并不影响结果。但只要有哪一段真的读取了该路径，仍会被阻止，因此 `test -f .env && cat .env` 会被拒绝。如果 `wc`、`grep` 或 `rg` 的输出可能流入后面的管道、被捕获或进入协进程，就按读取检查，因此 `grep -l KEY .env | xargs cat` 会被拒绝。符合条件的选项、哪些 `find` 动作会取消这一资格，以及本表中的其他形式，见 [standard 模式不算作读取的情形](/zh-Hans/reference/secret-protection#what-standard-mode-does-not-count-as-a-read)。
 

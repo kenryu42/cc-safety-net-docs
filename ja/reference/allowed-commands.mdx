@@ -154,7 +154,7 @@ allow path が他の範囲を広げることはありません。機密パス保
 | `Remove-Item $target -Recurse -Force` | 動的な対象。**standard のみ**で、strict と paranoid ではブロックされる |
 | `Get-ChildItem . -Recurse \| Remove-Item -Force` | パイプラインからの入力は検証できない。**standard のみ** |
 
-シェルモードに `posix` を選ぶと、PowerShell の削除ルールは意図的にすべて無効になります。一方、`git.reset-hard` や `rm.recursive-force-root-or-home` などのクロスシェルルールは維持されます。`auto` モードでは、明示的な `Remove-Item` が検出されます。これは、`;`、改行、`&&`、`||` の後にある場合も同じです。`Get-Content`、`Set-Content`、`Add-Content`、`Copy-Item`、`Move-Item` も同様に検出され、`gc` や `cp` のような別名も引数が PowerShell のパス式で書かれていれば検出されます。
+シェルモードに `posix` を選ぶと、PowerShell の削除ルールは意図的にすべて無効になります。一方、`git.reset-hard` や `rm.recursive-force-root-or-home` などのクロスシェルルールは維持されます。`auto` モードでは、明示的な `Remove-Item` が検出されます。これは、`;`、改行、`&&`、`||` の後にある場合も同じです。`Get-Content`、`Set-Content`、`Add-Content`、`Copy-Item`、`Move-Item` も同様に検出され、`gc` や `cp` のような別名も引数が PowerShell のパス式で書かれていれば検出されます。`ForEach-Object` や `Where-Object` の呼び出しでも PowerShell パーサーが選ばれます。そのため `$records | ForEach-Object { $_.key }` は PowerShell として解析されて許可されます。POSIX のテキストとして解析すると、`$_.key` がパスのオペランドに見えてしまいます。
 
 ## 機密パスに関する許可
 
@@ -175,7 +175,7 @@ allow path が他の範囲を広げることはありません。機密パス保
 | `mkdir -p fx/credentials && touch fx/.env` | `mkdir` と `touch` はパスを作るだけで、読み取らない | **standard のみ** |
 | `tailscale cert --cert-file crt.pem --key-file key.pem host`、`openssl x509 -in crt.pem -noout -enddate` | `tailscale cert` はこれらのファイルを書き込むだけで、`openssl x509` は証明書のデータしか出力しない | **standard のみ** |
 | `for t in .env.local; do grep -c -- "$t" notes.md; done` | ループ変数は `grep` のパターンになるだけで、読み取りに使われない | **standard のみ** |
-| 機密パスのリテラルを含むインタープリターのインラインコード | コードにファイルシステム操作、コマンド実行、eval のいずれの痕跡もない場合、リテラルは実行されないデータのままになる。痕跡があっても、コレクションの要素や比較のオペランドなどデータの位置にある Python や JavaScript のリテラルと、コードが書き込む新しいファイルの名前を指すだけのリテラルはデータのままになる。POSIX シェルのコードは対象外で、ガードがシェルとしてたどる | **standard のみ** |
+| 機密パスのリテラルを含むインタープリターのインラインコード | コードにファイルシステム操作、コマンド実行、eval のいずれの痕跡もない場合、リテラルは実行されないデータのままになる。痕跡があっても、コレクションの要素、比較のオペランド、`print` や `console.log` の引数全体などデータの位置にある Python や JavaScript のリテラルと、コードが書き込む新しいファイルの名前を指すだけのリテラルはデータのままになる。POSIX シェルのコードは対象外で、ガードがシェルとしてたどる | **standard のみ** |
 
 メタデータのみと見なされる形式は、次に挙げるもので固定です。`ls`、`stat`、`test -e <path>`、`test -f <path>`、`[ -e <path> ]`、`[ -f <path> ]`、`git check-ignore`、読み書きを伴うアクションを持たない `find`、件数を数えるだけの `wc`、そして出力をファイル名、件数、終了ステータスだけに絞った `grep` または `rg` です。standard では、こうした形式だけが指す機密パスは無視されます。コマンド全体でも、複合コマンドの 1 セグメントでも同じです。同じパスを読み取るセグメントに書いた場合は引き続きブロックされるため、`test -f .env && cat .env` は拒否されます。`wc`、`grep`、`rg` の出力が後ろのパイプ、キャプチャー、コプロセスに届きうる場合は読み取りとして検査するため、`grep -l KEY .env | xargs cat` は拒否されます。対象となるオプション、メタデータのみと見なされなくなる `find` のアクション、この表のほかの形については、[standard モードが読み取りと見なさないもの](/ja/reference/secret-protection#what-standard-mode-does-not-count-as-a-read)を参照してください。
 
