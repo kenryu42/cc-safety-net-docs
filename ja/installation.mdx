@@ -328,7 +328,7 @@ npx -y cc-safety-net@latest install --droid
 
 このエントリにマッチャーはありません。そのため `Execute` だけでなく、すべてのツール呼び出しがアダプターに届きます。管理対象外のエントリと他の hook イベントはそのまま残り、既存のファイルを置き換える場合は元のパーミッションを保ちます。
 
-`hooks.json` が存在しない場合、インストールは既存の hook を引き継いで新しいファイルを作り、そこに管理対象のエントリを追加します。Droid は `hooks.json` ができると旧形式の `~/.factory/hooks/hooks.json` を読まなくなるため、旧形式のファイルの hook イベントはすべて引き継ぎます。一方、`~/.factory/settings.json` の `hooks` キーは Droid がイベント単位でマージするため、`hooks.json` に `PreToolUse` があると `settings.json` 側の `PreToolUse` が隠れてしまいます。そこで旧形式のファイルに `PreToolUse` がない場合に限り、`settings.json` の `PreToolUse` を引き継ぎます。`settings.json` のそれ以外のイベントは引き継ぎません。`settings.json` と旧形式のファイルには書き込みません。
+`hooks.json` が存在しない場合、インストールは既存の hook を引き継いで新しいファイルを作り、そこに管理対象のエントリを追加します。Droid は `hooks.json` ができると旧形式の `~/.factory/hooks/hooks.json` を読まなくなるため、旧形式のファイルの hook イベントはすべて引き継ぎます。一方、`~/.factory/settings.json` の `hooks` キーは Droid 0.240.0 がイベント単位でマージするため、`hooks.json` に `PreToolUse` があると `settings.json` 側の `PreToolUse` が隠れてしまいます。そこで旧形式のファイルに `PreToolUse` がない場合に限り、`settings.json` の `PreToolUse` を引き継ぎます。`settings.json` のそれ以外のイベントは引き継ぎません。`settings.json` と旧形式のファイルには書き込みません。
 
 Droid はこれらのファイルを JSONC として読むため、CC Safety Net もパース前に `//` と `/* */` のコメント、末尾のカンマを取り除きます。書き戻す内容は通常の JSON なので、インストールやアンインストールが `hooks.json` を変更すると、コメントは残りません。読み込んだファイルがパースできない場合、`hooks.json` または旧形式のファイルのルートが JSON オブジェクトでない場合、その `PreToolUse` が配列でない場合は、何も書き込まず、対象のファイルを示して停止します。
 
@@ -340,7 +340,7 @@ npx -y cc-safety-net@latest uninstall --droid
 
 アンインストールは管理対象のハンドラーを取り除き、ハンドラーが 1 つも残らなくなったエントリは削除します。インストール時に旧形式のファイルや `settings.json` から引き継いだ hook は `hooks.json` に残るため、アンインストール後に有効な hook の構成はインストール前と同じになります。`hooks.json` 自体を削除するのは、ハンドラーを取り除いた結果、空の `PreToolUse` がファイルに残る唯一のキーになり、かつ `settings.json` が存在しない場合だけです。`settings.json` がある場合は、代わりにハンドラーを取り除いた内容を書き込みます。`hooks.json` を削除すると `settings.json` のフォールバックが再び有効になり、そこに管理対象のハンドラーのコピーが残っていれば、それも一緒に動き出してしまうためです。
 
-実行時には、アダプターが `Execute` をシェルコマンドのツールとして扱い、その他のツール入力については保護対象のパスが含まれていないかを検査します。解析の基準には、Droid のペイロードに含まれる `cwd` を使います。許可する呼び出しに対しては何も出力しないため、Droid 自身の権限確認のプロンプトもそのまま働きます。拒否する場合は、標準出力に deny の判定を出力し、理由を標準エラー出力にも書き込んで、終了コード 2 で終了します。Droid は permission decision を含む最初の hook の結果を採用するので、インストールされている別の hook が許可や確認を返すと JSON の deny が置き換えられるおそれがあります。終了コード 2 なら必ずブロックされます。詳細は [`hook` コマンド](/ja/reference/cli-commands#hook)と[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
+実行時には、アダプターが `Execute` をシェルコマンドのツールとして扱い、その他のツール入力については保護対象のパスが含まれていないかを検査します。解析の基準には、Droid のペイロードに含まれる `cwd` を使います。許可する呼び出しに対しては何も出力しないため、Droid 自身の権限確認のプロンプトもそのまま働きます。拒否する場合は、標準出力に deny の判定を出力し、理由を標準エラー出力にも書き込んで、終了コード 2 で終了します。Droid 0.240.0 は permission decision を含む最初の hook の結果を採用するので、インストールされている別の hook が許可や確認を返すと JSON の deny が置き換えられるおそれがあります。終了コード 2 なら必ずブロックされます。詳細は [`hook` コマンド](/ja/reference/cli-commands#hook)と[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
 
 <Note>
   Factory Droid の hook は fail open です。ツール呼び出しをブロックできるのは、終了コード 2 と標準出力の明示的な deny 判定だけです。0 でも 2 でもない終了コード、クラッシュ、タイムアウト、`npx` が見つからない場合は、その呼び出しはそのまま実行されます。エンタープライズ設定の `allowManagedHooksOnly` はユーザーとプロジェクトの hook を無視するため、`install --droid` が書き込む hook はその設定下では動きません。[Factory Droid は fail open のホスト](/ja/guides/known-limitations#factory-droid-is-a-fail-open-host)を参照してください。
