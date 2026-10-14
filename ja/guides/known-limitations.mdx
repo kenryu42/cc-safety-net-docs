@@ -1,7 +1,7 @@
 ---
 title: "既知の制限と注意点"
 sidebarTitle: "既知の制限"
-description: "CC Safety Net が検出できない範囲を説明します。不透明なコマンドプロキシ、バイナリ内部の動作、ファイルシステムの封じ込めとネットワーク、シンボリックリンクの TOCTOU、インタープリターのフラグ、コメント内の引用符、cmd と入れ子の PowerShell の読み取り、eval による動的実行、Codex の対話セッションと workdir の隙間、fail open のホスト（Grok Build、Factory Droid、Devin CLI）、DeepSeek Harness のオプションバンドルと run_code の隙間、Hermes Agent と OpenClaw の対象境界（OpenClaw のセッションの作業ディレクトリを含む）を扱います。"
+description: "CC Safety Net が検出できない範囲を説明します。不透明なコマンドプロキシ、バイナリ内部の動作、ファイルシステムの封じ込めとネットワーク、シンボリックリンクの TOCTOU、インタープリターのフラグ、コメント内の引用符、cmd と入れ子の PowerShell の読み取り、eval による動的実行、Codex の対話セッションと workdir の隙間、Kimi Code の web と ACP のセッションの作業ディレクトリ、Windows での OpenCode v1 の workdir、fail open のホスト（Grok Build、Factory Droid、Devin CLI）、DeepSeek Harness のプロファイル、オプションバンドル、run_code の隙間、Hermes Agent と OpenClaw の対象境界（OpenClaw のセッションの作業ディレクトリと `openclaw agent exec` を含む）を扱います。"
 ---
 
 CC Safety Net が解析するのは、エージェントが実行しようとするコマンド文字列です。既知の破壊的な git 操作やファイルシステム操作によるデータ消失を防ぐためのガードですが、完全なセキュリティ対策ではありません。このページでは、現時点の制限と、代わりに[サンドボックス](/ja/guides/vs-sandboxing)を使うべき場面を示します。
@@ -60,7 +60,7 @@ bash -c "$(cat destructive.sh)"
 
 CC Safety Net は、`bash -c` やインタープリターのコード引数を再帰的にスキャンします。しかし、コードをリモートから取得したり変数から組み立てたりする場合、破壊的な処理そのものはコマンド文字列の解析からは見えません。これは、この方式に本質的につきまとう制限です。
 
-standard モードでは、こうしたコマンドの一部について、判断がユーザーに移ります。シェルの実行元を解決できず、その実行元が標準入力からプログラムを読むシェルでもなく、コマンドテキストにも破壊的パターンが現れない場合、Claude Code の hook は拒否ではなく承認を求めます。`bash -c "$CMD"` がその例です。フォールバックの破壊的パターンスキャンに一致した、パースできないテキストも同じ扱いになります。承認すると、そのコマンドはそれ以上解析されずに実行されます。この確認が出るのは Claude Code の permission mode が `default`、`acceptEdits`、`plan` のときだけです。strict と paranoid、他の permission mode、他のホストは拒否のままです。[standard がコマンドを検証できない場合](/ja/configuration/modes#when-standard-cannot-verify-a-command)を参照してください。
+standard モードでは、こうしたコマンドの一部について、判断がユーザーに移ります。シェルの実行元を解決できず、その実行元が標準入力からプログラムを読むシェルでもなく、コマンドテキストにも破壊的パターンが現れない場合、Claude Code の hook は拒否ではなく承認を求めます。`bash -c "$CMD"` がその例です。フォールバックの破壊的パターンスキャンに一致した、パースできないテキストも同じ扱いになります。承認すると、そのコマンドはそれ以上解析されずに実行されます。この確認が出るのは Claude Code の permission mode が `default`、`acceptEdits`、`plan`、`auto` のときだけです。`auto` では、Claude Code の分類器がその呼び出しを拒否することはありますが、プロンプトを経ずに承認することはできません。strict と paranoid、他の permission mode、他のホストは拒否のままです。[standard がコマンドを検証できない場合](/ja/configuration/modes#when-standard-cannot-verify-a-command)を参照してください。
 
 ## パーサーの制限
 
@@ -175,6 +175,8 @@ OpenClaw のプラグインが `before_tool_call` を登録するのは、正規
 
 この穴を塞ぐには、ホスト側が実行ディレクトリを公開する必要があります。
 
+OpenClaw には、hook をまったく通らないコマンドが 1 つあります。`openclaw agent exec` はプラグインの hook レジストリを読み込まないため、`before_tool_call` の hook が動きません。プラグインをインストールして読み込んでいても、そのツール呼び出しは解析も監査ログへの記録もされません。同じツール呼び出しでも、`openclaw agent --local` 経由ならブロックされます。
+
 Codex ネイティブのリレーはテストされていないため、対象に含めていません。実際のエンドツーエンドのテストは OpenClaw 自身のエージェントランタイム上で動くため、Codex ネイティブのシェル、patch、MCP の呼び出しについては何も保証しません。
 
 ### どちらの連携も Windows に対応しない
@@ -186,6 +188,12 @@ Codex ネイティブのリレーはテストされていないため、対象�
 ## DeepSeek Harness の対象境界
 
 DeepSeek Harness における CC Safety Net は、プロファイルのオプションのプラグインバンドルであり、そのガードは拒否しかできません。ホストには、このガードの対象外になる部分がいくつかあります。
+
+<span id="install-covers-the-web-and-desktop-profiles-only"></span>
+
+### インストールの対象は web と desktop のプロファイルだけ
+
+`install --deepseek-harness` がプラグインを追加するのは、`web` と `desktop` のプロファイルだけです。`acp`、`headless`、`sdk`、`sdk-minimal` のプロファイルと、後から作成したプロファイルは、`dsh plugin --profile <name> add cc-safety-net` でプラグインを追加するまで CC Safety Net なしで動作します。
 
 ### オプションのバンドルは読み込みに失敗しても警告だけ
 
@@ -215,6 +223,23 @@ Codex の統合された exec 経路（すべてのプラットフォームで�
 
 いずれかの隙間が自分の環境で懸念になる場合は、封じ込めの層として[サンドボックス](/ja/guides/vs-sandboxing)を使ってください。
 
+<span id="kimi-code-coverage-boundary"></span>
+
+## Kimi Code の対象境界
+
+`kimi web` と ACP のセッションでは、Kimi Code はセッション自身のディレクトリではなく、サーバープロセスのディレクトリをペイロードの `cwd` として送ります。ペイロードには、ほかに作業ディレクトリを示す値がありません。そのため CC Safety Net は、これらのセッションのすべての `Bash` 呼び出しを、サーバーを起動したディレクトリを基準に解析します。その結果、次のようになります。
+
+- 相対パスも、作業ディレクトリの外を指すパスに関するルールも、誤ったディレクトリを基準に判断されます。安全なコマンドがブロックされることも、本来ブロックされるコマンドが通ることもあります。
+- セッションのディレクトリを指す `cwd` 引数は、そのディレクトリがサーバーの起動ディレクトリの外にあると拒否されます。
+
+ターミナルで使う `kimi` のセッションは影響を受けません。この隙間を塞ぐには、ホスト側がセッションのディレクトリを送る必要があります。
+
+<span id="opencode-coverage-boundary"></span>
+
+## OpenCode の対象境界
+
+Windows の OpenCode v1 は、POSIX シェルでコマンドを実行するとき、`/tmp` のように POSIX のルートから始まる `workdir` を `cygpath -w` で変換します。一方 CC Safety Net は、同じ `workdir` を現在のドライブを基準に `C:\tmp` と解決します。そのため、こうした呼び出しは実際に実行されるディレクトリとは別のディレクトリを基準に解析されることがあります。
+
 ## Grok Build は fail open のホスト
 
 Grok Build の hook は設計上 fail open であり、ホスト側に `failClosed` に相当する設定はありません。ツール呼び出しをブロックできるのは、標準出力に明示的な deny を返した場合だけです。hook がクラッシュした場合、タイムアウトした場合、不正な出力を返した場合は、その呼び出しはそのまま実行されます。
@@ -225,7 +250,7 @@ Grok Build の hook は設計上 fail open であり、ホスト側に `failClos
 
 ## Factory Droid は fail open のホスト
 
-Factory Droid の hook は fail open です。ツール呼び出しをブロックできるのは、終了コード 2 を返した場合と、標準出力に明示的な deny を返した場合だけです。0 でも 2 でもない終了コード、クラッシュ、タイムアウト、`npx` が見つからない場合は、Droid がブロックを伴わないエラーとして記録し、その呼び出しをそのまま実行します。許可した呼び出しではアダプターが何も出力しないため、Droid 自身の権限確認のプロンプトはそのまま働きます。
+Factory Droid の hook は fail open です。ツール呼び出しをブロックできるのは、終了コード 2 を返した場合と、標準出力に明示的な deny を返した場合だけです。CC Safety Net が拒否するときは、その両方を使います。アダプターは標準出力に deny を返し、理由を標準エラー出力へ書き込んだうえで、終了コード 2 で終了します。Droid は permission decision を含む最初の hook の結果を採用するため、許可や確認を返す別の hook がインストールされていると、標準出力だけで返した deny は打ち消されるおそれがあります。終了コード 2 なら必ずブロックされます。0 でも 2 でもない終了コード、クラッシュ、タイムアウト、`npx` が見つからない場合は、Droid がブロックを伴わないエラーとして記録し、その呼び出しをそのまま実行します。許可した呼び出しではアダプターが何も出力しないため、Droid 自身の権限確認のプロンプトはそのまま働きます。
 
 この hook を丸ごと無効にする Droid の設定が 1 つあります。エンタープライズ向けの `allowManagedHooksOnly` 設定を有効にすると、Droid はユーザーレベルとプロジェクトレベルの hook を無視します。`install --droid` が書き込む `~/.factory/hooks.json` はユーザーレベルの hook なので、この設定の下では実行されません。
 
@@ -239,8 +264,9 @@ Devin CLI の hook も fail open ですが、その範囲は狭いです。ツ�
 
 連携の対象外になる部分がいくつかあります。
 
-- 対応するのは、`install --devin` が書き込むユーザーレベルの設定（`$XDG_CONFIG_HOME/devin/config.json`、既定では `~/.config/devin/config.json`、Windows では `%APPDATA%\devin\config.json`）だけです。このファイルの hook はセッションのディレクトリで実行され、アダプターもすべての呼び出しをそのディレクトリを基準に解析します。プロジェクトの `.devin/hooks.v1.json` にある hook はリポジトリルートを作業ディレクトリとして実行され、それを補正する `cwd` はペイロードに含まれません。
+- 対応するのは、`install --devin` が書き込むユーザーレベルの設定（`$XDG_CONFIG_HOME/devin/config.json`、既定では `~/.config/devin/config.json`、Windows では `%APPDATA%\devin\config.json`）だけです。このファイルの hook はセッションのディレクトリで実行され、アダプターもすべての呼び出しをそのディレクトリを基準に解析します。ただし、`workdir` で別のディレクトリを指定した `exec` 呼び出しは除きます。プロジェクトの `.devin/hooks.v1.json` にある hook はリポジトリルートを作業ディレクトリとして実行され、それを補正する `cwd` はペイロードに含まれません。
 - アダプターは `write_to_process` の呼び出しを 1 件ずつ解析します。そのため、対話的なシェルへの複数回の書き込みに分割されて届くコマンドは、解析の対象外です。
+- `write_to_process` の `bytes_input` で行の終わりになるのは、`<CR>` と `<LF>` だけです。`text_input` か `bytes_input` にテキストがあり、それ以外のキー（`<ESC>`、`<BS>`、矢印キー、`<C-…>` のキー）も含む呼び出しを、CC Safety Net は拒否します。受け取ったプログラムが実際に実行する行を特定できないためです。`<UP><CR>` や `<C-c>` のように、これらのキーだけを送る呼び出しはコマンドとして解析されません。ドキュメントにないキー表記を含む呼び出しと、1 回の呼び出しで `text_input` と `bytes_input` の両方にテキストがある呼び出しも拒否されます。
 - Devin Cloud のセッションは対象外です。
 - Devin は既定で Claude Code の hook ファイルも読み込みます。そのため、Claude Code 向けにインストールした CC Safety Net の hook が Devin のセッションでも動くことがありますが、拒否が重複するだけです。
 

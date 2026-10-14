@@ -145,9 +145,11 @@ Warning (Codex): Codex runs only trusted hooks, and doctor cannot check trust. S
 
 `doctor` 从不向 Codex 查询 hook 是否已受信任，因此这条提醒每次运行都会出现，并不表示缺少信任。Inspection 仍为 `Verified`，不产生任何 finding，退出码也不变。`doctor --json` 会把同一段文本放在 `hooks` 中 `codex` 条目的 `errors` 数组里。
 
-对于 GitHub Copilot CLI，`doctor` 会检查插件签出和 hook 定义。内联设置的优先顺序是 `<repo>/.github/copilot/settings.local.json`、`<repo>/.github/copilot/settings.json`、`<repo>/.claude/settings.local.json`、`<repo>/.claude/settings.json`、`$COPILOT_HOME/settings.json`，然后是 `$COPILOT_HOME/config.json`（`COPILOT_HOME` 默认为 `~/.copilot`）。它还会扫描 `<repo>/.github/hooks/*.json` 和 `$COPILOT_HOME/hooks/*.json`。`.claude` 文件中的条目仅在命令包含 `hook --copilot-cli` 或 `hook -cp` 时才算；仅有 Claude Code hook 不算。内联设置需要 GitHub Copilot CLI `1.0.8+`，用户 hook 文件需要 `0.0.422+`。
+对于 GitHub Copilot CLI，`doctor` 会检查插件签出和 hook 定义。内联设置的优先顺序是 `<repo>/.github/copilot/settings.local.json`、`<repo>/.github/copilot/settings.json`、`<repo>/.claude/settings.local.json`、`<repo>/.claude/settings.json`，然后是 `$COPILOT_HOME/settings.json`（`COPILOT_HOME` 默认为 `~/.copilot`）。`doctor` 不读取 `$COPILOT_HOME/config.json`。它还会扫描 `<repo>/.github/hooks/*.json` 和 `$COPILOT_HOME/hooks/*.json`。`.claude` 文件中的条目仅在命令包含 `hook --copilot-cli` 或 `hook -cp` 时才算；仅有 Claude Code hook 不算。内联设置需要 GitHub Copilot CLI `1.0.8+`，用户 hook 文件需要 `0.0.422+`。
 
-`doctor` 按 Copilot 自身的生效方式逐条读取插件开关。第一个把 `enabledPlugins` 中 `cc-safety-net@cc-marketplace` 设为布尔值的仓库文件决定结果。`doctor` 按 `disableAllHooks` 的顺序查找这些文件：`<repo>/.github/copilot/settings.local.json`、`<repo>/.github/copilot/settings.json`、`<repo>/.claude/settings.local.json`、`<repo>/.claude/settings.json`。若它们都没有设置，则由 `$COPILOT_HOME/settings.json` 决定；这个开关不读取 `config.json`。因此，仓库中的 `true` 会重新启用用户设置中的 `false`。当插件签出存在而 `$COPILOT_HOME/settings.json` 无法解析时，`doctor` 报告 `Not inspected`，除非已有仓库文件决定了该开关。
+`doctor` 与 Copilot 一样，按作用范围应用 `disableAllHooks: true`。在仓库的 settings 文件中，它会关闭所有方式，由第一个把它设为布尔值的仓库文件决定结果。在 `$COPILOT_HOME/settings.json` 中，它只去掉该文件自己的内联 hook，hook 文件和插件仍保持已配置。自身 `disableAllHooks` 为 `true` 的 hook 文件会被跳过，其他 hook 文件照常计入。
+
+`doctor` 按 Copilot 自身的生效方式逐条读取插件开关。第一个把 `enabledPlugins` 中 `cc-safety-net@cc-marketplace` 设为布尔值的仓库文件决定结果。`doctor` 按 `disableAllHooks` 的顺序查找这些文件：`<repo>/.github/copilot/settings.local.json`、`<repo>/.github/copilot/settings.json`、`<repo>/.claude/settings.local.json`、`<repo>/.claude/settings.json`。若它们都没有设置，则由 `$COPILOT_HOME/settings.json` 决定。因此，仓库中的 `true` 会重新启用用户设置中的 `false`。当插件签出存在而 `$COPILOT_HOME/settings.json` 无法解析时，`doctor` 报告 `Not inspected`，除非已有仓库文件决定了该开关。
 
 只有在没有任何 CC Safety Net hook 配置生效时，`doctor` 才会把被开关关闭的 Copilot 插件报告为 `Not configured`。如果仍有 hook 文件或内联 hook 条目在运行防护，`doctor` 改为报告该 hook，方式为 `hook config`，因为 Copilot 与插件 hook 分开加载 hook 配置。
 
@@ -202,20 +204,67 @@ hook 配置无法解析则是另一种结果，五个智能体都一样：检测
 
 每一种都还会产生一条 `error` 严重程度的 `<Agent> inspection failed` Findings 条目，因此 `doctor` 退出 `1`。
 
+Factory Droid 按 JSONC 解析 `hooks.json`，所以 `doctor` 在解析前也会去掉 `//` 注释、`/* */` 注释和尾随逗号。仅仅含有注释不算解析错误。
+
 Devin CLI 的配置能解析但结构不对时，`doctor` 按同样的方式处理，只是把解析错误换成下列之一：
 
 - `Devin CLI config <path> must be a JSON object`
 - `Devin CLI config <path> "hooks" must be an object`
 - `Devin CLI config <path> "hooks.PreToolUse" must be an array`
 
+<span id="hooks-the-agent-skips"></span>
+
+### 智能体跳过的 hook
+
+Grok Build、Kimi Code 和 Pi 都有一种设置，能让 CC Safety Net 保持安装状态，智能体却不运行它。`doctor` 发现这类设置时，该智能体的 Discovery、Configuration 和 Inspection 列分别显示 `Detected`、`Not configured` 和 `Verified`，消息以 `Error (<Agent>): <message>` 的形式打印。这本身不会产生 finding。
+
+Grok Build 不运行 `disabled-hooks` 文件中列出的 hook。该文件与 `hooks` 目录位于同一位置，即 `~/.grok/disabled-hooks`；设置了 `GROK_HOME` 时为 `$GROK_HOME/disabled-hooks`。`doctor` 去掉每行首尾的空白，再与 `global/cc-safety-net:pre_tool_use[<i>].hooks[<j>]` 比较，其中 `<i>` 和 `<j>` 是托管条目及其 handler 的索引。有匹配的行时打印：
+
+```text
+Grok Build skips the hook: <name> is listed in <path>; enable it in /hooks
+```
+
+此时该条目的 drift 消息也会按错误打印。文件存在却无法读取时，hook 的结果不变，但会多出一条 `Cannot read <path>, so doctor cannot tell whether Grok Build skips the hook`；由于 hook 仍显示 `Configured`，这条消息按警告打印。
+
+只要有一条 hooks 条目不符合 Kimi Code 的 schema，Kimi Code 就会忽略 `config.toml` 中的全部 hook。`config.toml` 中有 CC Safety Net 的 hook 时，`doctor` 会检查每一条 `[[hooks]]` 条目，而不只是托管条目；如果是内联的 `hooks = [...]` 数组，则检查其中的每一项。每条有问题的条目都会打印：
+
+```text
+Kimi Code ignores every hook because hooks entry <n> is invalid (<problem>); fix it in <path>
+```
+
+`<n>` 从 `1` 开始计数。`<problem>` 是下列各项中第一个符合的：
+
+| 问题 | 原因 |
+| --- | --- |
+| `"<text>" is not a key = value pair` | 条目中有一部分不是 `key = value` 形式 |
+| `unknown key "<key>"` | 出现了 `event`、`matcher`、`command`、`timeout` 以外的键 |
+| `duplicate key "<key>"` | 同一个键在条目中出现了两次 |
+| `"event" is not a Kimi Code hook event` | 缺少 `event`，或它不是 Kimi Code 的 hook 事件 |
+| `"matcher" is not a string` | 有 `matcher`，但不是字符串 |
+| `"command" is missing or empty` | 缺少 `command`，或它不是字符串，或为空 |
+| `"timeout" is not an integer from 1 to 600` | 有 `timeout`，但去掉数字分隔符 `_` 后不是 `1` 到 `600` 之间的整数 |
+
+`config.toml` 中含有 `"""` 或 `'''` 时跳过这项检查。
+
+`config.toml` 不存在或其中没有 CC Safety Net 的 hook 时，`doctor` 会在 `<Kimi home>/plugins/installed.json` 中查找原生 Kimi Code 插件。Kimi home 为 `$KIMI_CODE_HOME`，未设置时为 `~/.kimi-code`。`enabled: true` 的 `cc-safety-net` 记录显示为 `Configured`，方式为 `plugin config`。其他 `cc-safety-net` 记录会打印 `cc-safety-net is installed but not enabled in Kimi Code; run /plugins enable cc-safety-net`。文件无法读取、无法按 JSON 解析，或没有 `plugins` 数组时，打印 `Cannot read <path>, so doctor cannot tell whether the Kimi Code plugin is installed`。此时 Kimi Code 的各列显示 `Unknown`、`Unknown` 和 `Failed`，并产生一条 `Kimi Code inspection failed` finding，因此 `doctor` 退出 `1`。[`update`](#update) 不会更新该插件。
+
+Pi 允许包条目带有 `extensions` 过滤器。Pi 的 `settings.json` 中 `npm:cc-safety-net` 条目带有过滤器时，除非该过滤器会加载 `dist/pi/index.js`，否则 `doctor` 打印 `npm:cc-safety-net is installed but its extension is disabled in Pi settings`。判断遵循 Pi 自身的模式规则：
+
+- 空数组、不是数组的值，以及含有任何非字符串元素的数组，都不加载任何内容。
+- 有 `-dist/pi/index.js` 时排除该扩展，即使同时写了 `+dist/pi/index.js` 也一样。
+- 否则，有 `+dist/pi/index.js` 时加载该扩展。
+- 否则，不以 `-`、`+` 或 `!` 开头的普通元素必须不存在，或者其中有原样写出的 `dist/pi/index.js` 或 `index.js`。`!` 元素既不能指向这两者之一，也不能含有 glob 字符，因为 `doctor` 不会求值 `!` glob。
+
+`-./dist/pi/index.js` 和 `+./dist/pi/index.js` 与不带 `./` 的写法等同。因此 `["cc-safety-net"]` 报告为已禁用，而 `["-cc-safety-net"]` 仍为 `Configured`。`install --pi` 会移除该过滤器。
+
 <span id="cursor-through-the-claude-code-plugin"></span>
 
 ### 通过 Claude Code 插件保护 Cursor
 
-Claude Code 插件带有 Cursor 插件 manifest，因此 Cursor 可以通过它运行 CC Safety Net。同时满足以下条件时，`doctor` 才认定这条途径：
+Claude Code 插件带有 Cursor 插件 manifest，因此 Cursor 可以通过它运行 CC Safety Net。Cursor 只从 `<home>/.claude` 导入 Claude Code 插件，所以 `doctor` 也在那里读取这条途径，忽略 `CLAUDE_CONFIG_DIR` 和 `CLAUDE_CODE_PLUGIN_CACHE_DIR`，也不看 Claude Code 那一行的结果。同时满足以下条件时，`doctor` 才认定这条途径：
 
-- Claude Code 显示 `Configured`，即 `cc-safety-net@cc-marketplace` 已安装并启用。
-- 在 Claude Code 配置目录下的 `plugins/installed_plugins.json` 中，该插件的记录里有一条用户范围的条目，且带有 `installPath`。
+- `<home>/.claude/plugins/installed_plugins.json` 中有 `cc-safety-net@cc-marketplace` 的记录，且 `<home>/.claude/settings.json` 在 `enabledPlugins` 中把它设为 `true`。
+- 该记录里有一条用户范围的条目，且带有 `installPath`。
 - `<installPath>/.cursor-plugin/plugin.json` 能够解析，且其 `hooks` 字段指向的文件存在。
 
 Cursor 只有在导入 Claude Code 插件时才会运行该插件，而 `doctor` 无法检查这一点，下面两条消息都会说明。
@@ -274,7 +323,7 @@ Warning (Cursor): Cannot read <home>/.cursor/plugins/cache/cc-safety-net/cc-safe
 
 有几个宿主允许把配置挪到别处。`doctor` 遵循与各宿主相同的覆盖规则，因此挪过位置的配置仍能找到。
 
-- **Claude Code**。已设置时取 `CLAUDE_CONFIG_DIR`，否则取 `<home>/.claude`。与 Claude Code 本身一样，该值按原样使用，不展开 `~`。`install`、`update`、遗留插件清理，以及 `status` 和 `statusline` 背后的 `enabledPlugins` 检查，都使用同一个目录。
+- **Claude Code**。已设置时取 `CLAUDE_CONFIG_DIR`，否则取 `<home>/.claude`。与 Claude Code 本身一样，该值按原样使用，不展开 `~`。`settings.json` 从这个目录读取。安装记录 `installed_plugins.json` 在设置了 `CLAUDE_CODE_PLUGIN_CACHE_DIR` 时从该目录读取，因为 Claude Code 把记录放在那里；未设置时从配置目录下的 `plugins` 读取。`install`、`update`、遗留插件清理，以及 `status` 和 `statusline` 背后的 `enabledPlugins` 检查，都使用同样的路径。[通过 Claude Code 插件保护 Cursor](#cursor-through-the-claude-code-plugin) 这条途径忽略这两个变量。
 - **DeepSeek Harness**。设置了 `DSH_HOME` 时取 `$DSH_HOME/profiles`，否则取 `<home>/.dsh/profiles`；值开头的 `~` 会展开为主目录。`doctor` 读取其下每个 profile 目录中的 `package.json`，跳过 `node_modules`。
 - **Devin CLI**。`XDG_CONFIG_HOME` 已设置且非空时取 `$XDG_CONFIG_HOME/devin`，否则取 `<home>/.config/devin`。在 Windows 上取 `%APPDATA%\devin`，`APPDATA` 未设置或为空时取 `<home>\AppData\Roaming\devin`。文件是其中的 `config.json`，该值按原样使用，不展开 `~`。
 - **Hermes Agent**。若 `HERMES_HOME` 的父目录名为 `profiles`，该值就是 Hermes 主目录本身。否则根目录取 `HERMES_HOME`（未设置时为 `<home>/.hermes`），再由根目录下的 `active_profile` 文件选出 `<root>/profiles/<name>`。该名称会去掉首尾空白并转为小写。`active_profile` 为空、为 `default`、缺失或读不到时，仍用根目录。插件文件位于 `<Hermes home>/plugins/cc-safety-net`。
@@ -621,7 +670,7 @@ npx -y cc-safety-net rule tool remove ops_bash --project
 | --- | --- |
 | 为空、超过 256 个字符，或含空白字符或控制字符 | `"<name>" is not a tool name: non-empty, at most 256 characters, no whitespace or control characters.` |
 | `--cwd-arg` 的值未通过同一项检查 | `"<name>" is not an argument name: non-empty, at most 256 characters, no whitespace or control characters.` |
-| 一个或多个集成的内置 shell 工具 | `"bash" is a built-in shell tool of Claude Code, Codex, DeepSeek Harness, GitHub Copilot CLI, Kimi Code, OpenCode and Pi, and is already analyzed. Built-in tools cannot be declared.` |
+| 一个或多个集成的内置 shell 工具 | `"bash" is a built-in shell tool of Claude Code, Codex, DeepSeek Harness, GitHub Copilot CLI, Grok Build, Kimi Code, OpenCode and Pi, and is already analyzed. Built-in tools cannot be declared.` |
 | `read`、`Write`、`Grep`、`glob`、`apply_patch` 等内置文件工具 | `"<name>" is a built-in file tool, and is already analyzed. Built-in tools cannot be declared.` |
 
 shell 工具的消息会按字母顺序列出拥有该名称的每个集成。匹配忽略大小写以及 `-`、`_` 和空格这几种分隔符，因此 `Run-Shell-Command` 会作为 Gemini CLI 的 `run_shell_command` 被拒绝。它检查的是所有集成的命令工具，按智能体逐一列在[集成架构](/zh-Hans/guides/integration-architecture)中。只有 `add` 会拒绝它们，因此 `rule tool remove bash` 仍能清掉手工声明进去的内置名称。
@@ -822,13 +871,15 @@ npx -y cc-safety-net install --claude-code
 
 CC Safety Net 使用三种安装机制：
 
-- **原生插件或扩展命令**：Claude Code、Codex、DeepSeek Harness、GitHub Copilot CLI、Gemini CLI、OpenClaw、OpenCode 和 Pi。CC Safety Net 调用智能体自带的插件管理器，并顺带清理已被取代的插件 ID。DeepSeek Harness 的安装对每个 profile 运行一次 `dsh plugin ... add`，随后重新读取 profile 的 manifest，宿主装上 bundle 却没有启用时安装失败。OpenClaw 的安装在完成后还会验证 OpenClaw 是否报告插件已加载，然后请你重启 OpenClaw Gateway。在 OpenCode 1.x 上，安装会导入缓存的包条目，并验证它导出了可调用的 `CCSafetyNetPlugin`；在 2.x 上，安装会读取 `opencode plugin list`，要求其中有一行 `cc-safety-net` 且来源为 `cc-safety-net@latest`。任一检查失败都会中止安装，因为 OpenCode 否则会什么都不加载并 fail open。
+- **原生插件或扩展命令**：Claude Code、Codex、DeepSeek Harness、GitHub Copilot CLI、Gemini CLI、OpenClaw、OpenCode 和 Pi。CC Safety Net 调用智能体自带的插件管理器，并顺带清理已被取代的插件 ID。DeepSeek Harness 的安装对每个 profile 运行一次 `dsh plugin ... add`，随后重新读取 profile 的 manifest，宿主装上 bundle 却没有启用时安装失败。OpenClaw 的安装在完成后还会验证 OpenClaw 是否报告插件已加载，然后请你重启 OpenClaw Gateway。在 OpenCode 1.x 上，安装会导入缓存的包条目，并验证它导出了可调用的 `CCSafetyNetPlugin`；在 2.x 上，只有当 `opencode plugin add` 报告该插件 `is already configured in` 某个配置文件时，安装才运行 `opencode plugin update`。在这次 update 之前和之后，安装各等待最多约 15 秒，直到 OpenCode 的后台服务列出该插件，因为原本没有运行的服务在列出插件之前会拒绝 update。随后安装读取 `opencode plugin list`，要求其中有一行 `cc-safety-net` 且来源为 `cc-safety-net@latest`。任一检查失败都会中止安装，因为 OpenCode 否则会什么都不加载并 fail open。
 - **配置文件写入**：Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build 和 Kimi Code。这六者是 CC Safety Net 唯一直接编辑的智能体配置。
 - **托管插件产物**：Amp Code 和 Hermes Agent。Amp 的插件通过 amp CLI 发布到你账户下托管的 Amp Personal Plugins 仓库（预检命令是 `amp plugins repositories --json`），因此安装需要 amp CLI 和 `amp login`；发布后的插件对每个 Amp 会话都生效，包括 Orb 线程。遗留在 `~/.config/amp/plugins/cc-safety-net.ts` 的托管本地副本会遮蔽个人插件，因此安装会将其移除。改动之后，请重启 Amp 或运行 `plugins: reload`。对于 Hermes Agent，安装会把插件写入磁盘并运行 `hermes plugins enable`，改动同样需要重启 Hermes。
 
 在配置文件安装（Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build 或 Kimi Code）或 Hermes Agent 安装写入任何内容之前，它会先清除 `npx` 缓存中过时的 `cc-safety-net` 副本：npm 缓存的 `_npx` 目录下，每个 `node_modules` 含有 `cc-safety-net` 的条目都会被移除。缓存路径为 `$npm_config_cache`（如果已设置）；否则在 macOS 和 Linux 上为 `~/.npm`，在 Windows 上为 `%LOCALAPPDATA%\npm-cache`。这七个集成都通过 `npx` 运行 hook，因此新安装的 hook 会解析到最新版本，而不是缓存版本。
 
 **Kimi Code 有两种安装方式。** 在终端中，`install --kimi-code`（或在选择器中选中 Kimi Code）会打开一个单选提示：现在安装全局 hook，或改为打印原生 Kimi 插件的步骤（在 Kimi Code 内运行 `/plugins install https://github.com/kenryu42/cc-safety-net/tree/plugin`，信任提示默认是取消，然后运行 `/reload` 或开始新会话）。选择插件方式不会写入任何内容，只打印步骤。非交互式会话会跳过该提示，直接安装全局 hook。由于该提示是拿到插件步骤的唯一途径，即使全局 hook 已配置，安装时 Kimi Code 那一行依然可选，只是标记为 `(global hook installed)`。
+
+`config.toml` 中已有 CC Safety Net 的 hook 时，提示会把全局 hook 标为已安装，打印的插件步骤末尾也会附上提醒：插件生效后，用 `cc-safety-net uninstall --kimi-code` 移除该 hook。即使 Kimi Code 因为另一条 hooks 条目无效而忽略了这个 hook，也是如此。原生插件的记录不算作全局 hook。只通过插件配置的 Kimi Code 在安装时是普通的一行，在卸载时显示为 `not installed`，因为 `uninstall --kimi-code` 只移除全局 hook。
 
 ### 选择目标
 
@@ -857,7 +908,7 @@ npx -y cc-safety-net@latest update
 
 系统通过读取每个智能体的配置和状态文件来查找目标。只要检测到已安装的集成，它就符合条件，**即使当前处于禁用状态**。Amp Code 通过 `amp plugins list` 的输出获得资格。该输出与 `codex plugin list` 一样以 30 秒超时获取，因为冷启动会通过网络刷新签出，可能超过默认的 5 秒。GitHub Copilot CLI 是例外。它仅在 Copilot 的 `installed-plugins` 目录中存在 CC Safety Net 插件签出时才有资格，因为它的禁用状态与没有安装插件的关闭开关无法区分，而更新绝不能变成安装。系统也会识别仍使用旧 `safety-net@cc-marketplace` 插件 ID 的安装。在 Claude Code 和 Codex 中，这表现为旧插件 ID；在 GitHub Copilot CLI 中，则表现为插件签出 `cc-marketplace/safety-net`。更新会将它们迁移到当前 ID，并尽力移除旧版副本。移除失败只会发出警告，不会使该目标失败。`doctor` 仅通过 [Claude Code 插件](#cursor-through-the-claude-code-plugin)或[原生 Cursor 插件](#cursor-through-a-native-cursor-plugin)认定的 Cursor 不符合条件，因此 `update` 不会为它写入 Cursor hook。
 
-所有目标会在同一个 `Updating <n> integration…` 或 `Updating <n> integrations…` 加载指示器后面，并发运行与 `install` 相同的操作。命令会等所有目标结束，然后按固定的集成目录顺序统一打印报告，消息改为 `Updated …` 或 `… up to date`。对于安装过程会驱动智能体自带 CLI 的目标（Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、Hermes Agent、OpenClaw、OpenCode 和 Pi），会先探测厂商的二进制文件：二进制文件缺失时打印 `<Agent> not found; skipped`（例如 `Codex not found; skipped`），运行继续。配置文件类目标（Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build 和 Kimi Code）不需要二进制文件，总是会刷新。对 DeepSeek Harness 也不做探测：它的更新会重新运行安装，对每个 profile 驱动 `dsh`，桌面应用处于打开状态时会失败。Amp Code 不需要单独的探测：仅当 `amp plugins list` 显示个人插件时才会被检测到，其刷新会驱动 amp CLI 发布当前产物。在 Claude Code、Codex 和 GitHub Copilot CLI 上，已注册的市场会在插件步骤之前先刷新（例如 `claude plugin marketplace update cc-marketplace`），而不是依赖无操作的 `add`，因此过时的目录签出不会使更新失败。
+所有目标会在同一个 `Updating <n> integration…` 或 `Updating <n> integrations…` 加载指示器后面，并发运行与 `install` 相同的操作。命令会等所有目标结束，然后按固定的集成目录顺序统一打印报告，消息改为 `Updated …` 或 `… up to date`。对于安装过程会驱动智能体自带 CLI 的目标（Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、Hermes Agent、OpenClaw、OpenCode 和 Pi），会先探测厂商的二进制文件：二进制文件缺失时打印 `<Agent> not found; skipped`（例如 `Codex not found; skipped`），运行继续。配置文件类目标（Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build 和 Kimi Code）不需要二进制文件，总是会刷新。例外是 `config.toml` 中没有全局 hook、由 `doctor` 通过[原生 Kimi Code 插件](#hooks-the-agent-skips)检测到的 Kimi Code。`update` 无法执行 Kimi Code 内部的插件更新，因此不改动插件，只报告 `Kimi Code plugin skipped: update it in Kimi Code from /plugins (Installed tab, select cc-safety-net, press Enter)`。对 DeepSeek Harness 也不做探测：它的更新会重新运行安装，对每个 profile 驱动 `dsh`，桌面应用处于打开状态时会失败。Amp Code 不需要单独的探测：仅当 `amp plugins list` 显示个人插件时才会被检测到，其刷新会驱动 amp CLI 发布当前产物。在 Claude Code、Codex 和 GitHub Copilot CLI 上，已注册的市场会在插件步骤之前先刷新（例如 `claude plugin marketplace update cc-marketplace`），而不是依赖无操作的 `add`，因此过时的目录签出不会使更新失败。
 
 在并发阶段前，如果存在任何依赖缓存的目标，即 Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build、Hermes Agent 或 Kimi Code，`update` 会清除一次 `npx` 缓存。如果清除失败，只有这些依赖缓存的目标会失败；其他目标仍会运行。
 
@@ -919,7 +970,7 @@ If /plugins in cursor-agent still lists CC Safety Net as installed, uninstall it
 | `-ha`, `--hermes-agent` | Hermes Agent | `pre_tool_call` | 无 |
 | `-kc`, `--kimi-code` | Kimi Code | `PreToolUse` | 无 |
 
-只有 Coding CLI hook 能给出允许和拒绝之外的答案。在 Claude Code 的 `default`、`acceptEdits` 和 `plan` 三种权限模式下，standard 级别无法验证的命令会输出 `hookSpecificOutput.permissionDecision: "ask"`，由 Claude Code 向你确认。其他标志以及其他权限模式都输出拒绝形式。见[Claude Code 何时改为询问而不是拒绝](/zh-Hans/guides/integration-architecture#when-claude-code-asks-instead-of-denying)。
+只有 Coding CLI hook 能给出允许和拒绝之外的答案。在 Claude Code 的 `default`、`acceptEdits`、`plan` 和 `auto` 四种权限模式下，standard 级别无法验证的命令会输出 `hookSpecificOutput.permissionDecision: "ask"`，由 Claude Code 向你确认。在 `auto` 模式下，Claude Code 的分类器仍可能拒绝该调用，但不经过提示就无法批准它。其他标志以及其他权限模式都输出拒绝形式。见[Claude Code 何时改为询问而不是拒绝](/zh-Hans/guides/integration-architecture#when-claude-code-asks-instead-of-denying)。
 
 Amp Code、DeepSeek Harness、OpenClaw、OpenCode 和 Pi 没有各自的 `hook` 标志。它们把 CC Safety Net 作为插件或扩展加载到进程内。有关每个智能体的连接方式，请参阅[集成架构](/zh-Hans/guides/integration-architecture)。
 
@@ -931,7 +982,7 @@ Amp Code、DeepSeek Harness、OpenClaw、OpenCode 和 Pi 没有各自的 `hook` 
 
 `install --agy-cli` 将命令 `npx -y cc-safety-net hook --agy-cli` 写入 `~/.gemini/config/hooks.json`（Antigravity 共享 `.gemini` 目录）。托管条目名为 `cc-safety-net`，注册一个带 30 秒超时的 `PreToolUse` 命令 hook。文件不存在时安装会创建它，或重新启用已禁用的托管条目，或追加一个新条目；卸载只移除命令与托管字符串匹配的条目。
 
-运行时，hook 读取 Antigravity 的 `run_command` 工具调用，从 `conversationId` 取得会话 ID，并以 `{ "decision": "deny", "reason": … }` 的形式拒绝。
+运行时，hook 读取 Antigravity 的 `run_command` 工具调用，从 `conversationId` 取得会话 ID，并以 `{ "decision": "deny", "reason": … }` 的形式拒绝。`Action` 为 `send_input` 且 `Input` 为非空字符串的 `manage_task` 调用也会被分析，这样发送给已在运行的任务的命令同样会被覆盖。`Input` 按 shell 命令分析，方言自动识别。其他 `Action` 的 `manage_task` 调用走非命令路由。
 
 ### Cursor 入口点
 
@@ -949,23 +1000,37 @@ Claude Code 插件的 Cursor manifest 也使用这个选项，运行的命令是
 
 读取已有文件时会先去掉 `//` 注释、`/* */` 注释和尾随逗号，因为 Devin CLI 在 `config.json` 中接受这些写法；写回的是普通 JSON，所以你留在文件里的注释在安装后不会保留。文件无法解析、不是 JSON 对象，或 `hooks`、`hooks.PreToolUse` 的类型不对时，安装会中止且不写入任何内容，消息就是[托管 hook drift](#托管-hook-drift)中列出的那些。卸载只移除托管 handler，文件本身保留。
 
-运行时，hook 读取 Devin CLI 的 `PreToolUse` 输入：`tool_name`、`tool_input` 和 `session_id`。`hook_event_name` 不是 `PreToolUse` 的输入会被忽略。命令类工具只有 `exec`，其 shell 方言自动识别。`write_to_process` 调用的 `text_input` 为非空字符串时，也按 shell 命令分析，这样输入给已在运行的进程的命令同样会被覆盖；只带 `bytes_input` 的 `write_to_process` 仍算非命令调用。输入中没有 `cwd` 字段，因此会话目录就是 hook 进程自身的工作目录，无法规范化的目录按 fail closed 处理。拒绝时返回 `{"decision": "block", "reason": …}`。放行时什么都不输出，因此 Devin CLI 自身的权限提示照常生效。
+运行时，hook 读取 Devin CLI 的 `PreToolUse` 输入：`tool_name`、`tool_input` 和 `session_id`。`hook_event_name` 不是 `PreToolUse` 的输入会被忽略。命令类工具只有 `exec`，其 shell 方言自动识别。输入中没有 `cwd` 字段，因此会话目录就是 hook 进程自身的工作目录，无法规范化的目录按 fail closed 处理。
+
+`exec` 调用可以用 `workdir` 指定自己的目录，该值会成为执行目录。相对路径以会话目录为基准解析。结果必须是已存在的目录，但不要求留在会话目录内。目录不存在时拒绝该调用，并指明起因是请求的工作目录。只含空白字符的值或非字符串值会 fail closed，`""` 也一样；不指定时仍使用会话目录。
+
+`write_to_process` 调用也会被分析，这样输入给已在运行的进程的命令同样会被覆盖。输入的文本来自 `text_input` 或 `bytes_input`，hook 把它按 shell 命令分析，方言自动识别。在 `bytes_input` 中，只有 `<CR>` 和 `<LF>` 会结束一行。以下情况下 hook 拒绝该调用：
+
+- 任一字段中的文本与 `<ESC>`、`<BS>`、方向键或 `<C-…>` 键一起出现，因为无法确定接收程序最终执行的是哪一行。
+- `bytes_input` 中含有其他 `<Name>` token，即未在文档中列出的按键；即使设置了 `text_input` 也会拒绝。
+- `text_input` 和 `bytes_input` 都带有文本。
+
+只含这些按键的调用（例如 `<UP><CR>` 或 `<C-c>`）不做分析。`text_input` 为 `y`、`bytes_input` 为 `<CR>` 时，分析的是 `y`。拒绝时返回 `{"decision": "block", "reason": …}`。放行时什么都不输出，因此 Devin CLI 自身的权限提示照常生效。
 
 ### Factory Droid 入口点
 
-`install --droid` 将命令 `npx -y cc-safety-net hook --droid` 写入 `~/.factory/hooks.json` 的 `PreToolUse` 下。托管条目是 `{ "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --droid", "timeout": 30 }] }`，既不带 matcher 也不带 `commandRegex`，因此每一次工具调用都会到达 hook，而不只是 `Execute`。`hooks.json` 尚不存在时，安装会以 `~/.factory/settings.json` 中的 `hooks` 对象为基础创建新文件，因此 Factory Droid 已从那里加载的 hook 在新文件中仍然保留。安装还会保留 `hooks.json` 中的其他键，以及 `PreToolUse` 下的其他条目和 handler。
+`install --droid` 将命令 `npx -y cc-safety-net hook --droid` 写入 `~/.factory/hooks.json` 的 `PreToolUse` 下。托管条目是 `{ "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --droid", "timeout": 30 }] }`，既不带 matcher 也不带 `commandRegex`，因此每一次工具调用都会到达 hook，而不只是 `Execute`。`hooks.json` 尚不存在时，安装会以旧版的 `~/.factory/hooks/hooks.json` 为基础创建新文件，并带上其中的所有事件，因为一旦 `hooks.json` 存在，Factory Droid 就不再读取旧版文件。旧版文件中没有 `PreToolUse` 时，安装会从 `~/.factory/settings.json` 的 `hooks` 对象中取 `PreToolUse`。`settings.json` 中的其他事件都不会复制。安装还会保留 `hooks.json` 中的其他键，以及 `PreToolUse` 下的其他条目和 handler。
+
+读取这三个文件时都会先去掉 `//` 注释、`/* */` 注释和尾随逗号，因为 Factory Droid 按 JSONC 解析它们；写回的是普通 JSON，所以你留在 `hooks.json` 里的注释在安装后不会保留。
 
 遇到无法识别的文件时，安装会中止且不写入任何内容，消息是 `Failed to parse Factory Droid hooks config <path>: <reason>`、`Factory Droid hooks config <path> must be a JSON object` 或 `Factory Droid hooks config <path> "PreToolUse" must be an array` 之一。
 
 卸载只移除托管 handler。只有在移除后 `PreToolUse` 为空、`PreToolUse` 是该文件唯一的键，并且 `~/.factory/settings.json` 不存在时，才会删除 `hooks.json`。存在那个 settings 文件时，卸载改为重写 `hooks.json`，因为删掉它会让 Factory Droid 重新加载 `settings.json` 里的 hook。
 
-运行时，hook 读取 Factory Droid 的 `PreToolUse` 输入：`tool_name`、`tool_input`、`cwd` 和 `session_id`。命令类工具只有 `Execute`，其 shell 方言自动识别。会话目录取输入中的 `cwd`，输入没有 `cwd` 时取 hook 进程自身的工作目录，无法规范化的目录按 fail closed 处理。拒绝时输出 `hookSpecificOutput.permissionDecision: "deny"`，原因放在 `permissionDecisionReason` 中，这与 Coding CLI hook 的输出形式相同。放行时什么都不输出，因此 Factory Droid 自身的权限提示照常生效。
+运行时，hook 读取 Factory Droid 的 `PreToolUse` 输入：`tool_name`、`tool_input`、`cwd` 和 `session_id`。命令类工具只有 `Execute`，其 shell 方言自动识别。会话目录取输入中的 `cwd`，输入没有 `cwd` 时取 hook 进程自身的工作目录，无法规范化的目录按 fail closed 处理。拒绝时输出 `hookSpecificOutput.permissionDecision: "deny"`，原因放在 `permissionDecisionReason` 中，这与 Coding CLI hook 的输出形式相同。hook 还会把原因写入 stderr，并以退出码 `2` 退出。Factory Droid 采用第一个带有 `permissionDecision` 的 hook 结果，因此另一个 hook 返回的允许或询问可能让 JSON 拒绝被丢弃，而退出码 `2` 总会阻止调用。放行时什么都不输出，因此 Factory Droid 自身的权限提示照常生效。
 
 ### Grok Build 入口点
 
 `install --grok-build` 将命令 `npx -y cc-safety-net hook --grok-build` 写入 `~/.grok/hooks/cc-safety-net.json`（设置了 `GROK_HOME` 时则写入 `$GROK_HOME/hooks/cc-safety-net.json`）。这是一个超时 30 秒、不带 matcher 的 `PreToolUse` 条目，因此每一次工具调用都会到达 hook，而不只是 `run_terminal_command`。安装只改写托管条目，其他条目、同一条目中的其他 handler 以及其他 hook 事件都原样保留。它还会把无法解析的文件修复成规范形式：Grok Build 会整个跳过无法解析的 hook 文件，这样的文件不可能承载可用的其他 hook。卸载只移除托管 handler，只有文件中不再剩下任何内容时才删除该文件。
 
-运行时，hook 读取 Grok Build 的 camelCase 输入：`toolName`、`toolInput`、`sessionId`、`cwd` 和 `workspaceRoot`。命令类工具只有 `run_terminal_command`，其 shell 方言自动识别。会话 ID 取自 `sessionId`，hook 以 `{ "decision": "deny", "reason": … }` 或 `{ "decision": "allow" }` 回应，这是 Grok Build 唯一会读取的输出形式。`toolInputTruncated: true` 会按 fail closed 处理：Grok Build 在 128 KB 处截断工具输入，被截断的命令无法分析。受信任的根目录是 `workspaceRoot`，缺少 `workspaceRoot` 时则是 `cwd`；`cwd` 规范化后必须是该根目录内的一个目录，缺失或为空的 `cwd` 按 `.` 处理。根目录无法规范化，或 `cwd` 落在根目录之外时，都按 fail closed 处理。
+运行时，hook 读取 Grok Build 的 camelCase 输入：`toolName`、`toolInput`、`sessionId`、`cwd` 和 `workspaceRoot`。命令类工具有 `run_terminal_command`、`run_terminal_cmd`、`monitor`、`bash` 和 `Shell`，shell 方言都自动识别。会话 ID 取自 `sessionId`，hook 以 `{ "decision": "deny", "reason": … }` 或 `{ "decision": "allow" }` 回应，这是 Grok Build 唯一会读取的输出形式。`toolInputTruncated: true` 会按 fail closed 处理：Grok Build 在 128 KB 处截断工具输入，被截断的命令无法分析。受信任的根目录是 `workspaceRoot`，缺少 `workspaceRoot` 时则是 `cwd`；`cwd` 规范化后必须是该根目录内的一个目录，缺失或为空的 `cwd` 按 `.` 处理。根目录无法规范化，或 `cwd` 落在根目录之外时，都按 fail closed 处理。
+
+`bash` 可以用 `workdir`、`Shell` 可以用 `working_directory` 指定自己的目录。相对路径以会话目录为基准解析，规范化后的结果必须是受信任根目录内的目录。目录位于根目录之外或不存在时，拒绝该调用，并指明起因是请求的工作目录。只含空白字符的值或非字符串值会 fail closed，不指定时仍使用会话目录。其他命令类工具始终在会话目录中运行。
 
 ## gui
 

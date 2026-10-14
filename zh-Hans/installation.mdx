@@ -126,7 +126,7 @@ Local Amp plugin <path> is not a managed copy and masks the personal plugin. Rem
 npx -y cc-safety-net@latest install --agy-cli
 ```
 
-此命令在 `~/.gemini/config/hooks.json` 中写入托管的 `PreToolUse` 项，对每次 `run_command` 工具调用运行 `npx -y cc-safety-net hook --agy-cli`。
+此命令在 `~/.gemini/config/hooks.json` 中写入托管的 `PreToolUse` 项，对每次工具调用运行 `npx -y cc-safety-net hook --agy-cli`。适配器把 `run_command` 作为 shell 命令分析。`Action` 为 `send_input` 的 `manage_task` 调用也会按命令分析其 `Input`，因为这段文本会发送给正在运行的任务。
 
 hook 通过 `npx` 运行。为确保它解析到当前版本，安装程序会先从 npm 缓存的 `_npx` 目录删除所有缓存的 `cc-safety-net` 副本。如果设置了 `$npm_config_cache`，则使用该目录。否则，macOS 和 Linux 使用 `~/.npm`，Windows 使用 `%LOCALAPPDATA%\npm-cache`。卸载不会修改缓存。
 
@@ -148,7 +148,7 @@ npx skill add kenryu42/cc-safety-net
 npx -y cc-safety-net@latest install --claude-code
 ```
 
-此命令从 `kenryu42/cc-marketplace` 添加 `cc-marketplace`，并安装 `cc-safety-net@cc-marketplace` 插件；如果已有已禁用的副本，则会将其启用。设置了 `CLAUDE_CONFIG_DIR` 时，`claude plugin install` 写入该目录，否则写入 `~/.claude`；CC Safety Net 也从同一目录读取安装记录和 `settings.json`。与 Claude Code 一样，该值按原样使用，不展开开头的 `~`。
+此命令从 `kenryu42/cc-marketplace` 添加 `cc-marketplace`，并安装 `cc-safety-net@cc-marketplace` 插件；如果已有已禁用的副本，则会将其启用。设置了 `CLAUDE_CONFIG_DIR` 时，`claude plugin install` 写入该目录，否则写入 `~/.claude`；CC Safety Net 也从同一目录读取 `settings.json`。与 Claude Code 一样，该值按原样使用，不展开开头的 `~`。安装记录 `installed_plugins.json` 则在设置了 `CLAUDE_CODE_PLUGIN_CACHE_DIR` 时从该目录读取，否则从配置目录下的 `plugins` 目录读取。
 
 ```bash
 npx -y cc-safety-net@latest uninstall --claude-code
@@ -220,7 +220,7 @@ Cursor 还可以从个人市场把 CC Safety Net 安装为原生 Cursor 插件�
 npx -y cc-safety-net@latest install --deepseek-harness
 ```
 
-DeepSeek Harness 把 CC Safety Net 作为 profile 的插件 bundle 加载，而不是 hook 子进程，因此这个宿主没有 `hook` 标志。一次安装会覆盖机器上的每个 DeepSeek Harness profile：`npx @deepseek-ai/dsh web` 与全局安装共用的 `web` profile，以及桌面应用自己使用的 `desktop` profile。
+DeepSeek Harness 把 CC Safety Net 作为 profile 的插件 bundle 加载，而不是 hook 子进程，因此这个宿主没有 `hook` 标志。一次安装覆盖两个 DeepSeek Harness profile：`npx @deepseek-ai/dsh web` 与全局安装共用的 `web` profile，以及桌面应用自己使用的 `desktop` profile。`acp`、`headless`、`sdk`、`sdk-minimal` profile 以及之后新建的 profile，在用 `dsh plugin --profile <name> add cc-safety-net` 逐个添加插件之前，都不受 CC Safety Net 保护。
 
 profile 位于 `~/.dsh/profiles`，设置了 `DSH_HOME` 时位于 `$DSH_HOME/profiles`；值开头的 `~` 会展开为主目录。每个 profile 的 `package.json` 同时记录 `cc-safety-net` 依赖和启用它的 bundle 列表。安装、卸载和 `doctor` 都读取这些 manifest。
 
@@ -260,7 +260,7 @@ DeepSeek Harness installed cc-safety-net in the web profile but did not enable i
 npx -y cc-safety-net@latest uninstall --deepseek-harness
 ```
 
-卸载会从 manifest 中列有该 bundle 的每个 profile 里移除它。两个 profile 都没有它时，什么都不执行：
+如果 `web` 或 `desktop` profile 的 manifest 列有该 bundle，卸载会将其移除；你自行添加到其他 profile 的副本则保留不动。这两个 profile 都没有它时，什么都不执行：
 
 ```text
 cc-safety-net is not installed in the DeepSeek Harness web or Desktop profile
@@ -304,7 +304,9 @@ npx -y cc-safety-net@latest uninstall --devin
 
 卸载移除托管 handler 并把文件写回，从不删除 `config.json`，即使移除后 `hooks.PreToolUse` 变为空数组也是如此。文件中没有托管 handler 时，卸载不写入任何内容，并报告该 hook 未安装。
 
-运行时，适配器把 `exec` 作为 shell 命令工具处理；`write_to_process` 的 `text_input` 是非空字符串时，按命令分析这次调用。其他工具输入则检查其中的受保护路径。Devin 的 payload 不带 `cwd`，因此分析以 hook 进程的工作目录为基准，也就是会话目录。适配器只返回 block 判定，对允许的调用不输出任何内容，因此 Devin 自己的权限提示照常生效。详见 [`hook` 命令](/zh-Hans/reference/cli-commands#hook)和[集成架构](/zh-Hans/guides/integration-architecture)。
+运行时，适配器把 `exec` 作为 shell 命令工具处理。Devin 的 payload 不带 `cwd`，因此会话目录取自 hook 进程的工作目录。`exec` 调用的 `workdir` 会成为分析命令时所用的目录。它可以是任何已存在的目录，不论是否位于会话目录内；相对路径按会话目录解析。`workdir` 为空、只含空白字符或不是字符串时，调用会被拒绝。
+
+`write_to_process` 调用通过 `text_input` 或 `bytes_input` 输入文本时，按命令分析。在 `bytes_input` 中，只有 `<CR>` 和 `<LF>` 会结束一行。如果一次调用的两个字段都带文本，或者文本与 `<ESC>`、`<BS>`、方向键、`<C-…>` 键等其他按键一起出现，调用会被拒绝，因为无法确定接收程序实际执行的那一行。Devin 文档中未列出的按键 token 同样会被拒绝。只含这些其他按键的调用（例如 `<UP><CR>` 或 `<C-c>`）不按命令分析。其他工具输入则检查其中的受保护路径。适配器只返回 block 判定，对允许的调用不输出任何内容，因此 Devin 自己的权限提示照常生效。详见 [`hook` 命令](/zh-Hans/reference/cli-commands#hook)和[集成架构](/zh-Hans/guides/integration-architecture)。
 
 <Note>
   Devin CLI hook 是 fail open。只有退出码 2 或 stdout 上的 `block` 判定才能阻止工具调用；超时、缺少 `npx`，或 hook 进程在打印判定前退出时，调用照常执行。见 [Devin CLI 是 fail-open 的宿主](/zh-Hans/guides/known-limitations#devin-cli-is-a-fail-open-host)。
@@ -326,9 +328,9 @@ npx -y cc-safety-net@latest install --droid
 
 该条目不带 matcher，因此到达适配器的不只是 `Execute`，而是每一次工具调用。文件中非托管的条目和其他 hook 事件都原样保留，替换已有文件时也保留它原有的权限位。
 
-`hooks.json` 不存在时，Droid 从 `~/.factory/settings.json` 的 `hooks` 键读取 hook。如果新建的 `hooks.json` 只包含托管条目，`settings.json` 中声明的所有 hook 都会失效。因此 `hooks.json` 不存在时，安装会把 `settings.json` 中的 hook 事件带入新文件，再追加托管条目，而 `settings.json` 本身始终不写入。
+`hooks.json` 不存在时，安装会先把已有的 hook 带入新文件，再追加托管条目。`hooks.json` 一旦存在，Droid 就不再读取旧版的 `~/.factory/hooks/hooks.json`，因此安装会带入旧版文件中的所有 hook 事件。Droid 按事件合并 `~/.factory/settings.json` 的 `hooks` 键，`hooks.json` 中一旦有 `PreToolUse` 列表，就会遮蔽 `settings.json` 中的 `PreToolUse`。因此只有当旧版文件没有 `PreToolUse` 时，安装才从 `settings.json` 带入 `PreToolUse`，`settings.json` 的其他事件一概不带入。安装从不写入 `settings.json` 和旧版文件。
 
-`hooks.json` 无法解析、根不是 JSON 对象，或其 `PreToolUse` 不是数组时，安装会指出该文件并停止，不做任何写入。
+Droid 按 JSONC 解析这些文件，因此 CC Safety Net 在解析其中任何一个之前，都会先去掉 `//` 和 `/* */` 注释以及尾随逗号。写回的内容是普通 JSON，因此安装或卸载改动 `hooks.json` 后，其中的注释不会保留。读取的文件无法解析、`hooks.json` 或旧版文件的根不是 JSON 对象，或其 `PreToolUse` 不是数组时，安装会指出该文件并停止，不做任何写入。
 
 由于 hook 通过 `npx` 运行，安装会先清除 npm `_npx` 缓存中缓存的 `cc-safety-net` 副本，以便 hook 解析到当前版本；卸载不会修改缓存。缓存位置见 [Antigravity CLI 部分](#antigravity-cli-安装)。
 
@@ -336,9 +338,9 @@ npx -y cc-safety-net@latest install --droid
 npx -y cc-safety-net@latest uninstall --droid
 ```
 
-卸载移除托管 handler；某个条目移除后不再有 handler，该条目也一并删除。安装时从 `settings.json` 带入的 hook 会留在 `hooks.json` 中，因此卸载后生效的 hook 集合与安装前一致。只有当移除 handler 后留下一个空的 `PreToolUse`，且它是文件中唯一的键，并且 `settings.json` 不存在时，卸载才删除 `hooks.json`。存在 `settings.json` 时，卸载改为写入移除后的文件，因为删掉 `hooks.json` 会重新启用 `settings.json` 中的后备 hook，其中若残留托管 handler 的副本，它也会跟着运行。
+卸载移除托管 handler；某个条目移除后不再有 handler，该条目也一并删除。安装时从旧版文件或 `settings.json` 带入的 hook 会留在 `hooks.json` 中，因此卸载后生效的 hook 集合与安装前一致。只有当移除 handler 后留下一个空的 `PreToolUse`，且它是文件中唯一的键，并且 `settings.json` 不存在时，卸载才删除 `hooks.json`。存在 `settings.json` 时，卸载改为写入移除后的文件，因为删掉 `hooks.json` 会重新启用 `settings.json` 中的后备 hook，其中若残留托管 handler 的副本，它也会跟着运行。
 
-运行时，适配器把 `Execute` 作为 shell 命令工具处理，并检查其他工具输入中的受保护路径。分析以 Droid 的 payload 中的 `cwd` 为基准。对允许的调用，适配器不输出任何内容，因此 Droid 自己的权限提示照常生效。详见 [`hook` 命令](/zh-Hans/reference/cli-commands#hook)和[集成架构](/zh-Hans/guides/integration-architecture)。
+运行时，适配器把 `Execute` 作为 shell 命令工具处理，并检查其他工具输入中的受保护路径。分析以 Droid 的 payload 中的 `cwd` 为基准。对允许的调用，适配器不输出任何内容，因此 Droid 自己的权限提示照常生效。拒绝时，适配器在 stdout 上输出 deny 判定，同时把原因写到 stderr，并以退出码 2 退出。Droid 采用第一个带有权限判定的 hook 结果，因此其他 hook 返回的 allow 或 ask 可能取代 JSON 形式的 deny，而退出码 2 总能阻止调用。详见 [`hook` 命令](/zh-Hans/reference/cli-commands#hook)和[集成架构](/zh-Hans/guides/integration-architecture)。
 
 <Note>
   Factory Droid hook 是 fail open。只有退出码 2 或 stdout 上明确的 deny 判定才能阻止工具调用；0 和 2 以外的退出码、崩溃、超时或缺少 `npx` 时，调用照常执行。企业级设置 `allowManagedHooksOnly` 会忽略用户级和项目级 hook，因此 `install --droid` 写入的 hook 在该设置下不会运行。见 [Factory Droid 是 fail-open 的宿主](/zh-Hans/guides/known-limitations#factory-droid-is-a-fail-open-host)。
@@ -378,7 +380,7 @@ npx -y cc-safety-net@latest uninstall --copilot-cli
   安装或删除插件后，请重启 Copilot CLI，使更改生效。
 </Note>
 
-Copilot CLI 的 hook 支持受版本限制。doctor 会检查 `.github/hooks` 下的仓库 hook 文件；`.github/copilot/settings.local.json`、`.github/copilot/settings.json`、`.claude/settings.local.json`、`.claude/settings.json`、`~/.copilot/settings.json` 和 `~/.copilot/config.json` 中的内联 hook 定义；以及 `~/.copilot/hooks` 下的用户 hook 文件。内联 hook 定义要求 Copilot CLI **1.0.8** 或更高版本，用户 hook 文件要求 **0.0.422** 或更高版本。插件会为你处理此问题；如果你手动配置 hook 并遇到问题，请运行 `npx cc-safety-net doctor`。它会报告检测到的 Copilot 版本，以及哪些 hook 来源受支持。
+Copilot CLI 的 hook 支持受版本限制。doctor 会检查 `.github/hooks` 下的仓库 hook 文件；`.github/copilot/settings.local.json`、`.github/copilot/settings.json`、`.claude/settings.local.json`、`.claude/settings.json` 和 `~/.copilot/settings.json` 中的内联 hook 定义；以及 `~/.copilot/hooks` 下的用户 hook 文件。doctor 不读取 `~/.copilot/config.json`。自身把 `disableAllHooks` 设为 `true` 的 hook 文件不计入；`~/.copilot/settings.json` 中的 `disableAllHooks: true` 只会去掉该文件自己的内联 hook。内联 hook 定义要求 Copilot CLI **1.0.8** 或更高版本，用户 hook 文件要求 **0.0.422** 或更高版本。插件会为你处理此问题；如果你手动配置 hook 并遇到问题，请运行 `npx cc-safety-net doctor`。它会报告检测到的 Copilot 版本，以及哪些 hook 来源受支持。
 
 <span id="grok-build-installation"></span>
 
@@ -394,7 +396,7 @@ npx -y cc-safety-net@latest install --grok-build
 { "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --grok-build", "timeout": 30 }] }
 ```
 
-该条目不带 matcher，因此到达适配器的不只是 `run_terminal_command`，而是每一次工具调用；适配器还会检查文件类和 patch 类工具输入中的受保护路径。
+该条目不带 matcher，因此每一次工具调用都会到达适配器。适配器把 `run_terminal_command`、`run_terminal_cmd`、`monitor`、`bash` 和 `Shell` 作为 shell 命令分析。`bash` 的 `workdir` 和 `Shell` 的 `working_directory` 必须解析到会话目录或工作区根目录之内，相对路径按会话目录解析。适配器还会检查文件类和 patch 类工具输入中的受保护路径。
 
 由于 hook 通过 `npx` 运行，安装会先清除 npm `_npx` 缓存中的 `cc-safety-net` 副本，以便 hook 解析到当前版本；卸载不会触及该缓存。缓存位置见 [Antigravity CLI 部分](#antigravity-cli-安装)。
 
@@ -448,7 +450,7 @@ npx -y cc-safety-net@latest uninstall --hermes-agent
 
 ## Kimi Code 安装
 
-Kimi Code 有两种安装方式。一种是在 Kimi Code 配置中写入全局 hook，另一种是在 Kimi Code 内安装原生插件。在交互式终端中，`install --kimi-code`，或在安装程序中选择 Kimi Code，会提示你二选一：立即安装全局 hook，或打印原生插件的安装步骤。在非交互式会话中，该参数直接安装全局 hook，脚本和 CI 流水线不会等待输入。`update` 的行为不变。
+Kimi Code 有两种安装方式。一种是在 Kimi Code 配置中写入全局 hook，另一种是在 Kimi Code 内安装原生插件。在交互式终端中，`install --kimi-code`，或在安装程序中选择 Kimi Code，会提示你二选一：立即安装全局 hook，或打印原生插件的安装步骤。在非交互式会话中，该参数直接安装全局 hook，脚本和 CI 流水线不会等待输入。`update` 只更新全局 hook，不会更新插件。
 
 <Note>
   两种方法下 Kimi Code hook 都是 fail open：当 hook 进程无法启动、崩溃或超时时，Kimi Code 会允许该工具调用。
@@ -480,7 +482,13 @@ npx -y cc-safety-net@latest uninstall --kimi-code
 
 确认信任提示（默认选项是取消），然后运行 `/reload` 或开始新会话。插件声明一个没有工具 matcher 的 `PreToolUse` hook。它对每个工具调用运行 `node ./dist/bin/cc-safety-net.js hook --kimi-code`，超时为 30 秒，并使用与全局 hook 相同的适配器。
 
-当全局 hook 已配置时，交互式安装程序中的 Kimi Code 行仍可选择，并标注 `(global hook installed)`；打印的插件步骤会额外显示警告：仅在插件生效*之后*运行 `cc-safety-net uninstall --kimi-code`。两个 hook 同时运行的短暂重叠只会重复拒绝消息，而两者都未生效的空窗期会让你失去保护。
+`config.toml` 中没有 CC Safety Net 的 hook 时，`doctor` 会根据 `~/.kimi-code/plugins/installed.json`（或 `$KIMI_CODE_HOME/plugins/installed.json`）报告插件状态。已安装但未启用的插件显示为已禁用，修复方法是运行 `/plugins enable cc-safety-net`。`update` 不会改动插件，而是输出：
+
+```text
+Kimi Code plugin skipped: update it in Kimi Code from /plugins (Installed tab, select cc-safety-net, press Enter)
+```
+
+当全局 hook 已配置时，交互式安装程序中的 Kimi Code 行仍可选择，并标注 `(global hook installed)`。只要 `config.toml` 中有全局 hook，即使 Kimi Code 因某个无效的 `[[hooks]]` 条目而忽略了它，打印的插件步骤也会额外显示警告：仅在插件生效*之后*运行 `cc-safety-net uninstall --kimi-code`。仅安装了插件时，这两者都不会出现。两个 hook 同时运行的短暂重叠只会重复拒绝消息，而两者都未生效的空窗期会让你失去保护。
 
 可以选择安装 `/cc-safety-net` skill，以便在 Kimi Code 中交互式编写规则：
 
@@ -550,7 +558,7 @@ Change the cc-safety-net package spec in <path> to cc-safety-net@latest, preserv
 
 请自行把该条目的包规格改成 `cc-safety-net@latest`，保留它的选项和注释，然后重新安装。
 
-否则，安装会运行 `opencode plugin add cc-safety-net@latest`；只有当 `add` 的输出包含 `is already configured in` 时，才运行 `opencode plugin update cc-safety-net@latest`。首次安装时，OpenCode 的后台服务还没有加载新增的条目，无条件运行 `update` 会以 `Plugin is not configured` 失败。
+否则，安装会运行 `opencode plugin add cc-safety-net@latest`；只有当 `add` 的输出包含 `is already configured in` 时，才运行 `opencode plugin update cc-safety-net@latest`。首次安装时，OpenCode 的后台服务还没有加载新增的条目，无条件运行 `update` 会以 `Plugin is not configured` 失败。此前未运行的服务在列出该插件之前，同样会拒绝 `update`。因此安装会先用与下文相同的轮询，等待插件出现在 `opencode plugin list` 中，再运行 `update`。
 
 接着，安装每 250 ms 轮询一次 `opencode plugin list`，最多 60 次，直到出现带 `cc-safety-net` id 或 `cc-safety-net@latest` 来源的行，等待上限约 15 秒。该列表中必须有一行由三列组成：插件 ID `cc-safety-net`、版本号、来源 `cc-safety-net@latest`，例如 `cc-safety-net  2.4.4  cc-safety-net@latest`。缺少该行则失败：
 
@@ -592,7 +600,7 @@ npx -y cc-safety-net@latest uninstall --opencode
 npx -y cc-safety-net@latest install --pi
 ```
 
-此命令运行 `pi install npm:cc-safety-net`；如果 Pi 设置中固定了会让 CC Safety Net 处于禁用状态的 `extensions` 过滤器，则会在 Pi 智能体目录下的 `settings.json` 中清除该过滤器。设置了 `PI_CODING_AGENT_DIR` 时，该目录取这个值，开头的 `~` 按主目录展开；未设置时为 `~/.pi/agent`。检测读取的是同一个文件。
+此命令运行 `pi install npm:cc-safety-net`，然后在 Pi 智能体目录下的 `settings.json` 中，删除 CC Safety Net 包条目上的 `extensions` 过滤器。设置了 `PI_CODING_AGENT_DIR` 时，该目录取这个值，开头的 `~` 按主目录展开；未设置时为 `~/.pi/agent`。检测读取的是同一个文件。包条目带有 `extensions` 过滤器时，除非检测能确定该过滤器允许 Pi 加载扩展文件 `dist/pi/index.js`，否则会报告 Pi 已禁用。
 
 ```bash
 npx -y cc-safety-net@latest uninstall --pi

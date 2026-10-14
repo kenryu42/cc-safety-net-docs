@@ -1,7 +1,7 @@
 ---
 title: "已知限制和易错点"
 sidebarTitle: "已知限制"
-description: "CC Safety Net 无法捕获的内容：不透明命令代理、二进制文件内部行为、文件系统隔离和网络、符号链接 TOCTOU、解释器标志、解释器注释中的引号、cmd 与嵌套 PowerShell 的读取方式、基于 eval 的执行、Codex 的交互会话缺口和 workdir 缺口、fail-open 的宿主（Grok Build、Factory Droid、Devin CLI）、DeepSeek Harness 的可选 bundle 与 run_code 缺口、OpenClaw 的会话工作目录，以及 Hermes Agent 和 OpenClaw 的覆盖边界。"
+description: "CC Safety Net 无法捕获的内容：不透明命令代理、二进制文件内部行为、文件系统隔离和网络、符号链接 TOCTOU、解释器标志、解释器注释中的引号、cmd 与嵌套 PowerShell 的读取方式、基于 eval 的执行、Codex 的交互会话缺口和 workdir 缺口、Kimi Code web 与 ACP 会话的工作目录、Windows 上 OpenCode v1 的 workdir、fail-open 的宿主（Grok Build、Factory Droid、Devin CLI）、DeepSeek Harness 的 profile、可选 bundle 与 run_code 缺口、OpenClaw 的会话工作目录与 `openclaw agent exec`，以及 Hermes Agent 和 OpenClaw 的覆盖边界。"
 ---
 
 CC Safety Net 分析智能体尝试运行的命令字符串。它能阻止已知的破坏性 Git 和文件系统操作，降低意外丢失数据的风险，但不是完整的安全方案。本页列出仍存在的**残余**限制，并说明何时应改用<a href="/zh-Hans/guides/vs-sandboxing">沙箱</a>。
@@ -58,7 +58,7 @@ bash -c "$(cat destructive.sh)"
 
 CC Safety Net 会递归扫描 `bash -c` 和解释器的代码参数，但如果代码来自远程来源或由变量拼接而成，命令字符串分析就看不到其中的破坏性 payload。这是这种方法的根本限制。
 
-在 standard 模式下，其中一部分命令的决定权会转到你手上。当分析器无法解析 shell 的执行来源，且该来源不是从标准输入读取程序的 shell、命令文本中也没有出现破坏性模式时，Claude Code hook 会请你批准而不是直接拒绝，`bash -c "$CMD"` 就属于这种情况。被后备的破坏性模式扫描命中的无法解析文本也一样。批准后命令直接执行，不再经过任何分析。这个确认只出现在 Claude Code 的 `default`、`acceptEdits` 和 `plan` 权限模式下；strict 和 paranoid、其他权限模式以及其他宿主都保持拒绝。参见 <a href="/zh-Hans/configuration/modes#when-standard-cannot-verify-a-command">`standard` 无法验证命令时</a>。
+在 standard 模式下，其中一部分命令的决定权会转到你手上。当分析器无法解析 shell 的执行来源，且该来源不是从标准输入读取程序的 shell、命令文本中也没有出现破坏性模式时，Claude Code hook 会请你批准而不是直接拒绝，`bash -c "$CMD"` 就属于这种情况。被后备的破坏性模式扫描命中的无法解析文本也一样。批准后命令直接执行，不再经过任何分析。这个确认只出现在 Claude Code 的 `default`、`acceptEdits`、`plan` 和 `auto` 权限模式下；在 `auto` 模式下，Claude Code 的分类器仍可能拒绝该调用，但不经过提示就无法批准它。strict 和 paranoid、其他权限模式以及其他宿主都保持拒绝。参见 <a href="/zh-Hans/configuration/modes#when-standard-cannot-verify-a-command">`standard` 无法验证命令时</a>。
 
 ## 解析器限制
 
@@ -173,6 +173,8 @@ OpenClaw 插件只为规范的 `exec` 工具注册 `before_tool_call`。`apply_p
 
 要填补这个缺口，需要宿主暴露执行目录。
 
+有一个 OpenClaw 命令会完全绕过 hook。`openclaw agent exec` 从不加载插件的 hook 注册表，因此不会运行任何 `before_tool_call` hook；即使插件已经安装并加载，它的工具调用也既不经过分析，也不留审计记录。同样的工具调用改由 `openclaw agent --local` 发出时会被阻止。
+
 Codex-native relay 未经测试，因此不作任何保证：端到端实测驱动的是 OpenClaw 自己的智能体 runtime，无法证明 Codex-native 的 shell、patch 或 MCP 调用会如何处理。
 
 ### 两种集成都不支持 Windows
@@ -184,6 +186,12 @@ Codex-native relay 未经测试，因此不作任何保证：端到端实测驱�
 ## DeepSeek Harness 覆盖边界
 
 CC Safety Net 在 DeepSeek Harness 中是 profile 的一个可选插件 bundle，它的 guard 只能拒绝。宿主的若干部分不在它的覆盖范围内。
+
+<span id="install-covers-the-web-and-desktop-profiles-only"></span>
+
+### 安装只覆盖 web 和 desktop profile
+
+`install --deepseek-harness` 只把插件添加到 `web` 和 `desktop` 两个 profile。`acp`、`headless`、`sdk`、`sdk-minimal` profile 以及之后新建的 profile 都在没有 CC Safety Net 的状态下运行，直到你用 `dsh plugin --profile <name> add cc-safety-net` 为它们添加插件。
 
 ### 可选 bundle 加载失败只会警告
 
@@ -213,6 +221,23 @@ Codex 的统一 exec 路径（在所有平台上都是默认的 shell 路径）�
 
 这两个缺口只要有一个在你的环境中值得关注，就请用[沙箱](/zh-Hans/guides/vs-sandboxing)作为隔离层。
 
+<span id="kimi-code-coverage-boundary"></span>
+
+## Kimi Code 覆盖边界
+
+在 `kimi web` 和 ACP 会话中，Kimi Code 发送的负载 `cwd` 是服务器进程的目录，而不是会话自己的目录，负载中也没有其他工作目录。因此，CC Safety Net 会按服务器的启动目录分析这些会话中的每个 `Bash` 调用：
+
+- 相对路径，以及判断路径是否位于工作目录之外的规则，都会按错误的目录判断。结果既可能阻止本来安全的命令，也可能放过本该阻止的命令。
+- 指向会话目录的 `cwd` 参数，只要该目录位于服务器启动目录之外，就会被拒绝。
+
+在终端中运行的 `kimi` 会话不受影响。要填补这个缺口，需要宿主发送会话目录。
+
+<span id="opencode-coverage-boundary"></span>
+
+## OpenCode 覆盖边界
+
+在 Windows 上，OpenCode v1 用 POSIX shell 运行命令时，会用 `cygpath -w` 转换 `/tmp` 这类以 POSIX 根目录开头的 `workdir`；而 CC Safety Net 按当前驱动器解析同一个 `workdir`，得到 `C:\tmp`。因此，这类调用的分析目录可能与实际运行目录不同。
+
 ## Grok Build 是 fail-open 的宿主
 
 Grok Build hook 在设计上就是 fail open，宿主也没有提供 `failClosed` 开关。只有 stdout 上明确的 deny 才能阻止工具调用。hook 崩溃、超时或输出格式错误时，调用照常执行。
@@ -223,7 +248,7 @@ Grok Build hook 在设计上就是 fail open，宿主也没有提供 `failClosed
 
 ## Factory Droid 是 fail-open 的宿主
 
-Factory Droid hook 是 fail open。只有退出码 2 或 stdout 上明确的 deny 判定才能阻止工具调用。0 和 2 以外的退出码、崩溃、超时或缺少 `npx`，都只会记为不阻止的错误，调用照常执行。适配器对放行的调用不输出任何内容，因此 Droid 自己的权限提示仍然生效。
+Factory Droid hook 是 fail open。只有退出码 2 或 stdout 上明确的 deny 判定才能阻止工具调用。CC Safety Net 拒绝时两者都用：适配器在 stdout 上输出 deny 判定，把原因写到 stderr，并以退出码 2 退出。Droid 采用第一个带有权限判定的 hook 结果，因此如果同时装有返回 allow 或 ask 的其他 hook，只在 stdout 上给出的 deny 可能被丢弃；退出码 2 则总能阻止调用。0 和 2 以外的退出码、崩溃、超时或缺少 `npx`，都只会记为不阻止的错误，调用照常执行。适配器对放行的调用不输出任何内容，因此 Droid 自己的权限提示仍然生效。
 
 Droid 有一项设置会让这个 hook 完全失效。企业级设置 `allowManagedHooksOnly` 开启后，Droid 会忽略用户级和项目级 hook。`install --droid` 写入的 `~/.factory/hooks.json` 属于用户级 hook，因此该设置开启期间它不会运行。
 
@@ -237,8 +262,9 @@ Devin CLI hook 也是 fail open，但范围很窄。只有退出码 2 或 stdout
 
 宿主的若干部分不在这个集成的覆盖范围内：
 
-- 受支持的只有 `install --devin` 写入的用户级配置：`$XDG_CONFIG_HOME/devin/config.json`，默认为 `~/.config/devin/config.json`，Windows 上为 `%APPDATA%\devin\config.json`。该文件中的 hook 在会话目录下运行，适配器也按这个目录分析每次调用。项目的 `.devin/hooks.v1.json` 中的 hook 则以仓库根目录为工作目录运行，而负载中没有 `cwd` 可用来纠正这一点。
+- 受支持的只有 `install --devin` 写入的用户级配置：`$XDG_CONFIG_HOME/devin/config.json`，默认为 `~/.config/devin/config.json`，Windows 上为 `%APPDATA%\devin\config.json`。该文件中的 hook 在会话目录下运行，适配器也按这个目录分析每次调用，只有 `workdir` 指向其他目录的 `exec` 调用除外。项目的 `.devin/hooks.v1.json` 中的 hook 则以仓库根目录为工作目录运行，而负载中没有 `cwd` 可用来纠正这一点。
 - 适配器逐个分析 `write_to_process` 调用，因此文本分散在多次写入交互式 shell 的命令不在分析范围内。
+- 在 `write_to_process` 的 `bytes_input` 中，只有 `<CR>` 和 `<LF>` 表示行结束。如果一次调用在 `text_input` 或 `bytes_input` 中带有文本，同时还带有其他按键（`<ESC>`、`<BS>`、方向键或 `<C-…>` 按键），CC Safety Net 会拒绝该调用，因为无法确定接收程序实际运行的是哪一行。只有这些按键的调用（例如 `<UP><CR>` 或 `<C-c>`）不会作为命令分析。带有未在文档中列出的按键 token 的调用，以及在同一次调用中 `text_input` 和 `bytes_input` 都带有文本的调用，同样会被拒绝。
 - Devin Cloud 会话不在覆盖范围内。
 - Devin 默认也会加载 Claude Code 的 hook 文件，因此为 Claude Code 安装的 CC Safety Net hook 也可能在 Devin 会话中运行，但这只会让拒绝重复一次。
 

@@ -126,7 +126,7 @@ Local Amp plugin <path> is not a managed copy and masks the personal plugin. Rem
 npx -y cc-safety-net@latest install --agy-cli
 ```
 
-`~/.gemini/config/hooks.json` に管理対象の `PreToolUse` エントリを書き込み、`run_command` ツール呼び出しのたびに `npx -y cc-safety-net hook --agy-cli` を実行します。
+`~/.gemini/config/hooks.json` に管理対象の `PreToolUse` エントリを書き込み、ツール呼び出しのたびに `npx -y cc-safety-net hook --agy-cli` を実行します。アダプターは `run_command` をシェルコマンドとして解析します。`Action` が `send_input` の `manage_task` 呼び出しでは、`Input` のテキストが実行中のタスクに送られるため、その `Input` もコマンドとして解析します。
 
 hook は `npx` 経由で動作するため、インストール時にはまず npm キャッシュの `_npx` ディレクトリからキャッシュ済みの `cc-safety-net` を削除し、hook が最新リリースを解決できるようにします。キャッシュの場所は、`$npm_config_cache` が設定されていればそのパス、未設定であれば macOS と Linux では `~/.npm`、Windows では `%LOCALAPPDATA%\npm-cache` です。アンインストールではキャッシュに手を加えません。
 
@@ -148,7 +148,7 @@ npx skill add kenryu42/cc-safety-net
 npx -y cc-safety-net@latest install --claude-code
 ```
 
-`kenryu42/cc-marketplace` から `cc-marketplace` マーケットプレイスを追加し、`cc-safety-net@cc-marketplace` プラグインをインストールします。無効化されたものがすでにある場合は、それを有効にします。`claude plugin install` の書き込み先は、`$CLAUDE_CONFIG_DIR` が設定されていればそのディレクトリ、未設定であれば `~/.claude` です。CC Safety Net も、インストール記録と `settings.json` を同じディレクトリから読み取ります。Claude Code と同じく、この値は先頭の `~` を展開せずそのまま使います。
+`kenryu42/cc-marketplace` から `cc-marketplace` マーケットプレイスを追加し、`cc-safety-net@cc-marketplace` プラグインをインストールします。無効化されたものがすでにある場合は、それを有効にします。`claude plugin install` の書き込み先は、`$CLAUDE_CONFIG_DIR` が設定されていればそのディレクトリ、未設定であれば `~/.claude` です。CC Safety Net も `settings.json` を同じディレクトリから読み取ります。Claude Code と同じく、この値は先頭の `~` を展開せずそのまま使います。インストール記録の `installed_plugins.json` は、`CLAUDE_CODE_PLUGIN_CACHE_DIR` が設定されていればそのディレクトリから、未設定であれば設定ディレクトリ内の `plugins` ディレクトリから読み取ります。
 
 ```bash
 npx -y cc-safety-net@latest uninstall --claude-code
@@ -220,7 +220,7 @@ Cursor には、個人マーケットプレイスからネイティブ Cursor �
 npx -y cc-safety-net@latest install --deepseek-harness
 ```
 
-DeepSeek Harness は、hook subprocess ではなくプロファイルのプラグインバンドルとして CC Safety Net を読み込みます。そのため、このホストには `hook` フラグがありません。1 回のインストールで、マシン上のすべての DeepSeek Harness プロファイルを保護します。対象は、`npx @deepseek-ai/dsh web` とグローバルインストールが共有する `web` プロファイルと、デスクトップアプリが使う `desktop` プロファイルです。
+DeepSeek Harness は、hook subprocess ではなくプロファイルのプラグインバンドルとして CC Safety Net を読み込みます。そのため、このホストには `hook` フラグがありません。1 回のインストールで保護するのは、DeepSeek Harness の 2 つのプロファイルです。`npx @deepseek-ai/dsh web` とグローバルインストールが共有する `web` プロファイルと、デスクトップアプリが使う `desktop` プロファイルが対象です。`acp`、`headless`、`sdk`、`sdk-minimal` の各プロファイルと、後から作成したプロファイルでは、`dsh plugin --profile <name> add cc-safety-net` でプラグインを個別に追加するまで CC Safety Net は動きません。
 
 プロファイルの置き場所は `~/.dsh/profiles`、`DSH_HOME` が設定されている場合は `$DSH_HOME/profiles` です。先頭の `~` はホームディレクトリに展開されます。各プロファイルの `package.json` には、`cc-safety-net` の依存関係と、それを有効にするバンドルの一覧の両方が記録されます。インストール、アンインストール、`doctor` はいずれもこのマニフェストを読み取ります。
 
@@ -260,7 +260,7 @@ DeepSeek Harness installed cc-safety-net in the web profile but did not enable i
 npx -y cc-safety-net@latest uninstall --deepseek-harness
 ```
 
-アンインストールは、マニフェストにバンドルが記載されている各プロファイルから、そのバンドルを削除します。どちらのプロファイルにもない場合は、コマンドを 1 つも実行せずに中止します。
+アンインストールは、`web` と `desktop` の各プロファイルのマニフェストにバンドルが記載されていれば、そこから削除します。それ以外のプロファイルに自分で追加したバンドルはそのまま残します。この 2 つのどちらのプロファイルにもない場合は、コマンドを 1 つも実行せずに中止します。
 
 ```text
 cc-safety-net is not installed in the DeepSeek Harness web or Desktop profile
@@ -304,7 +304,9 @@ npx -y cc-safety-net@latest uninstall --devin
 
 アンインストールは管理対象のハンドラーを取り除き、ファイルを書き戻します。`config.json` を削除することはありません。ハンドラーを取り除いた結果 `hooks.PreToolUse` が空になった場合も削除しません。管理対象のハンドラーがない場合は、何も書き込まず、hook は未インストールと報告します。
 
-実行時には、アダプターが `exec` をシェルコマンドのツールとして扱います。`write_to_process` は、`text_input` が空でない文字列の場合にコマンドとして解析します。その他のツール入力については、保護対象のパスが含まれていないかを検査します。Devin のペイロードには `cwd` が含まれないため、解析の基準には hook プロセスの作業ディレクトリ、つまりセッションのディレクトリを使います。アダプターが返すのは block の判定だけで、許可する呼び出しには何も出力しません。そのため Devin 自身の権限確認のプロンプトもそのまま働きます。詳細は [`hook` コマンド](/ja/reference/cli-commands#hook)と[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
+実行時には、アダプターが `exec` をシェルコマンドのツールとして扱います。Devin のペイロードには `cwd` が含まれないため、セッションのディレクトリには hook プロセスの作業ディレクトリを使います。`exec` 呼び出しの `workdir` は、コマンドを解析する基準のディレクトリになります。セッションのディレクトリの内外を問わず既存のディレクトリなら指定でき、相対パスはセッションのディレクトリを基準に解決します。`workdir` が空または空白だけの場合、または文字列でない場合は拒否します。
+
+`write_to_process` 呼び出しは、`text_input` か `bytes_input` でテキストを入力する場合に、コマンドとして解析します。`bytes_input` で行を終えるのは `<CR>` と `<LF>` だけです。両方のフィールドにテキストがある呼び出しや、テキストと一緒に `<ESC>`、`<BS>`、矢印キー、`<C-…>` キーなどの他のキーを送る呼び出しは拒否します。受け取ったプログラムが実際に実行する行を特定できないためです。Devin のドキュメントにないキー表記も拒否します。`<UP><CR>` や `<C-c>` のように他のキーだけを送る場合は、コマンドとして解析しません。その他のツール入力については、保護対象のパスが含まれていないかを検査します。アダプターが返すのは block の判定だけで、許可する呼び出しには何も出力しません。そのため Devin 自身の権限確認のプロンプトもそのまま働きます。詳細は [`hook` コマンド](/ja/reference/cli-commands#hook)と[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
 
 <Note>
   Devin CLI の hook は fail open です。ツール呼び出しをブロックできるのは、終了コード 2 と標準出力の `block` 判定だけです。タイムアウトした場合、`npx` が見つからない場合、判定を出力する前に hook のプロセスが終了した場合は、その呼び出しはそのまま実行されます。[Devin CLI は fail open のホスト](/ja/guides/known-limitations#devin-cli-is-a-fail-open-host)を参照してください。
@@ -326,9 +328,9 @@ npx -y cc-safety-net@latest install --droid
 
 このエントリにマッチャーはありません。そのため `Execute` だけでなく、すべてのツール呼び出しがアダプターに届きます。管理対象外のエントリと他の hook イベントはそのまま残り、既存のファイルを置き換える場合は元のパーミッションを保ちます。
 
-Droid は `hooks.json` がない場合、`~/.factory/settings.json` の `hooks` キーから hook を読み込みます。管理対象のエントリだけを含む `hooks.json` を作ってしまうと、`settings.json` で宣言した hook がすべて無効になります。そのため `hooks.json` が存在しない場合は、`settings.json` の hook イベントを引き継いだ内容で新しいファイルを作り、そこに管理対象のエントリを追加します。`settings.json` 自体には書き込みません。
+`hooks.json` が存在しない場合、インストールは既存の hook を引き継いで新しいファイルを作り、そこに管理対象のエントリを追加します。Droid は `hooks.json` ができると旧形式の `~/.factory/hooks/hooks.json` を読まなくなるため、旧形式のファイルの hook イベントはすべて引き継ぎます。一方、`~/.factory/settings.json` の `hooks` キーは Droid がイベント単位でマージするため、`hooks.json` に `PreToolUse` があると `settings.json` 側の `PreToolUse` が隠れてしまいます。そこで旧形式のファイルに `PreToolUse` がない場合に限り、`settings.json` の `PreToolUse` を引き継ぎます。`settings.json` のそれ以外のイベントは引き継ぎません。`settings.json` と旧形式のファイルには書き込みません。
 
-`hooks.json` がパースできない場合、ルートが JSON オブジェクトでない場合、`PreToolUse` が配列でない場合は、何も書き込まず、対象のファイルを示して停止します。
+Droid はこれらのファイルを JSONC として読むため、CC Safety Net もパース前に `//` と `/* */` のコメント、末尾のカンマを取り除きます。書き戻す内容は通常の JSON なので、インストールやアンインストールが `hooks.json` を変更すると、コメントは残りません。読み込んだファイルがパースできない場合、`hooks.json` または旧形式のファイルのルートが JSON オブジェクトでない場合、その `PreToolUse` が配列でない場合は、何も書き込まず、対象のファイルを示して停止します。
 
 hook は `npx` 経由で動作するため、インストール時にはまず npm の `_npx` キャッシュからキャッシュ済みの `cc-safety-net` を削除し、hook が最新リリースを解決できるようにします。アンインストールではキャッシュに手を加えません。キャッシュの場所は [Antigravity CLI のセクション](#antigravity-cli-installation)を参照してください。
 
@@ -336,9 +338,9 @@ hook は `npx` 経由で動作するため、インストール時にはまず n
 npx -y cc-safety-net@latest uninstall --droid
 ```
 
-アンインストールは管理対象のハンドラーを取り除き、ハンドラーが 1 つも残らなくなったエントリは削除します。インストール時に `settings.json` から引き継いだ hook は `hooks.json` に残るため、アンインストール後に有効な hook の構成はインストール前と同じになります。`hooks.json` 自体を削除するのは、ハンドラーを取り除いた結果、空の `PreToolUse` がファイルに残る唯一のキーになり、かつ `settings.json` が存在しない場合だけです。`settings.json` がある場合は、代わりにハンドラーを取り除いた内容を書き込みます。`hooks.json` を削除すると `settings.json` のフォールバックが再び有効になり、そこに管理対象のハンドラーのコピーが残っていれば、それも一緒に動き出してしまうためです。
+アンインストールは管理対象のハンドラーを取り除き、ハンドラーが 1 つも残らなくなったエントリは削除します。インストール時に旧形式のファイルや `settings.json` から引き継いだ hook は `hooks.json` に残るため、アンインストール後に有効な hook の構成はインストール前と同じになります。`hooks.json` 自体を削除するのは、ハンドラーを取り除いた結果、空の `PreToolUse` がファイルに残る唯一のキーになり、かつ `settings.json` が存在しない場合だけです。`settings.json` がある場合は、代わりにハンドラーを取り除いた内容を書き込みます。`hooks.json` を削除すると `settings.json` のフォールバックが再び有効になり、そこに管理対象のハンドラーのコピーが残っていれば、それも一緒に動き出してしまうためです。
 
-実行時には、アダプターが `Execute` をシェルコマンドのツールとして扱い、その他のツール入力については保護対象のパスが含まれていないかを検査します。解析の基準には、Droid のペイロードに含まれる `cwd` を使います。許可する呼び出しに対しては何も出力しないため、Droid 自身の権限確認のプロンプトもそのまま働きます。詳細は [`hook` コマンド](/ja/reference/cli-commands#hook)と[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
+実行時には、アダプターが `Execute` をシェルコマンドのツールとして扱い、その他のツール入力については保護対象のパスが含まれていないかを検査します。解析の基準には、Droid のペイロードに含まれる `cwd` を使います。許可する呼び出しに対しては何も出力しないため、Droid 自身の権限確認のプロンプトもそのまま働きます。拒否する場合は、標準出力に deny の判定を出力し、理由を標準エラー出力にも書き込んで、終了コード 2 で終了します。Droid は permission decision を含む最初の hook の結果を採用するので、インストールされている別の hook が許可や確認を返すと JSON の deny が置き換えられるおそれがあります。終了コード 2 なら必ずブロックされます。詳細は [`hook` コマンド](/ja/reference/cli-commands#hook)と[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
 
 <Note>
   Factory Droid の hook は fail open です。ツール呼び出しをブロックできるのは、終了コード 2 と標準出力の明示的な deny 判定だけです。0 でも 2 でもない終了コード、クラッシュ、タイムアウト、`npx` が見つからない場合は、その呼び出しはそのまま実行されます。エンタープライズ設定の `allowManagedHooksOnly` はユーザーとプロジェクトの hook を無視するため、`install --droid` が書き込む hook はその設定下では動きません。[Factory Droid は fail open のホスト](/ja/guides/known-limitations#factory-droid-is-a-fail-open-host)を参照してください。
@@ -378,7 +380,7 @@ npx -y cc-safety-net@latest uninstall --copilot-cli
   変更を反映するため、プラグインのインストールまたは削除後に Copilot CLI を再起動してください。
 </Note>
 
-Copilot CLI の hook 対応にはバージョン条件があります。doctor は、`.github/hooks` 内のリポジトリ hook ファイル、`.github/copilot/settings.local.json`、`.github/copilot/settings.json`、`.claude/settings.local.json`、`.claude/settings.json`、`~/.copilot/settings.json`、`~/.copilot/config.json` 内のインライン hook 定義、`~/.copilot/hooks` 内のユーザー hook ファイルを確認します。インライン hook 定義には Copilot CLI **1.0.8** 以降、ユーザー hook ファイルには **0.0.422** 以降が必要です。この条件はプラグインが処理するため、通常は意識する必要はありません。hook を手動で設定して問題が起きた場合は、`npx cc-safety-net doctor` を実行してください。検出した Copilot のバージョンと、対応している hook の取得元を報告します。
+Copilot CLI の hook 対応にはバージョン条件があります。doctor は、`.github/hooks` 内のリポジトリ hook ファイル、`.github/copilot/settings.local.json`、`.github/copilot/settings.json`、`.claude/settings.local.json`、`.claude/settings.json`、`~/.copilot/settings.json` 内のインライン hook 定義、`~/.copilot/hooks` 内のユーザー hook ファイルを確認します。`~/.copilot/config.json` は読み取りません。自身の `disableAllHooks` を `true` にしている hook ファイルは対象外です。`~/.copilot/settings.json` の `disableAllHooks: true` が無効にするのは、そのファイル自身のインライン hook だけです。インライン hook 定義には Copilot CLI **1.0.8** 以降、ユーザー hook ファイルには **0.0.422** 以降が必要です。この条件はプラグインが処理するため、通常は意識する必要はありません。hook を手動で設定して問題が起きた場合は、`npx cc-safety-net doctor` を実行してください。検出した Copilot のバージョンと、対応している hook の取得元を報告します。
 
 <span id="grok-build-installation"></span>
 
@@ -394,7 +396,7 @@ npx -y cc-safety-net@latest install --grok-build
 { "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --grok-build", "timeout": 30 }] }
 ```
 
-このエントリにマッチャーはありません。そのため `run_terminal_command` だけでなく、すべてのツール呼び出しがアダプターに届きます。アダプターは、ファイル系ツールやパッチ系ツールの入力についても、保護対象のパスが含まれていないかを検査します。
+このエントリにマッチャーはありません。そのため、すべてのツール呼び出しがアダプターに届きます。アダプターは `run_terminal_command`、`run_terminal_cmd`、`monitor`、`bash`、`Shell` をシェルコマンドとして解析します。`bash` の `workdir` と `Shell` の `working_directory` は、セッションのディレクトリかワークスペースルートの内側に解決される必要があります。相対パスはセッションのディレクトリを基準に解決します。アダプターは、ファイル系ツールやパッチ系ツールの入力についても、保護対象のパスが含まれていないかを検査します。
 
 hook は `npx` 経由で動作するため、インストール時にはまず npm の `_npx` キャッシュからキャッシュ済みの `cc-safety-net` を削除し、hook が最新リリースを解決できるようにします。アンインストールではキャッシュに手を加えません。キャッシュの場所は [Antigravity CLI のセクション](#antigravity-cli-installation)を参照してください。
 
@@ -448,7 +450,7 @@ npx -y cc-safety-net@latest uninstall --hermes-agent
 
 ## Kimi Code
 
-Kimi Code には 2 つのインストール方法があります。1 つは Kimi Code の設定ファイルに書き込むグローバル hook、もう 1 つは Kimi Code 内からインストールするネイティブプラグインです。対話的なターミナルで `install --kimi-code`（または対話式インストーラーで Kimi Code を選択）を実行すると、どちらの方法を使うかを尋ねる単一選択のプロンプトが表示されます。グローバル hook を今すぐインストールするか、ネイティブプラグインの手順を表示するかを選べます。非対話的なセッションでは、このフラグはグローバル hook を直接インストールするため、スクリプトや CI パイプラインがプロンプトで止まることはありません。`update` の挙動は変わりません。
+Kimi Code には 2 つのインストール方法があります。1 つは Kimi Code の設定ファイルに書き込むグローバル hook、もう 1 つは Kimi Code 内からインストールするネイティブプラグインです。対話的なターミナルで `install --kimi-code`（または対話式インストーラーで Kimi Code を選択）を実行すると、どちらの方法を使うかを尋ねる単一選択のプロンプトが表示されます。グローバル hook を今すぐインストールするか、ネイティブプラグインの手順を表示するかを選べます。非対話的なセッションでは、このフラグはグローバル hook を直接インストールするため、スクリプトや CI パイプラインがプロンプトで止まることはありません。`update` が更新するのはグローバル hook だけで、プラグインは更新しません。
 
 <Note>
   どちらの方法でも、Kimi Code の hook は fail open です。hook のプロセスが起動できない、クラッシュする、タイムアウトするといった場合、Kimi Code はそのツール呼び出しを許可します。
@@ -480,7 +482,13 @@ npx -y cc-safety-net@latest uninstall --kimi-code
 
 信頼確認のプロンプトで承認します（既定はキャンセルです）。その後、`/reload` を実行するか、新しいセッションを開始します。このプラグインは、ツールマッチャーを持たない `PreToolUse` hook を 1 つ宣言します。すべてのツール呼び出しで `node ./dist/bin/cc-safety-net.js hook --kimi-code` を 30 秒のタイムアウト付きで実行し、グローバル hook と同じアダプターを使用します。
 
-グローバル hook がすでに設定済みの場合、対話式インストーラーの Kimi Code の行は選択可能なままで、`(global hook installed)` と表示されます。あわせて、表示されるプラグインの手順に注意書きが加わります。`cc-safety-net uninstall --kimi-code` は、プラグインが有効になった*後*に実行してください。両方の hook が短期間だけ同時に動いても拒否メッセージが重複するだけですが、どちらも有効でない期間があると保護されません。
+`config.toml` に CC Safety Net の hook がない場合、`doctor` は `~/.kimi-code/plugins/installed.json`（または `$KIMI_CODE_HOME/plugins/installed.json`）からプラグインの状態を報告します。インストール済みでも有効になっていないプラグインは無効として表示され、`/plugins enable cc-safety-net` で有効にできます。`update` はプラグインに手を加えず、次のメッセージを表示します。
+
+```text
+Kimi Code plugin skipped: update it in Kimi Code from /plugins (Installed tab, select cc-safety-net, press Enter)
+```
+
+グローバル hook がすでに設定済みの場合、対話式インストーラーの Kimi Code の行は選択可能なままで、`(global hook installed)` と表示されます。`config.toml` にグローバル hook があれば、無効な `[[hooks]]` エントリのせいで Kimi Code がそれを無視している場合でも、表示されるプラグインの手順に注意書きが加わります。`cc-safety-net uninstall --kimi-code` は、プラグインが有効になった*後*に実行してください。プラグインがインストールされているだけでは、どちらも起こりません。両方の hook が短期間だけ同時に動いても拒否メッセージが重複するだけですが、どちらも有効でない期間があると保護されません。
 
 Kimi Code 内で対話的にルールを作成したい場合は、任意で `/cc-safety-net` skill をインストールできます。
 
@@ -550,7 +558,7 @@ Change the cc-safety-net package spec in <path> to cc-safety-net@latest, preserv
 
 そのエントリのパッケージ指定を、オプションとコメントは残したまま自分で書き換えてから、インストールをやり直してください。
 
-問題がなければ、インストールは `opencode plugin add cc-safety-net@latest` を実行します。`opencode plugin update cc-safety-net@latest` を実行するのは、`add` の出力に `is already configured in` が含まれる場合だけです。初回インストールでは、OpenCode のバックグラウンドサービスが追加されたエントリをまだ読み込んでおらず、無条件に `update` を実行すると `Plugin is not configured` で失敗するためです。
+問題がなければ、インストールは `opencode plugin add cc-safety-net@latest` を実行します。`opencode plugin update cc-safety-net@latest` を実行するのは、`add` の出力に `is already configured in` が含まれる場合だけです。初回インストールでは、OpenCode のバックグラウンドサービスが追加されたエントリをまだ読み込んでおらず、無条件に `update` を実行すると `Plugin is not configured` で失敗するためです。起動していなかったサービスも、プラグインを一覧に載せるまでは同じように `update` を拒否します。そのためインストールは、`update` の前にも、後述と同じポーリングで `opencode plugin list` にプラグインが現れるのを待ちます。
 
 続いてインストールは、`cc-safety-net` の ID かソース `cc-safety-net@latest` を含む行が現れるまで、`opencode plugin list` を 250 ms 間隔で最大 60 回ポーリングします。待ち時間の上限は約 15 秒です。この一覧には、プラグイン ID `cc-safety-net`、バージョン、ソース `cc-safety-net@latest` の 3 列からなる行（`cc-safety-net  2.4.4  cc-safety-net@latest` のような行）が必要です。その行がなければ、次のメッセージで失敗します。
 
@@ -592,7 +600,7 @@ OpenCode 2.x では、アナライザーの方言はプラグインの `shell` �
 npx -y cc-safety-net@latest install --pi
 ```
 
-`pi install npm:cc-safety-net` を実行します。Pi の設定に、CC Safety Net が無効になってしまう `extensions` フィルターが固定されている場合は、Pi のエージェントディレクトリにある `settings.json` でそのフィルターを解除します。このディレクトリは、`PI_CODING_AGENT_DIR` が設定されていればその値（先頭の `~` はホームディレクトリを基準に展開）、未設定であれば `~/.pi/agent` です。検出も同じファイルを読み取ります。
+`pi install npm:cc-safety-net` を実行したあと、Pi のエージェントディレクトリにある `settings.json` で、CC Safety Net のパッケージエントリから `extensions` フィルターを取り除きます。このディレクトリは、`PI_CODING_AGENT_DIR` が設定されていればその値（先頭の `~` はホームディレクトリを基準に展開）、未設定であれば `~/.pi/agent` です。検出も同じファイルを読み取ります。エントリに `extensions` フィルターがある場合、そのフィルターで Pi が拡張機能のファイル `dist/pi/index.js` を読み込めると判断できない限り、検出は Pi を無効として報告します。
 
 ```bash
 npx -y cc-safety-net@latest uninstall --pi

@@ -1,7 +1,7 @@
 ---
 title: "Known limitations and pitfalls"
 sidebarTitle: "Known limitations"
-description: "What CC Safety Net cannot catch: opaque command proxies, in-binary behavior, filesystem containment and network, symlink TOCTOU, interpreter flags, quotes inside interpreter comments, the cmd and nested PowerShell readers, eval-based execution, the Codex interactive-session and workdir gaps, the Grok Build, Factory Droid, and Devin CLI fail-open hosts, the DeepSeek Harness optional-bundle and run_code gaps, and the Hermes Agent and OpenClaw coverage boundaries including the OpenClaw session working directory."
+description: "What CC Safety Net cannot catch: opaque command proxies, in-binary behavior, filesystem containment and network, symlink TOCTOU, interpreter flags, quotes inside interpreter comments, the cmd and nested PowerShell readers, eval-based execution, the Codex interactive-session and workdir gaps, the Kimi Code web and ACP working directory, the OpenCode v1 workdir on Windows, the Grok Build, Factory Droid, and Devin CLI fail-open hosts, the DeepSeek Harness profile, optional-bundle, and run_code gaps, and the Hermes Agent and OpenClaw coverage boundaries including the OpenClaw session working directory and `openclaw agent exec`."
 ---
 
 CC Safety Net analyzes the command string your agent attempts to run. It is a strong guardrail against accidental data loss from known-destructive git and filesystem operations, but it is not a complete security solution. This page is an honest list of the **residual** limits that remain today, so you can set correct expectations and know when to use [sandboxing](/guides/vs-sandboxing) instead.
@@ -60,7 +60,7 @@ bash -c "$(cat destructive.sh)"
 
 CC Safety Net recursively scans `bash -c` and interpreter code arguments, but if the code is fetched from a remote source or assembled from variables, the destructive payload is invisible to command-string analysis. This is a fundamental limit of the approach.
 
-In standard mode the decision on some of these commands moves to you. When the analyzer cannot resolve a shell execution source, and that source is not a shell reading its program from stdin and the command text names no destructive pattern, the Claude Code hook asks you to approve the command instead of denying it. `bash -c "$CMD"` is such a command. The same applies to unparseable text that matched the fallback destructive-pattern scan. Approving runs the command with no further analysis. The prompt appears only in Claude Code's `default`, `acceptEdits`, and `plan` permission modes. Strict and paranoid, every other permission mode, and every other host keep the deny. See [When standard cannot verify a command](/configuration/modes#when-standard-cannot-verify-a-command).
+In standard mode the decision on some of these commands moves to you. When the analyzer cannot resolve a shell execution source, and that source is not a shell reading its program from stdin and the command text names no destructive pattern, the Claude Code hook asks you to approve the command instead of denying it. `bash -c "$CMD"` is such a command. The same applies to unparseable text that matched the fallback destructive-pattern scan. Approving runs the command with no further analysis. The prompt appears only in Claude Code's `default`, `acceptEdits`, `plan`, and `auto` permission modes. In `auto` mode, Claude Code's classifier can still deny the call, but it cannot approve it without the prompt. Strict and paranoid, every other permission mode, and every other host keep the deny. See [When standard cannot verify a command](/configuration/modes#when-standard-cannot-verify-a-command).
 
 ## Parser limits
 
@@ -167,6 +167,8 @@ The other residual gap is the execution directory. OpenClaw runs `exec` in the s
 
 Closing this gap requires the host to expose the execution directory.
 
+One OpenClaw command skips the hook entirely. `openclaw agent exec` never loads the plugin hook registry, so no `before_tool_call` hook runs, and its tool calls are neither analyzed nor audited, even with the plugin installed and loaded. The same tool call through `openclaw agent --local` is blocked.
+
 The Codex-native relay is untested and therefore unclaimed: the live end-to-end tests drive OpenClaw's own agent runtime, so they prove nothing about a Codex-native shell, patch, or MCP call.
 
 ### Windows is not supported for either integration
@@ -176,6 +178,10 @@ Both integrations assume the POSIX state layout. Hermes takes its root from `HER
 ## DeepSeek Harness coverage boundaries
 
 CC Safety Net is an optional profile plugin bundle in DeepSeek Harness, and its guard is deny-only. Several parts of the host sit outside it.
+
+### Install covers the web and desktop profiles only
+
+`install --deepseek-harness` adds the plugin to the `web` and `desktop` profiles only. The `acp`, `headless`, `sdk`, and `sdk-minimal` profiles, and any profile created later, run without CC Safety Net until you add the plugin with `dsh plugin --profile <name> add cc-safety-net`.
 
 ### An optional bundle that fails to load only warns
 
@@ -203,6 +209,19 @@ The payload also leaves out the call's `workdir`. It carries only `{command}`, a
 
 If either gap matters in your environment, use [sandboxing](/guides/vs-sandboxing) as the containment layer.
 
+## Kimi Code coverage boundary
+
+In `kimi web` and ACP sessions, Kimi Code sends the server process directory as the payload `cwd`, not the session's own directory, and the payload carries no other working directory. CC Safety Net therefore analyzes every `Bash` call in those sessions against the directory the server was launched from:
+
+- Relative paths, and the rules about paths outside the working directory, are judged against the wrong directory. That can block a safe command, and it can allow one the rules would otherwise block.
+- A `cwd` argument that names the session directory is denied when that directory is outside the server's launch directory.
+
+Terminal `kimi` sessions are unaffected. Closing this gap requires the host to send the session directory.
+
+## OpenCode coverage boundary
+
+On Windows, OpenCode v1 converts a POSIX-rooted `workdir` such as `/tmp` with `cygpath -w` when it runs a POSIX shell. CC Safety Net resolves the same `workdir` against the current drive, as `C:\tmp`. Such a call can be analyzed against a different directory than the one it runs in.
+
 ## Grok Build is a fail-open host
 
 Grok Build hooks are fail-open by design, and the host exposes no `failClosed` knob. Only an explicit deny on stdout blocks a tool call. A hook that crashes, times out, or emits malformed output lets the call proceed.
@@ -211,7 +230,7 @@ The adapter still emits an explicit deny for its own fail-closed outcomes, such 
 
 ## Factory Droid is a fail-open host
 
-Factory Droid hooks fail open. Only exit code 2 or an explicit deny decision on stdout blocks a tool call. An exit code other than 0 or 2, a crash, a timeout, or a missing `npx` is logged as a non-blocking error, and the call proceeds. The adapter prints nothing for an allowed call, so Droid's own permission prompt still applies.
+Factory Droid hooks fail open. Only exit code 2 or an explicit deny decision on stdout blocks a tool call. A CC Safety Net deny uses both. The adapter prints the deny decision, writes the reason to stderr, and exits with code 2. Droid takes the first hook result that carries any permission decision, so another installed hook that allows or asks could drop a deny given only on stdout. Exit code 2 always blocks. An exit code other than 0 or 2, a crash, a timeout, or a missing `npx` is logged as a non-blocking error, and the call proceeds. The adapter prints nothing for an allowed call, so Droid's own permission prompt still applies.
 
 One Droid setting switches the hook off entirely. `allowManagedHooksOnly` is an enterprise setting that makes Droid ignore user and project hooks. `install --droid` writes the hook to `~/.factory/hooks.json`, which is a user hook, so it does not run while the setting is on.
 
@@ -223,8 +242,9 @@ Devin CLI hooks fail open, but only on a narrow set of failures. Only exit code 
 
 Several parts of the host sit outside the integration:
 
-- Only the user-level config that `install --devin` writes is supported: `$XDG_CONFIG_HOME/devin/config.json`, by default `~/.config/devin/config.json`, or `%APPDATA%\devin\config.json` on Windows. Hooks declared there run in the session directory, and the adapter analyzes every call against that directory. Hooks in a project `.devin/hooks.v1.json` run with the repository root as their working directory instead, and the payload carries no `cwd` to correct for that.
+- Only the user-level config that `install --devin` writes is supported: `$XDG_CONFIG_HOME/devin/config.json`, by default `~/.config/devin/config.json`, or `%APPDATA%\devin\config.json` on Windows. Hooks declared there run in the session directory, and the adapter analyzes every call against that directory, except an `exec` call whose `workdir` names another one. Hooks in a project `.devin/hooks.v1.json` run with the repository root as their working directory instead, and the payload carries no `cwd` to correct for that.
 - Each `write_to_process` call is analyzed on its own, so a command whose text arrives split across several writes to an interactive shell is outside the analysis.
+- In `write_to_process`, only `<CR>` and `<LF>` end a line in `bytes_input`. CC Safety Net denies a call that carries text in `text_input` or `bytes_input` together with any other key (`<ESC>`, `<BS>`, an arrow key, or a `<C-…>` key), because the line the receiving program runs cannot be known. Those keys alone, such as `<UP><CR>` or `<C-c>`, are not analyzed as a command. An undocumented key token, or text in both `text_input` and `bytes_input` of one call, is also denied.
 - Devin Cloud sessions are not covered.
 - Devin loads Claude Code hook files by default, so a CC Safety Net hook installed for Claude Code can run in a Devin session as well. That only duplicates denials.
 

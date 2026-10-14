@@ -49,7 +49,7 @@ Standard、strict 和 paranoid 是三个预设，为 `fail_closed`、`paranoid_r
   Standard 模式**不具备对抗级能力**。它不会一律阻止动态 `rm -rf` 目标。`rm -rf "$target"` 在 standard 中允许，只有 strict 或 paranoid 会阻止。当命令可能来自提示注入或其他对抗性上下文时，必须使用 strict 或 paranoid。
 </Warning>
 
-除允许和拒绝之外，standard 还有第三种结果。有两种情况算作无法验证，而不是已判定为危险：一是无法解析、但被后备的破坏性模式扫描命中的文本；二是命令文本中没有破坏性模式，分析器又无法解析其 shell 执行来源。对这两种情况，Claude Code hook 不再拒绝，而是通过 Claude Code 自己的权限提示请你批准，并且只在 `default`、`acceptEdits` 和 `plan` 三种权限模式下这样做。其他权限模式、其他宿主以及 strict 和 paranoid 都保持拒绝。参见 [`standard` 无法验证命令时](/zh-Hans/configuration/modes#when-standard-cannot-verify-a-command)。
+除允许和拒绝之外，standard 还有第三种结果。有两种情况算作无法验证，而不是已判定为危险：一是无法解析、但被后备的破坏性模式扫描命中的文本；二是命令文本中没有破坏性模式，分析器又无法解析其 shell 执行来源。对这两种情况，Claude Code hook 不再拒绝，而是通过 Claude Code 自己的权限提示请你批准，并且只在 `default`、`acceptEdits`、`plan` 和 `auto` 四种权限模式下这样做。在 `auto` 模式下，Claude Code 的分类器仍可能拒绝该命令，但不经过提示就无法批准它。其他权限模式、其他宿主以及 strict 和 paranoid 都保持拒绝。参见 [`standard` 无法验证命令时](/zh-Hans/configuration/modes#when-standard-cannot-verify-a-command)。
 
 启用机密保护时，安全级别不会放宽已匹配敏感**内容**的访问，也不会放宽用户配置的拒绝路径及其后代。配置的 `secret_protection.allow_paths` 条目可以让字面文件或目录树豁免于非 CLI 的内置机密规则；拒绝路径和 `secret.cli.*` 规则仍然优先。灾难性保护始终强制执行，包括递归删除根目录或用户主目录、对受保护 Git 元数据的破坏性更改，以及对用户或项目 `policy.json` 的破坏性更改。
 
@@ -106,6 +106,8 @@ Standard、strict 和 paranoid 是三个预设，为 `fail_closed`、`paranoid_r
 
 脱敏采用保守的模式匹配，能降低偶然出现在命令参数中的机密被泄漏的风险，但**只限于已识别的凭证形式**。绝对文件系统路径、项目和目录名、主机名、IP 地址、用户名，以及不在模式列表中的凭证格式都会原样保留。新的机密格式会不断出现，因此请避免让真实凭证经过智能体运行的命令。完整脱敏范围见<a href="/zh-Hans/reference/audit-log#secret-redaction">审计日志参考</a>。
 
+审计记录和拒绝消息的脱敏针对的是工具调用自身提供的值，属于尽力而为的纵深防御。脱敏器无法识别的凭证形式或未覆盖的字段，属于普通 bug，请提交公开 GitHub issue。并非由工具调用提供的机密则不同，例如工具读取到的文件内容或环境变量值：如果它出现在拒绝消息、审计日志、诊断或调试输出中，请作为漏洞私密报告。
+
 相同边界也适用于 `cc-safety-net explain`：真实跟踪会包含你提供的命令文本、解析后的 token，以及包括主目录在内的绝对路径。把跟踪粘贴到任何地方之前，请先检查一遍。见 <a href="/zh-Hans/reference/explain-trace">Explain 跟踪</a>。
 
 ## 攻击面
@@ -120,7 +122,7 @@ Standard、strict 和 paranoid 是三个预设，为 `fail_closed`、`paranoid_r
 | **rm 分析中的路径遍历** | 使用符号链接或路径技巧让危险 `rm -rf` 目标绕过分类 | 把目标解析为规范路径；检测指向已知临时目录之外的 `$TMPDIR` override；仍存在残余的 TOCTOU 窗口（见<a href="/zh-Hans/guides/known-limitations#symlink-toctou-risk">已知限制</a>） |
 | **Rulebook 供应链** | 从 GitHub 来源提供恶意 rulebook | `rule add` 和 `rule update` 会把 ref 解析到 commit，禁止重定向，限制响应的字节数和时间，对内容做 schema 验证，并运行 `rulebook_version: 2` 的 fixture，之后才写入落盘副本；落盘文件位于使用方仓库中，人可以评审；运行时在加载时再次做 schema 验证；恶意 rulebook 可以添加规则，但不能删除内置阻止 |
 | **项目策略文件** | 提交一个降低安全级别或放行敏感路径的 `.cc-safety-net/policy.json`，让所有 clone 该仓库的人都受其影响 | 合并规则限定了影响范围：`deny_paths` 取两个范围的并集，项目文件无法去掉用户的拒绝路径，`audit` 也只属于用户范围。每一处削弱都各占一行，显示在 `status` 和 `doctor` 上；状态行和 GUI 只标出正在生效的削弱。设置了 `CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY=1` 的用户会拒绝所有削弱，`status` 和 `doctor` 会将其标为已忽略。写入任一策略文件都会以 `hard_stop` intent 拒绝，智能体执行 `cc-safety-net policy apply` 也以相同 intent 拒绝，因此会话中的智能体既写不了该文件，也无法自行应用提案 |
-| **审计日志机密泄漏** | 设法让机密写入磁盘上的审计日志 | 每次日志写入前运行 `redactSecrets`；模式列表持续增量维护 |
+| **审计日志和拒绝消息中的机密泄漏** | 设法让机密写入磁盘上的审计日志，或出现在拒绝消息中 | 每次日志写入前以及每条拒绝消息都会运行 `redactSecrets`；脱敏是尽力而为的，模式列表持续增量维护 |
 | **Hook 输入解析** | 用格式错误的 JSON 让 hook 崩溃 | `JSON.parse` 失败触发拒绝，而不是崩溃；平台适配器执行额外验证 |
 | **审计日志路径遍历** | 构造会话 ID，使写入落到日志目录之外 | 会话 ID 会被清理为文件系统安全的形式，长度受限，并拒绝 `.` 和 `..` |
 
@@ -133,7 +135,9 @@ Standard、strict 和 paranoid 是三个预设，为 `fail_closed`、`paranoid_r
 | 类别 | 示例 | 渠道 |
 | --- | --- | --- |
 | **Bug**：CC Safety Net 未阻止破坏性命令 | 覆盖缺口（规则尚未阻止的命令形式）、解析器、tokenizer 或包装器分析的边缘情况、让命令得以通过的分析错误，或阻止安全命令的误报 | 公开 GitHub issue |
-| **Vulnerability**：CC Safety Net 执行了不应执行的有害操作 | 通过阻止消息、审计日志、诊断、调试输出或误报报告预填内容泄漏机密，包括脱敏绕过；审计日志或配置处理中通过构造输入写入预期目录外的路径遍历或文件系统问题；影响已发布 npm 软件包或插件分发的供应链或打包问题，包括 rulebook 完整性 | 私密披露 |
+| **Vulnerability**：CC Safety Net 执行了不应执行的有害操作 | 通过阻止消息、审计日志、诊断或调试输出，泄漏并非由工具调用提供的机密，例如工具读取到的文件内容或环境变量值；误报报告预填内容中带有报告预览声称已替换的路径；审计日志或配置处理中通过构造输入写入预期目录外的路径遍历或文件系统问题；影响已发布 npm 软件包或插件分发的供应链或打包问题，包括 rulebook 完整性 | 私密披露 |
+
+如果值来自工具调用本身，且只出现在返回给该调用方的拒绝消息或本地审计日志中，脱敏遗漏属于公开 bug。
 
 报告覆盖缺口时只报告命令形式。不要包含可直接粘贴的武器化提示注入 payload。两种提交渠道见<a href="/zh-Hans/security">安全策略</a>。
 

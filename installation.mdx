@@ -120,7 +120,7 @@ Uninstall also removes managed local copies but leaves an unmanaged local entry 
 npx -y cc-safety-net@latest install --agy-cli
 ```
 
-This writes a managed `PreToolUse` entry to `~/.gemini/config/hooks.json` that runs `npx -y cc-safety-net hook --agy-cli` on each `run_command` tool call.
+This writes a managed `PreToolUse` entry to `~/.gemini/config/hooks.json` that runs `npx -y cc-safety-net hook --agy-cli` on each tool call. The adapter analyzes `run_command` as a shell command. It also analyzes the `Input` of a `manage_task` call whose `Action` is `send_input` as a command, because that text goes to a running task.
 
 Because the hook runs through `npx`, install first deletes any cached `cc-safety-net` copies from the npm cache's `_npx` directory (`$npm_config_cache` if set, otherwise `~/.npm` on macOS and Linux, `%LOCALAPPDATA%\npm-cache` on Windows) so the hook resolves the current release. Uninstall does not touch the cache.
 
@@ -140,7 +140,7 @@ npx skill add kenryu42/cc-safety-net
 npx -y cc-safety-net@latest install --claude-code
 ```
 
-This adds the `cc-marketplace` marketplace from `kenryu42/cc-marketplace` and installs the `cc-safety-net@cc-marketplace` plugin, enabling it if a disabled copy is already present. `claude plugin install` writes under `$CLAUDE_CONFIG_DIR` when that variable is set and under `~/.claude` otherwise, and CC Safety Net reads the install record and `settings.json` from that same directory. Neither Claude Code nor CC Safety Net expands a leading `~` in that value.
+This adds the `cc-marketplace` marketplace from `kenryu42/cc-marketplace` and installs the `cc-safety-net@cc-marketplace` plugin, enabling it if a disabled copy is already present. `claude plugin install` writes under `$CLAUDE_CONFIG_DIR` when that variable is set and under `~/.claude` otherwise, and CC Safety Net reads `settings.json` from that same directory. Neither Claude Code nor CC Safety Net expands a leading `~` in that value. CC Safety Net reads the install record, `installed_plugins.json`, from `CLAUDE_CODE_PLUGIN_CACHE_DIR` when that variable is set, and from the `plugins` directory under the config directory otherwise.
 
 ```bash
 npx -y cc-safety-net@latest uninstall --claude-code
@@ -206,7 +206,7 @@ Cursor can also install CC Safety Net as a native Cursor plugin from a personal 
 npx -y cc-safety-net@latest install --deepseek-harness
 ```
 
-DeepSeek Harness loads CC Safety Net as a profile plugin bundle rather than a hook subprocess, so there is no `hook` flag for it. One install covers every DeepSeek Harness profile on the machine: the `web` profile that `npx @deepseek-ai/dsh web` and a global install share, and the `desktop` profile the Desktop app uses.
+DeepSeek Harness loads CC Safety Net as a profile plugin bundle rather than a hook subprocess, so there is no `hook` flag for it. One install covers two DeepSeek Harness profiles: the `web` profile that `npx @deepseek-ai/dsh web` and a global install share, and the `desktop` profile the Desktop app uses. The `acp`, `headless`, `sdk`, and `sdk-minimal` profiles, and any profile created later, run without CC Safety Net until you add the plugin to each one with `dsh plugin --profile <name> add cc-safety-net`.
 
 Profiles live in `~/.dsh/profiles`, or in `$DSH_HOME/profiles` when `DSH_HOME` is set, with a leading `~` expanded against your home directory. Each profile's `package.json` records both the `cc-safety-net` dependency and the bundle list that enables it. Install, uninstall, and `doctor` all read those manifests.
 
@@ -246,7 +246,7 @@ A successful install reports `Added cc-safety-net to the DeepSeek Harness Deskto
 npx -y cc-safety-net@latest uninstall --deepseek-harness
 ```
 
-Uninstall removes the bundle from each profile whose manifest lists it. When neither profile carries it, uninstall runs no command and stops:
+Uninstall removes the bundle from the `web` and `desktop` profiles when their manifests list it, and leaves a copy you added to any other profile in place. When neither of those two profiles carries it, uninstall runs no command and stops:
 
 ```text
 cc-safety-net is not installed in the DeepSeek Harness web or Desktop profile
@@ -288,7 +288,9 @@ npx -y cc-safety-net@latest uninstall --devin
 
 Uninstall removes the managed handler and writes the file back. It never deletes `config.json`, not even when stripping the handler leaves `hooks.PreToolUse` empty. When the file holds no managed handler, uninstall writes nothing and reports the hook as not installed.
 
-At runtime the adapter treats `exec` as a shell-command tool, and it analyzes a `write_to_process` call as a command when its `text_input` is a non-empty string. It inspects other tool inputs for protected paths. Devin's payload carries no `cwd`, so the adapter resolves the analysis against the hook process's working directory, which is the session directory. The adapter answers only with a block decision and stays silent on an allowed call, so Devin's own permission prompt still applies. See the [`hook` command](/reference/cli-commands#hook) and [Integration architecture](/guides/integration-architecture).
+At runtime the adapter treats `exec` as a shell-command tool. Devin's payload carries no `cwd`, so the adapter takes the session directory from the hook process's working directory. An `exec` call's `workdir` becomes the directory the command is analyzed in. It may name any existing directory, inside the session directory or not, and a relative path resolves against the session directory. A blank or non-string `workdir` is denied.
+
+The adapter analyzes a `write_to_process` call as a command when it types text, either in `text_input` or in `bytes_input`. In `bytes_input`, only `<CR>` and `<LF>` end a line. A call that carries text in both fields, or text together with another key such as `<ESC>`, `<BS>`, an arrow key, or a `<C-…>` key, is denied, because the line the receiving program runs cannot be known. A key token that Devin does not document is also denied. Those other keys alone, such as `<UP><CR>` or `<C-c>`, are not analyzed as a command. The adapter inspects other tool inputs for protected paths. It answers only with a block decision and stays silent on an allowed call, so Devin's own permission prompt still applies. See the [`hook` command](/reference/cli-commands#hook) and [Integration architecture](/guides/integration-architecture).
 
 <Note>
   Devin CLI hooks are fail-open. Only exit code 2 or a `block` decision on stdout blocks a tool call. A timeout, a missing `npx`, or a hook process that dies before printing a decision lets the call proceed. See [Devin CLI is a fail-open host](/guides/known-limitations#devin-cli-is-a-fail-open-host).
@@ -308,9 +310,9 @@ This writes a managed `PreToolUse` entry to the top-level `PreToolUse` array in 
 
 The entry carries no matcher, so every tool call reaches the adapter instead of only `Execute`. Foreign entries and other hook events in the file stay as they are, and both commands keep the file's existing permission bits when they replace it.
 
-Droid reads hooks from the `hooks` key of `~/.factory/settings.json` whenever `hooks.json` is absent. A `hooks.json` holding only the managed entry would therefore switch off every hook declared in `settings.json`. So when `hooks.json` does not exist, install seeds the new file with the hook events from `settings.json` and appends the managed entry to them. `settings.json` itself is never written.
+When `hooks.json` does not exist, install seeds the new file before it appends the managed entry. Droid stops reading the legacy `~/.factory/hooks/hooks.json` once `hooks.json` exists, so install copies every hook event from the legacy file. Droid merges the `hooks` key of `~/.factory/settings.json` one event at a time, so a `PreToolUse` list in `hooks.json` would hide the `settings.json` one. Install therefore copies `PreToolUse` from `settings.json` when the legacy file has none, and copies no other `settings.json` event. Install never writes `settings.json` or the legacy file.
 
-Install stops without writing and names the file when `hooks.json` does not parse, when its root is not a JSON object, or when its `PreToolUse` is not an array.
+Droid parses these files as JSONC, so CC Safety Net strips `//` and `/* */` comments and trailing commas before it parses any of them. A rewrite is plain JSON, so an install or uninstall that changes `hooks.json` drops its comments. Install stops without writing and names the file when a file it reads does not parse, when the root of `hooks.json` or the legacy file is not a JSON object, or when its `PreToolUse` is not an array.
 
 Because the hook runs through `npx`, install first clears cached `cc-safety-net` copies from the npm `_npx` cache so the hook resolves the current release; uninstall does not touch the cache. The cache locations are listed in the [Antigravity CLI section](#antigravity-cli-installation).
 
@@ -318,9 +320,9 @@ Because the hook runs through `npx`, install first clears cached `cc-safety-net`
 npx -y cc-safety-net@latest uninstall --droid
 ```
 
-Uninstall removes the managed handler and drops an entry once it has no handlers left. Hooks that install carried over from `settings.json` stay in `hooks.json`, so the hook set in effect after uninstall matches the one before install. Uninstall deletes `hooks.json` only when stripping the handler leaves an empty `PreToolUse` as the file's one remaining key and no `settings.json` exists. With a `settings.json` present it writes the stripped file instead, because deleting `hooks.json` would re-activate the `settings.json` fallback, including any copy of the managed handler sitting there.
+Uninstall removes the managed handler and drops an entry once it has no handlers left. Hooks that install carried over from the legacy file or `settings.json` stay in `hooks.json`, so the hook set in effect after uninstall matches the one before install. Uninstall deletes `hooks.json` only when stripping the handler leaves an empty `PreToolUse` as the file's one remaining key and no `settings.json` exists. With a `settings.json` present it writes the stripped file instead, because deleting `hooks.json` would re-activate the `settings.json` fallback, including any copy of the managed handler sitting there.
 
-At runtime the adapter treats `Execute` as a shell-command tool and inspects other tool inputs for protected paths. It resolves the analysis against the `cwd` in Droid's payload. The adapter emits nothing for an allowed call, so Droid's own permission prompt still applies. See the [`hook` command](/reference/cli-commands#hook) and [Integration architecture](/guides/integration-architecture).
+At runtime the adapter treats `Execute` as a shell-command tool and inspects other tool inputs for protected paths. It resolves the analysis against the `cwd` in Droid's payload. The adapter emits nothing for an allowed call, so Droid's own permission prompt still applies. A deny prints the deny decision on stdout, also writes the reason to stderr, and exits with code 2. Droid takes the first hook result that carries a permission decision, so an allow or ask from another installed hook could replace the JSON deny, while exit code 2 always blocks. See the [`hook` command](/reference/cli-commands#hook) and [Integration architecture](/guides/integration-architecture).
 
 <Note>
   Factory Droid hooks are fail-open. Only exit code 2 or an explicit deny decision on stdout blocks a tool call. An exit code other than 0 or 2, a crash, a timeout, or a missing `npx` lets the call proceed. An enterprise `allowManagedHooksOnly` setting ignores user and project hooks, so the hook that `install --droid` writes does not run under it. See [Factory Droid is a fail-open host](/guides/known-limitations#factory-droid-is-a-fail-open-host).
@@ -356,7 +358,7 @@ npx -y cc-safety-net@latest uninstall --copilot-cli
   Restart Copilot CLI after installing or removing the plugin for the change to take effect.
 </Note>
 
-Hook support in Copilot CLI depends on its version. Doctor checks repository hook files under `.github/hooks`; inline hook definitions in `.github/copilot/settings.local.json`, `.github/copilot/settings.json`, `.claude/settings.local.json`, `.claude/settings.json`, `~/.copilot/settings.json`, and `~/.copilot/config.json`; and user hook files under `~/.copilot/hooks`. Inline hook definitions require Copilot CLI **1.0.8** or later, and user hook files require **0.0.422** or later. The plugin handles this for you. If you configure hooks manually and find a problem, run `npx cc-safety-net doctor`. It reports the detected Copilot version and the supported hook sources.
+Hook support in Copilot CLI depends on its version. Doctor checks repository hook files under `.github/hooks`; inline hook definitions in `.github/copilot/settings.local.json`, `.github/copilot/settings.json`, `.claude/settings.local.json`, `.claude/settings.json`, and `~/.copilot/settings.json`; and user hook files under `~/.copilot/hooks`. It does not read `~/.copilot/config.json`. A hook file that sets its own `disableAllHooks` to `true` does not count, and `disableAllHooks: true` in `~/.copilot/settings.json` drops only that file's inline hooks. Inline hook definitions require Copilot CLI **1.0.8** or later, and user hook files require **0.0.422** or later. The plugin handles this for you. If you configure hooks manually and find a problem, run `npx cc-safety-net doctor`. It reports the detected Copilot version and the supported hook sources.
 
 ## Grok Build installation
 
@@ -370,7 +372,7 @@ This writes a managed `PreToolUse` entry to `~/.grok/hooks/cc-safety-net.json`, 
 { "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --grok-build", "timeout": 30 }] }
 ```
 
-The entry carries no matcher, so every tool call reaches the adapter instead of only `run_terminal_command`. The adapter also inspects the inputs of file and patch tools for protected paths.
+The entry carries no matcher, so every tool call reaches the adapter. The adapter analyzes `run_terminal_command`, `run_terminal_cmd`, `monitor`, `bash`, and `Shell` as shell commands. A `bash` `workdir` or a `Shell` `working_directory` must resolve inside the session directory or the workspace root, and a relative one resolves from the session directory. The adapter also inspects the inputs of file and patch tools for protected paths.
 
 Because the hook runs through `npx`, install first clears cached `cc-safety-net` copies from the npm `_npx` cache so the hook resolves the current release; uninstall does not touch the cache. The cache locations are listed in the [Antigravity CLI section](#antigravity-cli-installation).
 
@@ -420,7 +422,7 @@ This integration is macOS and Linux only.
 
 ## Kimi Code installation
 
-Kimi Code supports two install methods: a global hook written to your Kimi Code config, or a native Kimi Code plugin you install from inside Kimi Code. In an interactive terminal, `install --kimi-code` (or picking Kimi Code in the interactive installer) opens a single-select prompt asking which method to use: install the global hook now, or print the native-plugin steps. In a non-interactive session the flag installs the global hook directly, so scripts and CI pipelines never hang on a prompt. `update` is unchanged.
+Kimi Code supports two install methods: a global hook written to your Kimi Code config, or a native Kimi Code plugin you install from inside Kimi Code. In an interactive terminal, `install --kimi-code` (or picking Kimi Code in the interactive installer) opens a single-select prompt asking which method to use: install the global hook now, or print the native-plugin steps. In a non-interactive session the flag installs the global hook directly, so scripts and CI pipelines never hang on a prompt. `update` refreshes the global hook but never the plugin.
 
 <Note>
   Kimi Code hooks are fail-open with either method: when the hook process cannot start, crashes, or times out, Kimi Code allows the tool call.
@@ -452,7 +454,13 @@ The URL names the repository's `plugin` branch, which every release publishes. T
 
 Confirm the trust prompt, which defaults to cancel. Then run `/reload` or start a new session. The plugin declares one `PreToolUse` hook with no tool matcher. It runs `node ./dist/bin/cc-safety-net.js hook --kimi-code` for every tool call with a 30-second timeout and uses the same adapter as the global hook.
 
-When the global hook is already configured, the Kimi Code row in the interactive installer stays selectable and is labeled `(global hook installed)`, and the printed plugin steps add a caution: run `cc-safety-net uninstall --kimi-code` only *after* the plugin is active. A brief overlap where both hooks run just duplicates the denial message, while a gap with neither active leaves you unprotected.
+When `config.toml` carries no CC Safety Net hook, `doctor` reports the plugin from `~/.kimi-code/plugins/installed.json` (or `$KIMI_CODE_HOME/plugins/installed.json`). A plugin that is installed but not enabled shows as disabled, and the fix is `/plugins enable cc-safety-net`. `update` does not touch the plugin and prints:
+
+```text
+Kimi Code plugin skipped: update it in Kimi Code from /plugins (Installed tab, select cc-safety-net, press Enter)
+```
+
+When the global hook is already configured, the Kimi Code row in the interactive installer stays selectable and is labeled `(global hook installed)`. When `config.toml` carries the global hook at all, even one Kimi Code ignores because of an invalid `[[hooks]]` entry, the printed plugin steps add a caution: run `cc-safety-net uninstall --kimi-code` only *after* the plugin is active. The plugin alone triggers neither. A brief overlap where both hooks run just duplicates the denial message, while a gap with neither active leaves you unprotected.
 
 Optionally install the `/cc-safety-net` skill so you can author rules interactively inside Kimi Code:
 
@@ -518,7 +526,7 @@ Change the cc-safety-net package spec in <path> to cc-safety-net@latest, preserv
 
 Edit that entry yourself, keep its options and comments, and run the install again.
 
-Otherwise install runs `opencode plugin add cc-safety-net@latest`. It runs `opencode plugin update cc-safety-net@latest` only when the output of `add` contains `is already configured in`. On a first install, OpenCode's background service has not loaded the new entry yet, and an unconditional `update` fails there with `Plugin is not configured`.
+Otherwise install runs `opencode plugin add cc-safety-net@latest`. It runs `opencode plugin update cc-safety-net@latest` only when the output of `add` contains `is already configured in`. On a first install, OpenCode's background service has not loaded the new entry yet, and an unconditional `update` fails there with `Plugin is not configured`. A service that was not running rejects the update the same way until it has listed the plugin, so before `update` install waits for the plugin to appear in `opencode plugin list`, using the same poll as below.
 
 Install then polls `opencode plugin list` every 250 ms, up to 60 times, until a row carries the `cc-safety-net` id or the `cc-safety-net@latest` source. That bounds the wait at about 15 seconds. The listing must hold a row whose three columns are the plugin id `cc-safety-net`, its version, and the source `cc-safety-net@latest`, as in `cc-safety-net  2.4.4  cc-safety-net@latest`. Without that row it fails:
 
@@ -558,7 +566,7 @@ Restart OpenCode after installing or updating so the change takes effect.
 npx -y cc-safety-net@latest install --pi
 ```
 
-This runs `pi install npm:cc-safety-net` and, if your Pi settings pin an `extensions` filter that would leave CC Safety Net disabled, clears that filter in `settings.json` under your Pi agent directory. That directory is `PI_CODING_AGENT_DIR` when it is set, with a leading `~` expanded against your home directory, and `~/.pi/agent` otherwise. Detection reads the same file.
+This runs `pi install npm:cc-safety-net` and then removes any `extensions` filter from the CC Safety Net package entry in `settings.json` under your Pi agent directory. That directory is `PI_CODING_AGENT_DIR` when it is set, with a leading `~` expanded against your home directory, and `~/.pi/agent` otherwise. Detection reads the same file. When the entry carries an `extensions` filter, detection reports Pi as disabled unless it can tell that the filter lets Pi load the extension file, `dist/pi/index.js`.
 
 ```bash
 npx -y cc-safety-net@latest uninstall --pi
