@@ -431,7 +431,7 @@ After successful option parsing, `explain` exits `0` for blocked and allowed res
 - A `--cwd` path that does not exist prints `Error: --cwd path does not exist: <path>` and exits `1`.
 - An empty command prints `Error: No command provided` plus the usage line and exits `1`.
 
-The second is an analysis limit. A command that exhausts the structural command-analysis limit, the path-canonicalization limit, or the tool-input traversal limit exits `1` with a one-line error message instead of a stack trace. Under `--json` the whole of stdout is one error object; otherwise the message goes to stderr:
+The second is a command `explain` refuses to analyze. A command that exhausts the structural command-analysis limit, the path-canonicalization limit, or the tool-input traversal limit exits `1` with a one-line error message instead of a stack trace. Under `--json` the whole of stdout is one error object; otherwise the message goes to stderr:
 
 ```bash
 npx cc-safety-net explain --json 'loop() { loop; }; loop'
@@ -440,6 +440,18 @@ npx cc-safety-net explain --json 'loop() { loop; }; loop'
 ```json
 {"error":"Structural command analysis limit exceeded."}
 ```
+
+`explain` refuses a command whose syntax the parser rejects, such as `echo ${`, the same way:
+
+```bash
+npx cc-safety-net explain --json 'echo ${'
+```
+
+```json
+{"error":"Command could not be safely analyzed (strict mode). Simplify the command and retry, or ask the user to verify."}
+```
+
+A hook denies that command with the fixed id [`analysis.strict-unparseable`](/reference/destructive-rules#fixed-denial-ids) and records `errorCode` `unparseable-command` in the [audit log](/reference/audit-log#record-schema).
 
 The top-level parser honors `--` the same way: it stops looking for `--help` and `--version` at the first `--`, so `explain -- --help` explains the literal command `--help` instead of printing help.
 
@@ -1014,7 +1026,7 @@ Install reads all three files with `//` comments, `/* */` comments, and trailing
 
 Install stops and writes nothing on a file it does not recognize: `Failed to parse Factory Droid hooks config <path>: <reason>`, `Factory Droid hooks config <path> must be a JSON object`, or `Factory Droid hooks config <path> "PreToolUse" must be an array`.
 
-Uninstall strips only the managed handler. It deletes `hooks.json` only when `PreToolUse` is then empty, `PreToolUse` is the file's only key, and `~/.factory/settings.json` does not exist. With that settings file present, uninstall rewrites `hooks.json` instead, because Factory Droid would otherwise load the hooks in `settings.json` again.
+Uninstall strips only the managed handler. It deletes `hooks.json` only when `PreToolUse` is then empty, `PreToolUse` is the file's only key, and neither `~/.factory/settings.json` nor the legacy `~/.factory/hooks/hooks.json` exists. With either file present, uninstall rewrites `hooks.json` instead, because Factory Droid would otherwise load the hooks in that file again, including any copy of the managed handler sitting there.
 
 At runtime the hook reads Factory Droid's `PreToolUse` payload: `tool_name`, `tool_input`, `cwd`, and `session_id`. `Execute` is the only command tool, and its shell dialect is detected automatically. The session directory is the payload's `cwd`, or the hook process's own working directory when the payload omits it, and a directory that cannot be canonicalized fails closed. A denial carries `hookSpecificOutput.permissionDecision: "deny"` with the text in `permissionDecisionReason`, the same output form the Coding CLI hook uses. The hook also writes the reason to stderr and exits `2`. Factory Droid 0.240.0 takes the first hook result that carries any `permissionDecision`, so another hook's allow or ask could drop the JSON deny. Exit code `2` always blocks. An allowed call writes nothing, so Factory Droid's own permission prompt still applies.
 

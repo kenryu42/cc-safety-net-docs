@@ -439,7 +439,7 @@ npx cc-safety-net explain --cwd /tmp "git status"
 - 存在しない `--cwd` パスは `Error: --cwd path does not exist: <path>` を出力し、`1` で終了します。
 - 空のコマンドは `Error: No command provided` と使用方法の行を出力し、`1` で終了します。
 
-もう 1 つは解析の上限です。構造的なコマンド解析の上限、パス正規化の上限、ツール入力の走査上限のいずれかを使い切ったコマンドは、スタックトレースではなく 1 行のエラーメッセージを出力して `1` で終了します。`--json` では標準出力全体が 1 つのエラーオブジェクトになり、それ以外の場合はメッセージを標準エラー出力に書き出します。
+もう 1 つは `explain` が解析を拒否するコマンドです。構造的なコマンド解析の上限、パス正規化の上限、ツール入力の走査上限のいずれかを使い切ったコマンドは、スタックトレースではなく 1 行のエラーメッセージを出力して `1` で終了します。`--json` では標準出力全体が 1 つのエラーオブジェクトになり、それ以外の場合はメッセージを標準エラー出力に書き出します。
 
 ```bash
 npx cc-safety-net explain --json 'loop() { loop; }; loop'
@@ -448,6 +448,18 @@ npx cc-safety-net explain --json 'loop() { loop; }; loop'
 ```json
 {"error":"Structural command analysis limit exceeded."}
 ```
+
+`echo ${` のようにパーサーが受け付けないコマンドも、同じ形で拒否します。
+
+```bash
+npx cc-safety-net explain --json 'echo ${'
+```
+
+```json
+{"error":"Command could not be safely analyzed (strict mode). Simplify the command and retry, or ask the user to verify."}
+```
+
+同じコマンドが hook 経由で渡された場合は、固定の拒否 ID [`analysis.strict-unparseable`](/ja/reference/destructive-rules#fixed-denial-ids) で拒否し、[監査ログ](/ja/reference/audit-log#record-schema)に `errorCode` として `unparseable-command` を記録します。
 
 最上位パーサーも同じ方法で `--` を処理します。最初の `--` で `--help` と `--version` の検索を停止します。そのため、`explain -- --help` はヘルプを出力せず、リテラルコマンド `--help` を explain します。
 
@@ -1022,7 +1034,7 @@ Windows では、Cursor が `/C:/Users/you` のような VS Code の URI 形式�
 
 認識できないファイルでは、install は何も書き込まず中止します。メッセージは `Failed to parse Factory Droid hooks config <path>: <reason>`、`Factory Droid hooks config <path> must be a JSON object`、`Factory Droid hooks config <path> "PreToolUse" must be an array` のいずれかです。
 
-uninstall は管理対象のハンドラーだけを取り除きます。`hooks.json` を削除するのは、取り除いた結果 `PreToolUse` が空になり、`PreToolUse` がそのファイルの唯一のキーであり、かつ `~/.factory/settings.json` が存在しない場合だけです。その settings ファイルがある場合、uninstall は `hooks.json` を書き直します。ファイルを消すと、Factory Droid が `settings.json` の hook を再び読み込んでしまうためです。
+uninstall は管理対象のハンドラーだけを取り除きます。`hooks.json` を削除するのは、取り除いた結果 `PreToolUse` が空になり、`PreToolUse` がそのファイルの唯一のキーであり、かつ `~/.factory/settings.json` と旧形式の `~/.factory/hooks/hooks.json` のどちらも存在しない場合だけです。どちらかがある場合、uninstall は `hooks.json` を書き直します。ファイルを消すと、Factory Droid がそのファイルの hook を再び読み込み、そこに管理対象のハンドラーのコピーが残っていれば、それも動き出してしまうためです。
 
 実行時、hook は Factory Droid の `PreToolUse` の入力（`tool_name`、`tool_input`、`cwd`、`session_id`）を読み取ります。コマンドツールは `Execute` だけで、そのシェルの方言は自動判定します。セッションのディレクトリは入力の `cwd` で、入力に `cwd` がない場合は hook プロセス自身の作業ディレクトリです。正規化できないディレクトリは fail closed になります。拒否時は `hookSpecificOutput.permissionDecision: "deny"` を返し、理由は `permissionDecisionReason` に入ります。これは Coding CLI の hook と同じ出力形式です。あわせて理由を標準エラー出力に書き込み、終了コード `2` で終了します。Factory Droid 0.240.0 は `permissionDecision` を持つ最初の hook の結果を採用するため、ほかの hook が許可や確認を返すと JSON の拒否が捨てられることがあります。終了コード `2` なら必ずブロックされます。許可時は何も出力しないため、Factory Droid 自身の権限確認のプロンプトがそのまま働きます。
 

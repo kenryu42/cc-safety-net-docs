@@ -437,7 +437,7 @@ npx cc-safety-net explain --cwd /tmp "git status"
 - `--cwd` 指向不存在的路径时，会打印 `Error: --cwd path does not exist: <path>` 并退出 `1`。
 - 命令为空时，会打印 `Error: No command provided` 和用法行，并退出 `1`。
 
-第二种是分析上限。命令耗尽结构化命令分析上限、路径规范化上限或工具输入遍历上限时，会打印一行错误信息并退出 `1`，而不是抛出堆栈跟踪。加上 `--json` 时，整个 stdout 就是一个错误对象；否则消息写入 stderr：
+第二种是 `explain` 拒绝分析的命令。命令耗尽结构化命令分析上限、路径规范化上限或工具输入遍历上限时，会打印一行错误信息并退出 `1`，而不是抛出堆栈跟踪。加上 `--json` 时，整个 stdout 就是一个错误对象；否则消息写入 stderr：
 
 ```bash
 npx cc-safety-net explain --json 'loop() { loop; }; loop'
@@ -446,6 +446,18 @@ npx cc-safety-net explain --json 'loop() { loop; }; loop'
 ```json
 {"error":"Structural command analysis limit exceeded."}
 ```
+
+`echo ${` 这类语法被解析器拒绝的命令，`explain` 也以同样的方式拒绝：
+
+```bash
+npx cc-safety-net explain --json 'echo ${'
+```
+
+```json
+{"error":"Command could not be safely analyzed (strict mode). Simplify the command and retry, or ask the user to verify."}
+```
+
+同一条命令经过 hook 时，会以固定拒绝 ID [`analysis.strict-unparseable`](/zh-Hans/reference/destructive-rules#fixed-denial-ids) 拒绝，并在[审计日志](/zh-Hans/reference/audit-log#record-schema)中把 `errorCode` 记为 `unparseable-command`。
 
 顶层解析器同样遵守 `--`：它在第一个 `--` 处就不再查找 `--help` 和 `--version`，因此 `explain -- --help` 解释的是字面命令 `--help`，而不是打印帮助。
 
@@ -1020,7 +1032,7 @@ Claude Code 插件的 Cursor manifest 也使用这个选项，运行的命令是
 
 遇到无法识别的文件时，安装会中止且不写入任何内容，消息是 `Failed to parse Factory Droid hooks config <path>: <reason>`、`Factory Droid hooks config <path> must be a JSON object` 或 `Factory Droid hooks config <path> "PreToolUse" must be an array` 之一。
 
-卸载只移除托管 handler。只有在移除后 `PreToolUse` 为空、`PreToolUse` 是该文件唯一的键，并且 `~/.factory/settings.json` 不存在时，才会删除 `hooks.json`。存在那个 settings 文件时，卸载改为重写 `hooks.json`，因为删掉它会让 Factory Droid 重新加载 `settings.json` 里的 hook。
+卸载只移除托管 handler。只有在移除后 `PreToolUse` 为空、`PreToolUse` 是该文件唯一的键，并且 `~/.factory/settings.json` 和旧版的 `~/.factory/hooks/hooks.json` 都不存在时，才会删除 `hooks.json`。两者中任意一个存在时，卸载改为重写 `hooks.json`，因为删掉它会让 Factory Droid 重新加载那个文件里的 hook，其中若残留托管 handler 的副本，它也会跟着运行。
 
 运行时，hook 读取 Factory Droid 的 `PreToolUse` 输入：`tool_name`、`tool_input`、`cwd` 和 `session_id`。命令类工具只有 `Execute`，其 shell 方言自动识别。会话目录取输入中的 `cwd`，输入没有 `cwd` 时取 hook 进程自身的工作目录，无法规范化的目录按 fail closed 处理。拒绝时输出 `hookSpecificOutput.permissionDecision: "deny"`，原因放在 `permissionDecisionReason` 中，这与 Coding CLI hook 的输出形式相同。hook 还会把原因写入 stderr，并以退出码 `2` 退出。Factory Droid 0.240.0 采用第一个带有 `permissionDecision` 的 hook 结果，因此另一个 hook 返回的允许或询问可能让 JSON 形式的 deny 被丢弃，而退出码 `2` 总会阻止调用。放行时什么都不输出，因此 Factory Droid 自身的权限提示照常生效。
 
