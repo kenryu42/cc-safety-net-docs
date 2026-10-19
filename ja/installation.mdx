@@ -4,7 +4,7 @@ sidebarTitle: "インストール"
 description: "Amp Code、Antigravity CLI、Claude Code、Codex、Cursor、DeepSeek Harness、Devin CLI、Factory Droid、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code、OpenClaw、OpenCode、Pi に CC Safety Net をインストールまたはアンインストールします。"
 ---
 
-CC Safety Net は、コーディングエージェント内のプラグイン、拡張機能、またはフックとして動作します。常駐サービスやデーモンは不要です。連携によっては、チェックのたびに短命のフック subprocess を起動します。
+CC Safety Net は、コーディングエージェント内のプラグイン、拡張機能、またはフックとして動作します。常駐サービスやデーモンは不要です。連携によっては、チェックのたびに短命のフックサブプロセス を起動します。
 
 ほとんどの連携は **Windows、macOS、Linux** で動作します。パスとコマンドを正しく解決するため、ホスト OS を検出します。Windows では、大文字と小文字を区別しないパスのほか、`COMSPEC` と `PATHEXT` を使って `cmd.exe` または PowerShell を解決します。インストールコマンドと対話式インストーラーは、npm が Windows 上で `.cmd` shim としてインストールしたエージェント CLI も検出します。このため、`install --codex` などのコマンドでも対象の CLI を見つけられます。CI では、Linux や macOS と同じフルチェック（lint、型チェック、テストスイート全体）を `windows-latest` でも実行しています。Windows でスキップするテストは 3 件です。ただし、これらのテストが検証するのはアナライザーと連携部分のコードであり、各コーディングエージェント自体を Windows 上で動かして確認しているわけではありません。Amp のマニュアルが対応対象として挙げているのも macOS、Linux、WSL であり、Windows ネイティブではありません。
 
@@ -220,7 +220,7 @@ Cursor には、個人マーケットプレイスからネイティブ Cursor �
 npx -y cc-safety-net@latest install --deepseek-harness
 ```
 
-DeepSeek Harness は、フック subprocess ではなくプロファイルのプラグインバンドルとして CC Safety Net を読み込みます。そのため、このホストには `hook` フラグがありません。1 回のインストールで保護するのは、DeepSeek Harness の 2 つのプロファイルです。`npx @deepseek-ai/dsh web` とグローバルインストールが共有する `web` プロファイルと、デスクトップアプリが使う `desktop` プロファイルが対象です。`acp`、`headless`、`sdk`、`sdk-minimal` の各プロファイルと、後から作成したプロファイルでは、`dsh plugin --profile <name> add cc-safety-net` でプラグインを個別に追加するまで CC Safety Net は動きません。
+DeepSeek Harness は、フックサブプロセス ではなくプロファイルのプラグインバンドルとして CC Safety Net を読み込みます。そのため、このホストには `hook` フラグがありません。1 回のインストールで保護するのは、DeepSeek Harness の 2 つのプロファイルです。`npx @deepseek-ai/dsh web` とグローバルインストールが共有する `web` プロファイルと、デスクトップアプリが使う `desktop` プロファイルが対象です。`acp`、`headless`、`sdk`、`sdk-minimal` の各プロファイルと、後から作成したプロファイルでは、`dsh plugin --profile <name> add cc-safety-net` でプラグインを個別に追加するまで CC Safety Net は動きません。
 
 プロファイルの置き場所は `~/.dsh/profiles`、`DSH_HOME` が設定されている場合は `$DSH_HOME/profiles` です。先頭の `~` はホームディレクトリに展開されます。各プロファイルの `package.json` には、`cc-safety-net` の依存関係と、それを有効にするバンドルの一覧の両方が記録されます。インストール、アンインストール、`doctor` はいずれもこのマニフェストを読み取ります。
 
@@ -528,7 +528,7 @@ npx -y cc-safety-net@latest uninstall --openclaw
   変更を反映するため、インストール、更新、アンインストールの後に OpenClaw Gateway を再起動してください。`openclaw.json` に `plugins.allow` が設定されている場合は、そこに `cc-safety-net` も記載する必要があります。allowlist に含まれていないと、有効になっていてもプラグインは読み込まれません。
 </Note>
 
-OpenClaw は CC Safety Net をフック subprocess ではなくプロセス内のプラグインとして読み込むため、実行時のフックフラグはありません。プラグインが `before_tool_call` ハンドラーを登録するのは、タグの付いていない `exec` ツールに対してだけです。OpenClaw のファイル系ツールと、タグ付きの `exec` は対象外です。対応する `exec` の呼び出しは、いずれもエージェントのワークスペースディレクトリを基準に解析します。ワークスペースを解決できない場合、`workdir` がワークスペースの外を指す場合、`auto` と `gateway` 以外の実行ホスト（`sandbox` や `node` など）が指定された場合は、フェイルクローズで動作します。
+OpenClaw は CC Safety Net をフックサブプロセス ではなくプロセス内のプラグインとして読み込むため、実行時のフックフラグはありません。プラグインが `before_tool_call` ハンドラーを登録するのは、タグの付いていない `exec` ツールに対してだけです。OpenClaw のファイル系ツールと、タグ付きの `exec` は対象外です。対応する `exec` の呼び出しは、いずれもエージェントのワークスペースディレクトリを基準に解析します。ワークスペースを解決できない場合、`workdir` がワークスペースの外を指す場合、`auto` と `gateway` 以外の実行ホスト（`sandbox` や `node` など）が指定された場合は、フェイルクローズで動作します。
 
 OpenClaw の各パスを解決する基準は `OPENCLAW_HOME` です。設定されていればその値が実効ホームディレクトリになり、先頭の `~` は OS のホームディレクトリを基準に展開します。未設定であれば、OS のホームディレクトリがそのまま実効ホームディレクトリです。状態ディレクトリは、`OPENCLAW_STATE_DIR` が設定されていればそのディレクトリ、なければ `OPENCLAW_CONFIG_PATH` があるディレクトリ、どちらもなければ実効ホームディレクトリ内の `.openclaw` です。この 2 つの環境変数の先頭の `~` は、OS のホームディレクトリではなく実効ホームディレクトリを基準に展開します。設定ファイルは、`OPENCLAW_CONFIG_PATH` が設定されていればそのファイル、なければ状態ディレクトリ内の `openclaw.json` です。3 つの環境変数はいずれも前後の空白を取り除いて扱い、空の値は未設定とみなします。インストールと doctor も同じ方法でパスを解決するため、場所を移した OpenClaw を「見つからない」と誤って報告することはありません。
 
@@ -606,7 +606,7 @@ npx -y cc-safety-net@latest install --pi
 npx -y cc-safety-net@latest uninstall --pi
 ```
 
-Pi は CC Safety Net をフック subprocess ではなく、プロセス内の拡張機能として読み込みます。この拡張機能がシェルコマンドとして解析するのは、Pi 組み込みの `bash` ツールだけです。その他のツール入力についても保護対象のパスが含まれていないかを検査しますが、`Shell` という名前のカスタムコマンドツール（pi-grok-cli など）には対応していません。あわせて、ルールブックを管理するための組み込みコマンド `/cc-safety-net` を登録します。詳細は[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
+Pi は CC Safety Net をフックサブプロセス ではなく、プロセス内の拡張機能として読み込みます。この拡張機能がシェルコマンドとして解析するのは、Pi 組み込みの `bash` ツールだけです。その他のツール入力についても保護対象のパスが含まれていないかを検査しますが、`Shell` という名前のカスタムコマンドツール（pi-grok-cli など）には対応していません。あわせて、ルールブックを管理するための組み込みコマンド `/cc-safety-net` を登録します。詳細は[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
 
 ## 以前のプラグイン識別子から移行する
 

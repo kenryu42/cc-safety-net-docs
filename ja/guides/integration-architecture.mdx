@@ -1,7 +1,7 @@
 ---
 title: "CC Safety Net と各エージェントの連携方法"
 sidebarTitle: "連携アーキテクチャ"
-description: "CC Safety Net が 16 のエージェントに接続する 4 つの方式です。標準入力を使うフック subprocess、エージェントが読み込むプラグイン、プロセス内で動く Pi の拡張機能、Amp Code のイベントプラグインを扱います。"
+description: "CC Safety Net が 16 のエージェントに接続する 4 つの方式です。標準入力を使うフックサブプロセス、エージェントが読み込むプラグイン、プロセス内で動く Pi の拡張機能、Amp Code のイベントプラグインを扱います。"
 ---
 
 このページは、連携の設定や不具合の調査に使います。各エージェントが CC Safety Net を呼び出し、判定を受け取るまでの流れを示します。ユーザー向けのライフサイクルは[仕組み](/ja/guides/how-it-works)を参照してください。
@@ -14,12 +14,12 @@ CC Safety Net は 16 のコーディングエージェントに対応し、接�
 
 | 方式 | エージェント | 仕組み |
 | --- | --- | --- |
-| **標準入力のフック subprocess** | Antigravity CLI、Claude Code、Codex、Cursor、Devin CLI、Factory Droid、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code | エージェントはツール呼び出しのたびに `cc-safety-net hook <flag>` を短命のプロセスとして実行し、呼び出し内容を JSON で標準入力に書き込みます。CC Safety Net は解析結果として、エージェントごとの拒否オブジェクトを標準出力に返し、終了コード 0 で終了します（Factory Droid では 2）。 |
+| **標準入力のフックサブプロセス** | Antigravity CLI、Claude Code、Codex、Cursor、Devin CLI、Factory Droid、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code | エージェントはツール呼び出しのたびに `cc-safety-net hook <flag>` を短命のプロセスとして実行し、呼び出し内容を JSON で標準入力に書き込みます。CC Safety Net は解析結果として、エージェントごとの拒否オブジェクトを標準出力に返し、終了コード 0 で終了します（Factory Droid では 2）。 |
 | **エージェントが読み込むプラグイン** | DeepSeek Harness、OpenClaw、OpenCode | エージェントが、自身のパッケージ形式のプラグインとして CC Safety Net を読み込みます。これらのエージェントに `hook` フラグはありません。 |
-| **プロセス内の拡張機能** | Pi | Pi は CC Safety Net の拡張機能を自身のプロセスに直接読み込み、メモリ内で呼び出します。subprocess も標準入出力も使いません。 |
+| **プロセス内の拡張機能** | Pi | Pi は CC Safety Net の拡張機能を自身のプロセスに直接読み込み、メモリ内で呼び出します。サブプロセスも標準入出力も使いません。 |
 | **イベントプラグイン** | Amp Code | Amp は、アカウントの Personal Plugins リポジトリから管理対象の personal plugin を読み込み、`tool.call` の各イベントをプロセス内で渡します。 |
 
-## 標準入力のフック subprocess を使うエージェント
+## 標準入力のフックサブプロセス を使うエージェント
 
 この 11 のエージェントでは、標準入力から JSON を読み取る `hook <flag>` コマンドが保護を担います。実行前イベントの名前もコマンド用ツールの名前もエージェントごとに異なり、標準出力に求められる拒否の形式も異なります。
 
@@ -148,7 +148,7 @@ CC Safety Net failed closed: the Hermes file tool directory could not be read (<
 
 `terminal` の解決に失敗した場合も同じメッセージで、`file tool` の部分が `session` になります。
 
-アナライザーの subprocess は Hermes の作業ディレクトリではなくホームディレクトリから起動します。これにより、`npx` が正規のパッケージの代わりにリポジトリ内の `cc-safety-net` を解決してしまうのを防ぎます。
+アナライザーのサブプロセスは Hermes の作業ディレクトリではなくホームディレクトリから起動します。これにより、`npx` が正規のパッケージの代わりにリポジトリ内の `cc-safety-net` を解決してしまうのを防ぎます。
 
 管理対象プラグインの配置先は Hermes のホームで決まります。Hermes の CLI は、プロファイルのディレクトリをホームとして使います。親ディレクトリ名が `profiles` である `HERMES_HOME` はすでにプロファイルのディレクトリなので、CC Safety Net はその値をそのまま使います。そうでない場合、ルートは `HERMES_HOME`、未設定なら `~/.hermes` です。CC Safety Net はそのルートにある `active_profile` ファイルを読み取り、前後の空白を除いて小文字に変換します。得られた名前で `<root>/profiles/<name>` を選びます。名前が空の場合、名前が `default` の場合、ファイルが存在しないか読み取れない場合は、いずれもルートのままです。Hermes のプロファイル ID のパターンに合わない名前の場合は、次のエラーで処理を中止します。
 
