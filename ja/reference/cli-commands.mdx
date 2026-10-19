@@ -21,7 +21,7 @@ keywords:
 
 CC Safety Net には、`cc-safety-net` という 1 つの CLI があります。`npx cc-safety-net` または `bunx cc-safety-net` で実行します。
 
-適用処理は、`cc-safety-net install` が設定するプラグイン、拡張機能、hook を通して、エージェント内で動作します。CLI 自体をグローバルにインストールする必要はありません。`npx` または `bunx` は、ここで説明するコマンドの実行時に CLI を取得します。
+適用処理は、`cc-safety-net install` が設定するプラグイン、拡張機能、フックを通して、エージェント内で動作します。CLI 自体をグローバルにインストールする必要はありません。`npx` または `bunx` は、ここで説明するコマンドの実行時に CLI を取得します。
 
 このページは、コマンド、サブコマンド、オプション、終了動作をまとめたリファレンスです。初回実行の手順は[クイックスタート](/ja/quickstart)、エージェントごとの設定は[インストール](/ja/installation)を参照してください。
 
@@ -33,14 +33,14 @@ CLI は 12 個のコマンドを登録します。次の順序は、`cc-safety-n
 | --- | --- | --- |
 | [`status`](#status) | `status` | ランタイムが現在適用しているものを表示する |
 | [`doctor`](#doctor) | `doctor [options]` | インストールと設定に対する診断検査を実行する |
-| [`logs`](#logs) | `logs [options]` | hook が記録した監査ログエントリを表示する |
+| [`logs`](#logs) | `logs [options]` | フックが記録した監査ログエントリを表示する |
 | [`explain`](#explain) | `explain [options] <command>` | コマンドの解析方法をトレースする |
-| [`rule`](#rule) | `rule <subcommand>` | ルール設定、rulebook の設定元、transparent wrapper、宣言済みのコマンド用ツールを管理する |
+| [`rule`](#rule) | `rule <subcommand>` | ルール設定、ルールブックの設定元、transparent wrapper、宣言済みのコマンド用ツールを管理する |
 | [`policy`](#policy) | `policy <subcommand>` | プロジェクトまたはユーザーのポリシー提案を検査して適用する |
 | [`install`](#install) | `install [TARGET_FLAG]` | CC Safety Net をコーディングエージェント CLI にインストールする |
 | [`update`](#update) | `update` | インストール済みのすべての連携を更新する |
 | [`uninstall`](#uninstall) | `uninstall [TARGET_FLAG]` | CC Safety Net をコーディングエージェント CLI から削除する |
-| [`hook`](#hook) | `hook INTEGRATION_FLAG` | エージェントのランタイム hook として動作し、標準入力から JSON を読み取る |
+| [`hook`](#hook) | `hook INTEGRATION_FLAG` | エージェントのランタイムフックとして動作し、標準入力から JSON を読み取る |
 | [`gui`](#gui) | `gui [options]` | ローカルのポリシーエディター GUI を開く |
 | [`statusline`](#statusline) | `statusline --claude-code` | シェル連携用の 1 行ステータスインジケーターを出力する |
 
@@ -88,7 +88,7 @@ Claude の設定ファイルがない、解析に失敗する、`enabledPlugins`
 | `Rules` | `none active`、または有効なカスタムルール数を示す `<n> active` |
 | `Policy` | ユーザーポリシーファイルのパス。`~` で短縮される |
 | `Project` | プロジェクトポリシーファイルのパス。カレントディレクトリにある `.cc-safety-net/policy.json` がユーザーポリシーファイルではない場合に**のみ**出力される |
-| `Worktree` | `relaxations active`。worktree モードが有効な場合に**のみ**出力される |
+| `Worktree` | `relaxations active`。ワークツリーモードが有効な場合に**のみ**出力される |
 
 情報行は 1 行です。長い値は折り返さず、`…` で切り詰めます。
 
@@ -121,7 +121,7 @@ bunx cc-safety-net doctor
 | Guard Engine Verification | ブロックが動作することを確認する合成セルフテストを実行する（`git reset --hard` と `rm -rf /` はブロック、`rm -rf ./node_modules` は許可） |
 | Configuration | ユーザーとプロジェクトのルール設定を検証し、有効なルールを表示する |
 | Environment | CC Safety Net の環境変数の状態を表示する |
-| Effective Safety | 選択された preset、有効レベル、機能、ルールの override を表示する。継承されたルールを弱める override も含む。プロジェクトポリシーによる緩和は `Project policy deltas:` の下に表示される。`CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY` が設定されている場合の見出しは `Project policy deltas (ignored):` |
+| Effective Safety | 選択されたプリセット、有効レベル、機能、ルールの override を表示する。継承されたルールを弱める override も含む。プロジェクトポリシーによる緩和は `Project policy deltas:` の下に表示される。`CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY` が設定されている場合の見出しは `Project policy deltas (ignored):` |
 | Findings | 診断された問題。それぞれに重大度と修正ヒントがある |
 | Recent Activity | 過去 7 日間のブロックされたコマンドを要約する |
 | System Info | 関連するすべてのツールのバージョンを表示する |
@@ -143,15 +143,15 @@ bunx cc-safety-net doctor
 Warning (Codex): Codex runs only trusted hooks, and doctor cannot check trust. Start Codex, open `/hooks`, select the cc-safety-net PreToolUse hook, and press `t` to trust it.
 ```
 
-`doctor` は hook が信頼済みかどうかを Codex に問い合わせません。そのため、このリマインダーは毎回表示されます。信頼設定が欠けていることを示すものではありません。Inspection は `Verified` のままで、finding も発生せず、終了コードも変わりません。`doctor --json` では、`hooks` の `codex` エントリの `errors` 配列に同じ文字列が入ります。
+`doctor` はフックが信頼済みかどうかを Codex に問い合わせません。そのため、このリマインダーは毎回表示されます。信頼設定が欠けていることを示すものではありません。Inspection は `Verified` のままで、finding も発生せず、終了コードも変わりません。`doctor --json` では、`hooks` の `codex` エントリの `errors` 配列に同じ文字列が入ります。
 
-GitHub Copilot CLI では、`doctor` はプラグインの checkout 状態と hook の定義を確認します。インライン設定の優先順は、`<repo>/.github/copilot/settings.local.json`、`<repo>/.github/copilot/settings.json`、`<repo>/.claude/settings.local.json`、`<repo>/.claude/settings.json`、`$COPILOT_HOME/settings.json` です（`COPILOT_HOME` の既定値は `~/.copilot`）。`$COPILOT_HOME/config.json` は読み取りません。さらに、`<repo>/.github/hooks/*.json` と `$COPILOT_HOME/hooks/*.json` も調べます。`.claude` ファイルのエントリは、コマンドに `hook --copilot-cli` または `hook -cp` がある場合だけ対象です。Claude Code 用の hook だけでは対象になりません。インライン設定には GitHub Copilot CLI `1.0.8+`、ユーザー hook ファイルには `0.0.422+` が必要です。
+GitHub Copilot CLI では、`doctor` はプラグインの checkout 状態とフックの定義を確認します。インライン設定の優先順は、`<repo>/.github/copilot/settings.local.json`、`<repo>/.github/copilot/settings.json`、`<repo>/.claude/settings.local.json`、`<repo>/.claude/settings.json`、`$COPILOT_HOME/settings.json` です（`COPILOT_HOME` の既定値は `~/.copilot`）。`$COPILOT_HOME/config.json` は読み取りません。さらに、`<repo>/.github/hooks/*.json` と `$COPILOT_HOME/hooks/*.json` も調べます。`.claude` ファイルのエントリは、コマンドに `hook --copilot-cli` または `hook -cp` がある場合だけ対象です。Claude Code 用のフックだけでは対象になりません。インライン設定には GitHub Copilot CLI `1.0.8+`、ユーザーフックファイルには `0.0.422+` が必要です。
 
-`doctor` は、Copilot と同じく `disableAllHooks: true` をスコープごとに適用します。リポジトリ側の settings ファイルでは、すべての方式が無効になります。どのファイルの値を使うかは、この値に真偽値を設定している最初のリポジトリ側ファイルで決まります。`$COPILOT_HOME/settings.json` では、そのファイル自身のインライン hook だけが無効になり、hook ファイルとプラグインは設定済みのままです。hook ファイルが自身の `disableAllHooks` を `true` にしている場合、そのファイルは対象外になり、ほかの hook ファイルは引き続き対象です。
+`doctor` は、Copilot と同じく `disableAllHooks: true` をスコープごとに適用します。リポジトリ側の settings ファイルでは、すべての方式が無効になります。どのファイルの値を使うかは、この値に真偽値を設定している最初のリポジトリ側ファイルで決まります。`$COPILOT_HOME/settings.json` では、そのファイル自身のインラインフックだけが無効になり、フックファイルとプラグインは設定済みのままです。フックファイルが自身の `disableAllHooks` を `true` にしている場合、そのファイルは対象外になり、ほかのフックファイルは引き続き対象です。
 
 Copilot のプラグインスイッチは、Copilot 自身の適用方法にあわせてエントリ単位で読み取ります。`enabledPlugins` の `cc-safety-net@cc-marketplace` に真偽値を設定している最初のリポジトリ側ファイルが結果を決めます。`doctor` は `disableAllHooks` と同じ順、つまり `<repo>/.github/copilot/settings.local.json`、`<repo>/.github/copilot/settings.json`、`<repo>/.claude/settings.local.json`、`<repo>/.claude/settings.json` の順に探します。どれも設定していなければ `$COPILOT_HOME/settings.json` が決めます。したがって、リポジトリ側の `true` はユーザー側の `false` を打ち消します。プラグインの checkout があり、`$COPILOT_HOME/settings.json` が解析できない場合、`doctor` は `Not inspected` と報告します。ただし、リポジトリ側のファイルがすでにスイッチを決めているときは除きます。
 
-スイッチで無効になった Copilot プラグインを `doctor` が `Not configured` と報告するのは、CC Safety Net の hook 設定がどれも有効でない場合だけです。hook ファイルまたはインラインの hook エントリがまだガードを実行している場合、`doctor` は方式を `hook config` として、そちらを報告します。Copilot は hook 設定をプラグインの hook とは別に読み込むためです。
+スイッチで無効になった Copilot プラグインを `doctor` が `Not configured` と報告するのは、CC Safety Net のフック設定がどれも有効でない場合だけです。フックファイルまたはインラインのフックエントリがまだガードを実行している場合、`doctor` は方式を `hook config` として、そちらを報告します。Copilot はフック設定をプラグインのフックとは別に読み込むためです。
 
 `hooks.preToolUse` のエントリが対象になるのは、`type` がないか `command` のときです。Copilot は `type` がない場合を `command` として扱います。コマンドは `command`、`bash`、`powershell`、または `exec` と `args` を連結したものから読み取ります。`exec` は文字列、`args` は文字列の配列でなければなりません。これらの形に合わないファイルは `Invalid hook config <path>: hooks.preToolUse must be an array of hook objects`、そもそも解析できないファイルは `Failed to parse <path>: <reason>` と表示されます。
 
@@ -162,7 +162,7 @@ OpenCode 2.x を報告するホストでは、`doctor` は設定ファイルだ�
 `doctor` が `1` で終了するのは、エンジンのセルフテストが失敗した場合と、Findings セクションに `error` 重大度の finding が 1 つでもある場合です。それ以外は `0` で終了します。警告は終了コードに影響しません。次の finding は `error` 重大度です。
 
 - エージェント連携が設定されていません。
-- hook の検査に失敗しました。
+- フックの検査に失敗しました。
 - ユーザーまたはプロジェクトのルール設定が無効です。
 - policy、config、audit のいずれかのディレクトリが安全ではありません。現在のユーザーの所有ではない、グループまたはその他のユーザーに書き込み権限がある、シンボリックリンクである、ディレクトリではない、のいずれかに当てはまる状態を指します。
 
@@ -174,14 +174,14 @@ OpenCode 2.x を報告するホストでは、`doctor` は設定ファイルだ�
 
 <span id="managed-hook-drift"></span>
 
-### 管理対象 hook の設定ずれ
+### 管理対象フックの設定ずれ
 
-Cursor、Devin CLI、Factory Droid、Grok Build は、hook のエントリを手で編集できる設定ファイルに保持します。そのため `doctor` は、ディスク上のエントリと、インストールが書き込むエントリを比較します。ずれているエントリも、管理対象のエントリであることに変わりはありません。エージェントは `Configured` のままで、一致しなかった項目ごとに `Warning (<Agent>): <message>` を出力し、終了コードも変わりません。インストールを実行し直せば、エントリは書き直されます。
+Cursor、Devin CLI、Factory Droid、Grok Build は、フックのエントリを手で編集できる設定ファイルに保持します。そのため `doctor` は、ディスク上のエントリと、インストールが書き込むエントリを比較します。ずれているエントリも、管理対象のエントリであることに変わりはありません。エージェントは `Configured` のままで、一致しなかった項目ごとに `Warning (<Agent>): <message>` を出力し、終了コードも変わりません。インストールを実行し直せば、エントリは書き直されます。
 
 | エージェント | 警告 | ずれている箇所 |
 | --- | --- | --- |
 | Cursor | `Multiple managed cc-safety-net hooks found; reinstall to collapse duplicates` | `hooks.preToolUse` に管理対象のエントリが複数ある |
-| Cursor | `Managed hook is missing "failClosed": true; reinstall to repair` | 最初の管理対象エントリの `failClosed` が `true` でない。この場合、hook が判定できなかった呼び出しを Cursor が許可してしまう |
+| Cursor | `Managed hook is missing "failClosed": true; reinstall to repair` | 最初の管理対象エントリの `failClosed` が `true` でない。この場合、フックが判定できなかった呼び出しを Cursor が許可してしまう |
 | Cursor | `Managed hook "timeout" is not 30; reinstall to repair` | 最初の管理対象エントリの `timeout` が `30` でない |
 | Devin CLI | `Managed hook has a "matcher" that narrows coverage; reinstall to repair` | 管理対象エントリの `matcher` が `""` でも `"*"` でもない |
 | Devin CLI | `Managed hook "type" is not "command"; reinstall to repair` | 管理対象ハンドラーの `type` が `command` でない |
@@ -190,13 +190,13 @@ Cursor、Devin CLI、Factory Droid、Grok Build は、hook のエントリを手
 | Factory Droid | `Managed hook has a "matcher" that narrows coverage; reinstall to repair` | 管理対象エントリの `matcher` が `""` でも `"*"` でもない |
 | Factory Droid | `Managed hook "type" is not "command"; reinstall to repair` | 管理対象ハンドラーの `type` が `command` でない |
 | Factory Droid | `Managed hook "timeout" is not 30; reinstall to repair` | 管理対象ハンドラーの `timeout` が `30` でない |
-| Grok Build | `Managed hook has a "matcher" that narrows coverage; reinstall to repair` | 管理対象エントリの `matcher` が `""` でも `"*"` でもない。この 2 つは Grok Build がすべてに一致するものとして扱う書き方で、それ以外の値では一部のツール呼び出しが hook を通らなくなる |
+| Grok Build | `Managed hook has a "matcher" that narrows coverage; reinstall to repair` | 管理対象エントリの `matcher` が `""` でも `"*"` でもない。この 2 つは Grok Build がすべてに一致するものとして扱う書き方で、それ以外の値では一部のツール呼び出しがフックを通らなくなる |
 | Grok Build | `Managed hook "type" is not "command"; reinstall to repair` | 管理対象ハンドラーの `type` が `command` でない |
 | Grok Build | `Managed hook "timeout" is not 30; reinstall to repair` | 管理対象ハンドラーの `timeout` が `30` でない |
 
-Antigravity CLI には、ずれの検査がありません。`doctor` は正規のエントリと比較するのではなく、コマンドのパターンで hook を照合します。そのため `Detected` かつ `Configured` と報告し、hook の定義に `enabled: false` がある場合は `Detected` かつ `Not configured` と報告します。
+Antigravity CLI には、ずれの検査がありません。`doctor` は正規のエントリと比較するのではなく、コマンドのパターンでフックを照合します。そのため `Detected` かつ `Configured` と報告し、フックの定義に `enabled: false` がある場合は `Detected` かつ `Not configured` と報告します。
 
-hook の設定ファイルをパースできない場合は、5 つとも結果が変わります。検出の段階で管理対象のエントリが見つからないため、そのエージェントは未設定として数えられ、Discovery、Configuration、Inspection の各列は `Unknown`、`Unknown`、`Failed` になります。メッセージも、警告ではなくエラーとして赤で表示されます。
+フックの設定ファイルをパースできない場合は、5 つとも結果が変わります。検出の段階で管理対象のエントリが見つからないため、そのエージェントは未設定として数えられ、Discovery、Configuration、Inspection の各列は `Unknown`、`Unknown`、`Failed` になります。メッセージも、警告ではなくエラーとして赤で表示されます。
 
 - `Error (Antigravity CLI): Failed to parse Antigravity hooks config <path>: <reason>`
 - `Error (Cursor): Failed to parse Cursor hooks config <path>: <reason>`
@@ -216,19 +216,19 @@ Devin CLI の設定ファイルがパースできても形式が合わない場�
 
 <span id="hooks-the-agent-skips"></span>
 
-### エージェントが実行しない hook
+### エージェントが実行しないフック
 
 Grok Build、Kimi Code、Pi には、CC Safety Net をインストールしたまま、エージェントに実行させない設定があります。`doctor` がこの設定を見つけると、そのエージェントの各列は `Detected`、`Not configured`、`Verified` になり、メッセージは `Error (<Agent>): <message>` として表示されます。これ自体が finding を発生させることはありません。
 
-Grok Build は、`hooks` ディレクトリと同じ場所にある `disabled-hooks` ファイルに載っている hook を実行しません。場所は `~/.grok/disabled-hooks`、`GROK_HOME` が設定されている場合は `$GROK_HOME/disabled-hooks` です。`doctor` は各行の前後の空白を取り除き、`global/cc-safety-net:pre_tool_use[<i>].hooks[<j>]` と比べます。`<i>` と `<j>` は、管理対象エントリとそのハンドラーのインデックスです。一致する行があると、次のように表示されます。
+Grok Build は、`hooks` ディレクトリと同じ場所にある `disabled-hooks` ファイルに載っているフックを実行しません。場所は `~/.grok/disabled-hooks`、`GROK_HOME` が設定されている場合は `$GROK_HOME/disabled-hooks` です。`doctor` は各行の前後の空白を取り除き、`global/cc-safety-net:pre_tool_use[<i>].hooks[<j>]` と比べます。`<i>` と `<j>` は、管理対象エントリとそのハンドラーのインデックスです。一致する行があると、次のように表示されます。
 
 ```text
 Grok Build skips the hook: <name> is listed in <path>; enable it in /hooks
 ```
 
-このとき、そのエントリの設定ずれのメッセージもエラーとして表示されます。ファイルはあるのに読み取れない場合、hook の結果は変わらず、`Cannot read <path>, so doctor cannot tell whether Grok Build skips the hook` が加わります。hook は `Configured` のままなので、このメッセージは警告として表示されます。
+このとき、そのエントリの設定ずれのメッセージもエラーとして表示されます。ファイルはあるのに読み取れない場合、フックの結果は変わらず、`Cannot read <path>, so doctor cannot tell whether Grok Build skips the hook` が加わります。フックは `Configured` のままなので、このメッセージは警告として表示されます。
 
-Kimi Code は、hooks のエントリが 1 つでもスキーマに合わないと、`config.toml` の hook をすべて無視します。`config.toml` に CC Safety Net の hook がある場合、`doctor` は管理対象のエントリだけでなく、すべての `[[hooks]]` エントリを検査します。インラインの `hooks = [...]` 配列なら、その各エントリが対象です。問題のあるエントリごとに、次のように表示されます。
+Kimi Code は、フックのエントリが 1 つでもスキーマに合わないと、`config.toml` のフックをすべて無視します。`config.toml` に CC Safety Net のフックがある場合、`doctor` は管理対象のエントリだけでなく、すべての `[[hooks]]` エントリを検査します。インラインの `hooks = [...]` 配列なら、その各エントリが対象です。問題のあるエントリごとに、次のように表示されます。
 
 ```text
 Kimi Code ignores every hook because hooks entry <n> is invalid (<problem>); fix it in <path>
@@ -241,14 +241,14 @@ Kimi Code ignores every hook because hooks entry <n> is invalid (<problem>); fix
 | `"<text>" is not a key = value pair` | エントリの一部が `key = value` の形になっていない |
 | `unknown key "<key>"` | `event`、`matcher`、`command`、`timeout` 以外のキーがある |
 | `duplicate key "<key>"` | 同じキーがエントリ内に 2 回ある |
-| `"event" is not a Kimi Code hook event` | `event` がない、または Kimi Code の hook イベントではない |
+| `"event" is not a Kimi Code hook event` | `event` がない、または Kimi Code のフックイベントではない |
 | `"matcher" is not a string` | `matcher` があり、文字列ではない |
 | `"command" is missing or empty` | `command` がない、文字列ではない、または空 |
 | `"timeout" is not an integer from 1 to 600` | `timeout` があり、数字の区切りの `_` を除いた値が `1` から `600` の整数ではない |
 
 `"""` または `'''` を含む `config.toml` では、この検査を省きます。
 
-`config.toml` がない場合や、CC Safety Net の hook がない場合、`doctor` は `<Kimi home>/plugins/installed.json` からネイティブの Kimi Code プラグインを探します。Kimi のホームは `$KIMI_CODE_HOME`、未設定なら `~/.kimi-code` です。`enabled: true` の `cc-safety-net` の記録は、方式 `plugin config` で `Configured` になります。それ以外の `cc-safety-net` の記録では、`cc-safety-net is installed but not enabled in Kimi Code; run /plugins enable cc-safety-net` が表示されます。ファイルを読み取れない場合、JSON としてパースできない場合、`plugins` 配列がない場合は、`Cannot read <path>, so doctor cannot tell whether the Kimi Code plugin is installed` が表示されます。このとき Kimi Code の各列は `Unknown`、`Unknown`、`Failed` になり、`Kimi Code inspection failed` の finding が発生するため、`doctor` は `1` で終了します。[`update`](#update) はこのプラグインを更新しません。
+`config.toml` がない場合や、CC Safety Net のフックがない場合、`doctor` は `<Kimi home>/plugins/installed.json` からネイティブの Kimi Code プラグインを探します。Kimi のホームは `$KIMI_CODE_HOME`、未設定なら `~/.kimi-code` です。`enabled: true` の `cc-safety-net` の記録は、方式 `plugin config` で `Configured` になります。それ以外の `cc-safety-net` の記録では、`cc-safety-net is installed but not enabled in Kimi Code; run /plugins enable cc-safety-net` が表示されます。ファイルを読み取れない場合、JSON としてパースできない場合、`plugins` 配列がない場合は、`Cannot read <path>, so doctor cannot tell whether the Kimi Code plugin is installed` が表示されます。このとき Kimi Code の各列は `Unknown`、`Unknown`、`Failed` になり、`Kimi Code inspection failed` の finding が発生するため、`doctor` は `1` で終了します。[`update`](#update) はこのプラグインを更新しません。
 
 Pi では、パッケージのエントリに `extensions` フィルターを付けられます。Pi の `settings.json` にある `npm:cc-safety-net` のエントリにフィルターがある場合、そのフィルターで `dist/pi/index.js` が読み込まれないかぎり、`doctor` は `npm:cc-safety-net is installed but its extension is disabled in Pi settings` と表示します。判定は Pi 自身のパターン規則に従います。
 
@@ -271,13 +271,13 @@ Claude Code プラグインには Cursor 用のプラグインマニフェスト
 
 Cursor が Claude Code プラグインを実行するのは、Claude Code プラグインをインポートする場合だけです。`doctor` はインポートしているかどうかを確認できないため、以下の 2 つのメッセージはどちらもそのことに触れています。
 
-`install --cursor` の hook も設定されている場合、Cursor の方式は `hook config` のままで、`doctor` は次のように出力します。
+`install --cursor` のフックも設定されている場合、Cursor の方式は `hook config` のままで、`doctor` は次のように出力します。
 
 ```text
 Warning (Cursor): The Claude Code plugin also runs this check in Cursor, so every tool call is checked twice. Cursor runs the Claude Code plugin only while it imports Claude Code plugins, which doctor cannot check. If Cursor runs it, run `cc-safety-net uninstall --cursor` to remove this hook.
 ```
 
-`doctor` が hook を自動で削除することはありません。
+`doctor` がフックを自動で削除することはありません。
 
 プラグインが唯一の経路の場合、Cursor は `Detected`、`Configured`、`Verified` になります。`doctor --json` は方式として `Claude Code plugin` を、`configPath` としてマニフェストのパスを報告します。`doctor` の出力は次のとおりです。
 
@@ -287,19 +287,19 @@ Warning (Cursor): Cursor runs the Claude Code plugin only while it imports Claud
 
 どちらの警告も終了コードには影響しません。この経路が数えられている間は、パースできない `~/.cursor/hooks.json` も警告 `Warning (Cursor): Failed to parse Cursor hooks config <path>: <reason>` として表示され、`Cursor inspection failed` の finding は発生しません。
 
-プラグインだけで保護されている Cursor には、`~/.cursor/hooks.json` に管理対象の hook がありません。[`update`](#update) はこの Cursor をスキップするため、hook を書き戻しません。対話形式のセレクターでは、install 時は `already installed`、uninstall 時は `not installed` と表示されます。`install --cursor` を実行すれば、hook は書き込まれます。
+プラグインだけで保護されている Cursor には、`~/.cursor/hooks.json` に管理対象のフックがありません。[`update`](#update) はこの Cursor をスキップするため、フックを書き戻しません。対話形式のセレクターでは、install 時は `already installed`、uninstall 時は `not installed` と表示されます。`install --cursor` を実行すれば、フックは書き込まれます。
 
 <span id="cursor-through-a-native-cursor-plugin"></span>
 
 ### ネイティブ Cursor プラグイン経由の Cursor
 
-Cursor は、ネイティブ Cursor プラグインからも CC Safety Net を実行できます。このプラグインは、`cursor-agent` で個人マーケットプレイスとして Cursor アカウントに追加します。`install --cursor` がこの経路を設定することはなく、書き込むのは hook だけです。Cursor はマーケットプレイスのプラグインを追加時のコミットに固定するため、[`update`](#update) ではそのプラグインを最新に保てません。ただし、自分でインストールしたプラグインは `doctor` が報告します。
+Cursor は、ネイティブ Cursor プラグインからも CC Safety Net を実行できます。このプラグインは、`cursor-agent` で個人マーケットプレイスとして Cursor アカウントに追加します。`install --cursor` がこの経路を設定することはなく、書き込むのはフックだけです。Cursor はマーケットプレイスのプラグインを追加時のコミットに固定するため、[`update`](#update) ではそのプラグインを最新に保てません。ただし、自分でインストールしたプラグインは `doctor` が報告します。
 
 `doctor` がこのプラグインを数えるのは、`~/.cursor/plugins/cache/cc-safety-net/cc-safety-net` 配下のバージョンディレクトリに `.cache-complete` ファイルがある場合です。Cursor はこのファイルでダウンロードの完了を示します。この経路は [Claude Code プラグイン](#cursor-through-the-claude-code-plugin)経由よりも優先されます。両方そろっている場合、`doctor --json` は方式として `Cursor plugin` を、`configPath` としてそのバージョンディレクトリを報告します。
 
 どのプラグインを有効にしているかは Cursor アカウント側の記録であり、`doctor` はこれを読み取れません。また Cursor はアンインストール後もプラグインのファイルを残すため、キャッシュディレクトリがあっても、プラグインがまだ動いている証拠にはなりません。以下の 2 つのメッセージは、どちらもこの 2 点に触れ、さらに `update` ではこのプラグインを更新できないことも伝えます。
 
-`install --cursor` の hook も設定されている場合、Cursor の方式は `hook config` のままで、`doctor` は次のように出力します。
+`install --cursor` のフックも設定されている場合、Cursor の方式は `hook config` のままで、`doctor` は次のように出力します。
 
 ```text
 Warning (Cursor): The Cursor plugin also runs this check, so every tool call is checked twice. Cursor records enabled plugins on your Cursor account, which doctor cannot check, and keeps a plugin's files after it is uninstalled. Cursor pins marketplace plugins to the commit they were added at, so `cc-safety-net update` cannot update this plugin, while the npx hook (`cc-safety-net install --cursor`) stays current. If the plugin is installed, run `cc-safety-net uninstall --cursor`, uninstall CC Safety Net from /plugins in cursor-agent, then run `cc-safety-net install --cursor`.
@@ -311,15 +311,15 @@ Warning (Cursor): The Cursor plugin also runs this check, so every tool call is 
 Warning (Cursor): Cursor records enabled plugins on your Cursor account, which doctor cannot check, and keeps a plugin's files after it is uninstalled. Cursor pins marketplace plugins to the commit they were added at, so `cc-safety-net update` cannot update this plugin, while the npx hook (`cc-safety-net install --cursor`) stays current. If /plugins in cursor-agent does not list CC Safety Net as installed, run `cc-safety-net install --cursor`.
 ```
 
-`doctor` がこの経路でしか数えていない Cursor は `update` の対象外です。そのため、`update` が npx hook を書き込むことはありません。対話形式のセレクターでは、install 時は `already installed` と表示され、uninstall 時は選択可能なままです。[`uninstall --cursor`](#uninstall) がマーケットプレイスも削除するからです。
+`doctor` がこの経路でしか数えていない Cursor は `update` の対象外です。そのため、`update` が npx フックを書き込むことはありません。対話形式のセレクターでは、install 時は `already installed` と表示され、uninstall 時は選択可能なままです。[`uninstall --cursor`](#uninstall) がマーケットプレイスも削除するからです。
 
-キャッシュディレクトリが存在するのに一覧を取得できない場合、`doctor` はプラグインの有無を判断できません。設定済みの hook は `Configured` のままで、警告が 1 つ増えます。
+キャッシュディレクトリが存在するのに一覧を取得できない場合、`doctor` はプラグインの有無を判断できません。設定済みのフックは `Configured` のままで、警告が 1 つ増えます。
 
 ```text
 Warning (Cursor): Cannot read <home>/.cursor/plugins/cache/cc-safety-net/cc-safety-net, so doctor cannot tell whether the Cursor plugin also runs this check.
 ```
 
-hook が設定されていない場合、Cursor の 3 つの列はすべて `Not inspected` になります。
+フックが設定されていない場合、Cursor の 3 つの列はすべて `Not inspected` になります。
 
 ### ホストごとの設定の場所
 
@@ -369,7 +369,7 @@ npx cc-safety-net logs --id 3fa9c2d1a70e8b42
 | `--json` | | エントリを JSON として出力する |
 | `-h`, `--help` | | ヘルプを表示する |
 
-**`--suspect`** は、再確認する価値がある拒否に結果を絞ります。`failureStage` を持つ拒否（解析に失敗し、ガードが fail closed になったため、コマンドが危険だと証明されたわけではない）、または同じセッション内で同じコマンド署名が 2 回以上拒否された場合です。繰り返し回数は、`--limit` で出力を切り詰める前に、`--since` の期間全体で数えます。
+**`--suspect`** は、再確認する価値がある拒否に結果を絞ります。`failureStage` を持つ拒否（解析に失敗し、ガードがフェイルクローズになったため、コマンドが危険だと証明されたわけではない）、または同じセッション内で同じコマンド署名が 2 回以上拒否された場合です。繰り返し回数は、`--limit` で出力を切り詰める前に、`--since` の期間全体で数えます。
 
 **同時に使えない組み合わせ。** 次の 2 つは、明示的なメッセージと終了コード `1` で拒否されます。
 
@@ -459,7 +459,7 @@ npx cc-safety-net explain --json 'echo ${'
 {"error":"Command could not be safely analyzed (strict mode). Simplify the command and retry, or ask the user to verify."}
 ```
 
-同じコマンドが hook 経由で渡された場合は、固定の拒否 ID [`analysis.strict-unparseable`](/ja/reference/destructive-rules#fixed-denial-ids) で拒否し、[監査ログ](/ja/reference/audit-log#record-schema)に `errorCode` として `unparseable-command` を記録します。
+同じコマンドがフック経由で渡された場合は、固定の拒否 ID [`analysis.strict-unparseable`](/ja/reference/destructive-rules#fixed-denial-ids) で拒否し、[監査ログ](/ja/reference/audit-log#record-schema)に `errorCode` として `unparseable-command` を記録します。
 
 最上位パーサーも同じ方法で `--` を処理します。最初の `--` で `--help` と `--version` の検索を停止します。そのため、`explain -- --help` はヘルプを出力せず、リテラルコマンド `--help` を explain します。
 
@@ -471,7 +471,7 @@ npx cc-safety-net explain --json 'echo ${'
 
 ## rule
 
-`rule` は、ルール設定、rulebook の設定元、transparent wrapper、そして解析対象として宣言したコミュニティ製のシェルツールを管理します。このセクションではコマンドインターフェースを説明します。rulebook のスキーマ、ライフサイクル、override の意味については、[カスタムルール](/ja/configuration/custom-rules)を参照してください。
+`rule` は、ルール設定、ルールブックの設定元、transparent wrapper、そして解析対象として宣言したコミュニティ製のシェルツールを管理します。このセクションではコマンドインターフェースを説明します。ルールブックのスキーマ、ライフサイクル、override の意味については、[カスタムルール](/ja/configuration/custom-rules)を参照してください。
 
 サブコマンドなしで `rule` を実行すると、ヘルプを出力して `1` で終了します。`rule --help` は同じヘルプを出力して `0` で終了します。
 
@@ -483,9 +483,9 @@ npx cc-safety-net explain --json 'echo ${'
 | `--project` | ユーザースコープではなくプロジェクトスコープのルール設定を使う | `tool add` と `tool remove` のみ |
 | `--cleanup` | `rule migrate` が検証した後にレガシーファイルを削除する | `migrate` のみ |
 | `--delete-source` | 削除時に、中身が `rulebook.json` だけのローカルの設定元ディレクトリも削除する | `remove` のみ |
-| `--example` | 非アクティブなサンプル rulebook を作成する | `init` のみ |
+| `--example` | 非アクティブなサンプルルールブックを作成する | `init` のみ |
 | `--ref <ref>` | ブランチ、タグ、コミットを指定する | `add` のみ |
-| `--only <rulebook...>` | リポジトリ内の指定した rulebook だけを追加する | `add` のみ |
+| `--only <rulebook...>` | リポジトリ内の指定したルールブックだけを追加する | `add` のみ |
 | `--cwd-arg <name>` | 作業ディレクトリを渡す引数の名前を指定する | `tool add` のみ |
 | `-h`, `--help` | ヘルプを表示する | すべて |
 
@@ -505,7 +505,7 @@ npx cc-safety-net explain --json 'echo ${'
 
 読み取りの動作は変わりません。`rule list`、`rule wrapper list`、`rule tool list` はこのディレクトリでも動作し、`--global` を付けたサブコマンドも同じです。[`rule migrate`](#rule-migrate) には `--global` がなく、このディレクトリでの扱いも異なります。
 
-`--check` は受け付けなくなりました。どのサブコマンドでも `Unknown option for rule: --check` として拒否されます。rulebook は毎回ディスクから読み込まれるため、`add` や `update` のドライランに意味を持たせるには、結局その候補を取得して検証するほかありません。オフラインでの検証には [`rule verify`](#rule-verify) を使います。
+`--check` は受け付けなくなりました。どのサブコマンドでも `Unknown option for rule: --check` として拒否されます。ルールブックは毎回ディスクから読み込まれるため、`add` や `update` のドライランに意味を持たせるには、結局その候補を取得して検証するほかありません。オフラインでの検証には [`rule verify`](#rule-verify) を使います。
 
 ### rule init
 
@@ -516,26 +516,26 @@ npx -y cc-safety-net rule init
 npx -y cc-safety-net rule init --global
 ```
 
-`rule init` だけを実行すると、ルールを含まない**非アクティブ**な設定を書き込みます。`example-rules` という開始用 rulebook も書き込むには、`--example` を指定します。
+`rule init` だけを実行すると、ルールを含まない**非アクティブ**な設定を書き込みます。`example-rules` という開始用ルールブックも書き込むには、`--example` を指定します。
 
 ```bash
 npx -y cc-safety-net rule init --example
 ```
 
-サンプル rulebook は、`example-rules/rulebook.json` が存在しない場合にのみ書き込まれます。設定から参照されないため、**非アクティブ**です。有効にするには、`rule add example-rules` で追加します。
+サンプルルールブックは、`example-rules/rulebook.json` が存在しない場合にのみ書き込まれます。設定から参照されないため、**非アクティブ**です。有効にするには、`rule add example-rules` で追加します。
 
 書き込み後、`rule init` はガードと同じ方法でスコープを読み込みます。エラーがあれば出力して `1` で終了します。問題がなければ `Rule config initialized.` を出力して `0` で終了します。
 
 ### rule add
 
-使用方法は `rule add [source] [--ref <ref>] [--only <rulebook...>]` です。設定元には 3 つの形式があります。`project-rules` のような裸のローカル名、`acme/safety-rules` のようなリポジトリ全体、`owner/repo#ref/<rulebook-name>` という正規形式で指定する単一の rulebook です。
+使用方法は `rule add [source] [--ref <ref>] [--only <rulebook...>]` です。設定元には 3 つの形式があります。`project-rules` のような裸のローカル名、`acme/safety-rules` のようなリポジトリ全体、`owner/repo#ref/<rulebook-name>` という正規形式で指定する単一のルールブックです。
 
 **オプション：**
 
 | フラグ | 説明 |
 | --- | --- |
 | `--ref <ref>` | ブランチ、タグ、コミットを指定する |
-| `--only <rulebook...>` | リポジトリ内の指定した rulebook だけを追加する |
+| `--only <rulebook...>` | リポジトリ内の指定したルールブックだけを追加する |
 | `-g`, `--global` | ユーザースコープのルール設定を使う |
 | `-h`, `--help` | ヘルプを表示する |
 
@@ -549,11 +549,11 @@ cc-safety-net rule add acme/safety-rules --ref v2 --only aws
 cc-safety-net rule add --only terraform aws
 ```
 
-設定元を指定せずに `--ref` または `--only` を渡すと、公式カタログの `cc-safety-net/rulebooks` が設定元になります。どちらのフラグもない `rule add` は `rule add requires a source (pass --only <rulebook...> to select from cc-safety-net/rulebooks)` を出力して `1` で終了します。そのため、公式 rulebook をすべて追加する場合は、これまでどおり `rule add cc-safety-net/rulebooks` と明示する必要があります。
+設定元を指定せずに `--ref` または `--only` を渡すと、公式カタログの `cc-safety-net/rulebooks` が設定元になります。どちらのフラグもない `rule add` は `rule add requires a source (pass --only <rulebook...> to select from cc-safety-net/rulebooks)` を出力して `1` で終了します。そのため、公式ルールブックをすべて追加する場合は、これまでどおり `rule add cc-safety-net/rulebooks` と明示する必要があります。
 
 他のサブコマンドと同様に、`-g` / `--global` でユーザースコープを選択します。
 
-リポジトリを設定元に指定した場合、`rule add` は書き込みの前に ref をコミットへ解決し、そのコミット時点のリポジトリにある `.cc-safety-net/rules/<name>/rulebook.json` をすべて列挙します。`--only` がなければ、それらを名前順ですべて追加します。`--only` を指定すると、指定した順序で該当する rulebook だけを追加し、重複は無視します。リポジトリに存在しない名前を指定すると、追加は失敗します。
+リポジトリを設定元に指定した場合、`rule add` は書き込みの前に ref をコミットへ解決し、そのコミット時点のリポジトリにある `.cc-safety-net/rules/<name>/rulebook.json` をすべて列挙します。`--only` がなければ、それらを名前順ですべて追加します。`--only` を指定すると、指定した順序で該当するルールブックだけを追加し、重複は無視します。リポジトリに存在しない名前を指定すると、追加は失敗します。
 
 `--ref` と `--only` は `owner/repo` 形式の設定元にのみ指定できます。それ以外では `--ref can only select a ref for an owner/repo source: <source>` または `--only can only select rulebooks from an owner/repo source` を出力します。`--ref` を省略した場合、`rule add` はリポジトリの既定ブランチを使います。ref には `/` を含むセグメントを指定できるため、`--ref feature/rulebook-v2` は有効です。ref 全体が `^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$` に一致する必要があり、一致しない場合は `--ref must use valid path segments: <ref>` を出力します。
 
@@ -563,8 +563,8 @@ cc-safety-net rule add --only terraform aws
 
 リポジトリを追加した場合は、続けて次の順序で出力します。
 
-- `Added <n> rulebooks from <source> at <ref>:`（1 件の場合は `rulebook`）に続けて、rulebook ごとに `  - <name>` の行
-- 選択した rulebook のうち `rule.json` にすでにあったものについて `Rulebooks already configured from <source> at <ref>: <names>`
+- `Added <n> rulebooks from <source> at <ref>:`（1 件の場合は `rulebook`）に続けて、ルールブックごとに `  - <name>` の行
+- 選択したルールブックのうち `rule.json` にすでにあったものについて `Rulebooks already configured from <source> at <ref>: <names>`
 - `Vendored at <commit>.`。解決されたコミットを先頭 7 文字に短縮したもので、新しい設定元を 1 つ以上書き込んだ場合にのみ出力される
 - 書き込んだファイルごとに 1 ブロック。新規ファイルは `Vendored <spec> (<version>)`、既存ファイルの更新は `Updated <spec> (<before> -> <after>)` に続けて、追加・削除・名前は同じで内容が変わったルールをそれぞれ `  + <rule>`、`  - <rule>`、`  ~ <rule>` の行で表示
 - `Rule config updated.`、空行、`Active rulebooks (<n>):`。各エントリは `  - <name> <version> (<n> rules)` と `    Source: <spec>`
@@ -573,7 +573,7 @@ cc-safety-net rule add --only terraform aws
 
 ### rule remove
 
-rulebook の設定元を削除して同期します。ローカルの設定元ディレクトリの中身が `rulebook.json` だけの場合に、そのディレクトリも削除するには `--delete-source` を追加します。
+ルールブックの設定元を削除して同期します。ローカルの設定元ディレクトリの中身が `rulebook.json` だけの場合に、そのディレクトリも削除するには `--delete-source` を追加します。
 
 ```bash
 npx -y cc-safety-net rule remove project-rules
@@ -583,19 +583,19 @@ npx -y cc-safety-net rule remove project-rules --delete-source
 `--delete-source` は、ディレクトリの中身が `rulebook.json` だけであることを 2 回確認します。1 回目は同期の前、2 回目は削除の直前です。その間の同期で、GitHub からの取得を待つことがあるためです。
 
 - その間に別のプロセスがファイルを追加した場合、2 回目の確認が削除を拒否し、`Local rulebook source directory contains extra files: <dir>. delete manually if you really want to remove the directory.` を出力します。設定の変更はロールバックされて再同期されるため、削除しようとした設定元は元に戻ります。
-- 削除は再帰的ではありません。検証済みの `rulebook.json` を削除してから、非再帰の `rmdir` でディレクトリ自体を削除します。unlink の後にファイルが追加されると `rmdir` が失敗し、そのファイルはそのまま残ります。削除されるのは rulebook ファイルだけです。
+- 削除は再帰的ではありません。検証済みの `rulebook.json` を削除してから、非再帰の `rmdir` でディレクトリ自体を削除します。unlink の後にファイルが追加されると `rmdir` が失敗し、そのファイルはそのまま残ります。削除されるのはルールブックファイルだけです。
 - 削除の時点でディレクトリがすでにない場合は、削除をスキップして成功として報告します。求められた最終状態に達しているためです。
 
 ### rule update
 
-すべての設定元について、リモート rulebook を再取得して取り込みます。設定元を 1 つ指定した場合は、その設定元だけを対象にします。
+すべての設定元について、リモートルールブックを再取得して取り込みます。設定元を 1 つ指定した場合は、その設定元だけを対象にします。
 
 ```bash
 npx -y cc-safety-net rule update
 npx -y cc-safety-net rule update project-rules
 ```
 
-実行のたびにブランチとタグの ref を解決し直すため、`main` や移動するタグを指している設定元は現在のコミットを取り込みます。ローカルの設定元には取得するものがありません。設定元はすべてレポートに現れますが、再取得されるのは選択した設定元だけで、残りはディスク上のファイルから読み込まれます。出力される変更ブロックは [`rule add`](#rule-add) と同じで、その後に `Rule config updated.` とアクティブな rulebook の一覧が続きます。
+実行のたびにブランチとタグの ref を解決し直すため、`main` や移動するタグを指している設定元は現在のコミットを取り込みます。ローカルの設定元には取得するものがありません。設定元はすべてレポートに現れますが、再取得されるのは選択した設定元だけで、残りはディスク上のファイルから読み込まれます。出力される変更ブロックは [`rule add`](#rule-add) と同じで、その後に `Rule config updated.` とアクティブなルールブックの一覧が続きます。
 
 各設定元は独立して更新されます。取得や検証に失敗した設定元は、すでに取り込んである内容をそのまま保持し、`Failed to update <spec>: <message>` として報告されます。更新に成功した他の設定元は書き込まれます。1 つでも失敗した場合は `1`、それ以外は `0` で終了します。
 
@@ -604,7 +604,7 @@ npx -y cc-safety-net rule update project-rules
 ### rule sync
 
 <Warning>
-  `rule sync` は非推奨です。rulebook はライブファイルであり、同期するものはありません。この実行は、以前のバージョンが書き込んだ `rule.lock` ファイルと `cache` ディレクトリをオフラインで移行し、その後どちらも削除します。
+  `rule sync` は非推奨です。ルールブックはライブファイルであり、同期するものはありません。この実行は、以前のバージョンが書き込んだ `rule.lock` ファイルと `cache` ディレクトリをオフラインで移行し、その後どちらも削除します。
 </Warning>
 
 ```bash
@@ -625,7 +625,7 @@ npx -y cc-safety-net rule sync
 
 ### rule list
 
-ユーザースコープとプロジェクトスコープの両方について、有効な rulebook と解決済みの設定元を一覧表示します。
+ユーザースコープとプロジェクトスコープの両方について、有効なルールブックと解決済みの設定元を一覧表示します。
 
 ```bash
 npx -y cc-safety-net rule list
@@ -633,7 +633,7 @@ npx -y cc-safety-net rule list
 
 `rule list` は両方のスコープを一度に読み取るため、`--global` は拒否されます。ポリシーの**エラー**がある場合だけ `1` で終了します。警告は出力されますが、終了コードは `0` です。
 
-`Active rules` では、どのルールも `  Command:` の行と `  Reason:` の行を出力します。その間の行は、ルール自身の rulebook のバージョンによって変わります。バージョン 1 のルールは、サブコマンドを設定していれば `Command:` に `<command> <subcommand>` を表示し、ブロック対象の引数を `  Block args:` に表示します。`rulebook_version: 2` のルールは、`Command:` にコマンド名と `match.command_path` の語を並べて表示し、設定されているものだけ `  Any args:` と `  Exclude args:` を出力します。`Block args:` の行は出力しません。
+`Active rules` では、どのルールも `  Command:` の行と `  Reason:` の行を出力します。その間の行は、ルール自身のルールブックのバージョンによって変わります。バージョン 1 のルールは、サブコマンドを設定していれば `Command:` に `<command> <subcommand>` を表示し、ブロック対象の引数を `  Block args:` に表示します。`rulebook_version: 2` のルールは、`Command:` にコマンド名と `match.command_path` の語を並べて表示し、設定されているものだけ `  Any args:` と `  Exclude args:` を出力します。`Block args:` の行は出力しません。
 
 ```text
 Active rules (1):
@@ -733,7 +733,7 @@ npx -y cc-safety-net rule verify
 
 ### rule migrate
 
-レガシーのインライン設定ファイル、プロジェクトの `.safety-net.json` とユーザーの `~/.cc-safety-net/config.json` を、rulebook 配置に変換します。
+レガシーのインライン設定ファイル、プロジェクトの `.safety-net.json` とユーザーの `~/.cc-safety-net/config.json` を、ルールブック配置に変換します。
 
 ```bash
 npx -y cc-safety-net rule migrate
@@ -754,7 +754,7 @@ Skipped the project scope: <cwd>/.cc-safety-net/rules/rule.json is the user rule
 
 ### rule doc
 
-rulebook の作成ガイドを標準出力に出力します。このガイドをエージェントにパイプで渡せば、rulebook の作成と検証を任せられます。
+ルールブックの作成ガイドを標準出力に出力します。このガイドをエージェントにパイプで渡せば、ルールブックの作成と検証を任せられます。
 
 ```bash
 npx -y cc-safety-net rule doc
@@ -865,16 +865,16 @@ npx -y cc-safety-net install --claude-code
 | フラグ | エージェント | インストール方法 |
 | --- | --- | --- |
 | `--amp` | Amp Code | amp CLI を使って、アカウントがホストする Amp Personal Plugins リポジトリに管理対象のプラグインを公開する |
-| `--agy-cli` | Antigravity CLI | `~/.gemini/config/hooks.json` に hook エントリを書き込む |
+| `--agy-cli` | Antigravity CLI | `~/.gemini/config/hooks.json` にフックエントリを書き込む |
 | `--claude-code` | Claude Code | Claude Code 自身のプラグインマーケットプレイスコマンドを実行する |
 | `--codex` | Codex | Codex 自身のプラグインマーケットプレイスコマンドを実行する |
-| `--cursor` | Cursor | `~/.cursor/hooks.json` に hook エントリを書き込む |
+| `--cursor` | Cursor | `~/.cursor/hooks.json` にフックエントリを書き込む |
 | `--deepseek-harness` | DeepSeek Harness | マシン上の各プロファイルに対して `dsh plugin --profile <name> add cc-safety-net@<version>` を実行する。`web` プロファイルには `npx -y @deepseek-ai/dsh` 経由、`desktop` プロファイルにはデスクトップアプリ同梱の `dsh` 経由。`<version>` はインストーラー自身のバージョン。プロファイルの置き場所は `$DSH_HOME/profiles` または `~/.dsh/profiles` |
-| `--devin` | Devin CLI | `~/.config/devin/config.json`（または `$XDG_CONFIG_HOME/devin/config.json`、Windows では `%APPDATA%\devin\config.json`）の `hooks.PreToolUse` に hook エントリを書き込む |
-| `--droid` | Factory Droid | `~/.factory/hooks.json` の `PreToolUse` に hook エントリを書き込む |
+| `--devin` | Devin CLI | `~/.config/devin/config.json`（または `$XDG_CONFIG_HOME/devin/config.json`、Windows では `%APPDATA%\devin\config.json`）の `hooks.PreToolUse` にフックエントリを書き込む |
+| `--droid` | Factory Droid | `~/.factory/hooks.json` の `PreToolUse` にフックエントリを書き込む |
 | `--gemini-cli` | Gemini CLI | Gemini CLI の拡張機能インストールコマンドを実行する |
 | `--copilot-cli` | GitHub Copilot CLI | Copilot CLI 自身のプラグインマーケットプレイスコマンドを実行する |
-| `--grok-build` | Grok Build | `~/.grok/hooks/cc-safety-net.json`（または `$GROK_HOME/hooks/cc-safety-net.json`）に hook エントリを書き込む |
+| `--grok-build` | Grok Build | `~/.grok/hooks/cc-safety-net.json`（または `$GROK_HOME/hooks/cc-safety-net.json`）にフックエントリを書き込む |
 | `--hermes-agent` | Hermes Agent | `<Hermes home>/plugins/cc-safety-net` に管理対象 Python プラグインを書き込み、`hermes plugins enable` で有効にする。Hermes のホームは `$HERMES_HOME` または `~/.hermes` で、`active_profile` がプロファイルを指定していれば `profiles/<name>` に移る |
 | `--kimi-code` | Kimi Code | ターミナルでは方式プロンプトの後に、`~/.kimi-code/config.toml`（または `$KIMI_CODE_HOME/config.toml`）に `[[hooks]]` ブロックを書き込む |
 | `--openclaw` | OpenClaw | `openclaw plugins install <plugin dir> --force --accept-capabilities` を実行する。このコマンドがプラグインの有効化まで行う。OpenClaw 2026.8.1 以降が必要 |
@@ -885,15 +885,15 @@ npx -y cc-safety-net install --claude-code
 
 CC Safety Net は、3 つのインストール方法を使います。
 
-- **ネイティブのプラグインまたは拡張機能のコマンド**：Claude Code、Codex、DeepSeek Harness、GitHub Copilot CLI、Gemini CLI、OpenClaw、OpenCode、Pi。CC Safety Net はエージェント自身のプラグインマネージャーを実行し、置き換えられた古いプラグイン ID を削除します。DeepSeek Harness のインストールは、プロファイルごとに `dsh plugin ... add` を実行し、その後プロファイルのマニフェストを読み直します。ホストがバンドルをインストールしても有効にしていない場合は失敗します。OpenClaw のインストールは、その後に OpenClaw がプラグインを読み込み済みと報告することも確認し、OpenClaw Gateway の再起動を求めます。OpenCode 1.x のインストールは、キャッシュ済みパッケージのエントリを import し、呼び出し可能な `CCSafetyNetPlugin` を export することを確認します。2.x では、`opencode plugin add` がプラグインについて `is already configured in` と報告した場合にだけ `opencode plugin update` を実行します。この update の前と後の 2 回、OpenCode のバックグラウンドサービスがプラグインを一覧に出すまで最大で約 15 秒待ちます。起動していなかったサービスは、プラグインを一覧に出すまで update を拒否するためです。その後 `opencode plugin list` を読み取り、ソースが `cc-safety-net@latest` の `cc-safety-net` の行があることを要求します。どちらの確認も、失敗すればインストールは中止されます。そのまま進めると、OpenCode が何も読み込まず fail open になるためです。
+- **ネイティブのプラグインまたは拡張機能のコマンド**：Claude Code、Codex、DeepSeek Harness、GitHub Copilot CLI、Gemini CLI、OpenClaw、OpenCode、Pi。CC Safety Net はエージェント自身のプラグインマネージャーを実行し、置き換えられた古いプラグイン ID を削除します。DeepSeek Harness のインストールは、プロファイルごとに `dsh plugin ... add` を実行し、その後プロファイルのマニフェストを読み直します。ホストがバンドルをインストールしても有効にしていない場合は失敗します。OpenClaw のインストールは、その後に OpenClaw がプラグインを読み込み済みと報告することも確認し、OpenClaw Gateway の再起動を求めます。OpenCode 1.x のインストールは、キャッシュ済みパッケージのエントリを import し、呼び出し可能な `CCSafetyNetPlugin` を export することを確認します。2.x では、`opencode plugin add` がプラグインについて `is already configured in` と報告した場合にだけ `opencode plugin update` を実行します。この update の前と後の 2 回、OpenCode のバックグラウンドサービスがプラグインを一覧に出すまで最大で約 15 秒待ちます。起動していなかったサービスは、プラグインを一覧に出すまで update を拒否するためです。その後 `opencode plugin list` を読み取り、ソースが `cc-safety-net@latest` の `cc-safety-net` の行があることを要求します。どちらの確認も、失敗すればインストールは中止されます。そのまま進めると、OpenCode が何も読み込まずフェイルオープンになるためです。
 - **設定ファイルへの書き込み**：Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build、Kimi Code。CC Safety Net がエージェントの設定を直接編集するのは、この 6 つだけです。
 - **管理対象プラグイン成果物**：Amp Code と Hermes Agent。Amp のプラグインは、amp CLI を通じてアカウントのホスト型 Amp Personal Plugins リポジトリに公開されます（事前確認は `amp plugins repositories --json`）。そのため、インストールには amp CLI と `amp login` が必要です。公開されたプラグインは、Orb スレッドを含むすべての Amp セッションに適用されます。`~/.config/amp/plugins/cc-safety-net.ts` に管理対象のローカルコピーが残っているとパーソナルプラグインを覆い隠すため、インストール時に削除されます。変更後は Amp を再起動するか `plugins: reload` を実行します。Hermes Agent では、インストール時にプラグインをディスクに書き込んで `hermes plugins enable` も実行し、変更後に Hermes の再起動が必要です。
 
-Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build、Kimi Code の設定ファイルへのインストールと、Hermes Agent へのインストールでは、何かを書き込む前に `npx` キャッシュから古い `cc-safety-net` を削除します。npm キャッシュの `_npx` ディレクトリ（`$npm_config_cache` が設定されている場合はその場所。それ以外は macOS と Linux で `~/.npm`、Windows で `%LOCALAPPDATA%\npm-cache`）の下にあり、`node_modules` が `cc-safety-net` を含むすべてのエントリを削除します。この 7 つの連携は `npx` で hook を実行するため、この処理により、新しくインストールした hook はキャッシュ済みのバージョンではなく最新版を解決します。
+Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build、Kimi Code の設定ファイルへのインストールと、Hermes Agent へのインストールでは、何かを書き込む前に `npx` キャッシュから古い `cc-safety-net` を削除します。npm キャッシュの `_npx` ディレクトリ（`$npm_config_cache` が設定されている場合はその場所。それ以外は macOS と Linux で `~/.npm`、Windows で `%LOCALAPPDATA%\npm-cache`）の下にあり、`node_modules` が `cc-safety-net` を含むすべてのエントリを削除します。この 7 つの連携は `npx` でフックを実行するため、この処理により、新しくインストールしたフックはキャッシュ済みのバージョンではなく最新版を解決します。
 
-**Kimi Code には 2 つのインストール方式があります。** ターミナルで `install --kimi-code` を実行するか、ピッカーで Kimi Code を選択すると、単一選択プロンプトが開きます。グローバル hook を今インストールするか、代わりにネイティブ Kimi プラグインの手順を表示するかを選びます（Kimi Code 内で `/plugins install https://github.com/kenryu42/cc-safety-net/tree/plugin` を実行し、次に `/reload` を実行するか新しいセッションを開始します。信頼プロンプトの既定はキャンセルです）。プラグイン方式を選んでも何も書き込まれず、手順を表示するだけです。非対話セッションではプロンプトをスキップして、グローバル hook を直接インストールします。このプロンプトがプラグイン手順への唯一の経路であるため、グローバル hook が設定済みでも install 時の Kimi Code の行は選択可能なままで、`(global hook installed)` と表示されます。
+**Kimi Code には 2 つのインストール方式があります。** ターミナルで `install --kimi-code` を実行するか、ピッカーで Kimi Code を選択すると、単一選択プロンプトが開きます。グローバルフックを今インストールするか、代わりにネイティブ Kimi プラグインの手順を表示するかを選びます（Kimi Code 内で `/plugins install https://github.com/kenryu42/cc-safety-net/tree/plugin` を実行し、次に `/reload` を実行するか新しいセッションを開始します。信頼プロンプトの既定はキャンセルです）。プラグイン方式を選んでも何も書き込まれず、手順を表示するだけです。非対話セッションではプロンプトをスキップして、グローバルフックを直接インストールします。このプロンプトがプラグイン手順への唯一の経路であるため、グローバルフックが設定済みでも install 時の Kimi Code の行は選択可能なままで、`(global hook installed)` と表示されます。
 
-`config.toml` にすでに CC Safety Net の hook がある場合、プロンプトはグローバル hook をインストール済みとして示します。表示されるプラグイン手順の末尾には、プラグインが有効になったら `cc-safety-net uninstall --kimi-code` でその hook を削除するよう求める注意が付きます。ほかの hooks エントリが無効なために Kimi Code がその hook を無視している場合も同じです。ネイティブプラグインの記録は、グローバル hook として数えません。プラグインだけで設定した Kimi Code は、install 時は通常の行として表示され、uninstall 時は `not installed` と表示されます。`uninstall --kimi-code` が削除するのはグローバル hook だけだからです。
+`config.toml` にすでに CC Safety Net のフックがある場合、プロンプトはグローバルフックをインストール済みとして示します。表示されるプラグイン手順の末尾には、プラグインが有効になったら `cc-safety-net uninstall --kimi-code` でそのフックを削除するよう求める注意が付きます。ほかのフックエントリが無効なために Kimi Code がそのフックを無視している場合も同じです。ネイティブプラグインの記録は、グローバルフックとして数えません。プラグインだけで設定した Kimi Code は、install 時は通常の行として表示され、uninstall 時は `not installed` と表示されます。`uninstall --kimi-code` が削除するのはグローバルフックだけだからです。
 
 ### ターゲットの選択
 
@@ -920,9 +920,9 @@ npx -y cc-safety-net@latest update
 
 TTY で `update` を直接実行すると、インストールバナーを表示する前に検出を開始するため、バナーのアニメーション中にも検出が進みます。バナーの後も検出が続く場合は、`Checking installed integrations…` を表示します。`Enter` を押すとアニメーションをスキップできます。対話型の `install` セレクターで `u` を押して update を開始した場合、すでに表示したバナーを使い、2 つ目のバナーは表示しません。TTY でない場合、バナーとスピナーは表示しません。
 
-ターゲットは、各エージェントの設定ファイルと状態ファイルを読み取って検出します。現在無効な場合でも、インストール済みと検出される連携が対象です。Amp Code は `amp plugins list` の出力によって対象になります。この出力は、`codex plugin list` と同じく 30 秒のタイムアウトで取得します。コールドラン時は checkout をネットワーク経由で更新するため、既定の 5 秒を超えることがあるからです。GitHub Copilot CLI は例外です。Copilot の `installed-plugins` ディレクトリに CC Safety Net プラグインの checkout がある場合だけ対象になります。無効状態と、何もインストールされていない kill-switch 状態を区別できず、update が install になることを防ぐためです。改名前の `safety-net@cc-marketplace` プラグイン ID を使うインストール（Claude Code、Codex、および GitHub Copilot CLI のプラグイン checkout `cc-marketplace/safety-net`）も検出されます。更新時に現在の ID へ移行し、レガシーコピーをベストエフォートで削除します。レガシーコピーの削除に失敗しても、ターゲットは失敗せず警告になります。`doctor` が [Claude Code プラグイン](#cursor-through-the-claude-code-plugin)または[ネイティブ Cursor プラグイン](#cursor-through-a-native-cursor-plugin)経由でしか数えていない Cursor は対象外です。そのため、`update` がこの Cursor に hook を書き込むことはありません。
+ターゲットは、各エージェントの設定ファイルと状態ファイルを読み取って検出します。現在無効な場合でも、インストール済みと検出される連携が対象です。Amp Code は `amp plugins list` の出力によって対象になります。この出力は、`codex plugin list` と同じく 30 秒のタイムアウトで取得します。コールドラン時は checkout をネットワーク経由で更新するため、既定の 5 秒を超えることがあるからです。GitHub Copilot CLI は例外です。Copilot の `installed-plugins` ディレクトリに CC Safety Net プラグインの checkout がある場合だけ対象になります。無効状態と、何もインストールされていない kill-switch 状態を区別できず、update が install になることを防ぐためです。改名前の `safety-net@cc-marketplace` プラグイン ID を使うインストール（Claude Code、Codex、および GitHub Copilot CLI のプラグイン checkout `cc-marketplace/safety-net`）も検出されます。更新時に現在の ID へ移行し、レガシーコピーをベストエフォートで削除します。レガシーコピーの削除に失敗しても、ターゲットは失敗せず警告になります。`doctor` が [Claude Code プラグイン](#cursor-through-the-claude-code-plugin)または[ネイティブ Cursor プラグイン](#cursor-through-a-native-cursor-plugin)経由でしか数えていない Cursor は対象外です。そのため、`update` がこの Cursor にフックを書き込むことはありません。
 
-すべてのターゲットは、1 つの `Updating <n> integration…` または `Updating <n> integrations…` スピナーの後ろで、`install` と同じ操作を並列に実行します。すべてのターゲットが完了した後、レポートを安定したカタログ順でまとめて出力します。メッセージだけが `Updated …` または `… up to date` に変わります。インストール時にエージェント自身の CLI を使うターゲットでは、先にベンダーバイナリを調べます。対象は Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、Hermes Agent、OpenClaw、OpenCode、Pi です。バイナリがない場合は `<Agent> not found; skipped`（例は `Codex not found; skipped`）を出力して処理を続けます。設定ファイルを使うターゲット、つまり Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build、Kimi Code にはバイナリが不要で、常に更新されます。例外は、`config.toml` にグローバル hook がなく、`doctor` が[ネイティブの Kimi Code プラグイン](#hooks-the-agent-skips)として検出した Kimi Code です。`update` は Kimi Code 内でのプラグイン更新を実行できないため、プラグインには手を付けず `Kimi Code plugin skipped: update it in Kimi Code from /plugins (Installed tab, select cc-safety-net, press Enter)` と報告します。DeepSeek Harness もバイナリは調べません。更新では install を再実行し、プロファイルごとに `dsh` を動かします。デスクトップアプリが起動中の場合は失敗します。Amp Code には別途の検査は不要です。`amp plugins list` がパーソナルプラグインを表示する場合にのみ検出され、その更新は amp CLI を実行して現在の成果物を公開します。Claude Code、Codex、GitHub Copilot CLI では、登録済みのマーケットプレイスをプラグイン処理の前に更新します（例は `claude plugin marketplace update cc-marketplace`）。何もしない `add` に頼らないため、古いカタログ checkout が更新を失敗させることはありません。
+すべてのターゲットは、1 つの `Updating <n> integration…` または `Updating <n> integrations…` スピナーの後ろで、`install` と同じ操作を並列に実行します。すべてのターゲットが完了した後、レポートを安定したカタログ順でまとめて出力します。メッセージだけが `Updated …` または `… up to date` に変わります。インストール時にエージェント自身の CLI を使うターゲットでは、先にベンダーバイナリを調べます。対象は Claude Code、Codex、GitHub Copilot CLI、Gemini CLI、Hermes Agent、OpenClaw、OpenCode、Pi です。バイナリがない場合は `<Agent> not found; skipped`（例は `Codex not found; skipped`）を出力して処理を続けます。設定ファイルを使うターゲット、つまり Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build、Kimi Code にはバイナリが不要で、常に更新されます。例外は、`config.toml` にグローバルフックがなく、`doctor` が[ネイティブの Kimi Code プラグイン](#hooks-the-agent-skips)として検出した Kimi Code です。`update` は Kimi Code 内でのプラグイン更新を実行できないため、プラグインには手を付けず `Kimi Code plugin skipped: update it in Kimi Code from /plugins (Installed tab, select cc-safety-net, press Enter)` と報告します。DeepSeek Harness もバイナリは調べません。更新では install を再実行し、プロファイルごとに `dsh` を動かします。デスクトップアプリが起動中の場合は失敗します。Amp Code には別途の検査は不要です。`amp plugins list` がパーソナルプラグインを表示する場合にのみ検出され、その更新は amp CLI を実行して現在の成果物を公開します。Claude Code、Codex、GitHub Copilot CLI では、登録済みのマーケットプレイスをプラグイン処理の前に更新します（例は `claude plugin marketplace update cc-marketplace`）。何もしない `add` に頼らないため、古いカタログ checkout が更新を失敗させることはありません。
 
 並列処理の前に、キャッシュに依存するターゲット（Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build、Hermes Agent、Kimi Code）が 1 つでもある場合、`update` は `npx` キャッシュを 1 回消去します。消去に失敗した場合、そのキャッシュに依存するターゲットだけが失敗し、ほかのターゲットは実行を続けます。
 
@@ -953,7 +953,7 @@ npx -y cc-safety-net uninstall
 npx -y cc-safety-net uninstall --cursor
 ```
 
-設定ファイルを使うターゲットでは、uninstall は CC Safety Net が管理するエントリだけを削除します。エントリは CC Safety Net 固有の hook コマンド文字列で照合され、ファイル内のほかのものは変更しません。
+設定ファイルを使うターゲットでは、uninstall は CC Safety Net が管理するエントリだけを削除します。エントリは CC Safety Net 固有のフックコマンド文字列で照合され、ファイル内のほかのものは変更しません。
 
 設定エントリ以外のものまで削除するターゲットは Cursor だけです。`~/.cursor/plugins/cache/cc-safety-net` または `~/.cursor/plugins/marketplaces/github.com/kenryu42/cc-safety-net` がある場合、`uninstall --cursor` は `cursor-agent plugin marketplace remove cc-safety-net` も実行し、その後どちらのディレクトリも削除します。出力に `No marketplace matches` を含む失敗は、すでに削除済みとして扱います。このとき、レポートには次の 2 行が追加されます。
 
@@ -962,15 +962,15 @@ Removed the cc-safety-net marketplace from your Cursor account.
 If /plugins in cursor-agent still lists CC Safety Net as installed, uninstall it there.
 ```
 
-どちらのディレクトリもない場合、`uninstall --cursor` は `cursor-agent` コマンドを実行せず、hook のレポートだけを表示します。詳しくは[ネイティブ Cursor プラグイン経由の Cursor](#cursor-through-a-native-cursor-plugin)を参照してください。
+どちらのディレクトリもない場合、`uninstall --cursor` は `cursor-agent` コマンドを実行せず、フックのレポートだけを表示します。詳しくは[ネイティブ Cursor プラグイン経由の Cursor](#cursor-through-a-native-cursor-plugin)を参照してください。
 
 ## hook
 
-`hook` は、CC Safety Net をエージェントのランタイム hook として実行します。エージェントの hook 入力を標準入力から JSON として読み取り、そのエージェントの拒否形式を出力します。通常は手動で実行しません。エージェントのプラグインまたは設定が接続します。保護の背後にあるコマンドです。
+`hook` は、CC Safety Net をエージェントのランタイムフックとして実行します。エージェントのフック入力を標準入力から JSON として読み取り、そのエージェントの拒否形式を出力します。通常は手動で実行しません。エージェントのプラグインまたは設定が接続します。保護の背後にあるコマンドです。
 
 `hook` には正確に 1 つの連携フラグが必要です。フラグがない場合、または複数ある場合は、`hook requires exactly one integration flag. Try: cc-safety-net hook --kimi-code` とコマンドヘルプを表示し、`1` で終了します。
 
-| フラグ | エージェント | hook イベント | レガシーフラグ |
+| フラグ | エージェント | フックイベント | レガシーフラグ |
 | --- | --- | --- | --- |
 | `-ac`, `--agy-cli` | Antigravity CLI | `PreToolUse` | 該当なし |
 | `-cc`, `--coding-cli` | Coding CLI（Claude Code） | `PreToolUse` | `--claude-code`。最上位形式の `cc-safety-net -cc` と `cc-safety-net --claude-code` も含む |
@@ -984,7 +984,7 @@ If /plugins in cursor-agent still lists CC Safety Net as installed, uninstall it
 | `-ha`, `--hermes-agent` | Hermes Agent | `pre_tool_call` | 該当なし |
 | `-kc`, `--kimi-code` | Kimi Code | `PreToolUse` | 該当なし |
 
-Coding CLI の hook だけは、許可と拒否以外の答えを返せます。Claude Code の `default`、`acceptEdits`、`plan`、`auto` の permission mode では、standard レベルで検証できなかったコマンドに対して `hookSpecificOutput.permissionDecision: "ask"` を出力し、Claude Code がユーザーに確認します。`auto` では、Claude Code の分類器がその呼び出しを拒否することはありますが、プロンプトを経ずに承認することはできません。それ以外のフラグと、それ以外の permission mode では拒否の形式を出力します。[Claude Code が拒否ではなく確認を求める場合](/ja/guides/integration-architecture#when-claude-code-asks-instead-of-denying)を参照してください。
+Coding CLI のフックだけは、許可と拒否以外の答えを返せます。Claude Code の `default`、`acceptEdits`、`plan`、`auto` の permission mode では、standard レベルで検証できなかったコマンドに対して `hookSpecificOutput.permissionDecision: "ask"` を出力し、Claude Code がユーザーに確認します。`auto` では、Claude Code の分類器がその呼び出しを拒否することはありますが、プロンプトを経ずに承認することはできません。それ以外のフラグと、それ以外の permission mode では拒否の形式を出力します。[Claude Code が拒否ではなく確認を求める場合](/ja/guides/integration-architecture#when-claude-code-asks-instead-of-denying)を参照してください。
 
 Amp Code、DeepSeek Harness、OpenClaw、OpenCode、Pi には、独自の `hook` フラグがありません。いずれも、プラグインまたは拡張機能として CC Safety Net をプロセス内に読み込みます。各エージェントの接続方法については、[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
 
@@ -994,9 +994,9 @@ Amp Code、DeepSeek Harness、OpenClaw、OpenCode、Pi には、独自の `hook`
 
 ### Antigravity CLI エントリーポイント
 
-`install --agy-cli` は、コマンド `npx -y cc-safety-net hook --agy-cli` を `~/.gemini/config/hooks.json` に書き込みます。Antigravity は `.gemini` ディレクトリを共有します。管理対象エントリの名前は `cc-safety-net` で、30 秒のタイムアウトを持つ `PreToolUse` のコマンド hook を登録します。install は、ファイルがない場合は作成し、無効な管理対象エントリがある場合は再度有効にし、それ以外は新しいエントリを追加します。uninstall は、コマンドが管理対象の文字列と一致するエントリだけを削除します。
+`install --agy-cli` は、コマンド `npx -y cc-safety-net hook --agy-cli` を `~/.gemini/config/hooks.json` に書き込みます。Antigravity は `.gemini` ディレクトリを共有します。管理対象エントリの名前は `cc-safety-net` で、30 秒のタイムアウトを持つ `PreToolUse` のコマンドフックを登録します。install は、ファイルがない場合は作成し、無効な管理対象エントリがある場合は再度有効にし、それ以外は新しいエントリを追加します。uninstall は、コマンドが管理対象の文字列と一致するエントリだけを削除します。
 
-実行時に、hook は Antigravity の `run_command` ツール呼び出しを読み、`conversationId` からセッション ID を取得し、`{ "decision": "deny", "reason": … }` で拒否します。`Action` が `send_input` で、`Input` が空でない文字列の `manage_task` 呼び出しも解析します。これにより、実行中のタスクに送ったコマンドも対象になります。`Input` はシェルコマンドとして解析し、方言は自動判定します。それ以外の `Action` の `manage_task` は、コマンド以外の経路で扱います。
+実行時に、フックは Antigravity の `run_command` ツール呼び出しを読み、`conversationId` からセッション ID を取得し、`{ "decision": "deny", "reason": … }` で拒否します。`Action` が `send_input` で、`Input` が空でない文字列の `manage_task` 呼び出しも解析します。これにより、実行中のタスクに送ったコマンドも対象になります。`Input` はシェルコマンドとして解析し、方言は自動判定します。それ以外の `Action` の `manage_task` は、コマンド以外の経路で扱います。
 
 ### Cursor エントリーポイント
 
@@ -1004,21 +1004,21 @@ Amp Code、DeepSeek Harness、OpenClaw、OpenCode、Pi には、独自の `hook`
 
 Claude Code プラグインの Cursor 用マニフェストも同じフラグを使い、`node "${CURSOR_PLUGIN_ROOT}/dist/bin/cc-safety-net.js" hook --cursor` を実行します。詳しくは [Cursor のインストール](/ja/installation#cursor-installation)を参照してください。
 
-実行時、hook は Cursor の `Shell` ツール呼び出しを読み取り、`conversation_id` からセッション ID を取得して、`{ "permission": "deny", … }` または `{ "permission": "allow" }` を返します。Cursor の `working_directory` フィールドは、ワークスペースのルート内に収まっているかを検査されます。宣言されているのに値がない場合、またはワークスペースのルートの外を指す場合は fail closed になります。
+実行時、フックは Cursor の `Shell` ツール呼び出しを読み取り、`conversation_id` からセッション ID を取得して、`{ "permission": "deny", … }` または `{ "permission": "allow" }` を返します。Cursor の `working_directory` フィールドは、ワークスペースのルート内に収まっているかを検査されます。宣言されているのに値がない場合、またはワークスペースのルートの外を指す場合はフェイルクローズになります。
 
-Windows では、Cursor が `/C:/Users/you` のような VS Code の URI 形式でパスを渡します。そこで hook は、`workspace_roots`、`cwd`、`working_directory` を解決する前に、先頭の `/<drive-letter>:` の後ろに `/`、`\`、文字列の終端のいずれかが続く場合、その部分を `<drive-letter>:/` へ書き換えます。後ろに続く区切り文字も書き換えの対象に含まれます。そのため `/C:/Users/you` は `C:/Users/you`、`/C:\Users` は `C:/Users` として解決され、`/C:` だけならドライブのルート `C:/` になります。書き換わるのは先頭のこの部分だけで、ドライブレターの大文字小文字はそのままです。`/c/x` のような MSYS 形式のパス、POSIX パス、Windows 本来のドライブレター表記は変わりません。Windows 以外のプラットフォームでは、どのパスも書き換えません。
+Windows では、Cursor が `/C:/Users/you` のような VS Code の URI 形式でパスを渡します。そこでフックは、`workspace_roots`、`cwd`、`working_directory` を解決する前に、先頭の `/<drive-letter>:` の後ろに `/`、`\`、文字列の終端のいずれかが続く場合、その部分を `<drive-letter>:/` へ書き換えます。後ろに続く区切り文字も書き換えの対象に含まれます。そのため `/C:/Users/you` は `C:/Users/you`、`/C:\Users` は `C:/Users` として解決され、`/C:` だけならドライブのルート `C:/` になります。書き換わるのは先頭のこの部分だけで、ドライブレターの大文字小文字はそのままです。`/c/x` のような MSYS 形式のパス、POSIX パス、Windows 本来のドライブレター表記は変わりません。Windows 以外のプラットフォームでは、どのパスも書き換えません。
 
 ### Devin CLI エントリーポイント
 
-`install --devin` は、コマンド `npx -y cc-safety-net hook --devin` を `~/.config/devin/config.json`（`XDG_CONFIG_HOME` が設定されている場合は `$XDG_CONFIG_HOME/devin/config.json`、Windows では `%APPDATA%\devin\config.json`）の `hooks.PreToolUse` に書き込みます。管理対象エントリは `{ "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --devin", "timeout": 30 }] }` です。マッチャーがないため、すべてのツール呼び出しが hook に届きます。install は、ファイル内のほかのキー、ほかの hook イベント、管理対象外の `PreToolUse` エントリとハンドラーをそのまま残します。
+`install --devin` は、コマンド `npx -y cc-safety-net hook --devin` を `~/.config/devin/config.json`（`XDG_CONFIG_HOME` が設定されている場合は `$XDG_CONFIG_HOME/devin/config.json`、Windows では `%APPDATA%\devin\config.json`）の `hooks.PreToolUse` に書き込みます。管理対象エントリは `{ "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --devin", "timeout": 30 }] }` です。マッチャーがないため、すべてのツール呼び出しがフックに届きます。install は、ファイル内のほかのキー、ほかのフックイベント、管理対象外の `PreToolUse` エントリとハンドラーをそのまま残します。
 
-既存ファイルの読み取りでは、`//` コメント、`/* */` コメント、末尾のカンマを取り除きます。Devin CLI が `config.json` でこれらを受け付けるためです。書き戻すのは通常の JSON なので、ファイルに残しておいたコメントは install の後には残りません。パースできないファイル、JSON オブジェクトでないファイル、`hooks` または `hooks.PreToolUse` の型が合わないファイルでは、install は何も書き込まず中止します。メッセージは[管理対象 hook の設定ずれ](#managed-hook-drift)に挙げたものです。uninstall は管理対象のハンドラーだけを取り除き、ファイルは残します。
+既存ファイルの読み取りでは、`//` コメント、`/* */` コメント、末尾のカンマを取り除きます。Devin CLI が `config.json` でこれらを受け付けるためです。書き戻すのは通常の JSON なので、ファイルに残しておいたコメントは install の後には残りません。パースできないファイル、JSON オブジェクトでないファイル、`hooks` または `hooks.PreToolUse` の型が合わないファイルでは、install は何も書き込まず中止します。メッセージは[管理対象フックの設定ずれ](#managed-hook-drift)に挙げたものです。uninstall は管理対象のハンドラーだけを取り除き、ファイルは残します。
 
-実行時、hook は Devin CLI の `PreToolUse` の入力（`tool_name`、`tool_input`、`session_id`）を読み取ります。`hook_event_name` が `PreToolUse` でない入力は無視します。コマンドツールは `exec` だけで、そのシェルの方言は自動判定します。入力に `cwd` フィールドはないため、セッションのディレクトリは hook プロセス自身の作業ディレクトリです。正規化できないディレクトリは fail closed になります。
+実行時、フックは Devin CLI の `PreToolUse` の入力（`tool_name`、`tool_input`、`session_id`）を読み取ります。`hook_event_name` が `PreToolUse` でない入力は無視します。コマンドツールは `exec` だけで、そのシェルの方言は自動判定します。入力に `cwd` フィールドはないため、セッションのディレクトリはフックプロセス自身の作業ディレクトリです。正規化できないディレクトリはフェイルクローズになります。
 
-`exec` の呼び出しは `workdir` で作業ディレクトリを指定でき、その値が実行ディレクトリになります。相対パスはセッションのディレクトリを基準に解決します。解決先は実在するディレクトリである必要がありますが、セッションのディレクトリの内側に収まっている必要はありません。存在しないディレクトリは、要求された作業ディレクトリが原因であることを示して拒否します。`""` を含む空または空白だけの値や、文字列以外の値は fail closed になります。指定がなければセッションのディレクトリのままです。
+`exec` の呼び出しは `workdir` で作業ディレクトリを指定でき、その値が実行ディレクトリになります。相対パスはセッションのディレクトリを基準に解決します。解決先は実在するディレクトリである必要がありますが、セッションのディレクトリの内側に収まっている必要はありません。存在しないディレクトリは、要求された作業ディレクトリが原因であることを示して拒否します。`""` を含む空または空白だけの値や、文字列以外の値はフェイルクローズになります。指定がなければセッションのディレクトリのままです。
 
-`write_to_process` の呼び出しも解析します。これにより、実行中のプロセスに入力したコマンドも対象になります。入力されるテキストは `text_input` または `bytes_input` から取り出し、方言の自動判定でシェルコマンドとして解析します。`bytes_input` で行を終えるのは `<CR>` と `<LF>` だけです。次の場合、hook は呼び出しを拒否します。
+`write_to_process` の呼び出しも解析します。これにより、実行中のプロセスに入力したコマンドも対象になります。入力されるテキストは `text_input` または `bytes_input` から取り出し、方言の自動判定でシェルコマンドとして解析します。`bytes_input` で行を終えるのは `<CR>` と `<LF>` だけです。次の場合、フックは呼び出しを拒否します。
 
 - どちらかのフィールドのテキストが、`<ESC>`、`<BS>`、矢印キー、`<C-…>` キーと一緒に送られた場合。受け取ったプログラムが実行する行を特定できないためです。
 - `bytes_input` にそれ以外の `<Name>` 形式のキー表記、つまりドキュメントにないキーがある場合。`text_input` があっても拒否します。
@@ -1028,23 +1028,23 @@ Windows では、Cursor が `/C:/Users/you` のような VS Code の URI 形式�
 
 ### Factory Droid エントリーポイント
 
-`install --droid` は、コマンド `npx -y cc-safety-net hook --droid` を `~/.factory/hooks.json` の `PreToolUse` に書き込みます。管理対象エントリは `{ "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --droid", "timeout": 30 }] }` です。マッチャーも `commandRegex` もないため、`Execute` だけでなくすべてのツール呼び出しが hook に届きます。`hooks.json` がまだない場合、install は旧形式の `~/.factory/hooks/hooks.json` を元に新しいファイルを作り、その中のイベントをすべて引き継ぎます。`hooks.json` ができると、Factory Droid は旧形式のファイルを読まなくなるためです。旧形式のファイルに `PreToolUse` がない場合は、`~/.factory/settings.json` の `hooks` オブジェクトから `PreToolUse` を取り込みます。`settings.json` のほかのイベントは引き継ぎません。install は、`hooks.json` 内のほかのキーと、管理対象外の `PreToolUse` エントリやハンドラーをそのまま残します。
+`install --droid` は、コマンド `npx -y cc-safety-net hook --droid` を `~/.factory/hooks.json` の `PreToolUse` に書き込みます。管理対象エントリは `{ "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --droid", "timeout": 30 }] }` です。マッチャーも `commandRegex` もないため、`Execute` だけでなくすべてのツール呼び出しがフックに届きます。`hooks.json` がまだない場合、install は旧形式の `~/.factory/hooks/hooks.json` を元に新しいファイルを作り、その中のイベントをすべて引き継ぎます。`hooks.json` ができると、Factory Droid は旧形式のファイルを読まなくなるためです。旧形式のファイルに `PreToolUse` がない場合は、`~/.factory/settings.json` の `hooks` オブジェクトから `PreToolUse` を取り込みます。`settings.json` のほかのイベントは引き継ぎません。install は、`hooks.json` 内のほかのキーと、管理対象外の `PreToolUse` エントリやハンドラーをそのまま残します。
 
 3 つのファイルはいずれも、`//` コメント、`/* */` コメント、末尾のカンマを取り除いてから読み取ります。Factory Droid がこれらを JSONC としてパースするためです。書き戻すのは通常の JSON なので、`hooks.json` に残しておいたコメントは install の後には残りません。
 
 認識できないファイルでは、install は何も書き込まず中止します。メッセージは `Failed to parse Factory Droid hooks config <path>: <reason>`、`Factory Droid hooks config <path> must be a JSON object`、`Factory Droid hooks config <path> "PreToolUse" must be an array` のいずれかです。
 
-uninstall は管理対象のハンドラーだけを取り除きます。`hooks.json` を削除するのは、取り除いた結果 `PreToolUse` が空になり、`PreToolUse` がそのファイルの唯一のキーであり、かつ `~/.factory/settings.json` と旧形式の `~/.factory/hooks/hooks.json` のどちらも存在しない場合だけです。どちらかがある場合、uninstall は `hooks.json` を書き直します。ファイルを消すと、Factory Droid がそのファイルの hook を再び読み込み、そこに管理対象のハンドラーのコピーが残っていれば、それも動き出してしまうためです。
+uninstall は管理対象のハンドラーだけを取り除きます。`hooks.json` を削除するのは、取り除いた結果 `PreToolUse` が空になり、`PreToolUse` がそのファイルの唯一のキーであり、かつ `~/.factory/settings.json` と旧形式の `~/.factory/hooks/hooks.json` のどちらも存在しない場合だけです。どちらかがある場合、uninstall は `hooks.json` を書き直します。ファイルを消すと、Factory Droid がそのファイルのフックを再び読み込み、そこに管理対象のハンドラーのコピーが残っていれば、それも動き出してしまうためです。
 
-実行時、hook は Factory Droid の `PreToolUse` の入力（`tool_name`、`tool_input`、`cwd`、`session_id`）を読み取ります。コマンドツールは `Execute` だけで、そのシェルの方言は自動判定します。セッションのディレクトリは入力の `cwd` で、入力に `cwd` がない場合は hook プロセス自身の作業ディレクトリです。正規化できないディレクトリは fail closed になります。拒否時は `hookSpecificOutput.permissionDecision: "deny"` を返し、理由は `permissionDecisionReason` に入ります。これは Coding CLI の hook と同じ出力形式です。あわせて理由を標準エラー出力に書き込み、終了コード `2` で終了します。Factory Droid 0.240.0 は `permissionDecision` を持つ最初の hook の結果を採用するため、ほかの hook が許可や確認を返すと JSON の拒否が捨てられることがあります。終了コード `2` なら必ずブロックされます。許可時は何も出力しないため、Factory Droid 自身の権限確認のプロンプトがそのまま働きます。
+実行時、フックは Factory Droid の `PreToolUse` の入力（`tool_name`、`tool_input`、`cwd`、`session_id`）を読み取ります。コマンドツールは `Execute` だけで、そのシェルの方言は自動判定します。セッションのディレクトリは入力の `cwd` で、入力に `cwd` がない場合はフックプロセス自身の作業ディレクトリです。正規化できないディレクトリはフェイルクローズになります。拒否時は `hookSpecificOutput.permissionDecision: "deny"` を返し、理由は `permissionDecisionReason` に入ります。これは Coding CLI のフックと同じ出力形式です。あわせて理由を標準エラー出力に書き込み、終了コード `2` で終了します。Factory Droid 0.240.0 は `permissionDecision` を持つ最初のフックの結果を採用するため、ほかのフックが許可や確認を返すと JSON の拒否が捨てられることがあります。終了コード `2` なら必ずブロックされます。許可時は何も出力しないため、Factory Droid 自身の権限確認のプロンプトがそのまま働きます。
 
 ### Grok Build エントリーポイント
 
-`install --grok-build` は、コマンド `npx -y cc-safety-net hook --grok-build` を `~/.grok/hooks/cc-safety-net.json`（`GROK_HOME` が設定されている場合は `$GROK_HOME/hooks/cc-safety-net.json`）に書き込みます。30 秒のタイムアウトを持ち、マッチャーのない `PreToolUse` エントリです。そのため `run_terminal_command` だけでなく、すべてのツール呼び出しが hook に届きます。install が書き換えるのは管理対象のエントリだけです。管理対象外のエントリ、同じエントリ内の管理対象外のハンドラー、ほかの hook イベントはそのまま残ります。パースできないファイルは、正規の内容に修復します。Grok Build はパースできない hook ファイルを丸ごと読み飛ばすため、そのようなファイルが動作する管理対象外の hook を保持していることはないからです。uninstall は管理対象のハンドラーだけを取り除き、ファイルを削除するのは、ほかに何も残らない場合だけです。
+`install --grok-build` は、コマンド `npx -y cc-safety-net hook --grok-build` を `~/.grok/hooks/cc-safety-net.json`（`GROK_HOME` が設定されている場合は `$GROK_HOME/hooks/cc-safety-net.json`）に書き込みます。30 秒のタイムアウトを持ち、マッチャーのない `PreToolUse` エントリです。そのため `run_terminal_command` だけでなく、すべてのツール呼び出しがフックに届きます。install が書き換えるのは管理対象のエントリだけです。管理対象外のエントリ、同じエントリ内の管理対象外のハンドラー、ほかのフックイベントはそのまま残ります。パースできないファイルは、正規の内容に修復します。Grok Build はパースできないフックファイルを丸ごと読み飛ばすため、そのようなファイルが動作する管理対象外のフックを保持していることはないからです。uninstall は管理対象のハンドラーだけを取り除き、ファイルを削除するのは、ほかに何も残らない場合だけです。
 
-実行時、hook は Grok Build の camelCase の入力（`toolName`、`toolInput`、`sessionId`、`cwd`、`workspaceRoot`）を読み取ります。コマンドツールは `run_terminal_command`、`run_terminal_cmd`、`monitor`、`bash`、`Shell` で、いずれもシェルの方言は自動判定します。セッション ID は `sessionId` から取得し、Grok Build が読み取る唯一の形式である `{ "decision": "deny", "reason": … }` または `{ "decision": "allow" }` を返します。`toolInputTruncated: true` は fail closed になります。Grok Build はツール入力を 128 KB で切り詰めるため、切れたコマンドは解析できないからです。信頼するルートは `workspaceRoot` で、`workspaceRoot` がない場合は `cwd` です。`cwd` は、正規化した結果がそのルートの内側のディレクトリでなければなりません。`cwd` がない場合や空の場合は `.` として扱います。ルートを正規化できない場合、または `cwd` がルートの外を指す場合は fail closed になります。
+実行時、フックは Grok Build の camelCase の入力（`toolName`、`toolInput`、`sessionId`、`cwd`、`workspaceRoot`）を読み取ります。コマンドツールは `run_terminal_command`、`run_terminal_cmd`、`monitor`、`bash`、`Shell` で、いずれもシェルの方言は自動判定します。セッション ID は `sessionId` から取得し、Grok Build が読み取る唯一の形式である `{ "decision": "deny", "reason": … }` または `{ "decision": "allow" }` を返します。`toolInputTruncated: true` はフェイルクローズになります。Grok Build はツール入力を 128 KB で切り詰めるため、切れたコマンドは解析できないからです。信頼するルートは `workspaceRoot` で、`workspaceRoot` がない場合は `cwd` です。`cwd` は、正規化した結果がそのルートの内側のディレクトリでなければなりません。`cwd` がない場合や空の場合は `.` として扱います。ルートを正規化できない場合、または `cwd` がルートの外を指す場合はフェイルクローズになります。
 
-`bash` は `workdir`、`Shell` は `working_directory` で作業ディレクトリを指定できます。相対パスはセッションのディレクトリを基準に解決し、正規化した結果は信頼するルートの内側のディレクトリでなければなりません。ルートの外を指すディレクトリや存在しないディレクトリは、要求された作業ディレクトリが原因であることを示して拒否します。空または空白だけの値や文字列以外の値は fail closed になり、指定がなければセッションのディレクトリのままです。ほかのコマンドツールは、常にセッションのディレクトリで実行します。
+`bash` は `workdir`、`Shell` は `working_directory` で作業ディレクトリを指定できます。相対パスはセッションのディレクトリを基準に解決し、正規化した結果は信頼するルートの内側のディレクトリでなければなりません。ルートの外を指すディレクトリや存在しないディレクトリは、要求された作業ディレクトリが原因であることを示して拒否します。空または空白だけの値や文字列以外の値はフェイルクローズになり、指定がなければセッションのディレクトリのままです。ほかのコマンドツールは、常にセッションのディレクトリで実行します。
 
 ## gui
 
@@ -1078,7 +1078,7 @@ bunx cc-safety-net statusline --claude-code
 bunx cc-safety-net statusline -cc
 ```
 
-プラグインが無効な場合、この行は `🛡️ CC Safety Net ❌` になります。それ以外の場合はレベルを絵文字で表します。standard は `✅`、strict は `🔒`、paranoid は `👁️`、customised は `🔧` です。worktree の緩和が有効な場合は `🌳` が、プロジェクトポリシーによる緩和が適用されている場合は `🔻` が、ポリシーのスナップショットが degraded の場合は末尾に `⚠️` が付きます。`CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY` で無視された緩和には `🔻` は付きません。
+プラグインが無効な場合、この行は `🛡️ CC Safety Net ❌` になります。それ以外の場合はレベルを絵文字で表します。standard は `✅`、strict は `🔒`、paranoid は `👁️`、customised は `🔧` です。ワークツリーの緩和が有効な場合は `🌳` が、プロジェクトポリシーによる緩和が適用されている場合は `🔻` が、ポリシーのスナップショットが degraded の場合は末尾に `⚠️` が付きます。`CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY` で無視された緩和には `🔻` は付きません。
 
 入力がパイプされると、`statusline` は標準入力を読み取ります。Claude Code の JSON ステータスペイロードは破棄します。それ以外のパイプされたテキストは維持し、`<stdin> | <status>` としてインジケーターの前に置きます。
 

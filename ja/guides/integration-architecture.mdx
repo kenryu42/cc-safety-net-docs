@@ -1,12 +1,12 @@
 ---
 title: "CC Safety Net と各エージェントの連携方法"
 sidebarTitle: "連携アーキテクチャ"
-description: "CC Safety Net が 16 のエージェントに接続する 4 つの方式です。標準入力を使う hook subprocess、エージェントが読み込むプラグイン、プロセス内で動く Pi の拡張機能、Amp Code のイベントプラグインを扱います。"
+description: "CC Safety Net が 16 のエージェントに接続する 4 つの方式です。標準入力を使うフック subprocess、エージェントが読み込むプラグイン、プロセス内で動く Pi の拡張機能、Amp Code のイベントプラグインを扱います。"
 ---
 
 このページは、連携の設定や不具合の調査に使います。各エージェントが CC Safety Net を呼び出し、判定を受け取るまでの流れを示します。ユーザー向けのライフサイクルは[仕組み](/ja/guides/how-it-works)を参照してください。
 
-CC Safety Net は 16 のコーディングエージェントに対応し、接続方式は 4 種類あります。方式が分かれば、hook が動かない原因や設定ファイルの場所を絞り込めます。
+CC Safety Net は 16 のコーディングエージェントに対応し、接続方式は 4 種類あります。方式が分かれば、フックが動かない原因や設定ファイルの場所を絞り込めます。
 
 各連携のインストール／削除コマンドは[インストール](/ja/installation)を参照してください。このページで扱うどの方式も、[アーキテクチャ](/ja/guides/architecture)で一度だけ規定した同じガードに接続します。
 
@@ -14,16 +14,16 @@ CC Safety Net は 16 のコーディングエージェントに対応し、接�
 
 | 方式 | エージェント | 仕組み |
 | --- | --- | --- |
-| **標準入力の hook subprocess** | Antigravity CLI、Claude Code、Codex、Cursor、Devin CLI、Factory Droid、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code | エージェントはツール呼び出しのたびに `cc-safety-net hook <flag>` を短命のプロセスとして実行し、呼び出し内容を JSON で標準入力に書き込みます。CC Safety Net は解析結果として、エージェントごとの拒否オブジェクトを標準出力に返し、終了コード 0 で終了します（Factory Droid では 2）。 |
+| **標準入力のフック subprocess** | Antigravity CLI、Claude Code、Codex、Cursor、Devin CLI、Factory Droid、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code | エージェントはツール呼び出しのたびに `cc-safety-net hook <flag>` を短命のプロセスとして実行し、呼び出し内容を JSON で標準入力に書き込みます。CC Safety Net は解析結果として、エージェントごとの拒否オブジェクトを標準出力に返し、終了コード 0 で終了します（Factory Droid では 2）。 |
 | **エージェントが読み込むプラグイン** | DeepSeek Harness、OpenClaw、OpenCode | エージェントが、自身のパッケージ形式のプラグインとして CC Safety Net を読み込みます。これらのエージェントに `hook` フラグはありません。 |
 | **プロセス内の拡張機能** | Pi | Pi は CC Safety Net の拡張機能を自身のプロセスに直接読み込み、メモリ内で呼び出します。subprocess も標準入出力も使いません。 |
 | **イベントプラグイン** | Amp Code | Amp は、アカウントの Personal Plugins リポジトリから管理対象の personal plugin を読み込み、`tool.call` の各イベントをプロセス内で渡します。 |
 
-## 標準入力の hook subprocess を使うエージェント
+## 標準入力のフック subprocess を使うエージェント
 
 この 11 のエージェントでは、標準入力から JSON を読み取る `hook <flag>` コマンドが保護を担います。実行前イベントの名前もコマンド用ツールの名前もエージェントごとに異なり、標準出力に求められる拒否の形式も異なります。
 
-| エージェント | 実行時フラグ | hook イベント | コマンド用ツール | 拒否時の出力形式 |
+| エージェント | 実行時フラグ | フックイベント | コマンド用ツール | 拒否時の出力形式 |
 | --- | --- | --- | --- | --- |
 | Antigravity CLI | `-ac` / `--agy-cli` | `PreToolUse` | `run_command`, `manage_task` | `{ "decision": "deny", "reason": … }` |
 | Claude Code | `-cc` / `--coding-cli` | `PreToolUse` | `Bash`, `PowerShell`, `Monitor` | `hookSpecificOutput.permissionDecision: "deny"`。[standard モードで検証できなかったコマンド](#when-claude-code-asks-instead-of-denying)では `"ask"` |
@@ -37,11 +37,11 @@ CC Safety Net は 16 のコーディングエージェントに対応し、接�
 | Hermes Agent | `-ha` / `--hermes-agent` | `pre_tool_call` | `terminal` | `{ "action": "block", "message": … }` |
 | Kimi Code | `-kc` / `--kimi-code` | `PreToolUse` | `Bash` | `hookSpecificOutput.permissionDecision: "deny"` |
 
-Claude Code の `Monitor` と Grok Build の `monitor` もシェルコマンドを実行するため、どちらもコマンド用ツールとして扱います。`Monitor` は POSIX のアナライザーを、`monitor` は方言の自動判定を使います。ただし `command` フィールドを持たない `Monitor` の呼び出しだけは、コマンド用ツールとして扱いません。これは `ws: { url, protocols? }` を送る WebSocket 版です。コマンド用ツールとして扱うとコマンドが見つからずに fail closed となり、WebSocket の監視をすべて拒否してしまいます。
+Claude Code の `Monitor` と Grok Build の `monitor` もシェルコマンドを実行するため、どちらもコマンド用ツールとして扱います。`Monitor` は POSIX のアナライザーを、`monitor` は方言の自動判定を使います。ただし `command` フィールドを持たない `Monitor` の呼び出しだけは、コマンド用ツールとして扱いません。これは `ws: { url, protocols? }` を送る WebSocket 版です。コマンド用ツールとして扱うとコマンドが見つからずにフェイルクローズとなり、WebSocket の監視をすべて拒否してしまいます。
 
 Devin CLI の `write_to_process` をコマンド用ツールとして扱うのは、実行中のプロセスに打ち込むテキストだけです。対象は空でない文字列の `text_input`、または `bytes_input` のキー表記をデコードして得られるテキストです。`bytes_input` で行を終えるのは `<CR>` と `<LF>` だけです。このテキストは方言の自動判定でシェルコマンドとして解析し、呼び出しのそれ以外の内容は読み取りません。`text_input` が `y` で `bytes_input` が `<CR>` だけの場合は、`y` を解析します。
 
-`<ESC>`、`<BS>`、矢印キー、`<C-…>` のキーが行をどう変えるかを CC Safety Net は再現しません。そのため、どちらかのフィールドにテキストがあり、同時にこれらのキーを含む呼び出しは fail closed になります。両方のフィールドにテキストがある呼び出しも同様です。`bytes_input` にそれ以外の `<Name>` 形式のキー表記がある呼び出しは、`text_input` があっても fail closed になります。`<UP><CR>` や `<C-c>` だけを送る呼び出しなど、テキストを打ち込まない呼び出しは未知のツールの入力経路を通ります。そのためコマンドとしてはパースせず、保護対象のパスが含まれていないかだけを検査します。
+`<ESC>`、`<BS>`、矢印キー、`<C-…>` のキーが行をどう変えるかを CC Safety Net は再現しません。そのため、どちらかのフィールドにテキストがあり、同時にこれらのキーを含む呼び出しはフェイルクローズになります。両方のフィールドにテキストがある呼び出しも同様です。`bytes_input` にそれ以外の `<Name>` 形式のキー表記がある呼び出しは、`text_input` があってもフェイルクローズになります。`<UP><CR>` や `<C-c>` だけを送る呼び出しなど、テキストを打ち込まない呼び出しは未知のツールの入力経路を通ります。そのためコマンドとしてはパースせず、保護対象のパスが含まれていないかだけを検査します。
 
 Antigravity CLI の `manage_task` をコマンド用ツールとして扱うのは、タスクに入力を送る場合だけです。`Action: "send_input"` で `Input` が空でない文字列なら、その `Input` を方言の自動判定でシェルコマンドとして解析します。それ以外の `manage_task` の呼び出しは、コマンド以外の入力経路を通ります。
 
@@ -52,93 +52,93 @@ Factory Droid の `Glob` ツールは `{ patterns, folder }` を受け取りま�
 <Note>
   エージェントごとにイベント名も拒否の形式も異なるため、CC Safety Net はそれぞれに合った形式で出力します。たとえば Gemini CLI は、Claude Code の `hookSpecificOutput` ではなく、終了コード 0 と `decision`／`systemMessage` を持つオブジェクトを求めます。出力形式を自分で設定する必要はありません。指定したフラグによって自動的に決まります。
 
-  Factory Droid では、拒否時に理由を標準エラー出力にも書き、終了コード 2 で終了します。Droid 0.240.0 は permission decision を持つ最初の hook の結果を採用するため、併せてインストールされた別の hook が許可や確認を返すと、JSON の拒否が使われないことがあります。一方、終了コード 2 なら必ずブロックされます。
+  Factory Droid では、拒否時に理由を標準エラー出力にも書き、終了コード 2 で終了します。Droid 0.240.0 は permission decision を持つ最初のフックの結果を採用するため、併せてインストールされた別のフックが許可や確認を返すと、JSON の拒否が使われないことがあります。一方、終了コード 2 なら必ずブロックされます。
 </Note>
 
 <span id="when-claude-code-asks-instead-of-denying"></span>
 
 ### Claude Code が拒否ではなく確認を求める場合
 
-`ask` を返せるのは Claude Code の hook だけです。`permissionDecision: "deny"` の代わりに `permissionDecision: "ask"` を出力し、Claude Code はその呼び出しを権限確認のプロンプトとして表示します。
+`ask` を返せるのは Claude Code のフックだけです。`permissionDecision: "deny"` の代わりに `permissionDecision: "ask"` を出力し、Claude Code はその呼び出しを権限確認のプロンプトとして表示します。
 
-`ask` になる拒否は次の 2 つだけで、しかも fail closed の機能が無効な場合、つまり standard レベルに限られます。
+`ask` になる拒否は次の 2 つだけで、しかもフェイルクローズの機能が無効な場合、つまり standard レベルに限られます。
 
 - ルール `raw-text.dangerous-command`。CC Safety Net がパースできなかったコマンドのテキストが、それでも破壊的に読み取れる場合に発火します。
 - 理由 `shell execution source cannot be verified safely. Use a literal command string or ask the user to run it manually.`。ただし 2 つの場合は拒否のままです。1 つはコマンドの生テキスト自体にも破壊的なパターンが含まれる場合、もう 1 つは検証できないソースを `sh -` のような標準入力を読むだけのシェルに渡す場合です。
 
-これ以外の拒否はすべて拒否のままです。[strict と paranoid](/ja/configuration/modes#strict-mode) はどちらも fail closed を有効にするため、これらのレベルでは確認に変わることがありません。
+これ以外の拒否はすべて拒否のままです。[strict と paranoid](/ja/configuration/modes#strict-mode) はどちらもフェイルクローズを有効にするため、これらのレベルでは確認に変わることがありません。
 
-`ask` は人が見て初めて意味を持つため、hook が出力するのは `default`、`acceptEdits`、`plan`、`auto` の 4 つの permission mode の場合だけです。`auto` では、Claude Code の分類器が呼び出しを拒否することはあっても、プロンプトを経ずに承認することはできません。それ以外の値の場合や、値がない場合は拒否になります。残りのモードでは Claude Code が誰も見ないままプロンプトを処理できてしまい、`ask` が黙って許可されるのと変わらなくなるためです。
+`ask` は人が見て初めて意味を持つため、フックが出力するのは `default`、`acceptEdits`、`plan`、`auto` の 4 つの permission mode の場合だけです。`auto` では、Claude Code の分類器が呼び出しを拒否することはあっても、プロンプトを経ずに承認することはできません。それ以外の値の場合や、値がない場合は拒否になります。残りのモードでは Claude Code が誰も見ないままプロンプトを処理できてしまい、`ask` が黙って許可されるのと変わらなくなるためです。
 
-`ask` を出力するホストは他にありません。Codex と Kimi Code は同じ `PreToolUse` のアダプターを使いますが、`ask` の出力を有効にしていません。Cursor の hook 形式には `allow` と `deny` しかありません。`ask` でプロンプトを出さないホストでは、コマンドが止まらずに実行されてしまいます。Codex はこの値を受け付けず、ツールを実行します。
+`ask` を出力するホストは他にありません。Codex と Kimi Code は同じ `PreToolUse` のアダプターを使いますが、`ask` の出力を有効にしていません。Cursor のフック形式には `allow` と `deny` しかありません。`ask` でプロンプトを出さないホストでは、コマンドが止まらずに実行されてしまいます。Codex はこの値を受け付けず、ツールを実行します。
 
 プロンプトの文面はブロックメッセージとは異なります。監査ログには、引き続き拒否として記録されます。どちらのメッセージも[ブロック結果の形式](/ja/guides/how-it-works#what-a-block-looks-like)で確認できます。同じ 2 つの拒否をポリシーの側から見た説明は、[standard がコマンドを検証できない場合](/ja/configuration/modes#when-standard-cannot-verify-a-command)にあります。
 
-### 共通の Coding CLI hook を使う
+### 共通の Coding CLI フックを使う
 
-`hook --coding-cli`（短いフラグは `-cc`）が、Claude 形式の hook の正式な名前です。このエントリーポイントは、その形式のペイロードを送ってくるエージェントであればどれでも受け付けます。そのため「Claude Code」ではなく「Coding CLI」という名前にしています。
+`hook --coding-cli`（短いフラグは `-cc`）が、Claude 形式のフックの正式な名前です。このエントリーポイントは、その形式のペイロードを送ってくるエージェントであればどれでも受け付けます。そのため「Claude Code」ではなく「Coding CLI」という名前にしています。
 
 `hook --claude-code` は以前からのエイリアスとして受け付けますが、`hook --help` には表示されません。新しい設定では使わないでください。
 
 これとは別に、3 つのエージェントについては `hook` を省略する以前の**トップレベル**の書き方も残っています。`cc-safety-net -cc` / `--claude-code`、`-gc` / `--gemini-cli`、`-cp` / `--copilot-cli` です。正式な `--coding-cli` は、意図的にトップレベルのフラグにしていません。`cc-safety-net --coding-cli` だけを実行すると、`Unknown option: --coding-cli` というエラーになります。
 
 <Note>
-  `statusline` コマンドは hook とは無関係で、引き続き `--claude-code` または `-cc` を指定する必要があります。[ステータスライン](/ja/configuration/status-line)を参照してください。
+  `statusline` コマンドはフックとは無関係で、引き続き `--claude-code` または `-cc` を指定する必要があります。[ステータスライン](/ja/configuration/status-line)を参照してください。
 </Note>
 
-### hook 設定の場所
+### フック設定の場所
 
-11 のうち 7 つは、CC Safety Net がファイルを直接書き込みます。6 つは hook の設定エントリとして、Hermes Agent は管理対象プラグインとして書き込みます。残りの 4 つは、それぞれのプラグインや拡張機能の配布経路を通して接続し、そのうえで標準入力の hook を呼び出します。
+11 のうち 7 つは、CC Safety Net がファイルを直接書き込みます。6 つはフックの設定エントリとして、Hermes Agent は管理対象プラグインとして書き込みます。残りの 4 つは、それぞれのプラグインや拡張機能の配布経路を通して接続し、そのうえで標準入力のフックを呼び出します。
 
 | エージェント | 設定の場所と読み込まれ方 |
 | --- | --- |
 | Antigravity CLI | 直接書き込み。`npx -y cc-safety-net hook --agy-cli` を実行する管理対象の `PreToolUse` エントリを `~/.gemini/config/hooks.json` に追加する |
 | Claude Code | プラグイン `cc-safety-net@cc-marketplace`。有効・無効の状態は `~/.claude/settings.json` の `enabledPlugins` に保存される |
 | Codex | プラグイン `cc-safety-net@cc-marketplace`。プラグイン自身の `hooks/codex.json` が、`node "${PLUGIN_ROOT}/dist/bin/cc-safety-net.js" hook --codex` を実行する `PreToolUse` エントリを登録する |
-| Cursor | 直接書き込み。`npx -y cc-safety-net hook --cursor` を実行する管理対象の `preToolUse` エントリを、`timeout: 30` と `failClosed: true` を付けて `~/.cursor/hooks.json` に追加する。この設定はグローバルで、すべてのプロジェクトの Cursor IDE と Cursor CLI が対象になる。Cursor が Claude Code プラグインをインポートする場合、有効な Claude Code プラグインからもこの hook を実行する。そのプラグインの `.cursor-plugin/plugin.json` は `hooks/cursor.json` を指し、このファイルがマッチャーなしで `node "${CURSOR_PLUGIN_ROOT}/dist/bin/cc-safety-net.js" hook --cursor` を実行する。`cursor-agent` で追加したネイティブ Cursor プラグインも同じチェックを実行する。`install --cursor` がこのプラグインを設定することはないが、見つかった場合は `doctor` が報告する。[Cursor のインストール](/ja/installation#cursor-installation)を参照 |
-| Devin CLI | 直接書き込み。`npx -y cc-safety-net hook --devin` を実行する管理対象の `PreToolUse` エントリを、`timeout: 30` を付けて `$XDG_CONFIG_HOME/devin/config.json`（既定は `~/.config/devin/config.json`、Windows では `%APPDATA%\devin\config.json`）の `hooks` の下に追加する。このエントリにマッチャーはないため、`exec` だけでなくファイル系ツールも hook に届く。Devin は `config.json` にコメントを書けるため、パース前に `//` と `/* */` のコメントを取り除く。書き戻す内容は通常の JSON なので、コメントは残らない。ファイルがパースできない場合、ルートが JSON オブジェクトでない場合、`hooks` がオブジェクトでない場合、`hooks.PreToolUse` が配列でない場合は、何も書き込まず、対象のファイルを示して停止する。アンインストールは管理対象のハンドラーを取り除いてファイルを書き戻し、`config.json` を削除することはない |
-| Factory Droid | 直接書き込み。`npx -y cc-safety-net hook --droid` を実行する管理対象の `PreToolUse` エントリを、`timeout: 30` を付けて `~/.factory/hooks.json` のトップレベルの `PreToolUse` 配列に追加する。マッチャーはないため、`Execute` だけでなくファイル系ツールも hook に届く。Droid は `hooks.json` がない間、旧形式の `~/.factory/hooks/hooks.json` と `~/.factory/settings.json` の `hooks` キーから hook を読み込み、`hooks.json` ができると旧形式のファイルを読まなくなる。そのため `hooks.json` が存在しない場合、インストールは旧形式のファイルのイベントをすべて引き継いで新しいファイルを作り、そこに管理対象のエントリを追加する。`settings.json` から引き継ぐのは、旧形式のファイルに `PreToolUse` がない場合の `PreToolUse` だけで、ほかのイベントは引き継がない。`settings.json` 自体には書き込まない。インストールと `doctor` は 3 つのファイルをすべて JSONC として読み、`//` と `/* */` のコメントや末尾のカンマを受け付ける。書き戻す内容は通常の JSON になる。`hooks.json` を削除するのは、ハンドラーを取り除いた結果、空の `PreToolUse` がファイルに残る唯一のキーになり、かつ `settings.json` と旧形式のファイルのどちらも存在しない場合だけ。どちらかがある場合は、削除すると残っているほうのフォールバックが再び有効になってしまうため、取り除いた内容を書き込む。管理対象のエントリに `commandRegex` があると hook に届く `Execute` の呼び出しが絞られ、`doctor` は再インストールで直せるずれとして報告する |
+| Cursor | 直接書き込み。`npx -y cc-safety-net hook --cursor` を実行する管理対象の `preToolUse` エントリを、`timeout: 30` と `failClosed: true` を付けて `~/.cursor/hooks.json` に追加する。この設定はグローバルで、すべてのプロジェクトの Cursor IDE と Cursor CLI が対象になる。Cursor が Claude Code プラグインをインポートする場合、有効な Claude Code プラグインからもこのフックを実行する。そのプラグインの `.cursor-plugin/plugin.json` は `hooks/cursor.json` を指し、このファイルがマッチャーなしで `node "${CURSOR_PLUGIN_ROOT}/dist/bin/cc-safety-net.js" hook --cursor` を実行する。`cursor-agent` で追加したネイティブ Cursor プラグインも同じチェックを実行する。`install --cursor` がこのプラグインを設定することはないが、見つかった場合は `doctor` が報告する。[Cursor のインストール](/ja/installation#cursor-installation)を参照 |
+| Devin CLI | 直接書き込み。`npx -y cc-safety-net hook --devin` を実行する管理対象の `PreToolUse` エントリを、`timeout: 30` を付けて `$XDG_CONFIG_HOME/devin/config.json`（既定は `~/.config/devin/config.json`、Windows では `%APPDATA%\devin\config.json`）の `hooks` の下に追加する。このエントリにマッチャーはないため、`exec` だけでなくファイル系ツールもフックに届く。Devin は `config.json` にコメントを書けるため、パース前に `//` と `/* */` のコメントを取り除く。書き戻す内容は通常の JSON なので、コメントは残らない。ファイルがパースできない場合、ルートが JSON オブジェクトでない場合、`hooks` がオブジェクトでない場合、`hooks.PreToolUse` が配列でない場合は、何も書き込まず、対象のファイルを示して停止する。アンインストールは管理対象のハンドラーを取り除いてファイルを書き戻し、`config.json` を削除することはない |
+| Factory Droid | 直接書き込み。`npx -y cc-safety-net hook --droid` を実行する管理対象の `PreToolUse` エントリを、`timeout: 30` を付けて `~/.factory/hooks.json` のトップレベルの `PreToolUse` 配列に追加する。マッチャーはないため、`Execute` だけでなくファイル系ツールもフックに届く。Droid は `hooks.json` がない間、旧形式の `~/.factory/hooks/hooks.json` と `~/.factory/settings.json` の `hooks` キーからフックを読み込み、`hooks.json` ができると旧形式のファイルを読まなくなる。そのため `hooks.json` が存在しない場合、インストールは旧形式のファイルのイベントをすべて引き継いで新しいファイルを作り、そこに管理対象のエントリを追加する。`settings.json` から引き継ぐのは、旧形式のファイルに `PreToolUse` がない場合の `PreToolUse` だけで、ほかのイベントは引き継がない。`settings.json` 自体には書き込まない。インストールと `doctor` は 3 つのファイルをすべて JSONC として読み、`//` と `/* */` のコメントや末尾のカンマを受け付ける。書き戻す内容は通常の JSON になる。`hooks.json` を削除するのは、ハンドラーを取り除いた結果、空の `PreToolUse` がファイルに残る唯一のキーになり、かつ `settings.json` と旧形式のファイルのどちらも存在しない場合だけ。どちらかがある場合は、削除すると残っているほうのフォールバックが再び有効になってしまうため、取り除いた内容を書き込む。管理対象のエントリに `commandRegex` があるとフックに届く `Execute` の呼び出しが絞られ、`doctor` は再インストールで直せるずれとして報告する |
 | Gemini CLI | `gemini-safety-net` リポジトリから読み込む拡張機能 `gemini-safety-net`。`cc-marketplace` のプラグインではない |
-| GitHub Copilot CLI | プラグイン `cc-safety-net@cc-marketplace`、または `~/.copilot/hooks` 配下の hook ファイルや Copilot の設定内のインライン hook。hook 対応にはバージョン条件があるため、使える取得元は Copilot CLI のバージョンによって異なる（[インストール](/ja/installation#github-copilot-cli-installation)を参照）。`disableAllHooks: true` はすべての hook を無効にする |
-| Grok Build | 直接書き込み。`npx -y cc-safety-net hook --grok-build` を実行する管理対象の `PreToolUse` エントリを、`timeout: 30` を付けて `~/.grok/hooks/cc-safety-net.json`（または `$GROK_HOME/hooks/cc-safety-net.json`）に追加する。このエントリにマッチャーはないため、`run_terminal_command` だけでなくファイル系ツールやパッチ系ツールも hook に届く。インストールもアンインストールも管理対象のハンドラーだけを操作するため、同じファイル内の管理対象外のエントリや、同じエントリ内の管理対象外のハンドラーはそのまま残る |
+| GitHub Copilot CLI | プラグイン `cc-safety-net@cc-marketplace`、または `~/.copilot/hooks` 配下のフックファイルや Copilot の設定内のインラインフック。フック対応にはバージョン条件があるため、使える取得元は Copilot CLI のバージョンによって異なる（[インストール](/ja/installation#github-copilot-cli-installation)を参照）。`disableAllHooks: true` はすべてのフックを無効にする |
+| Grok Build | 直接書き込み。`npx -y cc-safety-net hook --grok-build` を実行する管理対象の `PreToolUse` エントリを、`timeout: 30` を付けて `~/.grok/hooks/cc-safety-net.json`（または `$GROK_HOME/hooks/cc-safety-net.json`）に追加する。このエントリにマッチャーはないため、`run_terminal_command` だけでなくファイル系ツールやパッチ系ツールもフックに届く。インストールもアンインストールも管理対象のハンドラーだけを操作するため、同じファイル内の管理対象外のエントリや、同じエントリ内の管理対象外のハンドラーはそのまま残る |
 | Hermes Agent | 直接書き込み。`<Hermes home>/plugins/cc-safety-net/` に管理対象の Python プラグイン（`__init__.py` と `plugin.yaml`）を追加し、`hermes plugins enable cc-safety-net --no-allow-tool-override` で有効化する。有効化の状態は Hermes 自身の `config.yaml` の `plugins.enabled` に記録される |
-| Kimi Code | 直接書き込み。`npx -y cc-safety-net hook --kimi-code` を実行する `[[hooks]]` ブロックを `~/.kimi-code/config.toml`（または `$KIMI_CODE_HOME/config.toml`）に追加する。もう 1 つの方法として、Kimi Code 内で `/plugins install https://github.com/kenryu42/cc-safety-net/tree/plugin`（公開されている `plugin` ブランチ）を実行し、ネイティブのプラグインをインストールすることもできる。そのマニフェストは同じ hook エントリ（`node ./dist/bin/cc-safety-net.js hook --kimi-code`、`PreToolUse` イベント、タイムアウト 30 秒）をマッチャーなしで実行するため、ファイル系ツールも hook に届く |
+| Kimi Code | 直接書き込み。`npx -y cc-safety-net hook --kimi-code` を実行する `[[hooks]]` ブロックを `~/.kimi-code/config.toml`（または `$KIMI_CODE_HOME/config.toml`）に追加する。もう 1 つの方法として、Kimi Code 内で `/plugins install https://github.com/kenryu42/cc-safety-net/tree/plugin`（公開されている `plugin` ブランチ）を実行し、ネイティブのプラグインをインストールすることもできる。そのマニフェストは同じフックエントリ（`node ./dist/bin/cc-safety-net.js hook --kimi-code`、`PreToolUse` イベント、タイムアウト 30 秒）をマッチャーなしで実行するため、ファイル系ツールもフックに届く |
 
-Kimi Code の `Bash` 呼び出しでは、`tool_input.cwd` があればその値を実行ディレクトリとして使います。値は空でない文字列で、セッションの `cwd` の内側に解決できる必要があります。無効な値や外側を指す値は fail closed になります。
+Kimi Code の `Bash` 呼び出しでは、`tool_input.cwd` があればその値を実行ディレクトリとして使います。値は空でない文字列で、セッションの `cwd` の内側に解決できる必要があります。無効な値や外側を指す値はフェイルクローズになります。
 
 Gemini CLI の `run_shell_command` 呼び出しでは、文字列の `dir_path` が実行ディレクトリになります。Gemini 自身がコマンドを `path.resolve(targetDir, dir_path)` で実行するためです。CC Safety Net はこの値をペイロードの `cwd` を基準に解決し、絶対パスはそのまま使います。設定ディレクトリはセッションのカレントディレクトリのままなので、プロジェクト自身のルール設定が引き続き適用されます。
 
-解決先は実在するディレクトリである必要があります。存在しない場合は拒否し、要求された作業ディレクトリが原因であることを示します。空白だけの値や文字列以外の値は fail closed になります。`""` は `dir_path` の指定がないことを意味し、これは Gemini 自身の判定と同じです。この場合はセッションのカレントディレクトリで解析します。
+解決先は実在するディレクトリである必要があります。存在しない場合は拒否し、要求された作業ディレクトリが原因であることを示します。空白だけの値や文字列以外の値はフェイルクローズになります。`""` は `dir_path` の指定がないことを意味し、これは Gemini 自身の判定と同じです。この場合はセッションのカレントディレクトリで解析します。
 
-Kimi Code の `cwd` とは異なり、解決後のディレクトリがセッションのカレントディレクトリの内側に収まっている必要はありません。`BeforeTool` の hook が発火する前に、Gemini 側がワークスペース、`--include-directories` のルート、プロジェクトの一時ディレクトリと照らして `dir_path` を検証済みだからです。Amp の `dir` も同じように解決します。
+Kimi Code の `cwd` とは異なり、解決後のディレクトリがセッションのカレントディレクトリの内側に収まっている必要はありません。`BeforeTool` のフックが発火する前に、Gemini 側がワークスペース、`--include-directories` のルート、プロジェクトの一時ディレクトリと照らして `dir_path` を検証済みだからです。Amp の `dir` も同じように解決します。
 
 GitHub Copilot CLI の呼び出しでは、`toolArgs` はオブジェクトか文字列で届きます。オブジェクトはそのまま使います。文字列は JSON としてパースし、JSON でない文字列は `Failed to parse toolArgs JSON.` という理由で拒否します。例外は 1 つだけです。patch の経路では、先頭の空白を除いて `*** Begin Patch` で始まる文字列を、パッチのテキストとしてそのまま渡します。`powershell` と `PowerShell` の呼び出しは PowerShell のアナライザーに、`bash` と `Bash` の呼び出しは方言の自動判定に振り分けます。
 
 プラグイン経由の場合、Copilot は Windows の `powershell` ツールを `Bash` という名前で送ります。そのままでは Claude 形式のアダプターが POSIX のコマンドとして扱ってしまいます。そこでアダプターは環境変数 `COPILOT_CLI` を読み、値が `1` であれば `Bash` を `auto` の方言に振り分けます。これにより PowerShell の削除ルールが引き続き適用されます。[PowerShell `Remove-Item`](/ja/guides/analysis-engine#powershell-remove-item) を参照してください。
 
-Grok Build の呼び出しでは、信頼するルートは `workspaceRoot` で、`workspaceRoot` がない場合は `cwd` をルートとします。`cwd` はそのルートの内側のディレクトリとして正規化できる必要があり、`cwd` がないか空の場合は `.` として扱います。ルートを正規化できない場合や、`cwd` がルートの外を指す場合は fail closed になります。`toolInputTruncated: true` も fail closed になります。Grok Build はツール入力を 128 KB で切り詰めるため、途中で切れたコマンドは解析できません。
+Grok Build の呼び出しでは、信頼するルートは `workspaceRoot` で、`workspaceRoot` がない場合は `cwd` をルートとします。`cwd` はそのルートの内側のディレクトリとして正規化できる必要があり、`cwd` がないか空の場合は `.` として扱います。ルートを正規化できない場合や、`cwd` がルートの外を指す場合はフェイルクローズになります。`toolInputTruncated: true` もフェイルクローズになります。Grok Build はツール入力を 128 KB で切り詰めるため、途中で切れたコマンドは解析できません。
 
-Grok Build の `bash` と `Shell` は、それぞれ `workdir` と `working_directory` で作業ディレクトリを指定できます。この値が実行ディレクトリになり、設定ディレクトリは `cwd` のままです。相対パスは `cwd` を基準に解決し、解決先は信頼するルートの内側に実在するディレクトリである必要があります。空または空白だけの値や文字列以外の値は fail closed になり、存在しないディレクトリやルートの外を指すディレクトリは、要求された作業ディレクトリが原因であることを示して拒否します。指定がなければコマンドは `cwd` で実行します。`run_terminal_command` と `run_terminal_cmd` には作業ディレクトリの引数がありません。
+Grok Build の `bash` と `Shell` は、それぞれ `workdir` と `working_directory` で作業ディレクトリを指定できます。この値が実行ディレクトリになり、設定ディレクトリは `cwd` のままです。相対パスは `cwd` を基準に解決し、解決先は信頼するルートの内側に実在するディレクトリである必要があります。空または空白だけの値や文字列以外の値はフェイルクローズになり、存在しないディレクトリやルートの外を指すディレクトリは、要求された作業ディレクトリが原因であることを示して拒否します。指定がなければコマンドは `cwd` で実行します。`run_terminal_command` と `run_terminal_cmd` には作業ディレクトリの引数がありません。
 
-Factory Droid の呼び出しでは、ペイロードの `cwd` が設定ディレクトリと実行ディレクトリの両方になります。Kimi Code の `Bash` とは違い、アダプターはツール入力から作業ディレクトリを読み取らないため、`Execute` の呼び出しも同じディレクトリで解析します。`cwd` があるのに空でない文字列でない場合は fail closed になり、使用できるディレクトリに解決できない場合は、セッションのディレクトリが原因であることを示して拒否します。
+Factory Droid の呼び出しでは、ペイロードの `cwd` が設定ディレクトリと実行ディレクトリの両方になります。Kimi Code の `Bash` とは違い、アダプターはツール入力から作業ディレクトリを読み取らないため、`Execute` の呼び出しも同じディレクトリで解析します。`cwd` があるのに空でない文字列でない場合はフェイルクローズになり、使用できるディレクトリに解決できない場合は、セッションのディレクトリが原因であることを示して拒否します。
 
-Devin CLI のペイロードには `cwd` が含まれません。セッションのディレクトリは hook プロセス自身の作業ディレクトリで、Devin が hook を起動するときに設定します。これが設定ディレクトリになり、`exec` の呼び出しが `workdir` を指定しないかぎり実行ディレクトリにもなります。`workdir` は Gemini CLI の `dir_path` と同じように解決します。相対パスはセッションのディレクトリを基準に解決し、解決先は実在するディレクトリである必要がありますが、セッションのディレクトリの内側に収まっている必要はありません。Gemini と異なり、`""` も、空白だけの値や文字列以外の値と同じく fail closed になります。
+Devin CLI のペイロードには `cwd` が含まれません。セッションのディレクトリはフックプロセス自身の作業ディレクトリで、Devin がフックを起動するときに設定します。これが設定ディレクトリになり、`exec` の呼び出しが `workdir` を指定しないかぎり実行ディレクトリにもなります。`workdir` は Gemini CLI の `dir_path` と同じように解決します。相対パスはセッションのディレクトリを基準に解決し、解決先は実在するディレクトリである必要がありますが、セッションのディレクトリの内側に収まっている必要はありません。Gemini と異なり、`""` も、空白だけの値や文字列以外の値と同じくフェイルクローズになります。
 
-### Codex が hook に到達する仕組み
+### Codex がフックに到達する仕組み
 
-Codex は、`cc-marketplace` マーケットプレイスのプラグイン `cc-safety-net@cc-marketplace` として CC Safety Net を読み込みます。このプラグインは Codex 独自の形式でパッケージ化されており、マニフェストが指す `hooks/codex.json` が `PreToolUse` hook を登録します。`cc-safety-net` スキルも同じプラグインに同梱されています。
+Codex は、`cc-marketplace` マーケットプレイスのプラグイン `cc-safety-net@cc-marketplace` として CC Safety Net を読み込みます。このプラグインは Codex 独自の形式でパッケージ化されており、マニフェストが指す `hooks/codex.json` が `PreToolUse` フックを登録します。`cc-safety-net` スキルも同じプラグインに同梱されています。
 
-Codex は信頼されていない hook を実行しないため、Codex 内で信頼済みにするまで hook は動作しません。手順は[インストール](/ja/installation#codex-installation)を参照してください。
+Codex は信頼されていないフックを実行しないため、Codex 内で信頼済みにするまでフックは動作しません。手順は[インストール](/ja/installation#codex-installation)を参照してください。
 
-### Hermes Agent が hook に到達する仕組み
+### Hermes Agent がフックに到達する仕組み
 
-Hermes は、hook の設定ファイルから hook コマンドを実行するわけではありません。CC Safety Net は、Hermes がプロセス内で読み込む管理対象の Python プラグインをインストールし、そのプラグインが `pre_tool_call` のハンドラーを登録します。対象のツール呼び出しのたびに、ハンドラーは `npx -y cc-safety-net hook --hermes-agent` を実行し、呼び出し内容を JSON で標準入力に書き込みます。標準出力が空であれば許可を意味します。`{ "action": "block", "message": … }` が返ればブロックで、Hermes はそのメッセージをツール結果としてモデルに提示します。
+Hermes は、フックの設定ファイルからフックコマンドを実行するわけではありません。CC Safety Net は、Hermes がプロセス内で読み込む管理対象の Python プラグインをインストールし、そのプラグインが `pre_tool_call` のハンドラーを登録します。対象のツール呼び出しのたびに、ハンドラーは `npx -y cc-safety-net hook --hermes-agent` を実行し、呼び出し内容を JSON で標準入力に書き込みます。標準出力が空であれば許可を意味します。`{ "action": "block", "message": … }` が返ればブロックで、Hermes はそのメッセージをツール結果としてモデルに提示します。
 
 プラグインが渡すツールは 4 つです。コマンド解析用の `terminal`、書き込み保護用の `write_file` と `patch`、読み取り保護用の `read_file` です。それ以外の Hermes のツール呼び出しは渡されず、判定も行われません。
 
 プラグインは、すべての失敗を原因を明示したブロックに変換します。対象は、PATH に `npx` がない、プロセスの起動に失敗する、タイムアウトする（30 秒でアナライザーのプロセスグループ全体を kill）、終了コードが 0 以外になる、出力が読み取れないか想定外である、といった場合です。Hermes 側のディレクトリ解決の仕組みを読み込めない場合もブロックします。誤ったディレクトリを基準に解析すると、パスに基づく保護がすべて失われてしまうためです。
 
-プラグインは、Hermes 自身が使うディレクトリを基準に各ツールを解析します。`terminal` の呼び出しでは、プラグインはまず Hermes がセッションごとに保持する作業ディレクトリの記録を読み取ります。この記録には、そのセッションでの `cd` の状態が反映されています。最初のコマンドでまだ記録がない場合は、`TERMINAL_CWD`、次に Hermes のプロセスのディレクトリを使います。`terminal` の呼び出しは、`workdir` で自身のディレクトリを指定できます。この値はここまでで決まったディレクトリを基準に解決され、実行ディレクトリになります。解決結果は実在するディレクトリである必要がありますが、セッションのディレクトリの内側に収まっている必要はありません。解決できない `workdir` は拒否し、要求された作業ディレクトリが原因であることを示します。`\\?\C:\project` のような Windows の名前空間パスもこれに含まれます。空文字列や文字列以外の `workdir` は fail closed になります。
+プラグインは、Hermes 自身が使うディレクトリを基準に各ツールを解析します。`terminal` の呼び出しでは、プラグインはまず Hermes がセッションごとに保持する作業ディレクトリの記録を読み取ります。この記録には、そのセッションでの `cd` の状態が反映されています。最初のコマンドでまだ記録がない場合は、`TERMINAL_CWD`、次に Hermes のプロセスのディレクトリを使います。`terminal` の呼び出しは、`workdir` で自身のディレクトリを指定できます。この値はここまでで決まったディレクトリを基準に解決され、実行ディレクトリになります。解決結果は実在するディレクトリである必要がありますが、セッションのディレクトリの内側に収まっている必要はありません。解決できない `workdir` は拒否し、要求された作業ディレクトリが原因であることを示します。`\\?\C:\project` のような Windows の名前空間パスもこれに含まれます。空文字列や文字列以外の `workdir` はフェイルクローズになります。
 
 `read_file`、`write_file`、`patch` の呼び出しでは、プラグインは `_resolve_base_dir(task_id or "default")` を呼び出します。Hermes もこれらのツールの相対パスを同じ仕組みで解決します。この解決は、セッションの作業ディレクトリの記録、タスクごとの作業ディレクトリの上書き、`TERMINAL_CWD`、最後に Hermes のプロセスのディレクトリの順にたどります。import 元は `tools.file_tools` です。Hermes v2026.8.31 までは `tools.file_tools` が `_resolve_base_dir` を定義し、v2026.9.7 以降は `tools.file_tools_paths` から再エクスポートしています。import に失敗した場合、プラグインは呼び出しをブロックし、どの解決に失敗したかを示します。
 
@@ -179,7 +179,7 @@ DeepSeek Harness は、プロファイルのプラグインバンドルとして
 
 セッションの作業ディレクトリが、設定ディレクトリと実行ディレクトリの両方になります。この値は `agent.session.header.cwd` から取得し、実行オブジェクトにセッションヘッダーがない場合は、プラグインが読み込まれたディレクトリを使います。セッション ID は `agent.session.header.id` から取得します。`bash` または `pwsh` の呼び出しに `workdir` 引数がある場合は、その作業ディレクトリを基準に解決し、実行ディレクトリとして使います。この値はディレクトリとして実在していなければならず、実在しない場合は、要求されたディレクトリを示して拒否します。OpenClaw の `workdir` とは違い、セッションのディレクトリ内に収まっている必要はありません。
 
-ガードが fail closed になるのは、実行オブジェクトが不正な場合、ツール名が空でない文字列でない場合、`command` がない、または空の場合、`arguments` がオブジェクトでない場合、`workdir` があるのに空でない文字列でない場合、セッションのディレクトリを解決できない場合です。
+ガードがフェイルクローズになるのは、実行オブジェクトが不正な場合、ツール名が空でない文字列でない場合、`command` がない、または空の場合、`arguments` がオブジェクトでない場合、`workdir` があるのに空でない文字列でない場合、セッションのディレクトリを解決できない場合です。
 
 インストールでは、DeepSeek Harness 自身の `dsh plugin ... add` コマンドを実行します。`web` プロファイルには `npx -y @deepseek-ai/dsh` 経由で、`desktop` プロファイルにはデスクトップアプリ同梱の `dsh` 経由で、それぞれ 1 回実行します。導入と削除のコマンドは[インストール](/ja/installation#deepseek-harness-installation)を参照してください。
 
@@ -197,7 +197,7 @@ OpenClaw は、ネイティブの OpenClaw プラグインとして CC Safety Ne
 
 プラグインは、`exec` ツールに一致する `before_tool_call` のハンドラーを登録します。解析するのは、タグの付いていないシェルの `exec` だけです。Code Mode の JavaScript `exec` のように `toolKind` の識別子が付いた `exec` イベントには判定を返しません。それらの `command` フィールドがシェルコマンドを表す保証がないためです。それ以外の OpenClaw のツールはガードに渡しません。ハンドラーは、判定なし（許可）か `{ block: true, blockReason }` のいずれかを返すだけで、ツールのパラメーターを書き換えることはありません。
 
-エージェントのワークスペースディレクトリは OpenClaw の実行時 API で解決し、ポリシー用と実行用の両方のディレクトリとして使います。呼び出しに含まれる `workdir` は、ワークスペースの内側に収まるように解決します。CC Safety Net が fail closed になるのは、次の場合です。
+エージェントのワークスペースディレクトリは OpenClaw の実行時 API で解決し、ポリシー用と実行用の両方のディレクトリとして使います。呼び出しに含まれる `workdir` は、ワークスペースの内側に収まるように解決します。CC Safety Net がフェイルクローズになるのは、次の場合です。
 
 - イベントが不正
 - コマンドが欠けているか空
@@ -230,11 +230,11 @@ OpenCode は CC Safety Net を**プロセス内**にプラグインオブジェ�
 OpenCode 1.x では、プラグインは `@opencode-ai/plugin` の仕様を実装し、次の 2 つを行います。
 
 1. `tool.execute.before` を実装します。OpenCode は各ツールの実行前にこれを呼び出します。CC Safety Net は呼び出しを解析し、コマンドが破壊的であれば拒否を例外として投げます。標準入出力経由の JSON のやり取りはありません。
-2. `config` の hook を実装し、CC Safety Net の組み込みコマンドを OpenCode のコマンド一覧に追加します。ユーザーがすでに定義しているコマンドを上書きすることはありません。
+2. `config` のフックを実装し、CC Safety Net の組み込みコマンドを OpenCode のコマンド一覧に追加します。ユーザーがすでに定義しているコマンドを上書きすることはありません。
 
 `bash` ツールでは、プラグインは OpenCode の `shell` の設定からアナライザーの方言を選びます。この設定が文字列でない場合は `SHELL` を参照します。プラグインはその値のパスの最後の要素を取り出し、小文字にして末尾の `.exe` を除いた名前で判断します。`powershell` と `pwsh` なら PowerShell、`cmd` なら方言の自動判定、それ以外の実行ファイルはすべて POSIX を選びます。`shell` の設定が空または空白だけの場合、および Windows 以外で `SHELL` が未設定、空、空白だけの場合も自動判定になります。Windows で `shell` の設定がない場合は、`SHELL` が未設定、空、空白だけのとき、または `fish` か `nu` を指すときに PowerShell を選びます。`fish` と `nu` は OpenCode 自身も受け付けない値です。指定された `workdir` は、読み取りと検索ができるディレクトリとして解決できた場合にかぎり、実行ディレクトリになります。Windows では、`/C:`、`/C`、`/cygdrive/C`、`/mnt/C` という文書化された形式を正規化し、それ以外のスラッシュ始まりのパスは OpenCode 側で解決できるようそのまま渡します。
 
-OpenCode 2.x では、プラグインは `cc-safety-net` という ID で登録され、`tool.execute.before` を hook して、型付きの `Tool.Error` で拒否を返します。`shell` ツールはコマンドとして検査し、read、edit、write、patch、grep、glob と未知のツールは v1 と同じ入力経路で検査します。このほかにコマンドとして読むツールが 1 つあります。`force: true` を指定した `opencode_worktree_remove` の呼び出しは、POSIX の方言で `git worktree remove --force -- '<directory>'` として解析するため、シェルで書いた場合と同じように `git.worktree-remove-force` が判定します。`force` がないか `false` の場合は、未知のツールの経路のままです。Code Mode から呼ばれる子ツールもこの hook を通りますが、CC Safety Net は外側の Code Mode の JavaScript 自体は解釈しません。プラグインはさらに command API 経由で `/cc-safety-net` を登録し、同名のコマンドがすでにある場合はそれをそのまま残します。
+OpenCode 2.x では、プラグインは `cc-safety-net` という ID で登録され、`tool.execute.before` をフックして、型付きの `Tool.Error` で拒否を返します。`shell` ツールはコマンドとして検査し、read、edit、write、patch、grep、glob と未知のツールは v1 と同じ入力経路で検査します。このほかにコマンドとして読むツールが 1 つあります。`force: true` を指定した `opencode_worktree_remove` の呼び出しは、POSIX の方言で `git worktree remove --force -- '<directory>'` として解析するため、シェルで書いた場合と同じように `git.worktree-remove-force` が判定します。`force` がないか `false` の場合は、未知のツールの経路のままです。Code Mode から呼ばれる子ツールもこのフックを通りますが、CC Safety Net は外側の Code Mode の JavaScript 自体は解釈しません。プラグインはさらに command API 経由で `/cc-safety-net` を登録し、同名のコマンドがすでにある場合はそれをそのまま残します。
 
 v2 の `shell` ツールは、ホストの `FileAccess.resolvePath` で `workdir` を解決します。これは `~` をホームディレクトリに、`~/x` を `<home>/x` に対応付けます。v2 のプラグインも、上記の Windows のドライブ正規化の後に同じ解決を行います。`~` だけならホームディレクトリ、`~/` で始まればその下に結合し、win32 では `~\` も同様に扱います。`~other` や `~x` のようなそれ以外の形式は、プロジェクトからの相対パスのままです。v1 はチルダを展開しません。OpenCode v1 が `path.resolve` で `workdir` を解決するためです。
 
@@ -255,7 +255,7 @@ v2 のツールイベントはシェルの実行ファイル名を伝えない�
 
 POSIX の `sh` の文法で動くシェル（ash、bash、dash、ksh、sh、zsh など）には `"posix"` を、powershell と pwsh には `"powershell"` を指定します。このオプションは OpenCode が使う実行ファイルを選ぶものではありません。OpenCode が実際に使う実行ファイルと一致させる必要があります。それ以外の値を指定すると、プラグインは `CC Safety Net: plugin option shell must be posix or powershell.` で失敗します。
 
-`shell.create.before` の hook が、シェルの起動前に実際の実行ファイルを確認します。`"powershell"` の場合、実行ファイルの名前は `powershell` か `pwsh` でなければなりません。`"posix"` の場合、`powershell`、`pwsh`、`cmd` は、末尾の `.exe` があってもなくても名前の時点で拒否します。OpenCode がこれらを別の方法で起動するためです。それ以外の実行ファイルは、プローブに合格する必要があります。確認に失敗すると、次のメッセージで起動を止めます。
+`shell.create.before` のフックが、シェルの起動前に実際の実行ファイルを確認します。`"powershell"` の場合、実行ファイルの名前は `powershell` か `pwsh` でなければなりません。`"posix"` の場合、`powershell`、`pwsh`、`cmd` は、末尾の `.exe` があってもなくても名前の時点で拒否します。OpenCode がこれらを別の方法で起動するためです。それ以外の実行ファイルは、プローブに合格する必要があります。確認に失敗すると、次のメッセージで起動を止めます。
 
 ```text
 CC Safety Net: actual shell "<actual>" does not match plugin option shell "<configured>". Configure the plugin's shell option to match OpenCode; supported dialects are posix and powershell.
@@ -265,7 +265,7 @@ CC Safety Net: actual shell "<actual>" does not match plugin option shell "<conf
 
 プローブは実行ファイルのパスごとに 1 回だけ実行します。確認中に別のシェル作成が重なった場合は、同じ 1 回の確認結果を共有します。合格した実行ファイルは記憶するため、同じパスの次回以降の作成ではプローブを省きます。失敗した確認やタイムアウトした確認は記憶しないため、次の作成でもう一度プローブします。確認は 10 秒のタイマーで失敗として確定し、プローブは `SIGKILL` で終了させます。これにより、応答しないシェルを待ち続けることはありません。
 
-この停止は通常のツール拒否とは異なります。OpenCode のシェル hook には型付きの拒否の経路もセッション ID もないため、実行中の操作そのものが失敗することがあり、セッションに紐づく監査エントリも残りません。この検査は、プラグインの `location`、つまりプラグインが読み込まれた OpenCode のディレクトリコンテキストで作成されるすべてのシェルが対象で、エージェントのツール呼び出し以外のシェル操作も含みます。OS レベルのサンドボックスではありません。
+この停止は通常のツール拒否とは異なります。OpenCode のシェルフックには型付きの拒否の経路もセッション ID もないため、実行中の操作そのものが失敗することがあり、セッションに紐づく監査エントリも残りません。この検査は、プラグインの `location`、つまりプラグインが読み込まれた OpenCode のディレクトリコンテキストで作成されるすべてのシェルが対象で、エージェントのツール呼び出し以外のシェル操作も含みます。OS レベルのサンドボックスではありません。
 
 OpenCode 1.x は古いキャッシュのプラグインを使い続けることがあるため、キャッシュを消去するまで設定変更が反映されない場合があります。[インストール](/ja/installation#opencode-installation)を参照してください。
 
@@ -274,11 +274,11 @@ OpenCode 1.x は古いキャッシュのプラグインを使い続けること�
 Pi は、パッケージの `pi.extensions` フィールドで宣言され、Pi のエージェントディレクトリにある `settings.json` にパッケージの取得元 `npm:cc-safety-net` として記録された、プロセス内の拡張機能として CC Safety Net を読み込みます。このディレクトリは、`PI_CODING_AGENT_DIR` が設定されていればその値（先頭の `~` は展開されます）、設定されていなければ `~/.pi/agent` です。拡張機能が行うことは 2 つです。
 
 1. **`tool_call` イベントのハンドラーを登録します**（`pi.on('tool_call')`）。ハンドラーは Pi のツール呼び出しを実行前に検査し、コマンドやパスがポリシーに違反していればブロックの結果を返します。プロセスの境界を越えるやり取りは一切ありません。
-2. Pi 内から rulebook を対話的に管理するための、**組み込みコマンド `/cc-safety-net` を登録します**。
+2. Pi 内からルールブックを対話的に管理するための、**組み込みコマンド `/cc-safety-net` を登録します**。
 
 ### Pi で保護されるツール
 
-Pi でコマンド用ツールとして扱うのは、組み込みの `bash` と `powershell` の 2 つです。どちらも `command` フィールドを読み取り、そのコマンドはセッションのカレントディレクトリを基準に実行されます。`bash` は POSIX のアナライザー、`powershell` は PowerShell のアナライザーに振り分けます。以前のカスタム `Shell` ツールには対応していません。Pi のコマンド以外のツールも、引き続きパスの保護とシークレット保護の対象になります。特に `find` は読み取り専用の glob ツールとして分類されるため、検索自体を書き込みとして扱うことなく、`pattern` とパスの値を検査します。コマンドの呼び出し内容やセッションのカレントディレクトリが不正な場合、CC Safety Net は fail closed になります。
+Pi でコマンド用ツールとして扱うのは、組み込みの `bash` と `powershell` の 2 つです。どちらも `command` フィールドを読み取り、そのコマンドはセッションのカレントディレクトリを基準に実行されます。`bash` は POSIX のアナライザー、`powershell` は PowerShell のアナライザーに振り分けます。以前のカスタム `Shell` ツールには対応していません。Pi のコマンド以外のツールも、引き続きパスの保護とシークレット保護の対象になります。特に `find` は読み取り専用の glob ツールとして分類されるため、検索自体を書き込みとして扱うことなく、`pattern` とパスの値を検査します。コマンドの呼び出し内容やセッションのカレントディレクトリが不正な場合、CC Safety Net はフェイルクローズになります。
 
 | ツール | コマンドのフィールド | 作業ディレクトリ |
 | --- | --- | --- |
@@ -287,13 +287,13 @@ Pi でコマンド用ツールとして扱うのは、組み込みの `bash` と
 
 ### Pi の検出
 
-検査すべき hook の設定ファイルがないため、`doctor` コマンドは実行時のプローブで Pi を検出します（`pi` を起動し、拡張機能が読み込まれて有効になっているかを確認します）。そのため、Pi がインストール済みでもプローブを実行できない場合、`doctor` の Pi の状態が `n/a` になることがあります。
+検査すべきフックの設定ファイルがないため、`doctor` コマンドは実行時のプローブで Pi を検出します（`pi` を起動し、拡張機能が読み込まれて有効になっているかを確認します）。そのため、Pi がインストール済みでもプローブを実行できない場合、`doctor` の Pi の状態が `n/a` になることがあります。
 
 ## Amp Code のイベントプラグイン
 
 Amp Code は CC Safety Net を **personal plugin** として読み込みます。実体は、Amp アカウントがホストする Personal Plugins リポジトリ内の `cc-safety-net` ディレクトリで、自己完結したエントリファイル `index.ts` を収めています。このプラグインは `@ampcode/plugin` の API を使って Amp の `tool.call` イベントを購読し、`allow` か、メッセージを添えた `reject-and-continue` を返します。DeepSeek Harness、Pi、OpenClaw、OpenCode と同様、プロセス内で動作します。personal plugin は 1 台のマシンではなくアカウントに紐づくため、Amp Orb のようなリモート環境で実行されるスレッドも保護できます。
 
-Amp のワークスペースルート（`amp.system.workspaceRoot`）が設定ディレクトリになります。シェルのツール呼び出しに文字列の `dir` が含まれる場合は、その値が実行ディレクトリになります。相対パスはワークスペースルートを基準に解決し、その結果を `realpath` で正規化します。実在するディレクトリであることも必要です。Windows の名前空間パスは拒否します。解決できない `dir` は fail closed になり、このときコマンドが破壊的かどうかは解析しません。この拒否は、アナライザーの想定外の失敗としては報告しなくなりました。作業ディレクトリが原因であることを示し、すでに存在してアクセスできるディレクトリを使うか、存在しないディレクトリであれば先に作成するよう、エージェントに伝えます。OpenClaw の `workdir` とは異なり、解決後のディレクトリがワークスペースの内側に収まっている必要はありません。Amp は自身のスキルのキャッシュや隣接するリポジトリを指定することがあり、これは正当な使い方です。同じ作業を `cd <dir> && …` と書いた場合も、もともとそこで実行されます。設定ディレクトリはワークスペースルートのままなので、プロジェクト自身のルール設定は引き続き適用されます。さらに、Git メタデータのガードは実行ディレクトリと設定ディレクトリの両方を起点とするため、コマンドを別の場所で実行しても、ワークスペース自身の `.git` は保護されたままです。[Git メタデータ](/ja/reference/blocked-commands#git-metadata)を参照してください。
+Amp のワークスペースルート（`amp.system.workspaceRoot`）が設定ディレクトリになります。シェルのツール呼び出しに文字列の `dir` が含まれる場合は、その値が実行ディレクトリになります。相対パスはワークスペースルートを基準に解決し、その結果を `realpath` で正規化します。実在するディレクトリであることも必要です。Windows の名前空間パスは拒否します。解決できない `dir` はフェイルクローズになり、このときコマンドが破壊的かどうかは解析しません。この拒否は、アナライザーの想定外の失敗としては報告しなくなりました。作業ディレクトリが原因であることを示し、すでに存在してアクセスできるディレクトリを使うか、存在しないディレクトリであれば先に作成するよう、エージェントに伝えます。OpenClaw の `workdir` とは異なり、解決後のディレクトリがワークスペースの内側に収まっている必要はありません。Amp は自身のスキルのキャッシュや隣接するリポジトリを指定することがあり、これは正当な使い方です。同じ作業を `cd <dir> && …` と書いた場合も、もともとそこで実行されます。設定ディレクトリはワークスペースルートのままなので、プロジェクト自身のルール設定は引き続き適用されます。さらに、Git メタデータのガードは実行ディレクトリと設定ディレクトリの両方を起点とするため、コマンドを別の場所で実行しても、ワークスペース自身の `.git` は保護されたままです。[Git メタデータ](/ja/reference/blocked-commands#git-metadata)を参照してください。
 
 `install --amp` は、このプラグインをリポジトリに公開します。まずアカウントに書き込み可能な Personal Plugins リポジトリがあることを確認し（`amp plugins repositories --json`）、使い捨てのディレクトリにクローンして（`amp clone user-plugins`）、`cc-safety-net/index.ts` を書き込み、コミットしてプッシュします。ステージングでは、ディレクトリを渡さず明示的なパス（`git add -- cc-safety-net/index.ts`）を指定します。そのため、プラグインのパスが gitignore されている場合は、何もステージしないまま進むことはなく、インストールが止まります。インストールもアンインストールも、書き込みや `git rm` の対象はこのエントリ 1 つだけなので、同じディレクトリに置いた他のファイルに触れることはありません。
 
@@ -303,7 +303,7 @@ Amp のワークスペースルート（`amp.system.workspaceRoot`）が設定�
 
 ### 埋め込まれるポリシーのスナップショット
 
-公開されるファイルには、ユーザーのポリシーのスナップショットが含まれます。ファイル末尾に追加される `globalThis.__CC_SAFETY_NET_EMBEDDED_POLICY__ = …` という 1 つの代入で、ポリシーは書き込み前に正規化されます。実行時にこのスナップショットが適用されるのは、自前のポリシーファイルを持たないマシン、つまりホームディレクトリが空の Orb のような環境だけです。ポリシーファイルがあるマシンでは、たとえその内容が不正でも、そのマシン自身の設定が優先されます。監査ログの保持期間、ユーザー rulebook、プロジェクトスコープのポリシーは埋め込まれず、ポリシーの変更は次回の `install` または `update` で反映されます。
+公開されるファイルには、ユーザーのポリシーのスナップショットが含まれます。ファイル末尾に追加される `globalThis.__CC_SAFETY_NET_EMBEDDED_POLICY__ = …` という 1 つの代入で、ポリシーは書き込み前に正規化されます。実行時にこのスナップショットが適用されるのは、自前のポリシーファイルを持たないマシン、つまりホームディレクトリが空の Orb のような環境だけです。ポリシーファイルがあるマシンでは、たとえその内容が不正でも、そのマシン自身の設定が優先されます。監査ログの保持期間、ユーザールールブック、プロジェクトスコープのポリシーは埋め込まれず、ポリシーの変更は次回の `install` または `update` で反映されます。
 
 Amp は起動時にプラグインを読み込むため、新しく公開したプラグインや削除したプラグインは、Amp を再読み込みするまで実行中のセッションに影響しません。
 
@@ -319,7 +319,7 @@ Amp は起動時にプラグインを読み込むため、新しく公開した�
 
 `npx cc-safety-net doctor` は、エージェントごとに検出した連携方式と設定ファイルのパスを報告し、保護が有効な場合はセルフテストも実行します。オプションと終了時の挙動は [CLI コマンド](/ja/reference/cli-commands)を参照してください。
 
-特定のエージェントで hook が動作しない場合は、[トラブルシューティング](/ja/guides/troubleshooting)のエージェント別の手順を参照してください。
+特定のエージェントでフックが動作しない場合は、[トラブルシューティング](/ja/guides/troubleshooting)のエージェント別の手順を参照してください。
 
 ## 次に読むページ
 

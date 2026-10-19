@@ -12,7 +12,7 @@ keywords:
   - "パススルー"
   - "allow_paths"
   - "WhatIf"
-  - "worktree モード"
+  - "ワークツリーモード"
 ---
 
 CC Safety Net はコマンドの意味を解析し、許可できる形式と破壊的な形式を区別します。このページにあるコマンド形式は、アナライザーが許可します。
@@ -22,7 +22,7 @@ CC Safety Net はコマンドの意味を解析し、許可できる形式と破
 このページは、許可されるコマンドのリファレンスです。ブロックされる形式は[ブロックされるコマンド](/ja/reference/blocked-commands)、ガードの処理順は[アーキテクチャ](/ja/guides/architecture)、分類方法は[解析エンジン](/ja/guides/analysis-engine)を参照してください。
 
 <Warning>
-  致命的な操作に対する保護は、すべての安全レベルで適用されます。root とホームディレクトリの再帰削除、保護対象の Git メタデータ、正規の `policy.json` は常にブロックされます。このページに挙げた形式、`allow_paths`、worktree モード、ルール単位の `off` の override では、この保護を緩和できません。
+  致命的な操作に対する保護は、すべての安全レベルで適用されます。root とホームディレクトリの再帰削除、保護対象の Git メタデータ、正規の `policy.json` は常にブロックされます。このページに挙げた形式、`allow_paths`、ワークツリーモード、ルール単位の `off` の override では、この保護を緩和できません。
 </Warning>
 
 ## Git コマンド
@@ -62,7 +62,7 @@ CC Safety Net はコマンドの意味を解析し、許可できる形式と破
 
 その上で、レベルに応じた次の 2 つの調整が適用されます。
 
-- 動的な対象（`rm -rf "$target"`、バッククォート、コマンド置換）は standard では許可され、fail closed の機能が有効になるとブロックされます。standard は、敵対的な入力や動的に生成されたコマンド文字列に対してはベストエフォートです。
+- 動的な対象（`rm -rf "$target"`、バッククォート、コマンド置換）は standard では許可され、フェイルクローズの機能が有効になるとブロックされます。standard は、敵対的な入力や動的に生成されたコマンド文字列に対してはベストエフォートです。
 - `CC_SAFETY_NET_PARANOID_RM=1` を設定すると、一時パス以外への再帰的な削除は、カレントディレクトリ配下であってもブロックされます。そのため `rm -rf ./cache`、`rm -r ./cache`、`find ./cache -delete` は許可されなくなります。一時パスの対象と、設定済みの allow path は引き続き許可されます。
 
 削除を伴う `find` は、起点が保護対象の Git メタデータに届く場合は引き続きブロックされます。リポジトリルートでは起点の `.` がこれに当たります。ただし、保護対象のメタデータのどのエントリにも一致しないリテラルの `-name` または `-iname` フィルターがあれば、そのブロックは解除されます。そのため、リポジトリルートでも `find . -name '*.pyc' -exec rm {} +` と `find . -name '*.pyc' -execdir rm -f -- {} \;` は通ります。`find . -name '*.pyc' -delete` は通りません。起点が `.` の場合は `find.delete` が別途ブロックするためです。条件とブロックが残る形式は、[Git メタデータ](/ja/reference/blocked-commands#git-metadata)を参照してください。
@@ -73,7 +73,7 @@ CC Safety Net はコマンドの意味を解析し、許可できる形式と破
 
 `destructive_command_protection.allow_paths` に記載した絶対ディレクトリまたは `~/` で始まるディレクトリは、信頼された一時ルートとして扱われます。これは**すべて**の安全レベルで、`rm`、PowerShell の `Remove-Item`、`find -delete` に適用されます。
 
-allow path が他の範囲を広げることはありません。機密パス保護や deny path を緩和しません。ルート、ホーム、保護対象の Git メタデータを対象にはできません。リポジトリを含む allow path でも、そのリポジトリの `.git` に対する `rm -rf` はブロックされます。動的な対象が最初に分類されるため、検証できない対象には allow path が適用されません。`$HOME` と等しい、またはそれを含むエントリは、検証時と正規化後の両方で拒否されます。allow path から外へ出るシンボリックリンクは対象外です。
+allow path が他の範囲を広げることはありません。機密パス保護や拒否パスを緩和しません。ルート、ホーム、保護対象の Git メタデータを対象にはできません。リポジトリを含む allow path でも、そのリポジトリの `.git` に対する `rm -rf` はブロックされます。動的な対象が最初に分類されるため、検証できない対象には allow path が適用されません。`$HOME` と等しい、またはそれを含むエントリは、検証時と正規化後の両方で拒否されます。allow path から外へ出るシンボリックリンクは対象外です。
 
 ## heredoc をデータとして受け取るコマンド
 
@@ -87,7 +87,7 @@ allow path が他の範囲を広げることはありません。機密パス保
 | `git commit -F - <<'EOF'` | 本文がコミットメッセージになる。破壊的なコマンドを文章として説明していても同じ |
 | `gh pr create --body-file - <<'EOF'`、`gh issue create -F - <<'EOF'` | 本文をプルリクエストや Issue の本文として登録する |
 
-対象になるのは、展開されない heredoc だけです。デリミタが引用符で囲まれているもの（`<<'EOF'`）か、引用符がなくても本文に `$`、バッククォート、バックスラッシュが含まれないものが該当し、どちらもシェルが展開やエスケープ処理を行う余地はありません。引用符がなく、この 3 つの文字のいずれかが本文に含まれる場合は、シェルの展開やエスケープ処理を受けるため、standard では引き続きスキャンの対象になり、fail closed が有効な場合は拒否されます。heredoc の外にあるコマンドは、これまでどおり解析されます。`cat <<'EOF' && rm -rf ~` は `rm` によってブロックされます。`cat`、`tee`、`git commit`、`gh pr create`、`gh issue create` では、デリミタが引用符で囲まれた本文を、機密パスの抽出前にマスクします。そのため、シークレットのファイル名を文章の中で触れただけでコミットがブロックされることはありません。引用符のない本文は、条件を通過する場合でもマスクの対象にはならないため、その中にファイル名らしいトークンがあれば抽出されます。`git apply` の本文は、patch が書き込むファイル名を含むため、パス抽出からは見える状態のままにします。条件の全体と、条件を満たさない heredoc を standard がどう扱うかについては、[heredoc の解析](/ja/guides/analysis-engine#heredoc-analysis)を参照してください。
+対象になるのは、展開されない heredoc だけです。デリミタが引用符で囲まれているもの（`<<'EOF'`）か、引用符がなくても本文に `$`、バッククォート、バックスラッシュが含まれないものが該当し、どちらもシェルが展開やエスケープ処理を行う余地はありません。引用符がなく、この 3 つの文字のいずれかが本文に含まれる場合は、シェルの展開やエスケープ処理を受けるため、standard では引き続きスキャンの対象になり、フェイルクローズが有効な場合は拒否されます。heredoc の外にあるコマンドは、これまでどおり解析されます。`cat <<'EOF' && rm -rf ~` は `rm` によってブロックされます。`cat`、`tee`、`git commit`、`gh pr create`、`gh issue create` では、デリミタが引用符で囲まれた本文を、機密パスの抽出前にマスクします。そのため、シークレットのファイル名を文章の中で触れただけでコミットがブロックされることはありません。引用符のない本文は、条件を通過する場合でもマスクの対象にはならないため、その中にファイル名らしいトークンがあれば抽出されます。`git apply` の本文は、patch が書き込むファイル名を含むため、パス抽出からは見える状態のままにします。条件の全体と、条件を満たさない heredoc を standard がどう扱うかについては、[heredoc の解析](/ja/guides/analysis-engine#heredoc-analysis)を参照してください。
 
 <span id="standard-only-allowances"></span>
 
@@ -185,14 +185,14 @@ allow path が他の範囲を広げることはありません。機密パス保
 - **ベンダー管理ディレクトリ。** パスセグメントが `node_modules` または `__pycache__` の場合、または隣接する組み合わせ `vendor/bundle` または `vendor/cache` がある場合（単独の `vendor` セグメントは対象外）、正確に 2 つのルールグループが抑制されます。拡張子ルール（`.pem`、`.p12`、`.key` など）と、拡張子なしの広範なキーベース名ルール `secret.pattern.ssh-key-basename`（`*_rsa`、`*_dsa`、`*_ed25519`、`*_ecdsa`）です。それ以外のルールはすべて引き続き適用されます。`node_modules/x/.env` と `node_modules/x/id_rsa` は通常どおりブロックされます。`.git` は除外セットに**含まれません**。そのため、`.git` ツリー内のキーマテリアル（`.git/hooks/deploy_key_rsa` など）は、ほかの場所と同様にルールに一致します。
 
 <Warning>
-  standard であっても、機密情報の**内容**へのアクセスや、設定済みの deny path が緩和されることはありません。`cat ~/.ssh/id_rsa`、`find ~/.ssh -type f -exec cat {} +`、`find ~/.ssh -type f -fprint .env`、`test -f ~/.ssh/id_rsa && cat ~/.ssh/id_rsa`、`test -f "$(cat ~/.ssh/id_rsa)"` は、いずれも standard でもブロックされます。deny path とその配下は組み込みルールより先に照合され、standard 限定のどの緩和の対象にもなりません。
+  standard であっても、機密情報の**内容**へのアクセスや、設定済みの拒否パスが緩和されることはありません。`cat ~/.ssh/id_rsa`、`find ~/.ssh -type f -exec cat {} +`、`find ~/.ssh -type f -fprint .env`、`test -f ~/.ssh/id_rsa && cat ~/.ssh/id_rsa`、`test -f "$(cat ~/.ssh/id_rsa)"` は、いずれも standard でもブロックされます。拒否パスとその配下は組み込みルールより先に照合され、standard 限定のどの緩和の対象にもなりません。
 </Warning>
 
-## worktree モードの例外
+## ワークツリーモードの例外
 
-[`CC_SAFETY_NET_WORKTREE=1`](/ja/configuration/modes#worktree-mode) を設定すると、CC Safety Net は Git の linked worktree であることを確認したうえで、一部のローカル破棄コマンドを許可します。確認できなかった場合、そのコマンドはブロックされたままです。
+[`CC_SAFETY_NET_WORKTREE=1`](/ja/configuration/modes#worktree-mode) を設定すると、CC Safety Net は Git のリンクされたワークツリーであることを確認したうえで、一部のローカル破棄コマンドを許可します。確認できなかった場合、そのコマンドはブロックされたままです。
 
-worktree モードが有効なとき、リンクされた worktree 内で次のコマンドが許可されます。
+ワークツリーモードが有効なとき、リンクされたワークツリー内で次のコマンドが許可されます。
 
 - `git restore <file>` と `git restore --worktree <file>`
 - `git checkout -- <file>`、`git checkout <path>`、`git checkout <ref> -- <file>`、`git checkout --force`、位置引数が複数あって判別しにくい checkout の形式
@@ -201,26 +201,26 @@ worktree モードが有効なとき、リンクされた worktree 内で次の�
 - `git clean -f`（`-fd` などの結合フラグも含む）
 - `git rm --force` / `-f`
 
-次のコマンドはローカルの作業ツリーを越えて影響するため、リンクされた worktree 内でも引き続きブロックされます。
+次のコマンドはローカルの作業ツリーを越えて影響するため、リンクされたワークツリー内でも引き続きブロックされます。
 
 - `git push --force`：リモートに影響する
 - `git branch -D`：共有された ref に影響する
-- `git stash drop` / `git stash clear`：stash は worktree 間で共有される
-- `git worktree remove --force`：別の worktree を削除しかねない
+- `git stash drop` / `git stash clear`：stash はワークツリー間で共有される
+- `git worktree remove --force`：別のワークツリーを削除しかねない
 
-後述の一時ルートの緩和はこれとは別の経路です。オペランド自体が信頼された一時ルート配下の使い捨て worktree ディレクトリであれば、`git worktree remove --force` が許可されることがあります。
+後述の一時ルートの緩和はこれとは別の経路です。オペランド自体が信頼された一時ルート配下の使い捨てワークツリーディレクトリであれば、`git worktree remove --force` が許可されることがあります。
 
-worktree モードが緩和するのは、Git のローカル破棄ルールだけです。ファイルシステム、デバイス、PowerShell のルールには影響せず、Git メタデータの保護が緩和されることもありません。linked worktree の中でも、`rm .git`、`rm -rf <resolved gitDir>`、`rm -rf <commonDir>`、`> .git` へのリダイレクトは、いずれも即座にブロックされます。参照ファイルが指す先の Git ディレクトリも保護対象だからです。
+ワークツリーモードが緩和するのは、Git のローカル破棄ルールだけです。ファイルシステム、デバイス、PowerShell のルールには影響せず、Git メタデータの保護が緩和されることもありません。リンクされたワークツリーの中でも、`rm .git`、`rm -rf <resolved gitDir>`、`rm -rf <commonDir>`、`> .git` へのリダイレクトは、いずれも即座にブロックされます。参照ファイルが指す先の Git ディレクトリも保護対象だからです。
 
 <span id="temp-root-relaxation"></span>
 
 ## 一時ルートの緩和
 
-信頼された一時ルート配下にある使い捨てリポジトリで git を実行した場合も、Git のルールは緩和されます。これは worktree モードとは独立していて、`CC_SAFETY_NET_WORKTREE=1` は必要ありません。
+信頼された一時ルート配下にある使い捨てリポジトリで git を実行した場合も、Git のルールは緩和されます。これはワークツリーモードとは独立していて、`CC_SAFETY_NET_WORKTREE=1` は必要ありません。
 
 `git.push-*` を除くすべての Git ルールが、この経路で緩和され得ます。`git.ssh-env` と `git.alias-config` は緩和の判定より前に結論が出るため、やはり緩和されません。対象となるリポジトリは、解決後の git の作業ディレクトリから最も近い、`.git` エントリを持つ祖先ディレクトリです。このリポジトリのルートは、信頼された一時ルートの配下にあり、一時ルートそのものではなく、ワークスペース（元のカレントディレクトリ）の祖先でも配下でもない必要があります。さらに `.git` が実在するディレクトリでなければならず、`.git` が存在しない場合やシンボリックリンクの場合はルールがそのまま適用されます。
 
-一時ルート配下の linked worktree は、代わりに `.git` がファイルです。ここで緩和され得るのはローカル破棄のルールだけで、worktree の情報を確認できること、および worktree モードが挙げるものと同じ「緩和できないローカル破棄」に該当しないことが条件です。branch、stash、tag の操作は引き続きブロックされ、`git reset --hard <ref>` は共有された状態であるため、ここでも緩和されません。
+一時ルート配下のリンクされたワークツリーは、代わりに `.git` がファイルです。ここで緩和され得るのはローカル破棄のルールだけで、ワークツリーの情報を確認できること、およびワークツリーモードが挙げるものと同じ「緩和できないローカル破棄」に該当しないことが条件です。branch、stash、tag の操作は引き続きブロックされ、`git reset --hard <ref>` は共有された状態であるため、ここでも緩和されません。
 
 コマンドラインに `--git-dir` や `--work-tree` がある場合、`GIT_DIR` 系の環境変数による上書きがある場合、コマンドがコマンドラインの git エイリアスを展開したものである場合、この緩和は適用されません。
 

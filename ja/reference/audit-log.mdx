@@ -51,7 +51,7 @@ CC Safety Net は、コマンドの判定を構造化された監査ログに書
 - 書き込み処理では、コマンド出力、モデルプロンプト、ツール結果、会話内容を読み取らず、保存もしません。
 - 拒否は常に記録されます。
 - 許可の判定は、ツール呼び出しが実際にコマンドへルーティングされた場合にのみ記録されます。許可されたコマンド以外のツール呼び出しでは、レコードは作られません。
-- fail closed パスから生じたブロック、つまりアナライザーでエラーが発生し、推測せずにガードが拒否した場合も記録されます。このレコードには `failureStage` と `errorCode` が設定されるため、正確に検索できます。`logs --suspect` はこのフィールドを使います。
+- フェイルクローズパスから生じたブロック、つまりアナライザーでエラーが発生し、推測せずにガードが拒否した場合も記録されます。このレコードには `failureStage` と `errorCode` が設定されるため、正確に検索できます。`logs --suspect` はこのフィールドを使います。
 
 <span id="record-schema"></span>
 
@@ -75,7 +75,7 @@ CC Safety Net は、コマンドの判定を構造化された監査ログに書
 | `reason` | string | 常にある | 人が読める判定理由 |
 | `ruleId` | string | deny のレコードにある | 呼び出しをブロックしたルールまたは[固定の拒否](/ja/reference/destructive-rules#fixed-denial-ids)の ID。allow のレコード、Copilot CLI の deny `Failed to parse toolArgs JSON.`、以前のバージョンが書いた一部の deny のレコードには含まれない |
 | `intent` | string | 任意 | ブロック意図の分類 |
-| `failureStage` | string | 任意 | ガードの失敗によって拒否された場合、つまり fail closed になった場合に設定される |
+| `failureStage` | string | 任意 | ガードの失敗によって拒否された場合、つまりフェイルクローズになった場合に設定される |
 | `errorCode` | string | 任意 | `path-canonicalization-limit`、`tool-input-limit`、`structural-shell-syntax-limit`、`unparseable-command`、`unexpected-error` のいずれか |
 | `cwd` | string \| `null` | 任意 | 作業ディレクトリ。マスク後に上限を適用 |
 
@@ -96,7 +96,7 @@ CC Safety Net は、コマンドの判定を構造化された監査ログに書
 
 上限はマスク処理の**後**に適用されます。そのため、マスクの途中で文字列が切れてしまうことはありません。
 
-`failureStage` を持つエントリは、fail closed の原因を調べるための主な記録です。そのため、コマンドは切り詰めずに**全文**を保存します。前段のツール入力のバイト数上限が、この長さをすでに制限しています。`segment`、`toolName`、`cwd` の上限は変わらず、このエントリにも適用されます。
+`failureStage` を持つエントリは、フェイルクローズの原因を調べるための主な記録です。そのため、コマンドは切り詰めずに**全文**を保存します。前段のツール入力のバイト数上限が、この長さをすでに制限しています。`segment`、`toolName`、`cwd` の上限は変わらず、このエントリにも適用されます。
 
 `command`、`segment`、`toolName`、`cwd` のいずれかが上限を超えると、レコードに `truncated: true` が追加されます。`failureStage` を持つエントリでは、コマンドにそもそも上限がありません。そのため、コマンドが長いというだけでこのフラグが付くことはありません。`segment`、`toolName`、`cwd` はこれまでどおりフラグの原因になります。このフラグが `false` として書き込まれることはありません。フラグがなければ、何も切り詰められていません。`logs --id` は、これを `truncated: yes` または `-` として表示します。
 

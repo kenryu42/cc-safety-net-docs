@@ -1,12 +1,12 @@
 ---
 title: "ポリシーファイル：policy.json の完全な仕様"
 sidebarTitle: "ポリシー"
-description: "CC Safety Net の policy.json の完全なリファレンスです。ユーザースコープとプロジェクトスコープの重ね方、スキーマ、安全 preset と機能の override、worktree モード、破壊的コマンドとシークレットの保護、deny path と allow path のルール、監査ログの保持期間、policy check と policy apply コマンドを扱います。"
+description: "CC Safety Net の policy.json の完全なリファレンスです。ユーザースコープとプロジェクトスコープの重ね方、スキーマ、安全プリセットと機能の override、ワークツリーモード、破壊的コマンドとシークレットの保護、拒否パスと allow path のルール、監査ログの保持期間、policy check と policy apply コマンドを扱います。"
 ---
 
-`policy.json` は、CC Safety Net の設定ファイルです。安全 preset、組み込み保護の有効／無効、保護対象パス、監査レコードの保持期間を設定します。スコープは 2 つあり、ユーザーファイルと、リポジトリにコミットする任意のプロジェクトファイルです。
+`policy.json` は、CC Safety Net の設定ファイルです。安全プリセット、組み込み保護の有効／無効、保護対象パス、監査レコードの保持期間を設定します。スコープは 2 つあり、ユーザーファイルと、リポジトリにコミットする任意のプロジェクトファイルです。
 
-独自のブロックルールを定義する `rule.json` や rulebook とは別のファイルです。それらのスキーマは[カスタムルール](/ja/configuration/custom-rules)を参照してください。
+独自のブロックルールを定義する `rule.json` やルールブックとは別のファイルです。それらのスキーマは[カスタムルール](/ja/configuration/custom-rules)を参照してください。
 
 ## ポリシーファイルの場所
 
@@ -82,15 +82,15 @@ description: "CC Safety Net の policy.json の完全なリファレンスです
 - `status` は、プロジェクトファイルのパスを示す `Project` 行と、これらの行を並べた `Project policy` ブロックを追加します。
 - ステータスラインは、緩和が 1 つでも適用されている間 `🔻` を表示します。[ステータスライン](/ja/configuration/status-line)を参照してください。
 - `doctor` は、Effective Safety の下に `Project policy deltas:` ブロックを出力します。
-- `doctor` と `explain` は、安全 preset を供給したスコープを `user policy`、`project policy`、`built-in default` のいずれかで併記します。[explain トレース](/ja/reference/explain-trace)を参照してください。
+- `doctor` と `explain` は、安全プリセットを供給したスコープを `user policy`、`project policy`、`built-in default` のいずれかで併記します。[explain トレース](/ja/reference/explain-trace)を参照してください。
 
 <span id="ignore-project-weakenings"></span>
 
 ### プロジェクトの緩和を無視する
 
-`CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY=1` を設定すると、プロジェクトポリシーによる緩和をすべて拒否できます。このときマージでは、上の一覧で報告されるフィールドを取り除きます。対象は、レベルの引き下げ、機能の無効化、worktree モードの緩和の有効化、保護の無効化、ルールの無効化、許可パスの追加です。プロジェクトファイルのほかの設定はそのまま適用されるため、保護を強める設定は効きます。ほかの真偽値のフラグと同じく、`1` または `true`（大文字と小文字は区別しない）で有効になります。[環境変数](/ja/configuration/environment#project-policy-weakenings)を参照してください。
+`CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY=1` を設定すると、プロジェクトポリシーによる緩和をすべて拒否できます。このときマージでは、上の一覧で報告されるフィールドを取り除きます。対象は、レベルの引き下げ、機能の無効化、ワークツリーモードの緩和の有効化、保護の無効化、ルールの無効化、許可パスの追加です。プロジェクトファイルのほかの設定はそのまま適用されるため、保護を強める設定は効きます。ほかの真偽値のフラグと同じく、`1` または `true`（大文字と小文字は区別しない）で有効になります。[環境変数](/ja/configuration/environment#project-policy-weakenings)を参照してください。
 
-取り除いたフィールドも、引き続き報告されます。`status` はブロックの見出しを `Project policy (ignored)` にし、`doctor` は `Project policy deltas (ignored):` を出力します。どの緩和も適用されていないため、ステータスラインに `🔻` は表示されず、ダッシュボードのプロジェクトポリシーの通知にも並びません。スイッチがプロジェクトのレベルを取り除いた場合、`doctor` と `explain` は preset のスコープとして `user policy` または `built-in default` を示します。
+取り除いたフィールドも、引き続き報告されます。`status` はブロックの見出しを `Project policy (ignored)` にし、`doctor` は `Project policy deltas (ignored):` を出力します。どの緩和も適用されていないため、ステータスラインに `🔻` は表示されず、ダッシュボードのプロジェクトポリシーの通知にも並びません。スイッチがプロジェクトのレベルを取り除いた場合、`doctor` と `explain` はプリセットのスコープとして `user policy` または `built-in default` を示します。
 
 プレビューはこのスイッチの影響を受けません。`policy check`、`policy apply`、ダッシュボードのプロジェクト下書きの確認画面は、スイッチなしでマージした結果で差分を出します。表示されるのは、スイッチを設定していないメンバーに適用される内容です。
 
@@ -227,23 +227,23 @@ Only the user may apply a policy proposal, because it rewrites the configuration
 </ParamField>
 
 <ParamField body="safety.level" type="string" default="standard">
-  安全 preset。`"standard"`、`"strict"`、`"paranoid"` のいずれかです。各 preset は、継承される機能の既定値を定めます。`strict` は `fail_closed` を、`paranoid` は `fail_closed`、`paranoid_rm`、`paranoid_interpreters` を有効にします。各機能の効果は[安全レベル](/ja/configuration/modes)を参照してください。
+  安全プリセット。`"standard"`、`"strict"`、`"paranoid"` のいずれかです。各プリセットは、継承される機能の既定値を定めます。`strict` は `fail_closed` を、`paranoid` は `fail_closed`、`paranoid_rm`、`paranoid_interpreters` を有効にします。各機能の効果は[安全レベル](/ja/configuration/modes)を参照してください。
 </ParamField>
 
 <ParamField body="safety.overrides.fail_closed" type="boolean">
-  preset にかかわらず、fail closed 機能を明示的に有効または無効にします。preset から継承する場合は、このキーを省略します。
+  プリセットにかかわらず、フェイルクローズ機能を明示的に有効または無効にします。プリセットから継承する場合は、このキーを省略します。
 </ParamField>
 
 <ParamField body="safety.overrides.paranoid_rm" type="boolean">
-  paranoid の `rm` 機能を明示的に有効または無効にします。preset から継承する場合は、このキーを省略します。
+  paranoid の `rm` 機能を明示的に有効または無効にします。プリセットから継承する場合は、このキーを省略します。
 </ParamField>
 
 <ParamField body="safety.overrides.paranoid_interpreters" type="boolean">
-  paranoid のインタープリター機能を明示的に有効または無効にします。preset から継承する場合は、このキーを省略します。
+  paranoid のインタープリター機能を明示的に有効または無効にします。プリセットから継承する場合は、このキーを省略します。
 </ParamField>
 
 <ParamField body="workflow.worktree_mode" type="boolean" default="false">
-  **確認済み**の linked worktree 内で、ローカルの変更を破棄する Git ルールを緩和します。検出は fail closed です。作業ディレクトリが linked worktree だと確実に判定できない場合は、より厳しい既定のルールがそのまま適用されます。緩和される操作と緩和されない操作の正確な一覧は、[安全レベル](/ja/configuration/modes)を参照してください。
+  **確認済み**のリンクされたワークツリー内で、ローカルの変更を破棄する Git ルールを緩和します。検出はフェイルクローズです。作業ディレクトリがリンクされたワークツリーだと確実に判定できない場合は、より厳しい既定のルールがそのまま適用されます。緩和される操作と緩和されない操作の正確な一覧は、[安全レベル](/ja/configuration/modes)を参照してください。
 </ParamField>
 
 <ParamField body="destructive_command_protection.enabled" type="boolean" default="true">
@@ -251,7 +251,7 @@ Only the user may apply a policy proposal, because it rewrites the configuration
 </ParamField>
 
 <ParamField body="destructive_command_protection.overrides" type="object" default="{}">
-  登録済みの破壊的コマンドルール ID をキーとする、ルール単位の状態です。値は `"on"` または `"off"` です。機能から決まった状態の上に適用されるため、`"on"` は preset が無効にしているルールを有効にでき、`"off"` は preset が有効にしているルールを無効にできます。
+  登録済みの破壊的コマンドルール ID をキーとする、ルール単位の状態です。値は `"on"` または `"off"` です。機能から決まった状態の上に適用されるため、`"on"` はプリセットが無効にしているルールを有効にでき、`"off"` はプリセットが有効にしているルールを無効にできます。
 </ParamField>
 
 <ParamField body="destructive_command_protection.allow_paths" type="string[]" default="[]">
@@ -267,11 +267,11 @@ Only the user may apply a policy proposal, because it rewrites the configuration
 </ParamField>
 
 <ParamField body="secret_protection.deny_paths" type="string[]" default="[]">
-  組み込みの機密パスに加えて、シークレットとして保護するパスです。検証ルールは [Deny path](#deny-paths) を参照してください。
+  組み込みの機密パスに加えて、シークレットとして保護するパスです。検証ルールは [拒否パス](#deny-paths) を参照してください。
 </ParamField>
 
 <ParamField body="secret_protection.allow_paths" type="string[]" default="[]">
-  組み込みのシークレットパターンルールから除外する、特定のファイルまたはディレクトリツリーです。ディレクトリ、`**/`、正確なファイル名を順に並べた形（`~/code/**/.env.local` など）も指定できます。設定済みの deny path と Coding CLI の保護は引き続き適用されます。検証ルールと優先順位は、[Secret allow path](#secret-allow-paths)を参照してください。
+  組み込みのシークレットパターンルールから除外する、特定のファイルまたはディレクトリツリーです。ディレクトリ、`**/`、正確なファイル名を順に並べた形（`~/code/**/.env.local` など）も指定できます。設定済みの拒否パスと Coding CLI の保護は引き続き適用されます。検証ルールと優先順位は、[Secret allow path](#secret-allow-paths)を参照してください。
 </ParamField>
 
 <ParamField body="audit.retention_days" type="integer" default="30">
@@ -280,7 +280,7 @@ Only the user may apply a policy proposal, because it rewrites the configuration
 
 ## 安全レベルと機能の override
 
-`safety.level` で preset を選び、その上で `safety.overrides` が個別の機能を明示的に設定します。機能を**引き下げられる**のはここだけで、環境変数のフラグは引き上げることしかできません。
+`safety.level` でプリセットを選び、その上で `safety.overrides` が個別の機能を明示的に設定します。機能を**引き下げられる**のはここだけで、環境変数のフラグは引き上げることしかできません。
 
 ```json
 {
@@ -294,7 +294,7 @@ Only the user may apply a policy proposal, because it rewrites the configuration
 }
 ```
 
-この例では `paranoid` preset を使い、インタープリターの 1 行コードだけを対象外にしています。最終的な機能の組み合わせがどの preset にも一致しない場合、有効なレベルは `custom` と報告されます。
+この例では `paranoid` プリセットを使い、インタープリターの 1 行コードだけを対象外にしています。最終的な機能の組み合わせがどのプリセットにも一致しない場合、有効なレベルは `custom` と報告されます。
 
 <Note>
   環境変数はポリシーのレベルを引き上げたり機能を強制的に有効にしたりできますが、その逆はできません。`policy.json` と環境変数の優先順位の全体像（`worktree_mode` の OR と以前の `SAFETY_NET_*` エイリアスを含む）は、[環境変数](/ja/configuration/environment)を参照してください。
@@ -328,7 +328,7 @@ Only the user may apply a policy proposal, because it rewrites the configuration
 
 ### Allow path
 
-`destructive_command_protection.allow_paths` は、特定の場所を破壊的コマンドのルールから除外します。検証は deny path より厳格です。
+`destructive_command_protection.allow_paths` は、特定の場所を破壊的コマンドのルールから除外します。検証は拒否パスより厳格です。
 
 | 項目 | 結果 |
 | --- | --- |
@@ -372,9 +372,9 @@ Only the user may apply a policy proposal, because it rewrites the configuration
 
 <span id="deny-paths"></span>
 
-### Deny path
+### 拒否パス
 
-`secret_protection.deny_paths` は、組み込みの機密パスに加えて独自の保護対象を追加します。deny path は組み込みルールより**先に**評価され、一致した場合はルール ID `secret.deny-path` による即時ブロックになります。
+`secret_protection.deny_paths` は、組み込みの機密パスに加えて独自の保護対象を追加します。拒否パスは組み込みルールより**先に**評価され、一致した場合はルール ID `secret.deny-path` による即時ブロックになります。
 
 検証：
 
@@ -390,11 +390,11 @@ Only the user may apply a policy proposal, because it rewrites the configuration
 
 相対パスは、各セッションの作業ディレクトリを基準に解決します。ファイルを保存する時点では、そのディレクトリが分からないためです。ホームディレクトリ、その上位パス、`/` は拒否されます。これらを指定すると、ホームディレクトリ配下のほぼすべての作業環境で、あらゆるコマンドがブロックされます。
 
-**有効な deny path が保護する範囲：**そのパス自体と、**その配下すべて**です。比較の前に、対象は実行時の作業ディレクトリを基準に、設定されたパスは設定時の作業ディレクトリを基準に正規化されます。
+**有効な拒否パスが保護する範囲：**そのパス自体と、**その配下すべて**です。比較の前に、対象は実行時の作業ディレクトリを基準に、設定されたパスは設定時の作業ディレクトリを基準に正規化されます。
 
 知っておくべき制限が 2 つあります。
 
-- deny path が適用されるのは、`secret_protection.enabled` が `true` の間だけです。`false` にすると、シークレット判定ステージの他の保護もろとも無効になります。
+- 拒否パスが適用されるのは、`secret_protection.enabled` が `true` の間だけです。`false` にすると、シークレット判定ステージの他の保護もろとも無効になります。
 - `secret.deny-path` は登録済みのシークレットルール ID ではないため、`secret_protection.overrides` では無効にできません。無効にできるのは `secret_protection.enabled: false` だけです。
 
 <span id="secret-allow-paths"></span>
@@ -407,7 +407,7 @@ Only the user may apply a policy proposal, because it rewrites the configuration
 
 優先順位は固定です。
 
-1. 設定済みの deny path が常に優先します。同じ対象が両方のリストにある場合、結果は `secret.deny-path` になります。
+1. 設定済みの拒否パスが常に優先します。同じ対象が両方のリストにある場合、結果は `secret.deny-path` になります。
 2. Coding CLI の credential ルールと config ルール（`secret.cli.*`）が常に優先します。allow path でエージェント自身の資格情報や設定を露出させることはできません。
 3. allow path に一致した対象については、その他の組み込みシークレットルールが抑制されます。
 
@@ -470,7 +470,7 @@ Only the user may apply a policy proposal, because it rewrites the configuration
 | --- | --- |
 | `version` | `1` に書き換え |
 | `safety.level` | `standard` に戻す |
-| `safety.overrides.*` | 無効なキーを破棄し、その機能は preset から継承 |
+| `safety.overrides.*` | 無効なキーを破棄し、その機能はプリセットから継承 |
 | `workflow.worktree_mode` | `false` に戻す |
 | `destructive_command_protection.enabled` | `true` に戻す。保護は**有効** |
 | `destructive_command_protection.overrides` | 無効な項目を破棄。オブジェクトでない場合は `{}` |
@@ -484,7 +484,7 @@ Only the user may apply a policy proposal, because it rewrites the configuration
 壊れたプロジェクトファイルも同じように救済されます。拒否されたセクションだけが落ち、両方のファイルの残りはそのまま有効です。ユーザーファイルが読み取れない場合でも、プロジェクトポリシーがフィールドを提供していれば、そのフィールドが有効になるため、組み込みの既定値ではなく救済として報告されます。スコープの由来情報は、プロジェクトファイルが存在すれば有効・無効を問わず表示されるため、`status` は `Project` 行を出し続けます。
 
 <Warning>
-  無効な項目は**破棄されるだけで、修復はされません**。書き間違えた deny path はその場所を保護しなくなり、無効な `safety.level` は黙って `standard` に下がります。この 2 つが、特に気づきにくい失敗パターンです。手作業で編集したら、そのつど `npx cc-safety-net status` を実行してください。
+  無効な項目は**破棄されるだけで、修復はされません**。書き間違えた拒否パスはその場所を保護しなくなり、無効な `safety.level` は黙って `standard` に下がります。この 2 つが、特に気づきにくい失敗パターンです。手作業で編集したら、そのつど `npx cc-safety-net status` を実行してください。
 </Warning>
 
 degraded 状態の完全な仕様、その報告のされ方、`ready` に戻す方法は、[設定の復旧](/ja/configuration/recovery)で説明しています。
@@ -493,13 +493,13 @@ degraded 状態の完全な仕様、その報告のされ方、`ready` に戻す
 
 <CardGroup cols={2}>
   <Card title="安全レベル" icon="toggle-right" href="/ja/configuration/modes">
-    各安全機能が何を変えるか、worktree モードが何を緩和するか。
+    各安全機能が何を変えるか、ワークツリーモードが何を緩和するか。
   </Card>
   <Card title="環境変数" icon="variable" href="/ja/configuration/environment">
     ポリシーのレベルを引き上げる変数を含む、すべての環境変数。
   </Card>
   <Card title="カスタムルール" icon="list-checks" href="/ja/configuration/custom-rules">
-    独自のブロックルールを定義する `rule.json` と rulebook のスキーマ。
+    独自のブロックルールを定義する `rule.json` とルールブックのスキーマ。
   </Card>
   <Card title="設定の復旧" icon="life-buoy" href="/ja/configuration/recovery">
     ready と degraded の違い、フォールバックの一覧、修復の手順。

@@ -4,7 +4,7 @@ sidebarTitle: "インストール"
 description: "Amp Code、Antigravity CLI、Claude Code、Codex、Cursor、DeepSeek Harness、Devin CLI、Factory Droid、Gemini CLI、GitHub Copilot CLI、Grok Build、Hermes Agent、Kimi Code、OpenClaw、OpenCode、Pi に CC Safety Net をインストールまたはアンインストールします。"
 ---
 
-CC Safety Net は、コーディングエージェント内のプラグイン、拡張機能、または hook として動作します。常駐サービスやデーモンは不要です。連携によっては、チェックのたびに短命の hook subprocess を起動します。
+CC Safety Net は、コーディングエージェント内のプラグイン、拡張機能、またはフックとして動作します。常駐サービスやデーモンは不要です。連携によっては、チェックのたびに短命のフック subprocess を起動します。
 
 ほとんどの連携は **Windows、macOS、Linux** で動作します。パスとコマンドを正しく解決するため、ホスト OS を検出します。Windows では、大文字と小文字を区別しないパスのほか、`COMSPEC` と `PATHEXT` を使って `cmd.exe` または PowerShell を解決します。インストールコマンドと対話式インストーラーは、npm が Windows 上で `.cmd` shim としてインストールしたエージェント CLI も検出します。このため、`install --codex` などのコマンドでも対象の CLI を見つけられます。CI では、Linux や macOS と同じフルチェック（lint、型チェック、テストスイート全体）を `windows-latest` でも実行しています。Windows でスキップするテストは 3 件です。ただし、これらのテストが検証するのはアナライザーと連携部分のコードであり、各コーディングエージェント自体を Windows 上で動かして確認しているわけではありません。Amp のマニュアルが対応対象として挙げているのも macOS、Linux、WSL であり、Windows ネイティブではありません。
 
@@ -53,7 +53,7 @@ npx -y cc-safety-net@latest update
 
 `update` は、メジャーバージョン間のアップグレード手段でもあります。v1 のインストール環境で実行すると、インストール済みの連携をすべて現在の v2 リリースに移行します。v1 のインライン設定でカスタムルールを定義していた場合は、[以前の設定の移行](/ja/configuration/custom-rules#migrate-legacy-configuration)を済ませてください。その後、`npx cc-safety-net doctor` でランタイムが `ready` になっていることを確認します。
 
-2.2 以前で GitHub から rulebook を導入していた場合は、アップグレード後にスコープごとに [`rule sync`](/ja/reference/cli-commands#rule-sync) を 1 回実行してください。ユーザースコープには `--global` を付けます。rulebook はロックとキャッシュではなくライブファイルになりました。そのためこのコマンドは、キャッシュ済みの各 rulebook を、その設定元が読み込むライブファイルの位置へ取り込み、残ったファイルを削除します。実行するまで、GitHub から導入したルールは無効なままで、`status` と `doctor` はその設定元を degraded として報告します。
+2.2 以前で GitHub からルールブックを導入していた場合は、アップグレード後にスコープごとに [`rule sync`](/ja/reference/cli-commands#rule-sync) を 1 回実行してください。ユーザースコープには `--global` を付けます。ルールブックはロックとキャッシュではなくライブファイルになりました。そのためこのコマンドは、キャッシュ済みの各ルールブックを、その設定元が読み込むライブファイルの位置へ取り込み、残ったファイルを削除します。実行するまで、GitHub から導入したルールは無効なままで、`status` と `doctor` はその設定元を degraded として報告します。
 
 <span id="install-a-specific-agent"></span>
 
@@ -96,7 +96,7 @@ npx -y cc-safety-net@latest install --amp
 
 以前のリリースは、リポジトリのルートに単一ファイル `cc-safety-net.ts` を公開していました。インストールはこの旧構成から移行します。管理対象の旧ファイルは同じコミットで削除し、管理対象外の場合はインストールが失敗します。
 
-インストール時には、ユーザーのポリシーファイルのスナップショットも、公開するファイルに埋め込みます。実行時にこのスナップショットが適用されるのは、ポリシーファイルが存在しないマシン（Orb の空のホームディレクトリなど）だけです。マシン上にポリシーファイルがあれば、たとえ内容が不正でもそちらが常に優先されます。ポリシーファイルが存在しない、またはパースできない場合は、スナップショットなしで公開します。スナップショットには、監査ログの保持期間、ユーザー rulebook、プロジェクトスコープのポリシーは含まれません。ポリシーの変更は、次回の `install --amp` または `update` で反映されます。
+インストール時には、ユーザーのポリシーファイルのスナップショットも、公開するファイルに埋め込みます。実行時にこのスナップショットが適用されるのは、ポリシーファイルが存在しないマシン（Orb の空のホームディレクトリなど）だけです。マシン上にポリシーファイルがあれば、たとえ内容が不正でもそちらが常に優先されます。ポリシーファイルが存在しない、またはパースできない場合は、スナップショットなしで公開します。スナップショットには、監査ログの保持期間、ユーザールールブック、プロジェクトスコープのポリシーは含まれません。ポリシーの変更は、次回の `install --amp` または `update` で反映されます。
 
 ```bash
 npx -y cc-safety-net@latest uninstall --amp
@@ -128,7 +128,7 @@ npx -y cc-safety-net@latest install --agy-cli
 
 `~/.gemini/config/hooks.json` に管理対象の `PreToolUse` エントリを書き込み、ツール呼び出しのたびに `npx -y cc-safety-net hook --agy-cli` を実行します。アダプターは `run_command` をシェルコマンドとして解析します。`Action` が `send_input` の `manage_task` 呼び出しでは、`Input` のテキストが実行中のタスクに送られるため、その `Input` もコマンドとして解析します。
 
-hook は `npx` 経由で動作するため、インストール時にはまず npm キャッシュの `_npx` ディレクトリからキャッシュ済みの `cc-safety-net` を削除し、hook が最新リリースを解決できるようにします。キャッシュの場所は、`$npm_config_cache` が設定されていればそのパス、未設定であれば macOS と Linux では `~/.npm`、Windows では `%LOCALAPPDATA%\npm-cache` です。アンインストールではキャッシュに手を加えません。
+フックは `npx` 経由で動作するため、インストール時にはまず npm キャッシュの `_npx` ディレクトリからキャッシュ済みの `cc-safety-net` を削除し、フックが最新リリースを解決できるようにします。キャッシュの場所は、`$npm_config_cache` が設定されていればそのパス、未設定であれば macOS と Linux では `~/.npm`、Windows では `%LOCALAPPDATA%\npm-cache` です。アンインストールではキャッシュに手を加えません。
 
 ```bash
 npx -y cc-safety-net@latest uninstall --agy-cli
@@ -159,7 +159,7 @@ npx -y cc-safety-net@latest uninstall --claude-code
 CC Safety Net を自動で最新に保つには、Claude Code 内で `/plugin` を実行し、**Marketplaces** に移動し、**cc-marketplace** を選択して **auto-update** を有効にします。
 
 <Note>
-  プラグインは Coding CLI hook である `cc-safety-net hook --coding-cli`（短いフラグは `-cc`）を呼び出します。これが正式なフラグ名です。`hook --claude-code` は以前からのエイリアスとしてのみ受け付けます。新しい設定では使わないでください。
+  プラグインは Coding CLI フックである `cc-safety-net hook --coding-cli`（短いフラグは `-cc`）を呼び出します。これが正式なフラグ名です。`hook --claude-code` は以前からのエイリアスとしてのみ受け付けます。新しい設定では使わないでください。
 </Note>
 
 <span id="codex-installation"></span>
@@ -174,16 +174,16 @@ npx -y cc-safety-net@latest install --codex
 
 Codex への対応には、既知の適用範囲の制限が 1 つあります。すでに起動しているインタラクティブなセッションに入力されたテキストは、検査も監査もされません。[Codex の対象境界](/ja/guides/known-limitations#codex-coverage-boundary)を参照してください。
 
-**hook を信頼する**
+**フックを信頼する**
 
-Codex は信頼されていない hook を実行しません。Codex を起動して `/hooks` を開き、**cc-safety-net PreToolUse hook** を選択して `t` を押し、信頼済みにします。
+Codex は信頼されていないフックを実行しません。Codex を起動して `/hooks` を開き、**cc-safety-net PreToolUse フック** を選択して `t` を押し、信頼済みにします。
 
 ```bash
 npx -y cc-safety-net@latest uninstall --codex
 ```
 
 <Note>
-  このプラグインは Codex 独自の形式でパッケージ化されています。hook が実行するのは `cc-safety-net hook --codex`（短いフラグは `-cx`）です。`cc-safety-net` スキルも同じプラグインに同梱されています。
+  このプラグインは Codex 独自の形式でパッケージ化されています。フックが実行するのは `cc-safety-net hook --codex`（短いフラグは `-cx`）です。`cc-safety-net` スキルも同じプラグインに同梱されています。
 </Note>
 
 <span id="cursor-installation"></span>
@@ -194,23 +194,23 @@ npx -y cc-safety-net@latest uninstall --codex
 npx -y cc-safety-net@latest install --cursor
 ```
 
-グローバルな Cursor の hook 設定（`~/.cursor/hooks.json`）に、管理対象の `preToolUse` エントリとして次を書き込みます。
+グローバルな Cursor のフック設定（`~/.cursor/hooks.json`）に、管理対象の `preToolUse` エントリとして次を書き込みます。
 
 ```json
 { "command": "npx -y cc-safety-net hook --cursor", "timeout": 30, "failClosed": true }
 ```
 
-この設定はグローバルなので、すべてのプロジェクトの Cursor IDE と Cursor CLI のセッションが保護されます。`failClosed` を指定しているため、hook が判定を返せない場合、Cursor はそのツール呼び出しを拒否します。
+この設定はグローバルなので、すべてのプロジェクトの Cursor IDE と Cursor CLI のセッションが保護されます。`failClosed` を指定しているため、フックが判定を返せない場合、Cursor はそのツール呼び出しを拒否します。
 
-hook は `npx` 経由で動作するため、インストール時にはまず npm の `_npx` キャッシュからキャッシュ済みの `cc-safety-net` を削除し、hook が最新リリースを解決できるようにします。アンインストールではキャッシュに手を加えません。キャッシュの場所は [Antigravity CLI のセクション](#antigravity-cli-installation)を参照してください。
+フックは `npx` 経由で動作するため、インストール時にはまず npm の `_npx` キャッシュからキャッシュ済みの `cc-safety-net` を削除し、フックが最新リリースを解決できるようにします。アンインストールではキャッシュに手を加えません。キャッシュの場所は [Antigravity CLI のセクション](#antigravity-cli-installation)を参照してください。
 
 ```bash
 npx -y cc-safety-net@latest uninstall --cursor
 ```
 
-Claude Code プラグインには、Cursor 用のプラグインマニフェスト `.cursor-plugin/plugin.json` も入っています。その hook 設定 `hooks/cursor.json` はマッチャーなしの `preToolUse` hook を登録し、`timeout: 30` と `failClosed: true` を付けて `node "${CURSOR_PLUGIN_ROOT}/dist/bin/cc-safety-net.js" hook --cursor` を実行します。Cursor が Claude Code プラグインをインポートする場合、有効な [Claude Code プラグイン](#claude-code-installation)からこの hook を実行します。`install --cursor` の hook も入っていると、Cursor はツール呼び出しを毎回 2 度検査することになります。`doctor` はどちらの構成も報告します。詳しくは [Claude Code プラグイン経由の Cursor](/ja/reference/cli-commands#cursor-through-the-claude-code-plugin) を参照してください。
+Claude Code プラグインには、Cursor 用のプラグインマニフェスト `.cursor-plugin/plugin.json` も入っています。そのフック設定 `hooks/cursor.json` はマッチャーなしの `preToolUse` フックを登録し、`timeout: 30` と `failClosed: true` を付けて `node "${CURSOR_PLUGIN_ROOT}/dist/bin/cc-safety-net.js" hook --cursor` を実行します。Cursor が Claude Code プラグインをインポートする場合、有効な [Claude Code プラグイン](#claude-code-installation)からこのフックを実行します。`install --cursor` のフックも入っていると、Cursor はツール呼び出しを毎回 2 度検査することになります。`doctor` はどちらの構成も報告します。詳しくは [Claude Code プラグイン経由の Cursor](/ja/reference/cli-commands#cursor-through-the-claude-code-plugin) を参照してください。
 
-Cursor には、個人マーケットプレイスからネイティブ Cursor プラグインとして CC Safety Net をインストールする方法もあります。`install --cursor` はこの方法を提示しません。Cursor はマーケットプレイスのプラグインを追加時のコミットに固定するため、`cc-safety-net update` では新しいリリースへ移せませんが、`npx` hook は呼び出しごとに最新のリリースを解決します。自分でプラグインをインストールした場合は、`doctor` がそれを `~/.cursor/plugins/cache/cc-safety-net/cc-safety-net` 配下で見つけ、hook が同じチェックをもう一度実行することを警告します。その場合、`uninstall --cursor` は hook とあわせてマーケットプレイスも削除します。詳しくは[ネイティブ Cursor プラグイン経由の Cursor](/ja/reference/cli-commands#cursor-through-a-native-cursor-plugin)を参照してください。
+Cursor には、個人マーケットプレイスからネイティブ Cursor プラグインとして CC Safety Net をインストールする方法もあります。`install --cursor` はこの方法を提示しません。Cursor はマーケットプレイスのプラグインを追加時のコミットに固定するため、`cc-safety-net update` では新しいリリースへ移せませんが、`npx` フックは呼び出しごとに最新のリリースを解決します。自分でプラグインをインストールした場合は、`doctor` がそれを `~/.cursor/plugins/cache/cc-safety-net/cc-safety-net` 配下で見つけ、フックが同じチェックをもう一度実行することを警告します。その場合、`uninstall --cursor` はフックとあわせてマーケットプレイスも削除します。詳しくは[ネイティブ Cursor プラグイン経由の Cursor](/ja/reference/cli-commands#cursor-through-a-native-cursor-plugin)を参照してください。
 
 <span id="deepseek-harness-installation"></span>
 
@@ -220,7 +220,7 @@ Cursor には、個人マーケットプレイスからネイティブ Cursor �
 npx -y cc-safety-net@latest install --deepseek-harness
 ```
 
-DeepSeek Harness は、hook subprocess ではなくプロファイルのプラグインバンドルとして CC Safety Net を読み込みます。そのため、このホストには `hook` フラグがありません。1 回のインストールで保護するのは、DeepSeek Harness の 2 つのプロファイルです。`npx @deepseek-ai/dsh web` とグローバルインストールが共有する `web` プロファイルと、デスクトップアプリが使う `desktop` プロファイルが対象です。`acp`、`headless`、`sdk`、`sdk-minimal` の各プロファイルと、後から作成したプロファイルでは、`dsh plugin --profile <name> add cc-safety-net` でプラグインを個別に追加するまで CC Safety Net は動きません。
+DeepSeek Harness は、フック subprocess ではなくプロファイルのプラグインバンドルとして CC Safety Net を読み込みます。そのため、このホストには `hook` フラグがありません。1 回のインストールで保護するのは、DeepSeek Harness の 2 つのプロファイルです。`npx @deepseek-ai/dsh web` とグローバルインストールが共有する `web` プロファイルと、デスクトップアプリが使う `desktop` プロファイルが対象です。`acp`、`headless`、`sdk`、`sdk-minimal` の各プロファイルと、後から作成したプロファイルでは、`dsh plugin --profile <name> add cc-safety-net` でプラグインを個別に追加するまで CC Safety Net は動きません。
 
 プロファイルの置き場所は `~/.dsh/profiles`、`DSH_HOME` が設定されている場合は `$DSH_HOME/profiles` です。先頭の `~` はホームディレクトリに展開されます。各プロファイルの `package.json` には、`cc-safety-net` の依存関係と、それを有効にするバンドルの一覧の両方が記録されます。インストール、アンインストール、`doctor` はいずれもこのマニフェストを読み取ります。
 
@@ -290,26 +290,26 @@ npx -y cc-safety-net@latest install --devin
 { "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --devin", "timeout": 30 }] }
 ```
 
-このエントリにマッチャーはありません。そのため `exec` だけでなく、すべてのツール呼び出しがアダプターに届きます。Devin 自身の設定キーと、他の hook イベントはそのまま残ります。ファイルが存在しない場合は、この `hooks` キーだけを持つファイルを新しく作ります。既存のファイルを置き換える場合、インストールもアンインストールも元のパーミッションを保ちます。
+このエントリにマッチャーはありません。そのため `exec` だけでなく、すべてのツール呼び出しがアダプターに届きます。Devin 自身の設定キーと、他のフックイベントはそのまま残ります。ファイルが存在しない場合は、この `hooks` キーだけを持つファイルを新しく作ります。既存のファイルを置き換える場合、インストールもアンインストールも元のパーミッションを保ちます。
 
 Devin は `config.json` にコメントを書けるため、インストール、アンインストール、検出はいずれもパース前に `//` と `/* */` のコメントを取り除きます。書き戻す内容は通常の JSON なので、インストールやアンインストールがファイルを変更すると、コメントは残りません。
 
 `config.json` がパースできない場合、ルートが JSON オブジェクトでない場合、`hooks` がオブジェクトでない場合、`hooks.PreToolUse` が配列でない場合は、何も書き込まず、対象のファイルを示して停止します。
 
-hook は `npx` 経由で動作するため、インストール時にはまず npm の `_npx` キャッシュからキャッシュ済みの `cc-safety-net` を削除し、hook が最新リリースを解決できるようにします。アンインストールではキャッシュに手を加えません。キャッシュの場所は [Antigravity CLI のセクション](#antigravity-cli-installation)を参照してください。
+フックは `npx` 経由で動作するため、インストール時にはまず npm の `_npx` キャッシュからキャッシュ済みの `cc-safety-net` を削除し、フックが最新リリースを解決できるようにします。アンインストールではキャッシュに手を加えません。キャッシュの場所は [Antigravity CLI のセクション](#antigravity-cli-installation)を参照してください。
 
 ```bash
 npx -y cc-safety-net@latest uninstall --devin
 ```
 
-アンインストールは管理対象のハンドラーを取り除き、ファイルを書き戻します。`config.json` を削除することはありません。ハンドラーを取り除いた結果 `hooks.PreToolUse` が空になった場合も削除しません。管理対象のハンドラーがない場合は、何も書き込まず、hook は未インストールと報告します。
+アンインストールは管理対象のハンドラーを取り除き、ファイルを書き戻します。`config.json` を削除することはありません。ハンドラーを取り除いた結果 `hooks.PreToolUse` が空になった場合も削除しません。管理対象のハンドラーがない場合は、何も書き込まず、フックは未インストールと報告します。
 
-実行時には、アダプターが `exec` をシェルコマンドのツールとして扱います。Devin のペイロードには `cwd` が含まれないため、セッションのディレクトリには hook プロセスの作業ディレクトリを使います。`exec` 呼び出しの `workdir` は、コマンドを解析する基準のディレクトリになります。セッションのディレクトリの内外を問わず既存のディレクトリなら指定でき、相対パスはセッションのディレクトリを基準に解決します。`workdir` が空または空白だけの場合、または文字列でない場合は拒否します。
+実行時には、アダプターが `exec` をシェルコマンドのツールとして扱います。Devin のペイロードには `cwd` が含まれないため、セッションのディレクトリにはフックプロセスの作業ディレクトリを使います。`exec` 呼び出しの `workdir` は、コマンドを解析する基準のディレクトリになります。セッションのディレクトリの内外を問わず既存のディレクトリなら指定でき、相対パスはセッションのディレクトリを基準に解決します。`workdir` が空または空白だけの場合、または文字列でない場合は拒否します。
 
 `write_to_process` 呼び出しは、`text_input` か `bytes_input` でテキストを入力する場合に、コマンドとして解析します。`bytes_input` で行を終えるのは `<CR>` と `<LF>` だけです。両方のフィールドにテキストがある呼び出しや、テキストと一緒に `<ESC>`、`<BS>`、矢印キー、`<C-…>` キーなどの他のキーを送る呼び出しは拒否します。受け取ったプログラムが実際に実行する行を特定できないためです。Devin のドキュメントにないキー表記も拒否します。`<UP><CR>` や `<C-c>` のように他のキーだけを送る場合は、コマンドとして解析しません。その他のツール入力については、保護対象のパスが含まれていないかを検査します。アダプターが返すのは block の判定だけで、許可する呼び出しには何も出力しません。そのため Devin 自身の権限確認のプロンプトもそのまま働きます。詳細は [`hook` コマンド](/ja/reference/cli-commands#hook)と[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
 
 <Note>
-  Devin CLI の hook は fail open です。ツール呼び出しをブロックできるのは、終了コード 2 と標準出力の `block` 判定だけです。タイムアウトした場合、`npx` が見つからない場合、判定を出力する前に hook のプロセスが終了した場合は、その呼び出しはそのまま実行されます。[Devin CLI は fail open のホスト](/ja/guides/known-limitations#devin-cli-is-a-fail-open-host)を参照してください。
+  Devin CLI のフックはフェイルオープンです。ツール呼び出しをブロックできるのは、終了コード 2 と標準出力の `block` 判定だけです。タイムアウトした場合、`npx` が見つからない場合、判定を出力する前にフックのプロセスが終了した場合は、その呼び出しはそのまま実行されます。[Devin CLI はフェイルオープンのホスト](/ja/guides/known-limitations#devin-cli-is-a-fail-open-host)を参照してください。
 </Note>
 
 <span id="factory-droid-installation"></span>
@@ -326,24 +326,24 @@ npx -y cc-safety-net@latest install --droid
 { "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --droid", "timeout": 30 }] }
 ```
 
-このエントリにマッチャーはありません。そのため `Execute` だけでなく、すべてのツール呼び出しがアダプターに届きます。管理対象外のエントリと他の hook イベントはそのまま残り、既存のファイルを置き換える場合は元のパーミッションを保ちます。
+このエントリにマッチャーはありません。そのため `Execute` だけでなく、すべてのツール呼び出しがアダプターに届きます。管理対象外のエントリと他のフックイベントはそのまま残り、既存のファイルを置き換える場合は元のパーミッションを保ちます。
 
-`hooks.json` が存在しない場合、インストールは既存の hook を引き継いで新しいファイルを作り、そこに管理対象のエントリを追加します。Droid は `hooks.json` ができると旧形式の `~/.factory/hooks/hooks.json` を読まなくなるため、旧形式のファイルの hook イベントはすべて引き継ぎます。一方、`~/.factory/settings.json` の `hooks` キーは Droid 0.240.0 がイベント単位でマージするため、`hooks.json` に `PreToolUse` があると `settings.json` 側の `PreToolUse` が隠れてしまいます。そこで旧形式のファイルに `PreToolUse` がない場合に限り、`settings.json` の `PreToolUse` を引き継ぎます。`settings.json` のそれ以外のイベントは引き継ぎません。`settings.json` と旧形式のファイルには書き込みません。
+`hooks.json` が存在しない場合、インストールは既存のフックを引き継いで新しいファイルを作り、そこに管理対象のエントリを追加します。Droid は `hooks.json` ができると旧形式の `~/.factory/hooks/hooks.json` を読まなくなるため、旧形式のファイルのフックイベントはすべて引き継ぎます。一方、`~/.factory/settings.json` の `hooks` キーは Droid 0.240.0 がイベント単位でマージするため、`hooks.json` に `PreToolUse` があると `settings.json` 側の `PreToolUse` が隠れてしまいます。そこで旧形式のファイルに `PreToolUse` がない場合に限り、`settings.json` の `PreToolUse` を引き継ぎます。`settings.json` のそれ以外のイベントは引き継ぎません。`settings.json` と旧形式のファイルには書き込みません。
 
 Droid はこれらのファイルを JSONC として読むため、CC Safety Net もパース前に `//` と `/* */` のコメント、末尾のカンマを取り除きます。書き戻す内容は通常の JSON なので、インストールやアンインストールが `hooks.json` を変更すると、コメントは残りません。読み込んだファイルがパースできない場合、`hooks.json` または旧形式のファイルのルートが JSON オブジェクトでない場合、その `PreToolUse` が配列でない場合は、何も書き込まず、対象のファイルを示して停止します。
 
-hook は `npx` 経由で動作するため、インストール時にはまず npm の `_npx` キャッシュからキャッシュ済みの `cc-safety-net` を削除し、hook が最新リリースを解決できるようにします。アンインストールではキャッシュに手を加えません。キャッシュの場所は [Antigravity CLI のセクション](#antigravity-cli-installation)を参照してください。
+フックは `npx` 経由で動作するため、インストール時にはまず npm の `_npx` キャッシュからキャッシュ済みの `cc-safety-net` を削除し、フックが最新リリースを解決できるようにします。アンインストールではキャッシュに手を加えません。キャッシュの場所は [Antigravity CLI のセクション](#antigravity-cli-installation)を参照してください。
 
 ```bash
 npx -y cc-safety-net@latest uninstall --droid
 ```
 
-アンインストールは管理対象のハンドラーを取り除き、ハンドラーが 1 つも残らなくなったエントリは削除します。インストール時に旧形式のファイルや `settings.json` から引き継いだ hook は `hooks.json` に残るため、アンインストール後に有効な hook の構成はインストール前と同じになります。`hooks.json` 自体を削除するのは、ハンドラーを取り除いた結果、空の `PreToolUse` がファイルに残る唯一のキーになり、かつ `~/.factory/settings.json` と旧形式の `~/.factory/hooks/hooks.json` のどちらも存在しない場合だけです。どちらかがある場合は、代わりにハンドラーを取り除いた内容を書き込みます。`hooks.json` を削除すると残っているほうのフォールバックが再び有効になり、そこに管理対象のハンドラーのコピーが残っていれば、それも一緒に動き出してしまうためです。
+アンインストールは管理対象のハンドラーを取り除き、ハンドラーが 1 つも残らなくなったエントリは削除します。インストール時に旧形式のファイルや `settings.json` から引き継いだフックは `hooks.json` に残るため、アンインストール後に有効なフックの構成はインストール前と同じになります。`hooks.json` 自体を削除するのは、ハンドラーを取り除いた結果、空の `PreToolUse` がファイルに残る唯一のキーになり、かつ `~/.factory/settings.json` と旧形式の `~/.factory/hooks/hooks.json` のどちらも存在しない場合だけです。どちらかがある場合は、代わりにハンドラーを取り除いた内容を書き込みます。`hooks.json` を削除すると残っているほうのフォールバックが再び有効になり、そこに管理対象のハンドラーのコピーが残っていれば、それも一緒に動き出してしまうためです。
 
-実行時には、アダプターが `Execute` をシェルコマンドのツールとして扱い、その他のツール入力については保護対象のパスが含まれていないかを検査します。解析の基準には、Droid のペイロードに含まれる `cwd` を使います。許可する呼び出しに対しては何も出力しないため、Droid 自身の権限確認のプロンプトもそのまま働きます。拒否する場合は、標準出力に deny の判定を出力し、理由を標準エラー出力にも書き込んで、終了コード 2 で終了します。Droid 0.240.0 は permission decision を含む最初の hook の結果を採用するので、インストールされている別の hook が許可や確認を返すと JSON の deny が置き換えられるおそれがあります。終了コード 2 なら必ずブロックされます。詳細は [`hook` コマンド](/ja/reference/cli-commands#hook)と[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
+実行時には、アダプターが `Execute` をシェルコマンドのツールとして扱い、その他のツール入力については保護対象のパスが含まれていないかを検査します。解析の基準には、Droid のペイロードに含まれる `cwd` を使います。許可する呼び出しに対しては何も出力しないため、Droid 自身の権限確認のプロンプトもそのまま働きます。拒否する場合は、標準出力に deny の判定を出力し、理由を標準エラー出力にも書き込んで、終了コード 2 で終了します。Droid 0.240.0 は permission decision を含む最初のフックの結果を採用するので、インストールされている別のフックが許可や確認を返すと JSON の deny が置き換えられるおそれがあります。終了コード 2 なら必ずブロックされます。詳細は [`hook` コマンド](/ja/reference/cli-commands#hook)と[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
 
 <Note>
-  Factory Droid の hook は fail open です。ツール呼び出しをブロックできるのは、終了コード 2 と標準出力の明示的な deny 判定だけです。0 でも 2 でもない終了コード、クラッシュ、タイムアウト、`npx` が見つからない場合は、その呼び出しはそのまま実行されます。エンタープライズ設定の `allowManagedHooksOnly` はユーザーとプロジェクトの hook を無視するため、`install --droid` が書き込む hook はその設定下では動きません。[Factory Droid は fail open のホスト](/ja/guides/known-limitations#factory-droid-is-a-fail-open-host)を参照してください。
+  Factory Droid のフックはフェイルオープンです。ツール呼び出しをブロックできるのは、終了コード 2 と標準出力の明示的な deny 判定だけです。0 でも 2 でもない終了コード、クラッシュ、タイムアウト、`npx` が見つからない場合は、その呼び出しはそのまま実行されます。エンタープライズ設定の `allowManagedHooksOnly` はユーザーとプロジェクトのフックを無視するため、`install --droid` が書き込むフックはその設定下では動きません。[Factory Droid はフェイルオープンのホスト](/ja/guides/known-limitations#factory-droid-is-a-fail-open-host)を参照してください。
 </Note>
 
 <span id="gemini-cli-installation"></span>
@@ -360,7 +360,7 @@ npx -y cc-safety-net@latest install --gemini-cli
 npx -y cc-safety-net@latest uninstall --gemini-cli
 ```
 
-拡張機能とその hook を読み込むため、インストール後に Gemini CLI を再起動するか、新しいセッションを開始してください。
+拡張機能とそのフックを読み込むため、インストール後に Gemini CLI を再起動するか、新しいセッションを開始してください。
 
 <span id="github-copilot-cli-installation"></span>
 
@@ -380,7 +380,7 @@ npx -y cc-safety-net@latest uninstall --copilot-cli
   変更を反映するため、プラグインのインストールまたは削除後に Copilot CLI を再起動してください。
 </Note>
 
-Copilot CLI の hook 対応にはバージョン条件があります。doctor は、`.github/hooks` 内のリポジトリ hook ファイル、`.github/copilot/settings.local.json`、`.github/copilot/settings.json`、`.claude/settings.local.json`、`.claude/settings.json`、`~/.copilot/settings.json` 内のインライン hook 定義、`~/.copilot/hooks` 内のユーザー hook ファイルを確認します。`~/.copilot/config.json` は読み取りません。自身の `disableAllHooks` を `true` にしている hook ファイルは対象外です。`~/.copilot/settings.json` の `disableAllHooks: true` が無効にするのは、そのファイル自身のインライン hook だけです。インライン hook 定義には Copilot CLI **1.0.8** 以降、ユーザー hook ファイルには **0.0.422** 以降が必要です。この条件はプラグインが処理するため、通常は意識する必要はありません。hook を手動で設定して問題が起きた場合は、`npx cc-safety-net doctor` を実行してください。検出した Copilot のバージョンと、対応している hook の取得元を報告します。
+Copilot CLI のフック対応にはバージョン条件があります。doctor は、`.github/hooks` 内のリポジトリフックファイル、`.github/copilot/settings.local.json`、`.github/copilot/settings.json`、`.claude/settings.local.json`、`.claude/settings.json`、`~/.copilot/settings.json` 内のインラインフック定義、`~/.copilot/hooks` 内のユーザーフックファイルを確認します。`~/.copilot/config.json` は読み取りません。自身の `disableAllHooks` を `true` にしているフックファイルは対象外です。`~/.copilot/settings.json` の `disableAllHooks: true` が無効にするのは、そのファイル自身のインラインフックだけです。インラインフック定義には Copilot CLI **1.0.8** 以降、ユーザーフックファイルには **0.0.422** 以降が必要です。この条件はプラグインが処理するため、通常は意識する必要はありません。フックを手動で設定して問題が起きた場合は、`npx cc-safety-net doctor` を実行してください。検出した Copilot のバージョンと、対応しているフックの取得元を報告します。
 
 <span id="grok-build-installation"></span>
 
@@ -398,16 +398,16 @@ npx -y cc-safety-net@latest install --grok-build
 
 このエントリにマッチャーはありません。そのため、すべてのツール呼び出しがアダプターに届きます。アダプターは `run_terminal_command`、`run_terminal_cmd`、`monitor`、`bash`、`Shell` をシェルコマンドとして解析します。`bash` の `workdir` と `Shell` の `working_directory` は、セッションのディレクトリかワークスペースルートの内側に解決される必要があります。相対パスはセッションのディレクトリを基準に解決します。アダプターは、ファイル系ツールやパッチ系ツールの入力についても、保護対象のパスが含まれていないかを検査します。
 
-hook は `npx` 経由で動作するため、インストール時にはまず npm の `_npx` キャッシュからキャッシュ済みの `cc-safety-net` を削除し、hook が最新リリースを解決できるようにします。アンインストールではキャッシュに手を加えません。キャッシュの場所は [Antigravity CLI のセクション](#antigravity-cli-installation)を参照してください。
+フックは `npx` 経由で動作するため、インストール時にはまず npm の `_npx` キャッシュからキャッシュ済みの `cc-safety-net` を削除し、フックが最新リリースを解決できるようにします。アンインストールではキャッシュに手を加えません。キャッシュの場所は [Antigravity CLI のセクション](#antigravity-cli-installation)を参照してください。
 
 ```bash
 npx -y cc-safety-net@latest uninstall --grok-build
 ```
 
-どちらのコマンドも、触れるのは管理対象のハンドラーだけです。インストールでは既存のエントリから管理対象のハンドラーを取り除いたうえで、正規のエントリを単独で追加します。そのため、管理対象外のエントリ、管理対象のハンドラーと同じエントリにあった管理対象外のハンドラー、他の hook イベントは、いずれもそのまま残ります。アンインストールでは管理対象のハンドラーを取り除き、ハンドラーが 1 つも残らなくなったエントリは削除します。ファイル自体を削除するのは、他に何も残っていない場合だけです。パースできないファイルは、アンインストールではそのまま残します。インストールでは正規の内容に修復します。Grok Build はパースできない hook ファイルを丸ごと読み飛ばすため、そのようなファイルはどのみち機能する hook を保持できないからです。
+どちらのコマンドも、触れるのは管理対象のハンドラーだけです。インストールでは既存のエントリから管理対象のハンドラーを取り除いたうえで、正規のエントリを単独で追加します。そのため、管理対象外のエントリ、管理対象のハンドラーと同じエントリにあった管理対象外のハンドラー、他のフックイベントは、いずれもそのまま残ります。アンインストールでは管理対象のハンドラーを取り除き、ハンドラーが 1 つも残らなくなったエントリは削除します。ファイル自体を削除するのは、他に何も残っていない場合だけです。パースできないファイルは、アンインストールではそのまま残します。インストールでは正規の内容に修復します。Grok Build はパースできないフックファイルを丸ごと読み飛ばすため、そのようなファイルはどのみち機能するフックを保持できないからです。
 
 <Note>
-  Grok Build の hook は fail open であり、ホスト側に `failClosed` に相当する設定はありません。ツール呼び出しをブロックできるのは明示的な deny だけです。hook がクラッシュした場合、タイムアウトした場合、不正な出力を返した場合は、その呼び出しはそのまま実行されます。
+  Grok Build のフックはフェイルオープンであり、ホスト側に `failClosed` に相当する設定はありません。ツール呼び出しをブロックできるのは明示的な deny だけです。フックがクラッシュした場合、タイムアウトした場合、不正な出力を返した場合は、その呼び出しはそのまま実行されます。
 </Note>
 
 <span id="hermes-agent-installation"></span>
@@ -434,7 +434,7 @@ Invalid Hermes profile name "<profile>" in <root>/active_profile; run `hermes pr
   変更を反映するため、インストール、更新、アンインストールの後に Hermes を再起動してください。
 </Note>
 
-プラグインは `pre_tool_call` のたびに、ツール呼び出しを JSON として標準入力から `npx -y cc-safety-net hook --hermes-agent`（短いフラグは `-ha`）に渡します。タイムアウトは 30 秒です。保護対象は `terminal`、`read_file`、`write_file`、`patch` の各ツールで、その他の Hermes のツールは転送しません。プラグインは fail closed で動作します。`npx` が見つからない、解析を開始できない、タイムアウトする、終了コードが 0 以外になる、出力を解釈できないといった場合は、ツール呼び出しをそのまま通さず、明示的なメッセージでブロックします。
+プラグインは `pre_tool_call` のたびに、ツール呼び出しを JSON として標準入力から `npx -y cc-safety-net hook --hermes-agent`（短いフラグは `-ha`）に渡します。タイムアウトは 30 秒です。保護対象は `terminal`、`read_file`、`write_file`、`patch` の各ツールで、その他の Hermes のツールは転送しません。プラグインはフェイルクローズで動作します。`npx` が見つからない、解析を開始できない、タイムアウトする、終了コードが 0 以外になる、出力を解釈できないといった場合は、ツール呼び出しをそのまま通さず、明示的なメッセージでブロックします。
 
 ```bash
 npx -y cc-safety-net@latest uninstall --hermes-agent
@@ -450,13 +450,13 @@ npx -y cc-safety-net@latest uninstall --hermes-agent
 
 ## Kimi Code
 
-Kimi Code には 2 つのインストール方法があります。1 つは Kimi Code の設定ファイルに書き込むグローバル hook、もう 1 つは Kimi Code 内からインストールするネイティブプラグインです。対話的なターミナルで `install --kimi-code`（または対話式インストーラーで Kimi Code を選択）を実行すると、どちらの方法を使うかを尋ねる単一選択のプロンプトが表示されます。グローバル hook を今すぐインストールするか、ネイティブプラグインの手順を表示するかを選べます。非対話的なセッションでは、このフラグはグローバル hook を直接インストールするため、スクリプトや CI パイプラインがプロンプトで止まることはありません。`update` が更新するのはグローバル hook だけで、プラグインは更新しません。
+Kimi Code には 2 つのインストール方法があります。1 つは Kimi Code の設定ファイルに書き込むグローバルフック、もう 1 つは Kimi Code 内からインストールするネイティブプラグインです。対話的なターミナルで `install --kimi-code`（または対話式インストーラーで Kimi Code を選択）を実行すると、どちらの方法を使うかを尋ねる単一選択のプロンプトが表示されます。グローバルフックを今すぐインストールするか、ネイティブプラグインの手順を表示するかを選べます。非対話的なセッションでは、このフラグはグローバルフックを直接インストールするため、スクリプトや CI パイプラインがプロンプトで止まることはありません。`update` が更新するのはグローバルフックだけで、プラグインは更新しません。
 
 <Note>
-  どちらの方法でも、Kimi Code の hook は fail open です。hook のプロセスが起動できない、クラッシュする、タイムアウトするといった場合、Kimi Code はそのツール呼び出しを許可します。
+  どちらの方法でも、Kimi Code のフックはフェイルオープンです。フックのプロセスが起動できない、クラッシュする、タイムアウトするといった場合、Kimi Code はそのツール呼び出しを許可します。
 </Note>
 
-**Global hook**
+**グローバルフック**
 
 ```bash
 npx -y cc-safety-net@latest install --kimi-code
@@ -464,7 +464,7 @@ npx -y cc-safety-net@latest install --kimi-code
 
 `~/.kimi-code/config.toml`（または `$KIMI_CODE_HOME/config.toml`）に `[[hooks]]` ブロックを書き込み、`PreToolUse` の呼び出しのたびに `npx -y cc-safety-net hook --kimi-code` を実行します。アダプターは `Bash` をシェルコマンドのツールとして扱い、その他のツール入力については保護対象のパスが含まれていないかを検査します。
 
-hook は `npx` 経由で動作するため、インストール時にはまず npm の `_npx` キャッシュからキャッシュ済みの `cc-safety-net` を削除し、hook が最新リリースを解決できるようにします。アンインストールではキャッシュに手を加えません。キャッシュの場所は [Antigravity CLI のセクション](#antigravity-cli-installation)を参照してください。
+フックは `npx` 経由で動作するため、インストール時にはまず npm の `_npx` キャッシュからキャッシュ済みの `cc-safety-net` を削除し、フックが最新リリースを解決できるようにします。アンインストールではキャッシュに手を加えません。キャッシュの場所は [Antigravity CLI のセクション](#antigravity-cli-installation)を参照してください。
 
 ```bash
 npx -y cc-safety-net@latest uninstall --kimi-code
@@ -472,23 +472,23 @@ npx -y cc-safety-net@latest uninstall --kimi-code
 
 **ネイティブプラグイン**
 
-グローバル hook の代わりにネイティブプラグインを使う場合は、Kimi Code 内で次を実行します。
+グローバルフックの代わりにネイティブプラグインを使う場合は、Kimi Code 内で次を実行します。
 
 ```text
 /plugins install https://github.com/kenryu42/cc-safety-net/tree/plugin
 ```
 
-この URL が指すのは、リリースごとに公開されるリポジトリの `plugin` ブランチです。このブランチに入っているのは、プラグインのマニフェスト、バンドル済みの hook、hook の設定ファイル、`cc-safety-net` スキル、ロゴ、ライセンスだけです。`/tree/plugin` を付けないと、Kimi Code はリポジトリ全体をインストールします。
+この URL が指すのは、リリースごとに公開されるリポジトリの `plugin` ブランチです。このブランチに入っているのは、プラグインのマニフェスト、バンドル済みのフック、フックの設定ファイル、`cc-safety-net` スキル、ロゴ、ライセンスだけです。`/tree/plugin` を付けないと、Kimi Code はリポジトリ全体をインストールします。
 
-信頼確認のプロンプトで承認します（既定はキャンセルです）。その後、`/reload` を実行するか、新しいセッションを開始します。このプラグインは、ツールマッチャーを持たない `PreToolUse` hook を 1 つ宣言します。すべてのツール呼び出しで `node ./dist/bin/cc-safety-net.js hook --kimi-code` を 30 秒のタイムアウト付きで実行し、グローバル hook と同じアダプターを使用します。
+信頼確認のプロンプトで承認します（既定はキャンセルです）。その後、`/reload` を実行するか、新しいセッションを開始します。このプラグインは、ツールマッチャーを持たない `PreToolUse` フックを 1 つ宣言します。すべてのツール呼び出しで `node ./dist/bin/cc-safety-net.js hook --kimi-code` を 30 秒のタイムアウト付きで実行し、グローバルフックと同じアダプターを使用します。
 
-`config.toml` に CC Safety Net の hook がない場合、`doctor` は `~/.kimi-code/plugins/installed.json`（または `$KIMI_CODE_HOME/plugins/installed.json`）からプラグインの状態を報告します。インストール済みでも有効になっていないプラグインは無効として表示され、`/plugins enable cc-safety-net` で有効にできます。`update` はプラグインに手を加えず、次のメッセージを表示します。
+`config.toml` に CC Safety Net のフックがない場合、`doctor` は `~/.kimi-code/plugins/installed.json`（または `$KIMI_CODE_HOME/plugins/installed.json`）からプラグインの状態を報告します。インストール済みでも有効になっていないプラグインは無効として表示され、`/plugins enable cc-safety-net` で有効にできます。`update` はプラグインに手を加えず、次のメッセージを表示します。
 
 ```text
 Kimi Code plugin skipped: update it in Kimi Code from /plugins (Installed tab, select cc-safety-net, press Enter)
 ```
 
-グローバル hook がすでに設定済みの場合、対話式インストーラーの Kimi Code の行は選択可能なままで、`(global hook installed)` と表示されます。`config.toml` にグローバル hook があれば、無効な `[[hooks]]` エントリのせいで Kimi Code がそれを無視している場合でも、表示されるプラグインの手順に注意書きが加わります。`cc-safety-net uninstall --kimi-code` は、プラグインが有効になった*後*に実行してください。プラグインがインストールされているだけでは、どちらも起こりません。両方の hook が短期間だけ同時に動いても拒否メッセージが重複するだけですが、どちらも有効でない期間があると保護されません。
+グローバルフックがすでに設定済みの場合、対話式インストーラーの Kimi Code の行は選択可能なままで、`(global hook installed)` と表示されます。`config.toml` にグローバルフックがあれば、無効な `[[hooks]]` エントリのせいで Kimi Code がそれを無視している場合でも、表示されるプラグインの手順に注意書きが加わります。`cc-safety-net uninstall --kimi-code` は、プラグインが有効になった*後*に実行してください。プラグインがインストールされているだけでは、どちらも起こりません。両方のフックが短期間だけ同時に動いても拒否メッセージが重複するだけですが、どちらも有効でない期間があると保護されません。
 
 Kimi Code 内で対話的にルールを作成したい場合は、任意で `/cc-safety-net` skill をインストールできます。
 
@@ -528,7 +528,7 @@ npx -y cc-safety-net@latest uninstall --openclaw
   変更を反映するため、インストール、更新、アンインストールの後に OpenClaw Gateway を再起動してください。`openclaw.json` に `plugins.allow` が設定されている場合は、そこに `cc-safety-net` も記載する必要があります。allowlist に含まれていないと、有効になっていてもプラグインは読み込まれません。
 </Note>
 
-OpenClaw は CC Safety Net を hook subprocess ではなくプロセス内のプラグインとして読み込むため、実行時の hook フラグはありません。プラグインが `before_tool_call` ハンドラーを登録するのは、タグの付いていない `exec` ツールに対してだけです。OpenClaw のファイル系ツールと、タグ付きの `exec` は対象外です。対応する `exec` の呼び出しは、いずれもエージェントのワークスペースディレクトリを基準に解析します。ワークスペースを解決できない場合、`workdir` がワークスペースの外を指す場合、`auto` と `gateway` 以外の実行ホスト（`sandbox` や `node` など）が指定された場合は、fail closed で動作します。
+OpenClaw は CC Safety Net をフック subprocess ではなくプロセス内のプラグインとして読み込むため、実行時のフックフラグはありません。プラグインが `before_tool_call` ハンドラーを登録するのは、タグの付いていない `exec` ツールに対してだけです。OpenClaw のファイル系ツールと、タグ付きの `exec` は対象外です。対応する `exec` の呼び出しは、いずれもエージェントのワークスペースディレクトリを基準に解析します。ワークスペースを解決できない場合、`workdir` がワークスペースの外を指す場合、`auto` と `gateway` 以外の実行ホスト（`sandbox` や `node` など）が指定された場合は、フェイルクローズで動作します。
 
 OpenClaw の各パスを解決する基準は `OPENCLAW_HOME` です。設定されていればその値が実効ホームディレクトリになり、先頭の `~` は OS のホームディレクトリを基準に展開します。未設定であれば、OS のホームディレクトリがそのまま実効ホームディレクトリです。状態ディレクトリは、`OPENCLAW_STATE_DIR` が設定されていればそのディレクトリ、なければ `OPENCLAW_CONFIG_PATH` があるディレクトリ、どちらもなければ実効ホームディレクトリ内の `.openclaw` です。この 2 つの環境変数の先頭の `~` は、OS のホームディレクトリではなく実効ホームディレクトリを基準に展開します。設定ファイルは、`OPENCLAW_CONFIG_PATH` が設定されていればそのファイル、なければ状態ディレクトリ内の `openclaw.json` です。3 つの環境変数はいずれも前後の空白を取り除いて扱い、空の値は未設定とみなします。インストールと doctor も同じ方法でパスを解決するため、場所を移した OpenClaw を「見つからない」と誤って報告することはありません。
 
@@ -606,7 +606,7 @@ npx -y cc-safety-net@latest install --pi
 npx -y cc-safety-net@latest uninstall --pi
 ```
 
-Pi は CC Safety Net を hook subprocess ではなく、プロセス内の拡張機能として読み込みます。この拡張機能がシェルコマンドとして解析するのは、Pi 組み込みの `bash` ツールだけです。その他のツール入力についても保護対象のパスが含まれていないかを検査しますが、`Shell` という名前のカスタムコマンドツール（pi-grok-cli など）には対応していません。あわせて、rulebook を管理するための組み込みコマンド `/cc-safety-net` を登録します。詳細は[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
+Pi は CC Safety Net をフック subprocess ではなく、プロセス内の拡張機能として読み込みます。この拡張機能がシェルコマンドとして解析するのは、Pi 組み込みの `bash` ツールだけです。その他のツール入力についても保護対象のパスが含まれていないかを検査しますが、`Shell` という名前のカスタムコマンドツール（pi-grok-cli など）には対応していません。あわせて、ルールブックを管理するための組み込みコマンド `/cc-safety-net` を登録します。詳細は[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
 
 ## 以前のプラグイン識別子から移行する
 
@@ -625,6 +625,6 @@ Pi は CC Safety Net を hook subprocess ではなく、プロセス内の拡張
 npx cc-safety-net doctor
 ```
 
-`doctor` は、対応するすべてのエージェントを検査します。hook の連携状態、ブロックのセルフテスト、カスタムルール、有効なモードフラグ、最近の実行履歴、システムのバージョン、更新の有無を確認します。各チェックと指定できるフラグは、[doctor コマンドのリファレンス](/ja/reference/cli-commands#doctor)を参照してください。
+`doctor` は、対応するすべてのエージェントを検査します。フックの連携状態、ブロックのセルフテスト、カスタムルール、有効なモードフラグ、最近の実行履歴、システムのバージョン、更新の有無を確認します。各チェックと指定できるフラグは、[doctor コマンドのリファレンス](/ja/reference/cli-commands#doctor)を参照してください。
 
 チェックが失敗した場合は、問題の説明と推奨される対処方法が出力されます。
