@@ -42,9 +42,29 @@ meaning and change only what a native technical editor would change.
 ### 3. Technical terminology
 
 - Use terminology standard in Japanese software documentation.
-- Keep established English technical terms in English where that is what
-  Japanese developers actually use (`hook`、`worktree`、`heredoc`、`glob`、
-  `basename`、`argv`、`fail closed`).
+- Write ordinary concepts in katakana. Never leave a bare English noun inside
+  a Japanese sentence (「安全 preset」「hook を有効化」「rulebook を追加」 are
+  defects). Once the English is gone, write the natural compound with no
+  space: 「フックを有効化」「安全プリセット」. Keep the space after a Latin word:
+  「Paranoid プリセット」「PreToolUse フック」. Standard renderings:
+
+  | English in prose | Japanese |
+  | --- | --- |
+  | hook / hooks | フック |
+  | preset | プリセット |
+  | rulebook | ルールブック |
+  | fail closed / fail-closed | フェイルクローズ |
+  | fail open | フェイルオープン |
+  | deny path | 拒否パス |
+  | worktree / linked worktree / main worktree | ワークツリー / リンクされたワークツリー / メインワークツリー |
+
+  The renderings apply to prose only, frontmatter `title`, `description`, and
+  `keywords` included. The machine-checkable strings below keep their English
+  even when they spell one of these words: `hooks`, `deny_paths`,
+  `fail_closed`, `git worktree add`, the `hook` subcommand, doctor section
+  names such as `Hook Integration`, and deny-reason text such as
+  「failed closed」.
+- Code-level jargon stays in English: `heredoc`、`glob`、`basename`、`argv`.
 - Never translate command names, APIs, flags, identifiers, filenames,
   configuration keys, environment variables, package names, product names, rule
   ids, or code symbols. These are machine-checkable strings and must match the
@@ -88,7 +108,12 @@ message, even inside prose.
 **Punctuation and spacing.** Use 、and 。 Half-width parentheses around code
 spans read better than full-width ones next to backticks; follow whatever the
 surrounding page already does. Put a space between Latin script and Japanese
-text (`worktree モード`), which is what the existing pages do.
+text (`Paranoid プリセット`), which is what the existing pages do.
+
+**Quotation marks.** Prose quotes use 「」, never “” or "". This holds when the
+quoted text is English, such as a deny reason or a doctor finding title:
+拒否の理由が「CC Safety Net failed closed because …」の場合. No space between
+「」 and the Japanese text around them. Quotes inside code stay as they are.
 
 The English pages use a spaced em dash (` — `) heavily. In Japanese this is a
 machine-translation tell. Recast it: split into two sentences with 。, or use
@@ -118,7 +143,8 @@ Watch for:
 - excessive passive voice
 - awkward 「〜することができます」 where 「〜できます」 is right
 - 「〜を行う」「〜を実施する」 where a plain verb works
-- unnatural katakana, or a translated term where the English term is standard
+- a bare English noun where the katakana rendering above is standard
+- unnatural katakana for code-level jargon that stays in English
 - wrong particles (は/が, に/で, を/が)
 - unnatural modifier order and long left-branching modifiers
 - overly long sentences that should be two

@@ -19,7 +19,7 @@ Simplified Chinese (zh-CN), for developers in mainland China. Use the
 terminology mainland Chinese software documentation uses.
 
 Do not introduce Traditional Chinese or Taiwan/Hong Kong-specific terminology
-(「檔案」「程式」「介面」「快取」 as prose) unless it is part of a proper noun,
+(“檔案”“程式”“介面”“快取” as prose) unless it is part of a proper noun,
 a quotation, a code sample, or a product name.
 
 ## Priorities
@@ -120,9 +120,14 @@ copied verbatim from the English page. Do not translate the contents of an error
 message, even inside prose.
 
 **Punctuation and spacing.** Use full-width Chinese punctuation: ，。、；：（）
-「」. Use 、 between list items inside a sentence, not ，. Put a space between
+“”. Use 、 between list items inside a sentence, not ，. Put a space between
 Latin script and Chinese text (`linked worktree 内`), which is what the existing
 pages do; never put a space between Chinese text and full-width punctuation.
+
+**Quotation marks.** Prose quotes use “”, never 「」 or "". This holds when the
+quoted text is English, such as a deny reason: 理由是“shell execution source
+cannot be verified safely”. No space between “” and the Chinese text around
+them. Quotes inside code stay as they are.
 
 The English pages use a spaced em dash (` — `) heavily. In Chinese that spaced
 ASCII-style dash is a machine-translation tell. Use `——` with no surrounding
@@ -148,17 +153,17 @@ machine-translation artefacts.
 Watch for:
 
 - English sentence structure carried straight into Chinese
-- unnecessary 「你」/「您」
-- overuse of 「可以」「能够」「将会」
-- awkward 「被」 passives where Chinese takes an active or topic-comment sentence
+- unnecessary “你”/“您”
+- overuse of “可以”“能够”“将会”
+- awkward “被” passives where Chinese takes an active or topic-comment sentence
 - literal renderings of English idioms ("best-effort", "fall through",
   "shape gate", "see through a wrapper")
 - unnatural connectives ("此外"/"因此"/"然而" chained mechanically)
 - repeated nouns and subjects English needs but Chinese does not
 - wrong word order
 - incorrect or unnatural technical terminology
-- filler 「进行」「实现」「对于」「关于」
-- verbose constructions such as 「通过使用……来……」
+- filler “进行”“实现”“对于”“关于”
+- verbose constructions such as “通过使用……来……”
 - mechanical renderings of should / may / must — pick 应/可/必须 by force, not
   by lookup
 - inconsistent renderings of the same technical term
