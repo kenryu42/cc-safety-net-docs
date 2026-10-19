@@ -43,7 +43,7 @@ Standard 会阻止可识别的破坏性命令，但**不具备**对抗级保护�
 - **阻止无法解析的命令。** `echo 'unterminated` 会被拒绝，原因说明该命令无法安全分析。
 - **阻止仅元数据的敏感路径发现。** `test -f ~/.ssh/id_rsa` 和 `find ~/.ssh -type f` 在 standard 中允许，在 strict 中阻止。
 - **禁用仅限 standard 的内联数据放宽。** 在 standard 中，只要解释器内联代码整体没有出现文件系统、命令执行或 eval 标记，其中的敏感路径字面量就仍是惰性数据。即使出现了标记，位于容器元素、比较操作数等数据位置的 Python 或 JavaScript 字面量也仍是数据。Strict 会保留全部字面量，并且连字面量内部也会扫描。参见 [standard 模式下的解释器字面量](/zh-Hans/reference/secret-protection#interpreter-literals-in-standard-mode)。
-- **Heredoc 会 fail closed。** 在其他分析器处理命令段之前，包含 heredoc 的命令会被拒绝，除非它通过 [Heredoc 分析](#heredoc-分析)中描述的狭窄支持门：恰好一个不展开的 heredoc、连接到 stdin、没有其他输入重定向，而且使用六个字面量数据 consumer 中的一个。分隔符不带引号且 shell 会展开其 body 时，拒绝消息为 "Unquoted heredoc input is not supported safely. Quote the delimiter or ask the user to verify."；其他失败的消息为 "This heredoc form or stdin consumer is not supported safely. Use a quoted heredoc with a supported consumer (cat, tee, git apply, git commit, gh pr create, gh issue create), or ask the user to verify."。因此，这里会拒绝 `python3 - <<'PY'` 和 body 中出现 `$HOME` 的 `cat <<EOF`，而 body 为纯文本的 `cat <<EOF` 可以通过。
+- **Heredoc 会 fail closed。** 在其他分析器处理命令段之前，包含 heredoc 的命令会被拒绝，除非它通过 [Heredoc 分析](#heredoc-分析)中描述的狭窄支持门：恰好一个不展开的 heredoc、连接到 stdin、没有其他输入重定向，而且使用六个字面量数据 consumer 中的一个。分隔符不带引号且 shell 会展开其 body 时，拒绝消息为“Unquoted heredoc input is not supported safely. Quote the delimiter or ask the user to verify.”；其他失败的消息为“This heredoc form or stdin consumer is not supported safely. Use a quoted heredoc with a supported consumer (cat, tee, git apply, git commit, gh pr create, gh issue create), or ask the user to verify.”。因此，这里会拒绝 `python3 - <<'PY'` 和 body 中出现 `$HOME` 的 `cat <<EOF`，而 body 为纯文本的 `cat <<EOF` 可以通过。
 - **阻止无法验证的破坏性目标。** 有六条规则以 fail-closed 能力为前提，因此在 standard 中允许，在 strict 中阻止：
 
 | Rule id | 示例 | Intent |
@@ -254,7 +254,7 @@ Git 支持用 `GIT_SSH_COMMAND` 和 `GIT_SSH` 在网络操作期间运行任意�
 
 **哪些 `cd` 写法会被追踪。** 选项只读到第一个非选项 token 为止，且其中每一个都必须是 `-L`/`-P` 组合；可选的 `--` 之后最多只能剩下一个操作数。因此 `cd -- /tmp/scratch` 和 `cd -P /tmp/scratch` 会被追踪，不带任何操作数的裸 `cd` 也一样。`cd -`、带未知选项的写法（如 `cd -x -- /tmp/scratch`）、`cd /tmp/scratch -P`、`cd -P /tmp/scratch -L` 和 `cd /tmp/scratch extra`，都会把 cwd 置为未知。
 
-**变量操作数。** `$VAR` 或 `${VAR}` 操作数会用随命令携带的字面量 shell 赋值展开，但仅限解析器把该词标记为变量展开的情况。`R=/tmp/scratch; cd $R` 会被追踪；`cd '$R'` 和 `cd \$R` 不会，因为 `$` 是原样交给 shell 的。展开结果中若仍含 `$`、反引号、空白或 glob 字符（`*`、`?`、`[`），或者开头是 `~` 或 `-`，同样把 cwd 置为未知。赋值在被收集的那一刻就完成展开，与 shell 的行为一致，因此单引号或转义过的 `$` 保持字面量，之后不会再次展开。`A='$B'; B=/tmp/scratch; cd $A` 的 cwd 仍是未知。`$HOME` 和 `${HOME}` 是例外，见下面的「主目录操作数」。
+**变量操作数。** `$VAR` 或 `${VAR}` 操作数会用随命令携带的字面量 shell 赋值展开，但仅限解析器把该词标记为变量展开的情况。`R=/tmp/scratch; cd $R` 会被追踪；`cd '$R'` 和 `cd \$R` 不会，因为 `$` 是原样交给 shell 的。展开结果中若仍含 `$`、反引号、空白或 glob 字符（`*`、`?`、`[`），或者开头是 `~` 或 `-`，同样把 cwd 置为未知。赋值在被收集的那一刻就完成展开，与 shell 的行为一致，因此单引号或转义过的 `$` 保持字面量，之后不会再次展开。`A='$B'; B=/tmp/scratch; cd $A` 的 cwd 仍是未知。`$HOME` 和 `${HOME}` 是例外，见下面的“主目录操作数”。
 
 同样的展开还用在另外三类操作数上。一是 shell 脚本操作数：standard 中 `S=/tmp/scratch; bash $S/build.sh` 按它的字面写法分析，而 strict 和 paranoid 仍把它当作动态 shell 执行来源。二是 `cat` 或 `tee` 的 heredoc 写出的文件：[heredoc 文件跟踪](#heredoc-分析)按展开后的路径记住 body。三是[临时根目录放宽](#临时根目录放宽)读取的那些词，其中包括 `git -C` 的路径和 `git worktree remove` 的操作数。
 

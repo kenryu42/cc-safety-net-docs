@@ -58,7 +58,7 @@ description: "把 CC Safety Net 与操作系统级沙箱、权限提示与批准
 
 从操作系统的角度看，这些命令完全合法：它们向允许的路径写入或读取沙箱允许的文件，不接触网络（push 除外），并且正常完成。沙箱不理解 Git 历史、未提交更改和 stash 条目，也不知道哪些文件存放着凭证。CC Safety Net 理解这些语义，并据此阻止命令。
 
-读取范围比多数人以为的更宽。Claude Code 的[沙箱文档](https://code.claude.com/docs/en/sandboxing)在描述默认读取行为时写明 "There is no built-in credential deny list"，并点名 `~/.aws/credentials` 和 `~/.ssh/` 是它仍允许读取的文件。CC Safety Net 无需任何配置即可阻止对这些路径的内容访问。
+读取范围比多数人以为的更宽。Claude Code 的[沙箱文档](https://code.claude.com/docs/en/sandboxing)在描述默认读取行为时写明“There is no built-in credential deny list”，并点名 `~/.aws/credentials` 和 `~/.ssh/` 是它仍允许读取的文件。CC Safety Net 无需任何配置即可阻止对这些路径的内容访问。
 
 同样的差异也适用于命令代理。代你运行命令的工具，在两个保护层看来都只是一个不透明的可执行文件；但在你用 `cc-safety-net rule wrapper add <command>` 声明它之后，CC Safety Net 会穿透它看到可见的子命令，并应用相同的规则。沙箱则完全不检查子命令，只限制整个进程树可以接触的对象。
 
@@ -88,17 +88,17 @@ CC Safety Net 解读受支持的工具调用，但不会隔离进程。以下每
 
 ## 权限提示与批准分类器
 
-离你最近的一层是会开口询问的那一层。Claude Code 的[权限模式文档](https://code.claude.com/docs/en/permission-modes)这样描述它：在 Manual 模式下，Claude Code "stops and asks you before most actions that edit files, run shell commands, or reach the network"；在 auto 模式下，"a second model, the classifier, reviews actions instead of you"。分类器默认阻止的操作清单里包含 "`git reset --hard`, `git checkout -- .`, `git restore .`, `git clean -fd`, `git stash drop`, or `git stash clear`, which the classifier presumes would discard uncommitted changes"。
+离你最近的一层是会开口询问的那一层。Claude Code 的[权限模式文档](https://code.claude.com/docs/en/permission-modes)这样描述它：在 Manual 模式下，Claude Code “stops and asks you before most actions that edit files, run shell commands, or reach the network”；在 auto 模式下，“a second model, the classifier, reviews actions instead of you”。分类器默认阻止的操作清单里包含“`git reset --hard`, `git checkout -- .`, `git restore .`, `git clean -fd`, `git stash drop`, or `git stash clear`, which the classifier presumes would discard uncommitted changes”。
 
-这道审查是一次判断，而且可以关掉。Anthropic 公布了 Claude Code [auto-mode](https://www.anthropic.com/engineering/claude-code-auto-mode) 分类器在真实过激操作上 17% 的漏报率，并称它 "not a drop-in replacement for careful human review"。同一份权限模式文档把 `bypassPermissions` 下无需询问就会运行的范围写作 "Everything"，并建议这一模式只用于 "Isolated containers and VMs only"。
+这道审查是一次判断，而且可以关掉。Anthropic 公布了 Claude Code [auto-mode](https://www.anthropic.com/engineering/claude-code-auto-mode) 分类器在真实过激操作上 17% 的漏报率，并称它“not a drop-in replacement for careful human review”。同一份权限模式文档把 `bypassPermissions` 下无需询问就会运行的范围写作“Everything”，并建议这一模式只用于“Isolated containers and VMs only”。
 
-切换模式不会让确定性检查失效。同一页写明 "Deny rules block in every mode, including `bypassPermissions`"。CC Safety Net 的拒绝也是如此：经 Claude Code 2.1.251 验证，PreToolUse 拒绝在 default、auto 和 bypassPermissions 模式下都仍会触发（项目仓库中的 `tests/e2e-live/protection.test.ts`）。这是针对特定版本的结果，不是长期保证，因此该测试套件会在每次发布和宿主升级时重新运行。deny rule 覆盖的是你事先想到并写下的命令，而且要按每个 CLI 各自的格式来写；CC Safety Net 横跨 16 个 CLI 应用同一份策略，并留下同一份审计记录。
+切换模式不会让确定性检查失效。同一页写明“Deny rules block in every mode, including `bypassPermissions`”。CC Safety Net 的拒绝也是如此：经 Claude Code 2.1.251 验证，PreToolUse 拒绝在 default、auto 和 bypassPermissions 模式下都仍会触发（项目仓库中的 `tests/e2e-live/protection.test.ts`）。这是针对特定版本的结果，不是长期保证，因此该测试套件会在每次发布和宿主升级时重新运行。deny rule 覆盖的是你事先想到并写下的命令，而且要按每个 CLI 各自的格式来写；CC Safety Net 横跨 16 个 CLI 应用同一份策略，并留下同一份审计记录。
 
 ## 容器、虚拟机与检查点
 
-一台用完即弃的机器是真正的隔离，也是关掉提示之后那份权限模式文档指向的去处：`bypassPermissions` 只适用于 "Isolated containers and VMs only"。机器可以丢掉，里面的工作不会因此改变。云端会话会在真实分支上 clone 你的仓库、commit，然后 push 回真实的远端。在那里对未提交的工作执行 `git reset --hard`，损失的工作量和本地一模一样；`git push --force` 落在的也是队友会 pull 的分支。同一个会话的凭据一侧见<a href="/zh-Hans/guides/cloud-environments">云端环境</a>。把工作树挂载进来的本地容器也是一样：挂载是可写的，未提交的工作就在里面。
+一台用完即弃的机器是真正的隔离，也是关掉提示之后那份权限模式文档指向的去处：`bypassPermissions` 只适用于“Isolated containers and VMs only”。机器可以丢掉，里面的工作不会因此改变。云端会话会在真实分支上 clone 你的仓库、commit，然后 push 回真实的远端。在那里对未提交的工作执行 `git reset --hard`，损失的工作量和本地一模一样；`git push --force` 落在的也是队友会 pull 的分支。同一个会话的凭据一侧见<a href="/zh-Hans/guides/cloud-environments">云端环境</a>。把工作树挂载进来的本地容器也是一样：挂载是可写的，未提交的工作就在里面。
 
-检查点能收窄这个缺口，但不能封住它。Claude Code 的[检查点文档](https://code.claude.com/docs/en/checkpointing)说，检查点会 "automatically captures the state of your code before each user prompt"，随后写明了限制："Checkpointing does not track files modified by bash commands."。文档在那里举的例子是 `rm file.txt`、`mv old.txt new.txt` 和 `cp source.txt dest.txt`。对于这些改动，该页写道："These file modifications cannot be undone through rewind. Only direct file edits made through Claude's file editing tools are tracked."。破坏性 git 命令是作为 bash 命令运行的，因此它丢掉的工作不在 rewind 能恢复的范围内。同一页把检查点定位为 "quick, session-level recovery"，并要求 "continue using version control, such as Git, for commits, branches, and long-term history"。
+检查点能收窄这个缺口，但不能封住它。Claude Code 的[检查点文档](https://code.claude.com/docs/en/checkpointing)说，检查点会“automatically captures the state of your code before each user prompt”，随后写明了限制：“Checkpointing does not track files modified by bash commands.”。文档在那里举的例子是 `rm file.txt`、`mv old.txt new.txt` 和 `cp source.txt dest.txt`。对于这些改动，该页写道：“These file modifications cannot be undone through rewind. Only direct file edits made through Claude's file editing tools are tracked.”。破坏性 git 命令是作为 bash 命令运行的，因此它丢掉的工作不在 rewind 能恢复的范围内。同一页把检查点定位为“quick, session-level recovery”，并要求“continue using version control, such as Git, for commits, branches, and long-term history”。
 
 ## 将沙箱与 CC Safety Net 一起使用
 
