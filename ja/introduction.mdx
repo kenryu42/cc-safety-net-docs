@@ -1,20 +1,26 @@
 ---
 title: "CC Safety Net の機能"
 sidebarTitle: "概要"
-description: "CC Safety Net は、コーディングエージェントが実行しようとしている処理を検査し、未コミットの作業を破壊する操作やシークレットを露出させる操作をブロックする実行前ガードです。"
+description: "CC Safety Net は、コーディングエージェントが実行しようとしている処理を検査し、未コミットの作業を破壊する操作やシークレットを露出させる操作をブロックする実行前フックです。"
 ---
 
-あなたが作業を任せたワークスペースの中で、破壊的な git コマンドを決定的にブロックする主要なコーディング CLI は 1 つもありません。`git reset --hard`、`git checkout -- .`、`git clean -f`、`git stash clear`、`git push --force` は、いずれもエージェントがすでに書き込みを許可されているファイルに作用します。そのため、書き込みをプロジェクトディレクトリに限定するサンドボックスからは、何も問題が見えません。OpenAI の [Codex セキュリティドキュメント](https://learn.chatgpt.com/docs/security)は、workspace-write 下のコマンドについて「can still mutate state and perform destructive operations」と述べています。[Codex の権限に関する独立した分析](https://codex.danielvaughan.com)（2026-04-20）は端的にこう記しています。「No command-level semantic blocking: the system cannot prevent git reset --hard」。Claude Code の[サンドボックスドキュメント](https://code.claude.com/docs/en/sandboxing)は書き込みを作業ディレクトリに限定しますが、そこはまさに未コミット作業が置かれている場所です。
+## CC Safety Net とは何ですか？
+
+CC Safety Net は、Claude Code、Codex、Cursor などの AI コーディングエージェント向けの実行前フックです。エージェントがガイドラインを守ることを当てにせず、破壊的な git やファイルシステムのコマンドとシークレットファイルの読み取りを、実行前にブロックします。対象には `git reset --hard`、`git push --force`、ホームディレクトリへの `rm -rf`、`.env` ファイル・SSH 鍵・クラウドの資格情報の読み取りが含まれます。macOS、Linux、Windows 上の 16 のコーディングエージェント CLI に対応し、MIT ライセンスのもと無料で使えます。サンドボックスではありません。プロセス、ファイルシステム、ネットワークの封じ込めが必要なら、サンドボックスを併用してください。
+
+## CC Safety Net が必要な理由
+
+2026 年 10 月時点で、あなたが作業を任せたワークスペースの中で破壊的な git コマンドを決定的にブロックする主要なコーディング CLI は、1 つもありません。`git reset --hard`、`git checkout -- .`、`git clean -f`、`git stash clear`、`git push --force` は、いずれもエージェントがすでに書き込みを許可されているファイルに作用します。そのため、書き込みをプロジェクトディレクトリに限定するサンドボックスからは、何も問題が見えません。OpenAI の [Codex セキュリティドキュメント](https://learn.chatgpt.com/docs/security)は、workspace-write 下のコマンドについて「can still mutate state and perform destructive operations」と述べています。[Codex の権限に関する独立した分析](https://codex.danielvaughan.com)（2026-04-20）は端的にこう記しています。「No command-level semantic blocking: the system cannot prevent git reset --hard」。Claude Code の[サンドボックスドキュメント](https://code.claude.com/docs/en/sandboxing)は書き込みを作業ディレクトリに限定しますが、そこはまさに未コミット作業が置かれている場所です。
 
 このレイヤーを動かす価値がある理由は、ほかに 3 つあります。
 
-- **確率的なチェックの下に置く、決定的なチェック。** Anthropic は、Claude Code の [auto-mode](https://www.anthropic.com/engineering/claude-code-auto-mode) 分類器について、実際の行き過ぎた操作に対する偽陰性率 17% を公表し、「not a drop-in replacement for careful human review」だとしています。deny ルールとフックは、判断任せにしない決定的なレイヤーです。Claude Code 2.1.251 に対して検証したところ、PreToolUse の deny は default、auto、bypassPermissions のいずれのモードでも発火しました（プロジェクトリポジトリの `tests/e2e-live/protection.test.ts`）。これはバージョンごとの結果であって恒久的な保証ではないため、このスイートはリリースとホストの更新のたびに再実行します。
-- **設定なしで使えるシークレット保護。** Claude Code の[サンドボックスドキュメント](https://code.claude.com/docs/en/sandboxing)は、既定の読み取り動作について「still allows reading credential files such as ~/.aws/credentials and ~/.ssh/」であり、「There is no built-in credential deny list」だと明記しています。他の CLI のネイティブ機能で同等の保護を得るには、CLI ごとにオプトインの設定を書く必要があります。CC Safety Net はインストールした時点から、これらのパスとプロジェクトの `.env` ファイルへのコンテンツアクセスを、シェルコマンドと read、edit、write、search の各ツールにわたってブロックします。
+- **確率的なチェックの下に置く、決定的なチェック。** Anthropic は 2026 年 10 月時点で、Claude Code の [auto-mode](https://www.anthropic.com/engineering/claude-code-auto-mode) 分類器について、実際の行き過ぎた操作に対する偽陰性率 17% を公表し、「not a drop-in replacement for careful human review」だとしています。deny ルールとフックは、判断任せにしない決定的なレイヤーです。2026-08-31 に Claude Code 2.1.251 で検証したところ、PreToolUse の deny は default、auto、bypassPermissions のいずれのモードでも発火しました（プロジェクトリポジトリの `tests/e2e-live/protection.test.ts`）。これはバージョンごとの結果であって恒久的な保証ではないため、このスイートはリリースとホストの更新のたびに再実行します。
+- **設定なしで使えるシークレット保護。** 2026 年 10 月時点で、Claude Code の[サンドボックスドキュメント](https://code.claude.com/docs/en/sandboxing)は、既定の読み取り動作について「still allows reading credential files such as ~/.aws/credentials and ~/.ssh/」であり、「There is no built-in credential deny list」だと明記しています。他の CLI のネイティブ機能で同等の保護を得るには、CLI ごとにオプトインの設定を書く必要があります。CC Safety Net はインストールした時点から、これらのパスとプロジェクトの `.env` ファイルへのコンテンツアクセスを、シェルコマンドと read、edit、write、search の各ツールにわたってブロックします。
 - **16 の CLI にまたがる 1 つのポリシーと 1 つの監査証跡。** 5 つのベンダーは互換性のない 5 つの権限機構を提供しており、後から読める判断ログはありません。
 
 この層より下のレイヤーは、実際の現場で破られてきました。サンドボックスと許可リストの CVE は[保護レイヤーの比較](/ja/guides/vs-sandboxing)で扱っています。また Adversa の[インシデントトラッカー](https://adversa.ai/blog/ai-coding-agent-incidents)には、2025 年と 2026 年のエージェントによる破壊事例が 9 件記録されており、その約半数ではガードレールが有効でした。
 
-きっかけとなった事例は今も有効です。ただ、もはや最前線ではありません。あるエージェントはたった 1 つの `rm -rf ~/` で[数時間分の作業を消し去り](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/)、指示はそれを止められませんでした。Claude Code は現在、そうしたクリティカルパスに対する決定的なサーキットブレーカーを備えています。これは正しい修正で、だからこそこの事例をもう主役には置いていません。しかし、上に挙げた git コマンドにはそのようなブレーカーがありません。`CLAUDE.md` や `AGENTS.md` のルールはエージェントを導きますが、技術的に強制する力はありません。CC Safety Net は、その制限を実行前のチェックとして強制します。
+きっかけとなった事例は今も有効です。ただ、もはや最前線ではありません。あるエージェントはたった 1 つの `rm -rf ~/` で[数時間分の作業を消し去り](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/)、指示はそれを止められませんでした。2026 年 10 月時点で、Claude Code はそうしたクリティカルパスに対する決定的なサーキットブレーカーを備えています。これは正しい修正で、だからこそこの事例をもう主役には置いていません。しかし、上に挙げた git コマンドにはそのようなブレーカーがありません。`CLAUDE.md` や `AGENTS.md` のルールはエージェントを導きますが、技術的に強制する力はありません。CC Safety Net は、その制限を実行前のチェックとして強制します。
 
 ## インターセプトする操作
 
@@ -34,7 +40,7 @@ CC Safety Net は、エージェントの権限ルールやネイティブサン
 
 deny ルールでは、ユーザーが禁止する操作を指定できます。サンドボックスは、OS レベルでファイルシステムとネットワークを制限します。CC Safety Net は、サンドボックスがプロジェクト内では許可する、既知の破壊的な Git 操作とファイルシステム操作を防ぎます。これらのレイヤーは組み合わせてください。[保護レイヤーの比較](/ja/guides/vs-sandboxing)を参照してください。
 
-CC Safety Net だけですべてを保護できるわけではありません。静的な実行前ポリシーゲートのため、任意のバイナリの内部は検査できず、インストール済みの連携を迂回するコマンドも保護できません。使用する前に、[既知の制限](/ja/guides/known-limitations)を確認してください。
+CC Safety Net だけですべてを保護できるわけではありません。静的な実行前フックであるため、任意のバイナリの内部は検査できず、インストール済みの連携を迂回するコマンドも保護できません。使用する前に、[既知の制限](/ja/guides/known-limitations)を確認してください。
 
 ## はじめる
 
