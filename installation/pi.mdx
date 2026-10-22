@@ -1,0 +1,61 @@
+---
+title: "Install CC Safety Net in Pi"
+sidebarTitle: "Pi"
+description: "Install CC Safety Net in the Pi coding agent from pi.dev as an in-process extension, see what the extension checks and what happens when it fails, remove it, and fix an extensions filter that disables it."
+keywords:
+  - "pi"
+  - "pi.dev"
+  - "pi coding agent"
+  - "PI_CODING_AGENT_DIR"
+  - "settings.json"
+  - "extensions filter"
+---
+
+Run `npx -y cc-safety-net@latest install --pi`. It installs the `cc-safety-net` npm package into Pi, the coding agent from [pi.dev](https://pi.dev), and Pi runs it as an in-process extension. Restart Pi so it loads the extension, then run `npx cc-safety-net doctor` to confirm the extension is active.
+
+## Install CC Safety Net in Pi
+
+<Steps>
+  <Step title="Run the installer">
+    ```bash
+    npx -y cc-safety-net@latest install --pi
+    ```
+  </Step>
+  <Step title="Restart Pi">
+    Restart Pi to load the extension.
+  </Step>
+  <Step title="Confirm the extension is active">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+## What the Pi install changes
+
+- The installer runs `pi install npm:cc-safety-net`.
+- It removes any `extensions` filter from the CC Safety Net package entry in `settings.json`, so Pi loads the extension.
+
+`settings.json` is in the Pi agent directory, `PI_CODING_AGENT_DIR` when it is set, otherwise `~/.pi/agent`.
+
+## What the Pi extension checks
+
+- The extension analyzes Pi's built-in `bash` and `powershell` tools as shell commands, each in its own shell dialect.
+- It inspects the inputs of other tools for protected paths.
+- It does not support custom command tools named `Shell`, such as the one pi-grok-cli adds.
+- It adds a `/cc-safety-net` command for managing rulebooks.
+
+## What happens when the Pi check fails
+
+If the CC Safety Net extension throws, Pi blocks the call. Pi has no timeout on the check. If the extension fails to load when Pi starts, Pi exits. If it fails to load during `/reload`, Pi keeps running without it, so restart Pi after a failed reload.
+
+## Uninstall CC Safety Net from Pi
+
+```bash
+npx -y cc-safety-net@latest uninstall --pi
+```
+
+## Troubleshoot Pi
+
+- **`doctor` prints `Error (Pi): npm:cc-safety-net is installed but its extension is disabled in Pi settings`.** The `npm:cc-safety-net` entry in `settings.json` has an `extensions` filter that does not load `dist/pi/index.js`. Run `install --pi` again to remove the filter.
+- **Pi reads `n/a` in `doctor` although it is installed.** `doctor` found no `npm:cc-safety-net` package in `settings.json`. If you moved the Pi agent directory with `PI_CODING_AGENT_DIR`, set the same value where you run `doctor`. Otherwise run `install --pi` again.

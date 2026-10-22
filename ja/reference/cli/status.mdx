@@ -1,0 +1,62 @@
+---
+title: "status コマンド"
+sidebarTitle: "status"
+description: "cc-safety-net status のリファレンスです。ready と degraded の判定、出力される各行、Not active のリスト、常に 0 で終了する理由を説明します。"
+keywords:
+  - "status"
+  - "ready"
+  - "degraded"
+  - "not active"
+---
+
+`status` は、CC Safety Net が現在適用している内容を表示します。保護が動作していることを確認するときに実行します。常に `0` で終了するため、スクリプトを失敗させる終了コードが必要な場合は [`doctor`](/ja/reference/cli/doctor) を使ってください。
+
+```bash
+npx cc-safety-net status
+```
+
+## status の判定：ready と degraded
+
+先頭の行は、次の 2 つの判定のいずれかです。
+
+| 判定 | 意味 |
+| --- | --- |
+| `ready` | ローダーエラー、警告、ポリシーのフォールバックのいずれもなく、ポリシースナップショットが正常に読み込まれた |
+| `degraded` | スナップショットは読み込まれたが、ローダーエラー、警告、またはフォールバックポリシーがある。`status` は理由を `Not active` の下に表示する |
+
+`degraded` の設定を修復する方法は、[設定の復旧](/ja/configuration/recovery)を参照してください。
+
+## status が出力する行
+
+判定の後に、`status` は次の行を出力します。
+
+| 行 | 値 |
+| --- | --- |
+| `Protection` | `destructive` と `secrets`。それぞれ `ok` または `OFF` と表示される |
+| `Level` | 有効なレベル。`standard`、`strict`、`paranoid`、`custom` のいずれか。有効な破壊的コマンドのルールが、レベルから継承される状態と異なる場合は ` (customised)` が付く |
+| `Rules` | `none active`、または有効なカスタムルールの数を示す `<n> active` |
+| `Policy` | ユーザーポリシーファイルのパス。`~` で短縮される |
+| `Project` | プロジェクトポリシーファイルのパス。カレントディレクトリにユーザーポリシーファイル以外の `.cc-safety-net/policy.json` がある場合にだけ出力される |
+| `Worktree` | `relaxations active`。ワークツリーモードが有効な場合にだけ出力される |
+
+各行は 1 行に収まります。長い値は折り返さず、`…` で切り詰めます。
+
+プロジェクトポリシーがユーザーポリシーを緩めている場合は、これらの行の後に `Project policy` ブロックが続き、緩めたフィールドを 1 行ずつ示します。`CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY` が設定されている場合、ブロックの見出しは `Project policy (ignored)` になります。[報告される緩和](/ja/configuration/policy#reported-weakenings)を参照してください。
+
+レポートの終わり方は 2 通りです。`Everything configured is active.` を出力するか、問題ごとに 1 項目を並べた `Not active` セクションを出力し、続けて `Full report: cc-safety-net doctor` を出力します。
+
+`NO_COLOR` が設定されている場合、または標準出力が TTY でない場合、`status` は記号を使わず ASCII だけで出力します。
+
+## Claude Code プラグインが無効な場合の status
+
+Claude Code プラグインが無効でも、判定は変わりません。`status` はこれを `Not active` の最初の項目として表示します。影響を受けるのは Claude Code だけです。
+
+```text
+plugin cc-safety-net@cc-marketplace is disabled in Claude Code; nothing is enforced in Claude Code until it is re-enabled. Other integrations are not affected.
+```
+
+`status` は Claude Code の設定ファイルから `enabledPlugins` を読み取ります。ファイルがない場合や読み取れない場合は、無効として扱います。プラグインを再び有効にする方法は、[Claude Code](/ja/installation/claude-code) を参照してください。
+
+## ホームディレクトリでの status
+
+ホームディレクトリで実行すると、`status` は `Project` 行を出力しません。ユーザー設定ディレクトリはプロジェクトではないためです。[ユーザー設定ディレクトリはプロジェクトではない](/ja/configuration/policy#the-user-config-directory-is-not-a-project)を参照してください。

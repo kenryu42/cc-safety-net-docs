@@ -1,29 +1,17 @@
 ---
 title: "Custom rules: extra command argument patterns"
 sidebarTitle: "Custom rules"
-description: "Define project and user-level custom blocking rules in CC Safety Net using JSON rulebooks. Match a command with version 1 subcommand and argument patterns or a version 2 exact command path, install rulebooks from a GitHub repository, and block with a custom reason message."
+description: "Define project and user-level custom blocking rules in CC Safety Net using JSON rulebooks. Block every git push, turn off one rule, match a version 1 subcommand and argument pattern or a version 2 exact command path, and block with your own reason message."
 ---
 
-Use custom blocking rules to enforce team conventions or project-specific safety policies. Rules use a **rulebook-based layout** and merge from user and project scopes. This lets you keep personal defaults with project overrides.
+A custom rule blocks a command that the built-in rules allow, such as `git push` or `npm install -g`, with a reason you write. Rules live in rulebook files, and a `rule.json` in each scope lists the rulebooks to load. Custom rules only add blocks. They never relax a built-in rule.
 
 <Warning>
-  **Breaking change.** CC Safety Net no longer loads legacy inline configuration files (`.safety-net.json` and `~/.cc-safety-net/config.json`) at runtime. If they contain rules, **those rules are inert until you migrate**. The runtime ignores legacy files silently. `doctor` and `rule verify` warn about them. Ordinary commands keep working. Run `npx -y cc-safety-net rule migrate` to convert legacy rules into the rulebook layout. See [Migrate legacy configuration](#migrate-legacy-configuration).
+  Legacy inline configuration files (`.safety-net.json` and `~/.cc-safety-net/config.json`) no longer load. Their rules do nothing until you [migrate them](#migrate-legacy-configuration).
 </Warning>
 
 <Tip>
-  Authoring rules is one workflow of the **`/cc-safety-net` skill**. Run it inside your agent and describe what you want in natural language:
-
-  ```text
-  /cc-safety-net read my package.json and suggest blocking rules
-  /cc-safety-net set up rules to block all terraform destroy commands
-  /cc-safety-net verify my rules and fix any errors
-  ```
-
-  The [`/cc-safety-net` skill](/guides/skill) page covers its other workflows. If your agent does not support skills, prompt it with:
-
-  ```text
-  run npx -y cc-safety-net rule doc and help me set up custom rules
-  ```
+  The [`/cc-safety-net` skill](/guides/skill) can write rules for you. Describe what you want, for example `/cc-safety-net block terraform destroy in this project`.
 </Tip>
 
 ## Rule configuration file locations
@@ -33,41 +21,24 @@ CC Safety Net loads rulebooks from two scopes and merges them:
 1. **User scope.** `~/.cc-safety-net/rules/rule.json` (created with `rule init --global`). Use this for personal defaults that apply to every project.
 2. **Project scope.** `.cc-safety-net/rules/rule.json` in the project root. Use this for team or project-specific rules you can commit to source control.
 
-Local rulebook sources are referenced by bare names like `project-rules`. GitHub rulebook sources use `owner/repo#ref/<rulebook-name>` and point to `.cc-safety-net/rules/<rulebook-name>/rulebook.json` in that repository. `rule add` and `rule update` vendor that file into your own scope at the same relative path, so every active rulebook is a file in the config directory.
+If neither file exists, only built-in rules apply. In the directory that holds your user `.cc-safety-net/` (your home directory by default), the project path is the user config, so `rule` subcommands that write the project scope refuse to run there. See [rule in the user config directory](/reference/cli/rule#rule-in-the-user-config-directory).
 
 ### Scope merge behavior
 
-- Rulebooks from both scopes are combined, user scope first.
-- **Duplicate active rulebook names resolve by first claim.** CC Safety Net loads user scope first, so a name it claims shadows the project rulebook with the same name. The later rulebook contributes no rules instead of partially shadowing the first. CC Safety Net reports the collision as a warning and puts the runtime in the `degraded` state. Rename one of the rulebooks in its rulebook file and in the `rule.json` that lists it. Because the collision is resolved instead of fatal, adding or updating a source in one scope still succeeds when the other scope already uses that name.
-- **Each scope's `overrides` apply to that scope's own rules.** CC Safety Net ignores a project override that names a user-scoped rule and reports a warning. The rule keeps its user-configured state. Project config cannot disable or rewrite a user rule.
-- An override key that matches no known rule is ignored with a warning; other overrides and rules keep their configured state.
-- `transparent_wrappers` from both scopes are unioned.
-- `command_tools` from both scopes are merged, user scope first. When both scopes declare the same tool name, the user entry wins and the project entry is dropped, so a project config cannot change which argument holds the working directory.
-
-If no config is found in either location, only built-in rules apply.
-
-### The user config directory is not a project
-
-The directory that holds your user `.cc-safety-net/`, your home directory by default, is never also a project. Run from there and `.cc-safety-net/rules/rule.json` is the user config, so the loader reads it once, in the user scope, and the project scope stays empty.
-
-Every `rule` subcommand that writes the project config refuses to run from that directory. `rule init`, `rule add`, `rule remove`, `rule update`, `rule sync`, `rule wrapper add`, and `rule wrapper remove` without `--global` print one error and exit 1 before writing anything:
-
-```text
-<home>/.cc-safety-net/rules/rule.json is the user rule config, not a project rule config; use --global for the user scope, or run from a project directory
-```
-
-Add `--global` to edit the user config instead, or run from a project directory. Reads are unaffected. `rule list` and `rule wrapper list` behave there as they do anywhere else.
-
-`policy.json` uses the same path comparison. [Policy](/configuration/policy#the-user-config-directory-is-not-a-project) covers how it resolves `CC_SAFETY_NET_HOME` and a home directory reached through a symlink.
+- CC Safety Net loads the user scope first and combines both scopes' rulebooks.
+- When both scopes list a rulebook with the same name, the user rulebook wins and the project one contributes no rules. CC Safety Net reports a warning and the runtime shows `degraded`. Rename one of them to fix it.
+- Each scope's `overrides` apply only to its own rules. CC Safety Net ignores a project override that names a user rule and reports a warning, so project config cannot disable or rewrite a user rule.
+- CC Safety Net also ignores, with a warning, an override key that matches no rule.
+- CC Safety Net combines `transparent_wrappers` and `command_tools` from both scopes.
 
 ## Managing rulebook sources
 
-A rulebook source is referenced by an entry in `rule.json`'s `rules` array. There are two kinds:
+Each entry in `rule.json`'s `rules` array is a rulebook source:
 
-- **Local source.** A bare name such as `project-rules`. The rulebook lives at `.cc-safety-net/rules/project-rules/rulebook.json` (project) or `~/.cc-safety-net/rules/project-rules/rulebook.json` (user). Local sources must stay within their config directory.
-- **GitHub source.** `owner/repo#ref/<rulebook-name>` names `.cc-safety-net/rules/<rulebook-name>/rulebook.json` in that repository and ref. `rule add` and `rule update` vendor that file into your own scope at `.cc-safety-net/rules/<rulebook-name>/rulebook.json`, writing the fetched bytes verbatim, so it loads exactly the way a local rulebook does.
+- **Local source.** A bare name such as `project-rules`. The rulebook lives at `.cc-safety-net/rules/project-rules/rulebook.json` (project) or `~/.cc-safety-net/rules/project-rules/rulebook.json` (user).
+- **GitHub source.** `owner/repo#ref/<rulebook-name>` names `.cc-safety-net/rules/<rulebook-name>/rulebook.json` in that repository. `rule add` and `rule update` copy that file into your own scope at the same path, so it loads like a local rulebook.
 
-Use the `rule` command to add, update, and remove sources rather than editing `rule.json` by hand:
+Use the `rule` command instead of editing `rule.json` by hand:
 
 ```bash
 # Add a local rulebook source
@@ -92,65 +63,19 @@ npx -y cc-safety-net rule list
 npx -y cc-safety-net rule remove example-rules --delete-source
 ```
 
-Add `--global` (`-g`) to operate on the user scope instead of the project scope. `rule list` is the exception. It reads both scopes and rejects `--global`. See [CLI commands](/reference/cli-commands) for every `rule` subcommand, its options, and its exit behavior.
-
-### Install rulebooks from a repository
-
-`rule add` accepts a bare `owner/repo` as well as the canonical `owner/repo#ref/<rulebook-name>`. A bare repository adds every rulebook that repository publishes under `.cc-safety-net/rules/`. Two flags narrow that down, and both work only on `rule add` with an `owner/repo` source:
-
-- `--only <rulebook...>` takes one or more rulebook names and keeps the order you list them in.
-- `--ref <ref>` picks a branch, tag, or commit instead of the repository's default branch. A ref may contain `/` segments, so `--ref feature/rulebook-v2` works.
-
-`rule.json` stores the canonical form `owner/repo#ref/<rulebook-name>`, keeping the ref you asked for rather than the commit it resolved to. That ref stays movable. The resolved commit is reported instead of stored, so an add prints `Vendored at 1a2b3c4.` and writes the rulebook file, and there is no lockfile to pin it.
-
-`rule update` re-resolves every selected source, so a branch or tag ref follows wherever it now points and the vendored file is rewritten from there. Sources update independently. One that fails to fetch or validate keeps its vendored copy and is reported as `Failed to update <spec>: <message>` while the others still update. A resource-limit failure is the exception and stops the whole run.
-
-### Resource limits
-
-The `rules` array holds at most **64** sources per scope. A `rule.json` with more entries fails validation with the single error `Rule config exceeds CC Safety Net's safe source limit.` The error does not list each item in the oversized array, and CC Safety Net drops the whole scope's config like any other invalid `rule.json`.
-
-Fetching from GitHub runs under fixed budgets. `rule add` and `rule update` process at most **4** sources concurrently, and one run makes at most **131** GitHub requests and reads at most **64 MiB** of response bytes across all sources. Exceeding a budget stops the run with `Rule synchronization exceeds CC Safety Net's safe resource limits.` and fails every source in it, not only the one that exceeded the budget.
-
-Rulebook files have their own limits, checked before the schema. A rulebook over any of them is rejected with the single error `Rulebook exceeds CC Safety Net's safe validation limits.` and no per-field detail:
-
-| Limit | Value |
-| --- | --- |
-| `allowed_commands` entries | 1,024 |
-| `rules` entries | 1,024 |
-| `tests` entries | 2,048 |
-| Tokens in one rule's `block_args`, `match.command_path`, `match.any_args`, or `match.exclude_args` | 1,024 |
-| Tokens across every one of those lists in the rulebook | 16,384 |
-| Any single string | 1,048,576 UTF-16 code units |
-| Every string in the rulebook combined | 4,194,304 UTF-16 code units |
-| A fixture's `command` string | 131,072 UTF-16 code units |
-
-A rulebook that clears those limits and then fails the schema reports at most 64 errors, followed by `Additional rulebook validation errors were omitted.`
+Add `--global` (`-g`) to change the user scope instead of the project scope. [Official rulebooks](/configuration/rulebooks#install) explains `--only` and `--ref`, and [`rule`](/reference/cli/rule) covers every subcommand, its output, and its errors.
 
 ### Rulebooks are live files
 
-There is no lockfile, no digest, and no cache. Every source loads from `<config-dir>/<rulebook-name>/rulebook.json`, and the runtime reads that file on every tool call. A local rulebook is authored there directly; a remote one is vendored there by `rule add` and `rule update`. A saved edit applies to the next command, so there is nothing to publish or rebuild afterwards.
-
-A source whose `rulebook.json` is missing, unreadable, or invalid is inactive. It contributes no rules, every other source and every built-in protection keeps applying, ordinary commands keep running, and the runtime reports `degraded`. An unreadable or invalid `rule.json` makes every source in its scope inactive. For a GitHub source that has not been vendored yet, run `npx -y cc-safety-net rule update`.
-
-See [Configuration recovery](/configuration/recovery) for the full state model, the exact diagnostic strings, and the repair sequence.
-
-### `rule sync` is deprecated
-
-`rule sync` no longer synchronizes anything. All it does now is migrate, offline, the `rule.lock` file and `cache` directory an earlier version left behind: it vendors each cached rulebook that still matches its recorded digest into the live path its source loads from, then deletes both. Every run opens with:
-
-```text
-`cc-safety-net rule sync` is deprecated: rulebooks are live files that need no synchronization. This run only migrates the lock and cache an earlier version left behind.
-```
-
-`doctor` reports any leftovers as the info finding `Rulebook lock and cache leftovers detected`. See [`rule sync`](/reference/cli-commands#rule-sync) for every message the migration prints and the case where it refuses to run.
+The runtime reads each `rulebook.json` from disk on every tool call. A saved edit applies to the next command, with nothing to publish or rebuild. A rulebook that is missing, unreadable, or invalid contributes no rules. Every other rulebook and every built-in rule keeps applying, and the runtime reports `degraded`. For a GitHub source you have never fetched, run `npx -y cc-safety-net rule update`. See [Configuration recovery](/configuration/recovery) for the repair steps.
 
 ## Transparent wrappers
 
-If your team runs commands through a wrapper such as `rtk`, analysis sees the wrapper by default, not the command underneath. Listing the wrapper in `transparent_wrappers` lets CC Safety Net look through it to the visible protected child command, so both built-in analysis and your custom rules apply to `rtk git reset --hard` and `rtk docker system prune` exactly as they would to the bare commands.
+A transparent wrapper is a command that runs another command, such as `timeout 5 git push`. CC Safety Net looks through a transparent wrapper to the command it runs, so built-in rules and your custom rules apply to `timeout 5 docker system prune` as they do to `docker system prune`.
 
-`caffeinate`, `exec`, `nice`, `nohup`, `setsid`, `stdbuf`, `time`, and `timeout` are wrappers without being listed, so `timeout 5 docker system prune` hits the same custom rule as the bare command.
+Eight wrappers are built in and need no configuration: `caffeinate`, `exec`, `nice`, `nohup`, `setsid`, `stdbuf`, `time`, and `timeout`.
 
-Configure wrappers with the `rule wrapper` subcommand rather than editing `rule.json` by hand:
+If your team runs commands through another wrapper, such as `rtk`, add it:
 
 ```bash
 # List configured wrappers for the project scope
@@ -164,21 +89,15 @@ npx -y cc-safety-net rule wrapper remove rtk
 npx -y cc-safety-net rule wrapper add rtk --global
 ```
 
-Rules for the field:
-
-- **Eight wrappers are built in.** `caffeinate`, `exec`, `nice`, `nohup`, `setsid`, `stdbuf`, `time`, and `timeout` always run a visible child, so analysis looks through them whether or not they appear in the file. Configure only the other wrappers you intentionally trust.
 - A wrapper name must match `^[a-zA-Z][a-zA-Z0-9_-]*$` and must be unique within the file.
-- **Reserved commands cannot be wrappers**: `git`, `busybox`, the built-in analyzed commands `rm`, `find`, `xargs`, and `parallel`, every shell wrapper, every interpreter, and the awk interpreters.
-- Unwrapping finds the first *protectable* child command after wrapper flags and `VAR=value` assignments, or the token immediately after an explicit `--`. A child that is not itself protectable is not unwrapped.
-- A wrapper that is neither built in nor listed here, or one that rewrites or hides its child command rather than exec'ing a visible child, is still not unwrapped. Only the top-level dangerous-text fallback scan may catch such a command.
+- Reserved commands cannot be wrappers: `git`, `busybox`, the built-in analyzed commands `rm`, `find`, `xargs`, and `parallel`, every shell wrapper, every interpreter, and the awk interpreters.
+- Add only a wrapper that runs its child command as written. CC Safety Net does not look through a wrapper that rewrites or hides its child, even when you list it.
 
-<Warning>
-  `transparent_wrappers` lives in `rule.json`. If a scope's `rule.json` becomes unreadable, the wrappers that scope declared stop applying, while the seven built-in ones keep working. Dropped configuration reduces built-in coverage here and for [declared command tools](#community-shell-tools). A **rulebook** that fails to load leaves `rule.json` readable, so declared wrappers survive it.
-</Warning>
+The wrappers you add live in `rule.json`, so an unreadable `rule.json` drops them. See [Coverage declared in `rule.json`](/configuration/recovery#coverage-declared-in-rule-json).
 
 ## Community shell tools
 
-A plugin can give an agent its own shell tool. The `dsh-ops` plugin, for example, adds `ops_bash` and `ops_run_background`. CC Safety Net does not know those names, so the integration routes them as unknown tools. It inspects their path values for protected paths, but it never parses their `command` as a shell command. Until you declare them, `ops_bash` can run `git reset --hard` unblocked.
+A plugin can give an agent its own shell tool. The `dsh-ops` plugin, for example, adds `ops_bash` and `ops_run_background`. CC Safety Net does not know those names, so it checks their path arguments but never reads their `command` as a shell command. Until you declare them, `ops_bash` can run `git reset --hard` unblocked.
 
 Declare the tool and CC Safety Net analyzes its commands:
 
@@ -209,131 +128,105 @@ That writes the `command_tools` array:
 }
 ```
 
-From the next tool call, CC Safety Net analyzes a declared call the way it analyzes a built-in shell tool: the same built-in rules, the same custom rules, your own safety level, and that level's sensitive-path strictness. `ops_bash` running `git reset --hard` is then blocked by `git.reset-hard`, and an allowed call is audited with its command and working directory, as a `Bash` call is.
+From the next tool call, a declared call gets the same built-in rules, custom rules, and safety level as a built-in shell tool. `git.reset-hard` then blocks `ops_bash` running `git reset --hard`.
 
-Other `rule` subcommands write the project config and need `-g`/`--global` for the user scope. `rule tool` reverses that: the user scope is the default, so a missed flag cannot leave a tool unanalyzed outside one project. [`rule tool`](/reference/cli-commands#rule-tool) covers the command surface and its error messages.
+- `rule tool` writes the user config by default. Pass `--project` for the project config.
+- The name must match the tool name the agent sends exactly, including case.
+- A declaration cannot change how CC Safety Net handles a built-in tool, and `rule tool add` refuses built-in tool names. [`rule tool add` name errors](/reference/cli/rule#rule-tool-add-name-errors) lists the other naming rules.
+- CC Safety Net analyzes only a call with a non-empty string `command`.
+- `cwd` names the argument that holds the working directory. Without it, CC Safety Net reads `workdir`, `cwd`, or `working_directory`. A call with no working directory runs in the session workspace. A blank value or a directory that does not exist makes the call fail closed.
 
-Rules for the field:
-
-- **An entry is a tool name, or an object like `{ "name": "ops_bash", "cwd": "dir" }`** whose `cwd` names the argument that carries the working directory.
-- **The name must match the tool name the agent sends exactly.** Built-in tool names are compared case- and separator-insensitively; a declaration is not.
-- A name must be non-empty, at most 256 characters, and free of whitespace and control characters. MCP-style names such as `mcp__server__tool` are fine. Declaring the same name twice in one file is an error.
-- **A declaration reaches only a tool the integration routed as unknown.** It cannot change how a built-in tool is handled, and `rule tool add` refuses a built-in shell or file name of any integration.
-- **Only a non-empty string `command` is analyzed.** A declared call that carries no `command` stays on the unknown-tool route and keeps path inspection alone.
-
-### The working directory of a declared call
-
-Whether `rm -rf build` is destructive depends on where it runs, so the declared tool's working directory decides the verdict. CC Safety Net reads it from the argument that `cwd` names. A declaration without `cwd` reads `workdir`, `cwd`, and `working_directory`, with no precedence among the three.
-
-| The call's working-directory argument | Result |
-| --- | --- |
-| Absent | Analysis uses the session workspace |
-| An absolute path to an existing directory | Analysis uses that directory, wherever it is on disk |
-| A relative path | Resolved against the session workspace, then canonicalized |
-| Blank, or not a string | Denied, failing closed |
-| Two of the three default keys carrying different values | Denied, failing closed |
-| A directory that does not exist, or a Windows namespace path | Denied with `cwd.requested-unusable` |
-
-The argument `cwd` names is the only key read, so a `workdir` value sent alongside it is ignored. Like the DeepSeek Harness, Amp Code, and Gemini CLI adapters, a declared tool may name any existing directory rather than one inside the session workspace.
-
-<Warning>
-  `command_tools` lives in `rule.json`. If a scope's `rule.json` becomes unreadable, that scope's declarations stop applying and its tools go back to being unanalyzed, until you fix the file named in the diagnostic. Declarations in the other scope are unaffected. Run `cc-safety-net rule verify` after editing the file by hand; it also reports a built-in name declared there.
-</Warning>
+Declarations live in `rule.json`, so an unreadable `rule.json` drops that scope's tools. Run `npx -y cc-safety-net rule verify` after editing the file by hand.
 
 ## Create your first custom rule
 
-Create a starter project rule config:
+<Steps>
+  <Step title="Create rule.json">
+    ```bash
+    npx -y cc-safety-net rule init
+    ```
 
-```bash
-npx -y cc-safety-net rule init
-```
+    This creates an empty `.cc-safety-net/rules/rule.json` with no rulebook sources:
 
-This creates an **inert** `.cc-safety-net/rules/rule.json`. No rulebook sources are configured yet:
-
-```json
-{
-  "version": 1,
-  "rules": [],
-  "overrides": {},
-  "transparent_wrappers": []
-}
-```
-
-Add `--example` to also write an inactive example rulebook at `.cc-safety-net/rules/example-rules/rulebook.json`. It is written only when that file does not already exist, and `rule init` does not reference it, so you must add it as a source to make it active:
-
-```bash
-npx -y cc-safety-net rule init --example
-npx -y cc-safety-net rule add example-rules
-```
-
-To author your own rulebook, create `.cc-safety-net/rules/project-rules/rulebook.json` and register it with `npx -y cc-safety-net rule add project-rules`. That leaves `rule.json` looking like this:
-
-```json
-{
-  "version": 1,
-  "rules": ["project-rules"],
-  "overrides": {},
-  "transparent_wrappers": []
-}
-```
-
-Rule definitions live in that rulebook file:
-
-```json
-{
-  "rulebook_version": 1,
-  "name": "project-rules",
-  "version": "1.0.0",
-  "description": "Project-specific CC Safety Net rules.",
-  "author": "project",
-  "allowed_commands": ["git"],
-  "rules": [
+    ```json
     {
-      "name": "block-git-add-all",
-      "command": "git",
-      "subcommand": "add",
-      "block_args": ["-A", "--all", "."],
-      "reason": "Use 'git add <specific-files>' instead of blanket add."
+      "version": 1,
+      "rules": [],
+      "overrides": {},
+      "transparent_wrappers": []
     }
-  ],
-  "tests": [
+    ```
+
+    `rule init --example` also writes an example rulebook at `.cc-safety-net/rules/example-rules/rulebook.json`. It stays inactive until you run `npx -y cc-safety-net rule add example-rules`.
+  </Step>
+  <Step title="Write a rulebook">
+    Create `.cc-safety-net/rules/project-rules/rulebook.json`:
+
+    ```json
     {
-      "command": "git add -A",
-      "expect": "blocked",
-      "rule": "block-git-add-all"
-    },
-    {
-      "command": "git add README.md",
-      "expect": "allowed"
+      "rulebook_version": 1,
+      "name": "project-rules",
+      "version": "1.0.0",
+      "description": "Project-specific CC Safety Net rules.",
+      "author": "project",
+      "allowed_commands": ["git"],
+      "rules": [
+        {
+          "name": "block-git-add-all",
+          "command": "git",
+          "subcommand": "add",
+          "block_args": ["-A", "--all", "."],
+          "reason": "Use 'git add <specific-files>' instead of blanket add."
+        }
+      ],
+      "tests": [
+        {
+          "command": "git add -A",
+          "expect": "blocked",
+          "rule": "block-git-add-all"
+        },
+        {
+          "command": "git add README.md",
+          "expect": "allowed"
+        }
+      ]
     }
-  ]
-}
-```
+    ```
+  </Step>
+  <Step title="Register it">
+    ```bash
+    npx -y cc-safety-net rule add project-rules
+    ```
 
-Saving the file is enough. From the next command onwards, `git add -A`, `git add --all`, and `git add .` are blocked with your custom message. To check the file before that, run:
+    `rule.json` now lists `"rules": ["project-rules"]`. From the next command, CC Safety Net blocks `git add -A`, `git add --all`, and `git add .` with your reason.
+  </Step>
+  <Step title="Validate it">
+    ```bash
+    npx -y cc-safety-net rule verify
+    ```
 
-```bash
-npx -y cc-safety-net rule verify
-```
+    `rule verify` checks both scopes' `rule.json`, loads each source the way the runtime does, and runs the version 2 fixtures. It never fetches remote content.
+  </Step>
+</Steps>
 
 ## `rule.json` schema
 
-The top-level `rule.json` selects active rulebooks, applies overrides, and declares transparent wrappers and community shell tools. It is separate from `policy.json`, which configures safety levels, built-in protections, allow and deny paths, and audit retention. See [Policy](/configuration/policy) for that file.
+`rule.json` selects active rulebooks, applies overrides, and declares transparent wrappers and community shell tools. Safety levels, built-in protections, allow and deny paths, and audit retention live in a separate file. See [Policy](/configuration/policy).
 
 <ParamField body="version" type="integer" required>
-  Schema version. Must be `1`.
+  The schema version, which must be `1`.
 </ParamField>
 
 <ParamField body="rules" type="array">
-  List of rulebook source strings. Defaults to an empty array. Source names must be unique within the file, and at most 64 sources are allowed. See [Resource limits](#resource-limits).
+  List of rulebook source strings. Defaults to an empty array. Source names must be unique within the file, and the file can list at most 64 sources.
 </ParamField>
 
 <ParamField body="overrides" type="object">
-  Rule overrides keyed by `<rulebook-name>/<rule-name>`. Values are either `"off"` to disable a rule, or an object to replace the rule's block message. The object form requires `reason` and accepts an optional `intent`; an omitted `intent` leaves the rule's own intent unchanged.
+  Rule overrides keyed by `<rulebook-name>/<rule-name>`. Values are either `"off"` to disable a rule, or an object to replace the rule's block message. The object form requires `reason` and accepts an optional `intent`. An omitted `intent` leaves the rule's own intent unchanged.
 </ParamField>
 
 <ParamField body="transparent_wrappers" type="array">
-  Command names that transparently execute a visible protected child command, so analysis looks through them. Defaults to an empty array, which still leaves the seven built-in wrappers in force. Entries must be unique and must not be reserved commands. See [Transparent wrappers](#transparent-wrappers).
+  Extra commands to look through, on top of the eight built-in wrappers. Defaults to an empty array. Entries must be unique and must not be reserved commands. See [Transparent wrappers](#transparent-wrappers).
 </ParamField>
 
 <ParamField body="command_tools" type="array">
@@ -359,7 +252,7 @@ An override that changes both the message and the agent-facing intent looks like
 
 ### `rule.json` editor support
 
-CC Safety Net publishes a JSON Schema for `rule.json`. The file is maintained by hand, and a test fails whenever its fields, patterns, limits, or enums drift from the validator the runtime uses. Point your editor at it for completion and validation:
+CC Safety Net publishes a JSON Schema for `rule.json`. Point your editor at it for completion and validation:
 
 ```json
 {
@@ -371,18 +264,18 @@ CC Safety Net publishes a JSON Schema for `rule.json`. The file is maintained by
 }
 ```
 
-It covers exactly the `rule.json` fields above: `version`, `rules`, `overrides`, `transparent_wrappers`, and `command_tools`. Running `rule verify` adds this `$schema` reference to a valid rules config that lacks one. There is no published schema for `policy.json`.
+`rule verify` adds this `$schema` line to a valid `rule.json` that lacks one. There is no published schema for `policy.json`.
 
 ## Rulebook schema
 
 Each rulebook lives in its own `rulebook.json` file.
 
 <ParamField body="rulebook_version" type="integer" required>
-  Rulebook schema version. Must be `1` or `2`. Any other value fails validation with `rulebook_version must be 1 or 2`. See [Version 2 rules](#version-2-rules).
+  The rulebook schema version, which must be `1` or `2`. Any other value fails validation with `rulebook_version must be 1 or 2`. See [Version 2 rules](#version-2-rules).
 </ParamField>
 
 <ParamField body="name" type="string" required>
-  Rulebook name. Must match the local directory name or GitHub source name.
+  The rulebook name, which must match the local directory name or GitHub source name.
 </ParamField>
 
 <ParamField body="version" type="string" required>
@@ -398,7 +291,7 @@ Each rulebook lives in its own `rulebook.json` file.
 </ParamField>
 
 <ParamField body="allowed_commands" type="array" required>
-  Commands this rulebook is allowed to define rules for.
+  The commands this rulebook can define rules for.
 </ParamField>
 
 <ParamField body="rules" type="array" required>
@@ -406,55 +299,55 @@ Each rulebook lives in its own `rulebook.json` file.
 </ParamField>
 
 <ParamField body="tests" type="array">
-  Optional rulebook fixtures. See [Fixture schema](#fixture-schema). Version 1 fixtures are shape-validated only. Version 2 fixtures are also evaluated against the rulebook's own rules.
+  Optional rulebook fixtures. See [Fixture schema](#fixture-schema). CC Safety Net checks only the shape of version 1 fixtures. It also evaluates version 2 fixtures against the rulebook's own rules.
 </ParamField>
 
 ## Rule schema
 
-The fields below define a `rulebook_version` 1 rule. Version 2 replaces `subcommand` and `block_args` with a `match` object; see [Version 2 rules](#version-2-rules).
+The fields below define a `rulebook_version` 1 rule. Version 2 replaces `subcommand` and `block_args` with a `match` object. See [Version 2 rules](#version-2-rules).
 
 <ParamField body="name" type="string" required>
-  Unique within the rulebook. Must start with a letter, followed by letters, numbers, hyphens, or underscores. Maximum of 64 characters.
+  A name unique within the rulebook, at most 64 characters long. It must start with a letter, followed by letters, numbers, hyphens, or underscores.
 </ParamField>
 
 <ParamField body="command" type="string" required>
-  Base command to match. Must be listed in `allowed_commands`.
+  The base command to match. `allowed_commands` must list it.
 </ParamField>
 
 <ParamField body="subcommand" type="string">
-  Subcommand to match, for example `add` or `install`. If omitted, matches any subcommand.
+  The subcommand to match, for example `add` or `install`. Without it, the rule matches any subcommand.
 </ParamField>
 
 <ParamField body="block_args" type="array" required>
-  Arguments that trigger the block (at least one required).
+  Arguments that trigger the block. At least one is required, so a version 1 rule cannot block every use of a subcommand. Use a [version 2 rule](#block-every-git-push) for that.
 </ParamField>
 
 <ParamField body="reason" type="string" required>
-  Message shown when blocked. Maximum of 256 characters.
+  The message CC Safety Net shows when the rule blocks a command, at most 256 characters long.
 </ParamField>
 
 <ParamField body="intent" type="string">
-  Agent behavior intent appended to the block message footer. One of `hard_stop`, `use_alternative`, `scope_down`, `manual_only`, or `stop_and_explain`. Defaults to `manual_only`.
+  The intent for the agent, appended to the block message footer. One of `hard_stop`, `use_alternative`, `scope_down`, `manual_only`, or `stop_and_explain`. Defaults to `manual_only`.
 </ParamField>
 
 ## Version 2 rules
 
-Set `"rulebook_version": 2` to match on an exact command path instead of a subcommand plus a bag of arguments. A version 1 rule that blocks `delete` under `gcloud compute` also blocks `gcloud compute instances create delete`, because it looks for the token anywhere in the command. A version 2 rule with the command path `["compute", "instances", "delete"]` does not.
+Set `"rulebook_version": 2` to match on an exact command path instead of a subcommand plus a set of arguments. A version 1 rule that blocks `delete` under `gcloud compute` also blocks `gcloud compute instances create delete`, because it looks for the token anywhere in the command. A version 2 rule with the command path `["compute", "instances", "delete"]` does not.
 
-Version 1 rulebooks keep their fields, their matching, and their shape-only fixtures. Each rulebook is validated against the version it declares.
+Version 1 rulebooks keep their fields, their matching, and their shape-only fixtures. CC Safety Net validates each rulebook against the version it declares.
 
 A version 2 rule keeps `name`, `command`, `reason`, and `intent` from version 1 and replaces `subcommand` and `block_args` with a `match` object.
 
 <ParamField body="match.command_path" type="array" required>
-  Command words that must follow the command, in order. Non-empty array of non-empty strings.
+  Command words that must follow the command, in order, as a non-empty array of non-empty strings. Because the path cannot be empty, no rule matches every call of a command, such as every `aws` invocation.
 </ParamField>
 
 <ParamField body="match.any_args" type="array">
-  At least one of these tokens must appear literally among the arguments. Non-empty array of unique non-empty strings.
+  At least one of these tokens must appear literally among the arguments. It is a non-empty array of unique non-empty strings. Leave it out to match the command path with any arguments.
 </ParamField>
 
 <ParamField body="match.exclude_args" type="array">
-  Any of these tokens appearing literally among the arguments prevents the match. Non-empty array of unique non-empty strings.
+  If any of these tokens appears literally among the arguments, the rule does not match. It is a non-empty array of unique non-empty strings.
 </ParamField>
 
 Version 2 rejects the version 1 fields instead of ignoring them. A rule that still carries `subcommand` or `block_args` fails validation with `rules[0].subcommand: not supported in rulebook_version 2` and `rules[0].block_args: not supported in rulebook_version 2`.
@@ -493,14 +386,13 @@ Version 2 rejects the version 1 fields instead of ignoring them. A rule that sti
 
 ### Version 2 matching
 
-- **Command**: Normalized to its lowercase basename, as in version 1.
-- **Command path**: CC Safety Net walks the arguments and skips recognized value-taking global options together with their values. The command words it then meets must equal `command_path` exactly, in order. Arguments after the path do not affect the path match.
-- **Global option tables**: Value-taking global options are built in for `aws`, `gcloud`, and `az` only. Terraform needs no table. Its one global option, `-chdir=DIR`, is `=`-joined, so it is skipped as a single token.
-- **Unrecognized options**: A token starting with `-` that is not in the table for that command is skipped without consuming a value. An unlisted value-taking option written with a separate value (`--newflag value`) therefore makes the rule miss. The miss is deliberate. CC Safety Net fails open rather than block on an option it does not recognize, so as a rulebook author, treat this as a known gap and document it in the rulebook.
-- **No short-option expansion**: `-Ap` stays `-Ap`. List every spelling you want to catch, such as `"-destroy"` and `"--destroy"`.
-- **Literal and case-sensitive**: No regex, glob, or substring matching.
-- **First match wins**: Rules are evaluated in order, and the first rule that matches produces the block.
-- **Release channels need their own rule**: `gcloud beta compute instances delete` does not match a `command_path` of `["compute", "instances", "delete"]`. Write a second rule with `["beta", "compute", "instances", "delete"]`.
+- **Command.** CC Safety Net reduces the command to its lowercase basename, as in version 1.
+- **Command path.** CC Safety Net skips recognized global options and their values. The command words that follow must equal `command_path` exactly, in order. Arguments after the path do not affect the path match.
+- **Global options.** CC Safety Net knows the value-taking global options of `aws`, `gcloud`, and `az` only. For any other command, an option written with a separate value, such as `git -C repo push`, makes the rule miss. Terraform's `-chdir=DIR` is one token, so CC Safety Net skips it.
+- **No short-option expansion.** `-Ap` stays `-Ap`. List every spelling you want to catch, such as `"-destroy"` and `"--destroy"`.
+- **Literal and case-sensitive.** There is no regex, glob, or substring matching.
+- **First match wins.** CC Safety Net evaluates rules in order, and the first rule that matches produces the block.
+- **Release channels need their own rule.** `gcloud beta compute instances delete` does not match a `command_path` of `["compute", "instances", "delete"]`. Write a second rule with `["beta", "compute", "instances", "delete"]`.
 
 ## Fixture schema
 
@@ -518,9 +410,7 @@ Fixtures document intended behavior. CC Safety Net parses their commands and run
   Rule expected to block the command. Required for blocked fixtures.
 </ParamField>
 
-Version 1 fixtures are shape-validated only. Version 2 fixtures are evaluated against the rulebook's own rules, both when `rule add` or `rule update` fetches a source and when `rule verify` reads a rulebook directory. A `blocked` fixture passes only when its named rule is the first match; an `allowed` fixture passes only when no rule matches. A failing fixture rejects that source before the file is written, so a rulebook that contradicts its own fixtures never becomes active. Loading a rulebook does not re-evaluate them.
-
-Each failure names the fixture by its index in `tests`:
+CC Safety Net checks only the shape of version 1 fixtures. `rule add`, `rule update`, and `rule verify` evaluate version 2 fixtures. A `blocked` fixture passes only when its named rule is the first match, and an `allowed` fixture passes only when no rule matches. `rule add` and `rule update` reject a source whose fixtures fail, before writing it. Each failure names the fixture by its index in `tests`:
 
 ```text
 tests[<index>]: expected "<rule>" to block "<command>" but no rule matched
@@ -533,133 +423,150 @@ tests[<index>]: could not parse fixture command: <command>
 
 ## Matching behavior
 
-The subcommand, argument, and option rules below describe `rulebook_version` 1 rules. Version 2 rules match as described in [Version 2 matching](#version-2-matching). Command normalization, execution order, and transparent wrappers apply to both.
+The subcommand, argument, and option rules below describe `rulebook_version` 1 rules. Version 2 rules match as described in [Version 2 matching](#version-2-matching). Command normalization, transparent wrappers, and nesting apply to both.
 
-- **Command normalization**: Commands are reduced to their basename before matching. `/usr/local/bin/npm` matches a rule with `"command": "npm"`.
-- **Subcommand detection**: The subcommand is the first non-option argument following the command. In `git --no-pager add -A`, the subcommand is `add`.
-- **Argument matching**: Arguments in `block_args` are matched literally. No regex or glob support.
-- **Short option expansion**: Bundled short flags are unbundled before matching. `-Ap` is treated as `-A` and `-p`.
-- **Long option matching**: Long options use exact string matching. `--all-files` does **not** match `--all`.
-- **Any-argument matching**: A command is blocked if any single argument in `block_args` is present.
-- **Additive only**: Custom rules can only add new restrictions. They cannot bypass built-in protections.
-- **Every depth**: A rule applies to a nested command the same way it applies to a top-level one. Under a rule for `rm`, both `bash -c 'rm -r ./tmpdir'` and `eval 'rm -r ./tmpdir'` block, and the same goes for `sh -c` and a called function body. This includes the commands a built-in analyzer also covers: `rm`, `rmdir`, `git`, `find`, `xargs`, and `parallel`.
+- **Command normalization.** CC Safety Net reduces a command to its basename before matching. `/usr/local/bin/npm` matches a rule with `"command": "npm"`.
+- **Subcommand detection.** The subcommand is the first non-option argument following the command. In `git --no-pager add -A`, the subcommand is `add`.
+- **Argument matching.** Arguments in `block_args` match literally. There is no regex or glob support.
+- **Short option expansion.** CC Safety Net unbundles short flags before matching. `-Ap` counts as `-A` and `-p`.
+- **Long option matching.** Long options use exact string matching. `--all-files` does not match `--all`.
+- **Any-argument matching.** The rule blocks a command if any single argument in `block_args` is present.
+- **Additive only.** Custom rules can only add new restrictions. They cannot bypass built-in protections.
+- **Every depth.** A rule applies to a nested command the same way it applies to a top-level one. Under a rule for `rm`, both `bash -c 'rm -r ./tmpdir'` and `eval 'rm -r ./tmpdir'` block, and the same goes for `sh -c` and a called function body. This includes the commands a built-in analyzer also covers: `rm`, `rmdir`, `git`, `find`, `xargs`, and `parallel`.
 
 <Note>
-  **Known limitation**: `-Cfoo` is treated as `-C -f -o -o`, not `-C foo`. Blocking `-f` may false-positive on attached option values.
+  **Known limitation.** CC Safety Net treats `-Cfoo` as `-C -f -o -o`, not `-C foo`. A rule that blocks `-f` can therefore match an attached option value by mistake.
 </Note>
+
+### Rules match commands, not file paths
+
+A custom rule matches a shell command and its arguments. It does not see the files an agent opens with its own read and edit tools, so a rule cannot protect a file such as `~/.zshrc`. To block every access to a file or folder, add it to [`secret_protection.deny_paths`](/configuration/policy#deny-paths) in `policy.json`. A deny path also blocks reads.
 
 ## Examples
 
-<AccordionGroup>
-  <Accordion title="Block global npm installs">
-    Prevent the agent from installing packages globally:
+### Block every git push
 
-    ```json
+A version 2 rule with `command_path: ["push"]` and no `any_args` blocks `git push` with any arguments. A version 1 rule cannot do this, because `block_args` needs at least one argument.
+
+```json
+{
+  "rulebook_version": 2,
+  "name": "project-rules",
+  "version": "1.0.0",
+  "allowed_commands": ["git"],
+  "rules": [
     {
-      "rulebook_version": 1,
-      "name": "project-rules",
-      "version": "1.0.0",
-      "allowed_commands": ["npm"],
-      "rules": [
-        {
-          "name": "block-npm-global",
-          "command": "npm",
-          "subcommand": "install",
-          "block_args": ["-g", "--global"],
-          "reason": "Global npm installs can cause version conflicts. Use npx or local install."
-        }
-      ],
-      "tests": [
-        {
-          "command": "npm install -g typescript",
-          "expect": "blocked",
-          "rule": "block-npm-global"
-        },
-        {
-          "command": "npm install typescript",
-          "expect": "allowed"
-        }
-      ]
+      "name": "block-git-push",
+      "command": "git",
+      "match": {
+        "command_path": ["push"]
+      },
+      "reason": "A person pushes this repository. Commit locally and stop."
     }
-    ```
-  </Accordion>
-
-  <Accordion title="Block dangerous docker commands">
-    Block `docker system prune`:
-
-    ```json
+  ],
+  "tests": [
     {
-      "rulebook_version": 1,
-      "name": "project-rules",
-      "version": "1.0.0",
-      "allowed_commands": ["docker"],
-      "rules": [
-        {
-          "name": "block-docker-system-prune",
-          "command": "docker",
-          "subcommand": "system",
-          "block_args": ["prune"],
-          "reason": "docker system prune removes all unused data. Use targeted cleanup instead."
-        }
-      ],
-      "tests": [
-        {
-          "command": "docker system prune",
-          "expect": "blocked",
-          "rule": "block-docker-system-prune"
-        },
-        {
-          "command": "docker ps",
-          "expect": "allowed"
-        }
-      ]
-    }
-    ```
-  </Accordion>
-
-  <Accordion title="Multiple rules in one rulebook">
-    ```json
+      "command": "git push",
+      "expect": "blocked",
+      "rule": "block-git-push"
+    },
     {
-      "rulebook_version": 1,
-      "name": "project-rules",
-      "version": "1.0.0",
-      "allowed_commands": ["git", "npm"],
-      "rules": [
-        {
-          "name": "block-git-add-all",
-          "command": "git",
-          "subcommand": "add",
-          "block_args": ["-A", "--all", ".", "-u", "--update"],
-          "reason": "Use 'git add <specific-files>' instead of blanket add."
-        },
-        {
-          "name": "block-npm-global",
-          "command": "npm",
-          "subcommand": "install",
-          "block_args": ["-g", "--global"],
-          "reason": "Use npx or local install instead of global."
-        }
-      ],
-      "tests": [
-        {
-          "command": "git add -A",
-          "expect": "blocked",
-          "rule": "block-git-add-all"
-        },
-        {
-          "command": "npm install -g typescript",
-          "expect": "blocked",
-          "rule": "block-npm-global"
-        }
-      ]
+      "command": "git push --force origin main",
+      "expect": "blocked",
+      "rule": "block-git-push"
+    },
+    {
+      "command": "git status",
+      "expect": "allowed"
     }
-    ```
-  </Accordion>
-</AccordionGroup>
+  ]
+}
+```
+
+The rule also blocks `timeout 5 git push`, because `timeout` is a [transparent wrapper](#transparent-wrappers). It misses `git -C repo push`, because a git global option with a separate value comes before `push`. See [Version 2 matching](#version-2-matching).
+
+### Turn off one rule
+
+To turn off a custom rule, add its `<rulebook-name>/<rule-name>` key to `overrides` in the `rule.json` of the scope that lists the rulebook, with the value `"off"`. The block message prints this key.
+
+```json
+{
+  "version": 1,
+  "rules": ["project-rules"],
+  "overrides": {
+    "project-rules/block-git-push": "off"
+  },
+  "transparent_wrappers": []
+}
+```
+
+The rulebook file stays unchanged, so `rule update` never undoes the override. To turn off a built-in rule such as `git.push-force`, use `policy.json` instead. See [Allow a blocked command](/reference/blocked-commands#allow-a-blocked-command).
+
+### Block global npm installs
+
+```json
+{
+  "rulebook_version": 1,
+  "name": "project-rules",
+  "version": "1.0.0",
+  "allowed_commands": ["npm"],
+  "rules": [
+    {
+      "name": "block-npm-global",
+      "command": "npm",
+      "subcommand": "install",
+      "block_args": ["-g", "--global"],
+      "reason": "Global npm installs can cause version conflicts. Use npx or local install."
+    }
+  ],
+  "tests": [
+    {
+      "command": "npm install -g typescript",
+      "expect": "blocked",
+      "rule": "block-npm-global"
+    },
+    {
+      "command": "npm install typescript",
+      "expect": "allowed"
+    }
+  ]
+}
+```
+
+### Block docker system prune
+
+```json
+{
+  "rulebook_version": 1,
+  "name": "project-rules",
+  "version": "1.0.0",
+  "allowed_commands": ["docker"],
+  "rules": [
+    {
+      "name": "block-docker-system-prune",
+      "command": "docker",
+      "subcommand": "system",
+      "block_args": ["prune"],
+      "reason": "docker system prune removes all unused data. Use targeted cleanup instead."
+    }
+  ],
+  "tests": [
+    {
+      "command": "docker system prune",
+      "expect": "blocked",
+      "rule": "block-docker-system-prune"
+    },
+    {
+      "command": "docker ps",
+      "expect": "allowed"
+    }
+  ]
+}
+```
 
 ## Block message format
 
-[What a block looks like](/guides/how-it-works#what-a-block-looks-like) owns the full block message layout. What a custom rule adds is a prefix carrying the rulebook name and the rule name, so you can tell which rulebook produced the block:
+[What a block looks like](/guides/how-it-works#what-a-block-looks-like) describes the full block message layout. A custom rule adds the rulebook name and the rule name as a prefix, so you can tell which rulebook produced the block:
 
 ```text
 BLOCKED by CC Safety Net
@@ -669,29 +576,11 @@ Reason: [project-rules/block-git-add-all] Use 'git add <specific-files>' instead
 Command: git add -A
 ```
 
-The prefix is `<rulebook-name>/<rule-name>`. This is also the key you use in `rule.json` `overrides` to disable a rule (`"off"`) or replace its reason.
-
-## Validate your rulebooks
-
-After creating or editing rulebooks, validate them with:
-
-```bash
-npx -y cc-safety-net rule verify
-```
-
-`rule verify` checks both scopes' `rule.json`, loads each configured source the way the guard loads it, and validates every rulebook directory under `.cc-safety-net/rules/` in the current repository, including the version 2 fixtures. It never fetches remote content.
+The prefix `<rulebook-name>/<rule-name>` is also the key you use in `rule.json` `overrides` to [turn the rule off](#turn-off-one-rule) or replace its reason.
 
 ## Migrate legacy configuration
 
-Legacy inline config files (`.safety-net.json` and `~/.cc-safety-net/config.json`) are **no longer loaded at runtime**.
-
-| Legacy file state | New behavior |
-| --- | --- |
-| Empty legacy file | Ignored at runtime. Only built-in rules apply |
-| Legacy file with rules | Its rules are **inert** until migrated with `rule migrate`; the runtime ignores the file silently |
-| Invalid legacy file | Same result. Inert until fixed and migrated, or removed |
-
-CC Safety Net never enforces legacy rules from their old location, and they do not block work. The runtime does not inspect legacy files, so no warning appears at guard time. After an upgrade, `npx -y cc-safety-net doctor` reports a leftover legacy file as the warning `Legacy inline rule configs are ignored`, and `rule verify` reports it too. The warning does not fail `doctor`, because a leftover file next to an already migrated config is harmless.
+CC Safety Net no longer loads legacy inline config files (`.safety-net.json` and `~/.cc-safety-net/config.json`). Their rules do nothing, and the runtime gives no warning. `npx -y cc-safety-net doctor` and `rule verify` report a leftover file as `Legacy inline rule configs are ignored`.
 
 ```bash
 # Convert legacy inline rules into the rulebook layout
@@ -704,22 +593,9 @@ npx -y cc-safety-net rule migrate --cleanup
 npx -y cc-safety-net rule verify
 ```
 
-`rule migrate` has no `--global`. Run it from [the directory that holds your user `.cc-safety-net/`](#the-user-config-directory-is-not-a-project) and it skips only its project half, logging one line, while the user half migrates as usual:
+`rule migrate` has no `--global` and migrates both scopes. From your home directory it skips the project half. See [`rule migrate` in the user config directory](/reference/cli/rule#rule-migrate-in-the-user-config-directory).
 
-```text
-Skipped the project scope: <home>/.cc-safety-net/rules/rule.json is the user rule config, not a project rule config
-```
-
-The skip does not fail the run. The exit code reflects the user half alone.
-
-**Before.** A single inline config with embedded rules:
-
-```text
-.safety-net.json                # project rules (inline)
-~/.cc-safety-net/config.json    # user rules (inline)
-```
-
-**After.** `rule migrate` creates a rulebook-based layout automatically:
+It turns the inline files into this layout:
 
 ```text
 .cc-safety-net/rules/rule.json                    # project rulebook sources + overrides
@@ -730,10 +606,8 @@ The skip does not fail the run. The exit code reflects the user half alone.
 
 ## Invalid custom-rule configuration
 
-Custom-rule configuration that fails to load is **dropped, not enforced, and never turned into a denial**. Ordinary commands keep running, every other valid source keeps enforcing, and every built-in protection still applies. The runtime reports itself as `degraded` so the situation is visible.
-
-Because a dropped source **removes** denials rather than adding them, this failure produces no friction on its own. Run `npx cc-safety-net status` after configuration changes and upgrades. See [Configuration recovery](/configuration/recovery) for the full failure-to-fallback matrix, the diagnostic strings, the reporting surfaces, and the repair sequence.
+CC Safety Net drops custom-rule configuration that fails to load. It never turns the failure into a denial. Every other valid source and every built-in rule keeps applying, and the runtime reports `degraded`. A dropped source removes blocks, and no denial alerts you to it. Run `npx -y cc-safety-net status` after editing rules or upgrading. See [Configuration recovery](/configuration/recovery).
 
 <Warning>
-  Custom rule configuration is **not tamper-resistant**. `rule.json` and the rulebook files are best-effort; only `policy.json` is a protected path. If you add or modify custom rules manually, always validate them with `npx -y cc-safety-net rule verify`.
+  Custom rule configuration is not tamper-resistant. An agent can edit `rule.json` and the rulebook files. Only `policy.json` is a protected path. If you add or change custom rules by hand, validate them with `npx -y cc-safety-net rule verify`.
 </Warning>

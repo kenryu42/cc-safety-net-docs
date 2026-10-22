@@ -1,0 +1,90 @@
+---
+title: "Install CC Safety Net in GitHub Copilot CLI"
+sidebarTitle: "GitHub Copilot CLI"
+description: "Install the cc-safety-net@cc-marketplace plugin in GitHub Copilot CLI, restart Copilot CLI, see what the hook checks, remove the plugin, and fix hooks that doctor reports as off or invalid."
+keywords:
+  - "copilot"
+  - "github copilot cli"
+  - "cc-marketplace"
+  - "enabledPlugins"
+  - "disableAllHooks"
+  - "COPILOT_HOME"
+  - "preToolUse"
+---
+
+Run `npx -y cc-safety-net@latest install --copilot-cli`. It installs the `cc-safety-net@cc-marketplace` plugin through Copilot CLI's own plugin marketplace commands. If the plugin was disabled, it enables the plugin in `~/.copilot/settings.json`. Then restart Copilot CLI, which picks up the plugin only after a restart.
+
+## Install CC Safety Net in GitHub Copilot CLI
+
+<Steps>
+  <Step title="Run the installer">
+    ```bash
+    npx -y cc-safety-net@latest install --copilot-cli
+    ```
+  </Step>
+  <Step title="Restart Copilot CLI">
+    Restart Copilot CLI to load the plugin.
+  </Step>
+  <Step title="Confirm the plugin is active">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+## What the GitHub Copilot CLI install changes
+
+- It adds the `cc-marketplace` marketplace if it is not already registered.
+- It installs the `cc-safety-net@cc-marketplace` plugin.
+- If the plugin was explicitly disabled, it sets the plugin to `true` in `enabledPlugins` in `~/.copilot/settings.json`.
+
+## What the GitHub Copilot CLI hook checks
+
+The plugin's hook runs on Copilot CLI's `preToolUse` event. It analyzes `bash` and `powershell` tool calls as shell commands and inspects the inputs of other tools for protected paths.
+
+If you add hooks by hand, Copilot CLI support depends on its version. Inline hook definitions in settings files need `1.0.8` or later, and user hook files need `0.0.422` or later. `doctor` reports the detected version and the hook sources it supports.
+
+## What happens when the GitHub Copilot CLI check fails
+
+GitHub Copilot CLI blocks the tool call when the hook crashes, exits non-zero, or cannot start. A hook that times out after the default 30 seconds, or prints invalid output, lets the call proceed.
+
+## Uninstall CC Safety Net from GitHub Copilot CLI
+
+```bash
+npx -y cc-safety-net@latest uninstall --copilot-cli
+```
+
+Restart Copilot CLI after removing the plugin for the change to take effect.
+
+## Troubleshoot GitHub Copilot CLI
+
+`doctor` checks the plugin and any CC Safety Net hooks you added by hand. `COPILOT_HOME` defaults to `~/.copilot`.
+
+### Hooks you added by hand
+
+`doctor` counts a CC Safety Net hook in any of these files, listed from highest precedence:
+
+1. `<repo>/.github/copilot/settings.local.json`
+2. `<repo>/.github/copilot/settings.json`
+3. `<repo>/.claude/settings.local.json`
+4. `<repo>/.claude/settings.json`
+5. `$COPILOT_HOME/settings.json`
+6. The hook files `<repo>/.github/hooks/*.json` and `$COPILOT_HOME/hooks/*.json`
+
+An entry in a `.claude` file counts only when its command includes `hook --copilot-cli` or `hook -cp`. A Claude Code hook alone does not count.
+
+When a hook file or settings entry still runs the CC Safety Net hook, `doctor` reports it with the method `hook config`, even if the plugin is disabled.
+
+### Hooks or the plugin are switched off
+
+- `disableAllHooks: true` in a repository settings file turns off CC Safety Net in that repository, plugin included.
+- `disableAllHooks: true` in `$COPILOT_HOME/settings.json` turns off only that file's inline hooks. Hook files and the plugin keep running.
+- A hook file that sets its own `disableAllHooks` to `true` does not count. The other hook files still do.
+- For `cc-safety-net@cc-marketplace` in `enabledPlugins`, the first repository settings file that sets it takes precedence over `$COPILOT_HOME/settings.json`. A repository `true` re-enables a user `false`.
+
+### Hook config errors in GitHub Copilot CLI
+
+| Problem | Message |
+| --- | --- |
+| A `hooks.preToolUse` entry has the wrong shape | `Invalid hook config <path>: hooks.preToolUse must be an array of hook objects` |
+| A file will not parse | `Failed to parse <path>: <reason>` |

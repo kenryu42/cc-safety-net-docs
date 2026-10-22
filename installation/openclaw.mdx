@@ -1,0 +1,105 @@
+---
+title: "Install CC Safety Net in OpenClaw"
+sidebarTitle: "OpenClaw"
+description: "Install CC Safety Net in OpenClaw 2026.8.1 or later as an in-process plugin, see how install verifies the plugin loaded, what the exec check covers and what happens when it fails, and how to remove it."
+keywords:
+  - "openclaw"
+  - "openclaw plugins install"
+  - "openclaw.json"
+  - "OPENCLAW_HOME"
+  - "before_tool_call"
+  - "exec"
+---
+
+You need OpenClaw 2026.8.1 or later, on macOS or Linux. Run `npx -y cc-safety-net@latest install --openclaw`. It installs CC Safety Net as an OpenClaw plugin through OpenClaw's own CLI and checks that the plugin loaded. Then restart the OpenClaw Gateway. The plugin checks `exec` calls and fails closed.
+
+## Install CC Safety Net in OpenClaw
+
+<Steps>
+  <Step title="Check your OpenClaw version">
+    Make sure you run OpenClaw 2026.8.1 or later. Upgrade OpenClaw if you run an older release.
+  </Step>
+  <Step title="Run the installer">
+    ```bash
+    npx -y cc-safety-net@latest install --openclaw
+    ```
+  </Step>
+  <Step title="Restart the OpenClaw Gateway">
+    Restart the Gateway. Do the same after every update or uninstall.
+  </Step>
+  <Step title="Confirm the plugin is active">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  If `plugins.allow` is set in `openclaw.json`, it must also list `cc-safety-net`. An allowlist that omits it stops the plugin from loading even when it is enabled.
+</Note>
+
+## What the OpenClaw install changes
+
+The installer runs `openclaw plugins install` on the plugin directory that ships in the npm package, with `--force --accept-capabilities`. That command also enables the plugin. A plugin you disabled yourself in `openclaw.json` stays disabled on install and update. Run `openclaw plugins enable cc-safety-net` to enable it.
+
+### How install verifies the OpenClaw plugin loaded
+
+After installing, the installer runs `openclaw plugins inspect cc-safety-net --runtime --json`. Any status other than `loaded` fails the install. A `disabled` status prints:
+
+```text
+OpenClaw reports the cc-safety-net plugin with status "disabled"; run `openclaw plugins enable cc-safety-net`. Run `openclaw plugins inspect cc-safety-net --runtime` for details.
+```
+
+## Where OpenClaw keeps its configuration
+
+Install and `doctor` resolve OpenClaw's paths the way OpenClaw does, so they find a relocated OpenClaw install.
+
+| Path | Resolved from |
+| --- | --- |
+| Effective home | `OPENCLAW_HOME` when set, otherwise your operating-system home |
+| State directory | `OPENCLAW_STATE_DIR` when set, otherwise the directory holding `OPENCLAW_CONFIG_PATH`, otherwise `.openclaw` inside the effective home |
+| Config file | `OPENCLAW_CONFIG_PATH` when set, otherwise `openclaw.json` in the state directory |
+
+## What the OpenClaw plugin checks
+
+OpenClaw loads CC Safety Net as an in-process plugin. The plugin checks only the `exec` tool, against the agent's workspace directory. It does not check OpenClaw's file tools.
+
+## What happens when the OpenClaw check fails
+
+The plugin fails closed. It blocks an `exec` call when it cannot resolve the agent's workspace, when `workdir` resolves outside it, or when the call names an execution host other than `auto` or `gateway`, such as `sandbox` or `node`. If the plugin throws, OpenClaw blocks the call.
+
+If the plugin fails to load when the Gateway starts, the Gateway keeps running without it and `exec` runs unchecked. After a restart, confirm the plugin loaded with `openclaw plugins inspect cc-safety-net --runtime`.
+
+## OpenClaw coverage limits
+
+- **Other tools.** The plugin does not check `apply_patch` or OpenClaw's read, write, and edit file tools. An `exec` event that carries a `toolKind`, such as Code Mode's JavaScript `exec`, gets no decision.
+- **The configured host default.** The plugin reads only the call's own `host`. The plugin checks a call with no `host` as a local Gateway call even when `tools.exec.host` routes it to `node` or `sandbox`.
+- **`auto` with a sandbox.** When a sandbox runtime is active, an `auto` call runs in the sandbox filesystem, but the plugin still checks path rules against the Gateway workspace. Command rules are unaffected.
+- **`openclaw agent exec`.** This command never loads the plugin hook registry, so CC Safety Net neither checks nor audits its tool calls. The plugin does check the same call through `openclaw agent --local`.
+- **The Codex-native relay.** CC Safety Net makes no claim about Codex-native shell, patch, or MCP calls that OpenClaw relays.
+- **What `doctor` can see.** `doctor` reads the plugin directory and `openclaw.json` only. It does not ask a running Gateway whether the plugin loaded.
+- **Windows.** OpenClaw's own CLI installs the plugin, but `doctor` looks for the POSIX state layout and misreports it.
+
+### Sessions that run outside the agent workspace
+
+OpenClaw runs `exec` in the session's working directory, which is not always the agent workspace. A managed-worktree session runs in its own checkout, by default under `<state>/worktrees`, and a session created with a `cwd` runs there. The hook context has no working directory, so the plugin checks every `exec` call against the agent workspace. In such a session:
+
+- The plugin checks a command with no `workdir` against the workspace, but the command runs in the session directory.
+- A relative `workdir` resolves against the workspace instead of the session directory.
+- The plugin blocks an absolute `workdir` outside the workspace, such as the session's own worktree.
+
+Only OpenClaw can close this gap, by exposing the execution directory.
+
+## Uninstall CC Safety Net from OpenClaw
+
+```bash
+npx -y cc-safety-net@latest uninstall --openclaw
+```
+
+Restart the OpenClaw Gateway afterward.
+
+## Troubleshoot OpenClaw
+
+- **Install fails with an unknown-option error for `--accept-capabilities`.** Your OpenClaw is older than 2026.8.1. Upgrade OpenClaw and run the install again.
+- **Install reports status `disabled`.** Run `openclaw plugins enable cc-safety-net`, then restart the Gateway.
+- **Install or uninstall refuses to run.** The `cc-safety-net` extension directory holds something other than a managed CC Safety Net plugin. Move or remove that directory and run the command again.

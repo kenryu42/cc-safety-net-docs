@@ -1,0 +1,98 @@
+---
+title: "policy コマンド"
+sidebarTitle: "policy"
+description: "cc-safety-net policy check と policy apply のリファレンスです。プロジェクトとユーザーの書き込み先、差分レポート、エラー、ターミナルでの確認プロンプト、エージェントがポリシーを適用できない理由を説明します。"
+keywords:
+  - "policy"
+  - "policy check"
+  - "policy apply"
+  - "提案"
+  - "policy.json"
+  - "差分"
+---
+
+`policy` は、ポリシー提案を検査して適用します。ポリシー提案とは、適用したいポリシー設定を書いた JSON ファイルです。`policy check` は提案を検証し、適用した場合の変更を出力します。`policy apply` はターミナルで確認した後に提案を書き込みます。これを実行できるのは人だけです。
+
+```bash
+cc-safety-net policy check proposal.json
+cc-safety-net policy apply proposal.json
+cc-safety-net policy apply proposal.json --global
+```
+
+ポリシーファイルが持つフィールドとそれぞれの働きは、[ポリシー](/ja/configuration/policy)を参照してください。
+
+## policy のサブコマンドとオプション
+
+| サブコマンド | 説明 |
+| --- | --- |
+| `check <file>` | ポリシー提案を検証して差分を出力する |
+| `apply <file>` | ターミナルで確認してから提案を適用する |
+
+| フラグ | 説明 |
+| --- | --- |
+| `-g`, `--global` | プロジェクトのポリシーではなくユーザースコープのポリシーを使う |
+| `-h`, `--help` | このヘルプを表示する |
+
+<span id="which-file-policy-writes"></span>
+
+## policy が書き込むファイル
+
+`policy` は、プロジェクトの `.cc-safety-net/policy.json` に書き込みます。`--global` を付けると、代わりにユーザーポリシーファイルに書き込みます。
+
+`--global` を付けない場合、どちらのサブコマンドも、ユーザーの `.cc-safety-net/` があるディレクトリでは実行を拒否します。[ユーザー設定ディレクトリはプロジェクトではない](/ja/configuration/policy#the-user-config-directory-is-not-a-project)ためです。このとき次のエラーを出力して `1` で終了します。
+
+```text
+<cwd>/.cc-safety-net/policy.json is the user policy, not a project policy; use --global for the user scope, or run from a project directory
+```
+
+## policy の差分レポート
+
+どちらのサブコマンドも、`apply` が書き込む前に同じレポートを出力します。
+
+```text
+Scope: project (<path>)
+Proposal: <file>
+Effective policy (user + project merged):
+Changes (<n>):
+  <field>: <before> -> <after>
+```
+
+`--global` を付けると、1 行目は `Scope: user (<path>)` になります。変更がない場合、差分は `No changes.` の 1 行だけです。片側に値がない箇所は `(unset)` と表示されます。`check` は差分を出力した時点で終了し、終了コードは `0` です。
+
+### プロジェクトスコープの差分が比較するもの
+
+プロジェクトスコープでは、変更前と変更後の実効ポリシーを比較します。実効ポリシーはユーザーポリシーとプロジェクトのファイルをマージしたものです。そのため差分には、ファイル自体の内容ではなく、セッションが実際に動作するレベルが表示されます。`safety.level` を含まない提案は、ユーザーポリシーから継承したレベルに戻します。ユーザースコープでは、ユーザーポリシーファイル自体を比較し、`Effective policy` の見出しは出力しません。
+
+## policy のエラー
+
+不明なオプションやサブコマンド、ファイルの指定漏れ、余分な引数があると、差分を出力する前に標準エラー出力へエラーを書き出して `1` で終了します。監査ログの設定はユーザースコープ専用のため、`audit` セクションを含むプロジェクト向けの提案も失敗します。
+
+```text
+<file>: audit settings are user scope only; remove the audit section from a project proposal
+```
+
+## policy apply でポリシーを適用する
+
+`apply` は、標準入力と標準出力の両方が対話型のターミナルであることを要求します。そうでない場合は、自分で実行するためのコマンドを出力して `1` で終了します。`--global` を付けていれば、出力されるコマンドにも付きます。
+
+```text
+policy apply confirms interactively; run this yourself in a terminal:
+  cc-safety-net policy apply <file>
+```
+
+ターミナルでは、`apply` は `Apply this policy to <path>? [y/N] ` と確認します。
+
+- 確認とみなされるのは、大文字と小文字を問わず `y` または `yes` だけです。確認して適用するとファイルを書き込み、`Policy applied: <path>` を出力して `0` で終了します。
+- それ以外の回答や入力の終端（EOF）は拒否として扱われます。拒否した場合は `Cancelled; nothing was written.` を出力して `0` で終了します。
+
+プロジェクトへの適用では、提案が設定しているフィールドだけを書き込みます。提案に含まれないフィールドは、引き続きユーザーポリシーを継承します。
+
+<Warning>
+  `--yes` も非対話モードもありません。提案を適用する方法は、ターミナルでプロンプトに答えることだけです。
+</Warning>
+
+<span id="agents-cannot-run-policy-apply"></span>
+
+## エージェントは policy apply を実行できない
+
+エージェントが `policy apply` を実行すると、CC Safety Net は固定 ID `guard.policy-apply` でブロックします。`policy check` は許可されたままなので、エージェントは提案を作成し、その差分をユーザーに示せます。[エージェントによる `cc-safety-net policy apply`](/ja/reference/blocked-commands#agent-run-cc-safety-net-policy-apply) を参照してください。

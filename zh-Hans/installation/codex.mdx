@@ -1,0 +1,74 @@
+---
+title: "在 Codex 中安装 CC Safety Net"
+sidebarTitle: "Codex"
+description: "从 cc-marketplace 在 Codex 中安装 CC Safety Net 插件，在 /hooks 中信任其 PreToolUse hook，了解交互式会话的覆盖边界、如何卸载，以及 doctor 的信任提醒。"
+keywords:
+  - "codex"
+  - "cc-marketplace"
+  - "信任 hook"
+  - "/hooks"
+  - "codex plugin list"
+  - "PreToolUse"
+---
+
+运行 `npx -y cc-safety-net@latest install --codex`。它会添加 `cc-marketplace` 市场，并安装 `cc-safety-net@cc-marketplace` 插件。然后在 Codex 的 `/hooks` 菜单中信任该 hook，因为在你信任它之前，Codex 不会运行它。
+
+<span id="install-cc-safety-net-in-codex"></span>
+
+## 在 Codex 中安装 CC Safety Net
+
+<Steps>
+  <Step title="运行安装程序">
+    ```bash
+    npx -y cc-safety-net@latest install --codex
+    ```
+  </Step>
+  <Step title="信任 hook">
+    启动 Codex，打开 `/hooks`，选择 **cc-safety-net PreToolUse hook**，然后按 `t` 信任它。
+  </Step>
+  <Step title="确认插件已生效">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+插件安装并启用后，`doctor` 输出中 Codex 一行显示 `Detected` 和 `Configured`。
+
+## Codex 安装会改动什么
+
+安装程序从 `kenryu42/cc-marketplace` 添加 `cc-marketplace` 市场，并安装 `cc-safety-net@cc-marketplace` 插件。
+
+该插件还附带 [`/cc-safety-net` 技能](/zh-Hans/guides/skill)。
+
+## Codex hook 检查什么
+
+插件的 hook 在 Codex 的 `PreToolUse` 事件上运行 `cc-safety-net hook --codex`（短选项 `-cx`）。
+
+<span id="codex-coverage-limits"></span>
+
+## Codex 的覆盖限制
+
+- **输入的文本。** 命令打开 shell 会话时，Codex 会发送 `PreToolUse` 事件，但 `write_stdin` 不会触发该事件。因此 CC Safety Net 只检查打开会话的那条命令。模型之后向运行中的会话输入的文本会未经检查直达 shell，也不会留下审计记录。这个缺口只有 Codex 能修补。
+- **工作目录。** Codex 在调用的 `workdir` 中运行命令，但不会把 `workdir` 发送给 hook。CC Safety Net 只能改用当前轮次的工作目录分析命令，于是相对路径以及涉及工作目录外路径的规则，都会以错误的目录为基准解析。这可能会阻止一条安全的命令，也可能放行一条规则本应阻止的命令。
+
+如果这两个缺口对你有影响，请加一层[沙箱](/zh-Hans/guides/vs-sandboxing)作为隔离层。
+
+## Codex 检查失败时会怎样
+
+Codex 的 hook 是 fail open 的。hook 崩溃、超时（默认 600 秒）、无法启动或输出无效时，Codex 会把这次 hook 运行标记为失败，并照常执行工具调用。CC Safety Net 自己捕获的错误仍会阻止调用，因为此时 hook 会输出拒绝。
+
+## 从 Codex 卸载 CC Safety Net
+
+```bash
+npx -y cc-safety-net@latest uninstall --codex
+```
+
+## Codex 故障排除
+
+- **Codex 一行显示 `Not configured`。** 插件已安装但未启用，请在 Codex 中启用它。显示 `Not detected` 则表示插件未安装。
+- **`doctor` 输出信任提醒。** 只要 Codex 一行显示 `Configured`，`doctor` 每次运行都会输出这条提醒，因为它无法检查信任状态。这并不表示缺少信任，也不会改变退出码。
+
+  ```text
+  Warning (Codex): Codex runs only trusted hooks, and doctor cannot check trust. Start Codex, open `/hooks`, select the cc-safety-net PreToolUse hook, and press `t` to trust it.
+  ```

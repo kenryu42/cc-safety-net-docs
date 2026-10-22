@@ -1,14 +1,14 @@
 ---
 title: "CC Safety Net を使い始める"
 sidebarTitle: "クイックスタート"
-description: "CC Safety Net をインストールし、状態と doctor の結果を確認して、実際のコマンドブロックをテストします。初回の手順は、対応するすべてのコーディングエージェントで共通です。"
+description: "CC Safety Net をインストールし、状態を確認して doctor を実行し、実際のコマンドがブロックされるところを確かめます。初回の手順は、対応するすべてのコーディングエージェントで共通です。"
 ---
 
-このガイドでは、CC Safety Net をインストールし、実際にブロックが働くことを確認します。手順は、対応するすべてのエージェントで共通です。
+CC Safety Net をインストールし、有効になっていることを確認してから、無害なコマンドがブロックされるところを見てみましょう。手順は、対応するすべてのエージェントで共通です。
 
 <Steps>
   <Step title="エージェントに CC Safety Net をインストールする">
-    エージェントごとに、プラグインマーケットプレイス、拡張機能、設定ファイル、パッケージインストールのいずれかを使用します。**[インストール](/ja/installation)**ページで、使用するエージェントのセクションの手順に従ってから、このページに戻ってください。
+    エージェントごとに、プラグインマーケットプレイス、拡張機能、設定ファイル、パッケージインストールのいずれかを使います。[エージェントごとのインストール](/ja/installation#install-for-one-agent)で使用するエージェントのインストールコマンドを実行してから、このページに戻ってください。
   </Step>
   <Step title="状態を確認する">
     どの保護が有効になっているかを 1 画面で確認できます。
@@ -17,28 +17,26 @@ description: "CC Safety Net をインストールし、状態と doctor の結�
     npx cc-safety-net status
     ```
 
-    設定が正常に読み込まれると、判定行に `ready` と表示されます。`degraded` は、設定の一部を適用できず、フォールバックが有効になっていることを示します。引き続き保護されている範囲と修復方法については、[設定の復旧](/ja/configuration/recovery)を参照してください。判定はこの 2 つだけです。Claude Code でプラグインが無効になっている場合は、判定そのものは変わらず、`Not active` の先頭項目として表示されます。
-
-    `status` は情報表示専用で、終了コードは常に `0` です。表示内容の詳細は、[status コマンドのリファレンス](/ja/reference/cli-commands#status)を参照してください。
+    設定が正常に読み込まれると、判定行に `ready` と表示されます。`degraded` は、CC Safety Net が設定の一部を適用できず、フォールバックで動作していることを示します。修復方法は[設定の復旧](/ja/configuration/recovery)を参照してください。`status` の表示内容の詳細は、[status コマンドのリファレンス](/ja/reference/cli/status)にあります。
   </Step>
   <Step title="doctor を実行する">
-    `status` が設定内容を要約するのに対し、`doctor` は組み込みが正しく機能するかをエンドツーエンドで検証します。
+    `status` は設定内容を要約します。`doctor` は、各エージェントとの連携をエンドツーエンドでテストします。
 
     ```bash
     npx cc-safety-net doctor
     ```
 
-    対応するエージェントをすべて一度に確認するため、使用中のエージェントを指定する必要はありません。ブロックが機能するかを確かめるセルフテストも実行します。問題がなければ各項目の横に緑色のチェックマークが表示されます。失敗した項目には原因と対処方法が表示されます。確認項目の一覧は、[doctor コマンドのリファレンス](/ja/reference/cli-commands#doctor)にあります。
+    対応するエージェントをすべて一度に確認するため、使用中のエージェントを指定する必要はありません。ブロックが機能することを確かめるセルフテストも実行します。問題がなければ、各項目の横に緑色のチェックマークが表示されます。失敗した項目には、`doctor` が原因と対処方法を表示します。確認項目の一覧は、[doctor コマンドのリファレンス](/ja/reference/cli/doctor)にあります。
   </Step>
   <Step title="実際のブロックを確認する">
-    CC Safety Net が有効な状態で、エージェントに次の安全な確認コマンドを実行させます。
+    CC Safety Net が有効な状態で、エージェントに次の無害な確認コマンドを実行させます。
 
     ```bash
-    # この除外専用 pathspec はファイルを 1 つも選択しません
+    # This exclusion-only pathspec selects no files
     git checkout -- ':(exclude,top)**'
     ```
 
-    このコマンドがシェルに届くことはなく、エージェントは代わりにブロックメッセージを受け取ります。保護が有効になっていない場合も、この除外専用 Git pathspec はファイルを 1 つも選択しないため、追跡対象のファイルは変更されません。
+    このコマンドはシェルに届かず、エージェントは代わりにブロックメッセージを受け取ります。保護が有効でない場合でも、この除外専用の Git pathspec はファイルを 1 つも選択しないため、Git が追跡対象のファイルを変更することはありません。
 
     <pre className="cc-block-message-output"><code>{`BLOCKED by CC Safety Net
 
@@ -48,19 +46,19 @@ Command: git checkout -- ':(exclude,top)**'
 
 If this operation is truly needed, ask the user for explicit permission and have them run the command manually.`}</code></pre>
 
-    メッセージには、ブロックした理由と、次に取れる安全な操作が表示されます。メッセージの構造と判定ライフサイクルは、[仕組み](/ja/guides/how-it-works#what-a-block-looks-like)を参照してください。
+    メッセージには、ブロックした理由と、エージェントが次に取れるより安全な操作が示されます。メッセージの構造と判定のライフサイクル全体は、[仕組み](/ja/guides/how-it-works#what-a-block-looks-like)を参照してください。
   </Step>
   <Step title="何も実行せずに理由を確認する">
-    判定が予想と異なる場合は、`explain` を使うとコマンドを実行せずに、同じエンジンでコマンド文字列を評価できます。
+    判定が予想と違うときは、`explain` を使います。コマンド文字列を実行せずに、同じエンジンで評価します。
 
     ```bash
     npx cc-safety-net explain "git checkout -- ':(exclude,top)**'"
     ```
 
-    判定、一致したルール、実際に適用されている設定を表示します。動作を試すときは、機密情報を含まないコマンドを使ってください。
+    判定、一致したルール、実際に適用されている設定が表示されます。
 
     <Warning>
-      explain トレースには、渡したコマンド、解析後のトークン、ホームディレクトリを含む絶対パスがそのまま出力されます。資格情報と判断された値はマスクされますが、パス、ホスト名、プロジェクト名はマスクされません。issue やチャットに貼り付ける前に、出力内容を確認してください。トレースの全項目と共有時の注意事項については、[explain トレースのリファレンス](/ja/reference/explain-trace)を参照してください。
+      出力にはパス、ホスト名、プロジェクト名が含まれることがあります。どこかに貼り付ける前に、[トレースを共有する前に](/ja/reference/explain-trace#before-you-share-a-trace)を読んでください。
     </Warning>
   </Step>
 </Steps>
@@ -69,18 +67,18 @@ If this operation is truly needed, ask the user for explicit permission and have
 
 <CardGroup cols={2}>
   <Card title="仕組み" icon="workflow" href="/ja/guides/how-it-works">
-    1 つのツール呼び出しが、インターセプトから判定、監査記録まで進む過程を追います。
+    1 つのツール呼び出しが、インターセプト、順序立てたチェック、許可またはブロック、監査記録へと進む流れを追います。
   </Card>
 
   <Card title="ブロックされるコマンド" icon="ban" href="/ja/reference/blocked-commands">
-    CC Safety Net が既定で止める操作と、各項目の根拠を確認できます。
+    CC Safety Net が既定でブロックする操作と、各項目の根拠を確認できます。
   </Card>
 
   <Card title="モード" icon="toggle-right" href="/ja/configuration/modes">
-    `standard`、`strict`、`paranoid` の各安全レベルとワークツリーモードを比較し、ワークフローに合うものを選びます。
+    `standard`、`strict`、`paranoid` の各安全レベルとワークツリーモードを比較します。
   </Card>
 
   <Card title="カスタムルール" icon="sliders-horizontal" href="/ja/configuration/custom-rules">
-    プロジェクトの規約を強制するために、プロジェクト単位またはユーザー単位でブロックルールを定義します。
+    プロジェクトの規約を強制するために、プロジェクト単位またはユーザー単位で独自のブロックルールを定義します。
   </Card>
 </CardGroup>

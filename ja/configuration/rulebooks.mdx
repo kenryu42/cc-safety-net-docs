@@ -1,24 +1,24 @@
 ---
-title: "公式ルールブック：インフラ CLI 向けの既製ルール"
+title: "公式ルールブックで aws・terraform・gcloud・az コマンドをブロックする"
 sidebarTitle: "公式ルールブック"
-description: "terraform destroy、aws s3 rm、gcloud projects delete、az group delete など、破壊的な AWS・Azure CLI・gcloud・Terraform コマンドをブロックする既製の CC Safety Net ルールブックを、公式 GitHub リポジトリからコマンド 1 つで導入します。"
+description: "aws s3 rm、terraform destroy、gcloud projects delete、az group delete など、破壊的な aws・terraform・gcloud・az コマンドを、CC Safety Net の公式ルールブックをコマンド 1 つで導入してブロックします。aws のすべての呼び出しをブロックするルールを書けない理由も説明します。"
 ---
 
-CC Safety Net は、コーディングエージェントが最も頻繁に触れるインフラ CLI 向けに、精選されたルールブックを公開しています。各ルールブックは 1 つの CLI を対象に、識別可能な破壊的操作をブロックします。導入はコマンド 1 つです：
+破壊的な `aws` コマンドをブロックするには、公式の `aws` ルールブックを導入します。CC Safety Net は `aws`、`terraform`、`gcloud`、`az` のそれぞれに 1 つずつルールブックを公開しており、コマンド 1 つで導入できます。
 
 ```bash
-npx -y cc-safety-net rule add --only terraform --global
+npx -y cc-safety-net rule add --only aws --global
 ```
 
-ルールブックは JSON データです。実行されることはなく、拒否を追加するだけで、CC Safety Net の組み込み保護を弱めることもできません。このページは公式カタログを扱います。ルールブックのファイル形式と `rule` コマンドの完全なリファレンスは[カスタムルール](/ja/configuration/custom-rules)を参照してください。
+ルールブックは JSON データです。CC Safety Net がルールブックを実行することはなく、ルールブックはブロックを追加するだけなので、組み込みの保護を弱めることはできません。ルールブックのファイル形式は[カスタムルール](/ja/configuration/custom-rules)で説明しています。
 
 <Note>
-公式ルールブックは `rulebook_version: 2` を使用し、**CC Safety Net 2.3.0 以降**が必要です。
+公式ルールブックは `rulebook_version: 2` を使うため、CC Safety Net 2.3.0 以降が必要です。
 </Note>
 
 ## カタログ
 
-[`cc-safety-net/rulebooks`](https://github.com/cc-safety-net/rulebooks) リポジトリは CLI ごとに 1 つのルールブックを提供します：
+[`cc-safety-net/rulebooks`](https://github.com/cc-safety-net/rulebooks) リポジトリは、CLI ごとに 1 つのルールブックを提供しています。
 
 | ルールブック | CLI | ブロック対象 |
 |---|---|---|
@@ -27,11 +27,17 @@ npx -y cc-safety-net rule add --only terraform --global
 | `gcloud` | `gcloud` | `projects delete`、`compute instances delete`、`storage rm`、Cloud SQL と GKE の削除、`kms keys versions destroy`、および alpha・beta・preview リリースチャネル |
 | `azure` | `az` | `group delete`、`resource delete`、VM・AKS・ストレージ・SQL・Cosmos DB の削除、`keyvault purge` |
 
-各ルールブックは**識別可能な誤操作を精選してカバーするもの**であり、プロバイダー API を完全にモデル化したものではありません。`aws s3 rm --dryrun`、`terraform state rm -dry-run`、`aws ec2 terminate-instances --dry-run` などの安全なプレビューは許可されたままです。各ルールブックにはリポジトリ内に根拠ページがあり、各ルールが存在する理由、安全なプレビュー、意図的な除外、既知のギャップを記録しています：[terraform](https://github.com/cc-safety-net/rulebooks/blob/main/docs/terraform.md) · [aws](https://github.com/cc-safety-net/rulebooks/blob/main/docs/aws.md) · [gcloud](https://github.com/cc-safety-net/rulebooks/blob/main/docs/gcloud.md) · [azure](https://github.com/cc-safety-net/rulebooks/blob/main/docs/azure.md)。
+各ルールブックが扱うのは、それと分かる誤操作です。プロバイダーの API を網羅的にモデル化したものではありません。`aws s3 rm --dryrun`、`terraform state rm -dry-run`、`aws ec2 terminate-instances --dry-run` などの安全なプレビューは許可されたままです。各ルールブックには根拠ページがあり、各ルールがある理由、安全なプレビュー、意図的な除外、既知のギャップを記録しています：[terraform](https://github.com/cc-safety-net/rulebooks/blob/main/docs/terraform.md) · [aws](https://github.com/cc-safety-net/rulebooks/blob/main/docs/aws.md) · [gcloud](https://github.com/cc-safety-net/rulebooks/blob/main/docs/gcloud.md) · [azure](https://github.com/cc-safety-net/rulebooks/blob/main/docs/azure.md)。
+
+## aws コマンドをすべてブロックできますか？
+
+できません。どのルールにも `["s3", "rm"]` のような空でない [`command_path`](/ja/configuration/custom-rules#version-2-rules) が必要なので、引数にかかわらず `aws` だけで一致するルールは作れません。`aws` ルールブックがブロックするのは、カタログにある破壊的な操作です。さらにブロックしたい場合は、止めたい `aws` のコマンドパスごとに自分でルールを書いてください。
+
+<span id="install"></span>
 
 ## 導入
 
-基本はユーザースコープに導入してください。`terraform` や `aws` はプロジェクトをまたいで使うので、保護も特定のリポジトリではなく自分自身に付いてくるべきです：
+基本はユーザースコープに導入します。`terraform` や `aws` は複数のプロジェクトで使うので、ルールも 1 つのリポジトリではなく、すべてのプロジェクトで適用されるべきです。
 
 ```bash
 # Everything the repository publishes
@@ -44,11 +50,13 @@ npx -y cc-safety-net rule add --only terraform aws --global
 npx -y cc-safety-net rule add --ref v1.0.0 --only terraform --global
 ```
 
-`--only` と `--ref` はリポジトリの設定元でしか意味を持たないため、設定元を指定せずにどちらかを渡すと、`cc-safety-net/rulebooks` が選ばれます。リポジトリを自分で指定しても、これまでどおり動作します。このリポジトリが公開するルールブックをすべて導入する場合は、この指定が必要です。
+- `--only <rulebook...>` は、指定したルールブックを指定した順に追加します。リポジトリが公開していない名前を指定すると、追加は失敗します。
+- `--ref <ref>` は、既定のブランチの代わりにブランチ、タグ、コミットを指定します。`--ref feature/rulebook-v2` のように、ref には `/` を含められます。
+- 設定元を指定せずにどちらかのフラグを使うと、`cc-safety-net/rulebooks` が選ばれます。公開されているものをすべて導入するには、リポジトリ名を指定します。
 
-`--global` を省くとプロジェクトスコープに導入されます。取り込まれたファイルはリポジトリの `.cc-safety-net/` 配下に置かれるため、コミットすればチームメイト全員のクローンにルールが届きます。[チームセットアップ](/ja/guides/team-setup)を参照してください。
+`--global` を省くと、プロジェクトスコープに導入されます。このとき `rule add` はリポジトリの `.cc-safety-net/` 配下にルールブックのファイルを書き込むため、コミットすればチームメイト全員のクローンにルールが届きます。[チームセットアップ](/ja/guides/team-setup)を参照してください。
 
-正式な形式の指定でルールブックを 1 つだけ追加することもできます。`rule list` が表示し、`rule remove` が受け取るのもこの形式です：
+設定元の指定でルールブックを 1 つだけ追加することもできます。`rule list` が表示し、`rule remove` が受け取るのもこの形式です。
 
 ```bash
 npx -y cc-safety-net rule add cc-safety-net/rulebooks#main/terraform --global
@@ -56,23 +64,23 @@ npx -y cc-safety-net rule add cc-safety-net/rulebooks#main/terraform --global
 
 ## 導入時に行われること
 
-`rule add` は選択した各ルールブックを取得し、スキーマを検証して同梱のテストフィクスチャを実行したうえで、ファイルを自分のスコープの `rules/<name>/rulebook.json` に**取り込み**（vendor）、内容の取得元コミットを報告します。以降、ランタイムはツール呼び出しのたびにこの取り込み済みのコピーを読み取ります。バックグラウンドでの取得も自動更新もありません。
+`rule add` は、選んだ各ルールブックを取得して検証し、テストフィクスチャを実行したうえで、自分のスコープの `rules/<name>/rulebook.json` にコピーします。内容の取得元のコミットも表示します。
 
-コピーが変わるのは、次のコマンドを実行したときだけです：
+CC Safety Net は、ツール呼び出しのたびにディスクからルールブックを読み取ります。ネットワークを使うのは `rule add` と `rule update` だけです。バックグラウンドでの取得も自動更新もないため、手元のコピーが変わるのは次のコマンドを実行したときだけです。
 
 ```bash
-# Re-resolve every followed branch or tag ref and report added/removed/modified rules
+# Re-fetch every source and report added, removed, and modified rules
 npx -y cc-safety-net rule update
 
 # Refresh one source
 npx -y cc-safety-net rule update cc-safety-net/rulebooks#main/terraform
 ```
 
-リリースタグは不変なので、`--ref v1.0.0` での導入は常に同じ内容を取り込みます。ref を切り替えるまで、その設定元への `rule update` は何も変更しません。
+ブランチの ref は、`rule update` のたびにその最新のコミットに進みます。リリースタグは変わらないため、`--ref v1.0.0` で導入した内容は、ref を切り替えるまで同じです。
 
-## ルールの上書きとルールブックの削除
+## ルールのオーバーライドとルールブックの削除
 
-ルールを無効化したりブロック理由を差し替えたりするには、`rule.json` のルール単位の上書きを使います。ルールブックファイル自体は変更されないため、`rule update` と競合しません。構文は [`rule.json` のスキーマ](/ja/configuration/custom-rules#rule-json-schema)を参照してください。ルールブックごと削除するには：
+ルールを 1 つ無効にしたりブロックの理由を置き換えたりするには、`rule.json` にオーバーライドを追加します。ルールブックのファイル自体は変わらないため、`rule update` とオーバーライドが競合することはありません。[ルールを 1 つ無効にする](/ja/configuration/custom-rules#turn-off-one-rule)を参照してください。ルールブックごと削除するには、次のようにします。
 
 ```bash
 npx -y cc-safety-net rule remove cc-safety-net/rulebooks#main/terraform --global
@@ -80,12 +88,12 @@ npx -y cc-safety-net rule remove cc-safety-net/rulebooks#main/terraform --global
 
 ## 任意のリポジトリから導入する
 
-公式リポジトリに特別な仕組みはありません。`.cc-safety-net/rules/<name>/rulebook.json` という配置でルールブックを公開している GitHub リポジトリなら、どれでも `rule add owner/repo` で導入できます。チームやベンダーも同じ方法で独自のカタログを公開できます。
+`.cc-safety-net/rules/<name>/rulebook.json` という配置でルールブックを公開している GitHub リポジトリなら、どれでも `rule add owner/repo` で導入できます。チームやベンダーも、同じ方法で独自のカタログを公開できます。
 
 <Warning>
-ルールブックは拒否を追加するだけで実行されることはありませんが、コマンドがブロックされたとき、そのルールの内容はエージェントに伝わる情報の一部になります。サードパーティのルールブックは追加する前に内容を確認し、管理外のブランチを追うのではなく、自分で確認したタグやコミットを `--ref` で固定することを推奨します。
+CC Safety Net がルールブックを実行することはなく、ルールブックはブロックを追加するだけです。ただし、ルールの理由は、コマンドがブロックされたときにエージェントが読むメッセージの一部になります。サードパーティのルールブックは追加する前に内容を確認してください。管理外のブランチを追うのではなく、自分で確認したタグやコミットを `--ref` で指定することを推奨します。
 </Warning>
 
 ## ルールブックが効かないとき
 
-`npx -y cc-safety-net rule list` は有効な各ルールブックとそのルール数を表示し、`npx -y cc-safety-net explain "terraform destroy"` は判定がどのルールによるものかをトレースします。設定元が無効と表示される場合の修復手順は、[ルールブックはライブファイル](/ja/configuration/custom-rules#rulebooks-are-live-files)を参照してください。
+`npx -y cc-safety-net rule list` は、有効なルールブックとそれぞれのルール数を表示します。`npx -y cc-safety-net explain "terraform destroy"` は、どのルールがその判定を下したかを示します。設定元が無効と表示される場合は、[ルールブックはライブファイル](/ja/configuration/custom-rules#rulebooks-are-live-files)を参照してください。

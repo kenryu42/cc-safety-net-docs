@@ -1,0 +1,66 @@
+---
+title: "update 命令"
+sidebarTitle: "update"
+description: "cc-safety-net update 参考：会刷新哪些已安装的集成、被跳过的智能体、npx 与 bunx 缓存清除、有新版本时的提示，以及退出码。"
+keywords:
+  - "update"
+  - "升级"
+  - "刷新集成"
+  - "bunx 缓存"
+  - "npx 缓存"
+  - "有可用更新"
+---
+
+`update` 为机器上已有的每个 CC Safety Net 集成重新运行安装，已禁用的集成也包括在内。它从不安装新的集成，尚未配置的智能体保持原样。
+
+```bash
+npx -y cc-safety-net@latest update
+```
+
+在交互式 [`install`](/zh-Hans/reference/cli/install#target-selector-keys) 选择器中按 `u` 也能启动它。`update` 不接受目标选项和参数，只接受 `-h` 或 `--help`。
+
+## update 刷新哪些集成
+
+只要集成已安装就符合条件，即使处于禁用状态也一样。少数智能体有自己的规则：
+
+| 集成 | 何时符合条件 |
+| --- | --- |
+| Amp Code | `amp plugins list` 中显示了个人插件时 |
+| GitHub Copilot CLI | 仅当 Copilot 的 `installed-plugins` 目录中存在 CC Safety Net 检出时 |
+| Cursor | CC Safety Net 只通过 [Claude Code 插件](/zh-Hans/installation/cursor#cursor-through-the-claude-code-plugin)或[原生 Cursor 插件](/zh-Hans/installation/cursor#cursor-through-a-native-cursor-plugin)作用于 Cursor 时不符合条件。`update` 绝不会为这两种情况写入 Cursor hook |
+
+`update` 还会把仍使用旧版插件标识符（例如 `safety-net@cc-marketplace`）的安装迁移到当前标识符。参见[从旧插件标识符迁移](/zh-Hans/installation#migrate-from-a-legacy-plugin-identifier)。
+
+## update 如何运行每个目标
+
+`update` 对每个目标执行与 `install` 相同的操作，然后把各自的报告打印为 `Updated …` 或 `… up to date`。
+
+安装需要运行智能体自己的 CLI 而该二进制文件缺失时，`update` 打印 `<Agent> not found; skipped`（例如 `Codex not found; skipped`），然后继续。Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build 和 Kimi Code 只需要配置文件，因此总会刷新。
+
+通过原生插件安装的 Kimi Code 和 DeepSeek Harness 有各自的更新行为，见 [Kimi Code](/zh-Hans/installation/kimi-code) 和 [DeepSeek Harness](/zh-Hans/installation/deepseek-harness)。
+
+## update 期间的 npx 缓存清除
+
+只要存在通过 `npx` 运行的集成，`update` 就会在运行各目标之前清除一次 `npx` 缓存。涉及的智能体和缓存位置见 [npx 缓存清除](/zh-Hans/reference/cli/install#npx-cache-clearing)。清除失败时，只有通过 `npx` 运行的目标会失败。
+
+## update 期间的 bunx 缓存清除
+
+每次运行 `update` 都会从 `bunx` 缓存中清除你的 `cc-safety-net` 条目，即使没有找到任何集成也一样，这样下一次 `bunx cc-safety-net` 会取到最新版本。清除失败时，`update` 打印错误并退出 `1`。
+
+## 没有已安装集成时的 update
+
+没有任何集成符合条件时，`update` 打印 ``No installed integrations found. Run `cc-safety-net install` to set one up.`` 并退出 `0`。
+
+## 有新版本时的提示
+
+npm 注册表上有更新的版本时，`update` 会在最后打印这条提示：
+
+```text
+Update available: cc-safety-net <current> → <latest>. Update this CLI with your package manager, e.g. `npm i -g cc-safety-net@latest` for a global install.
+```
+
+通过 `npx` 或 `bunx` 运行时会跳过这项检查，因为这类运行本来就会取到最新版本。检查失败或处于离线状态时，`update` 不打印任何内容，退出码也不变。
+
+## update 退出码
+
+单个目标失败不会中止整次运行。`update` 会以与 [`install`](/zh-Hans/reference/cli/install#install-failures-and-exit-code) 相同的提示打印该错误。有任何目标失败、`bunx` 缓存清除失败，或遇到未知选项或参数时，`update` 退出 `1`，否则退出 `0`。

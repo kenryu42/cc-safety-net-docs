@@ -1,0 +1,98 @@
+---
+title: "policy 命令"
+sidebarTitle: "policy"
+description: "cc-safety-net policy check 和 policy apply 参考：项目与用户目标、差异报告、报错、终端确认提示，以及智能体为何不能应用策略。"
+keywords:
+  - "policy"
+  - "policy check"
+  - "policy apply"
+  - "提案"
+  - "policy.json"
+  - "差异"
+---
+
+`policy` 检查并应用策略提案，即写有你想要的策略设置的 JSON 文件。`policy check` 校验提案并打印它会带来的改动。`policy apply` 在你于终端中确认后写入提案，只有人才能运行它。
+
+```bash
+cc-safety-net policy check proposal.json
+cc-safety-net policy apply proposal.json
+cc-safety-net policy apply proposal.json --global
+```
+
+策略文件包含哪些字段、各字段的作用，见[策略](/zh-Hans/configuration/policy)。
+
+## policy 子命令和选项
+
+| 子命令 | 描述 |
+| --- | --- |
+| `check <file>` | 校验策略提案并打印其差异 |
+| `apply <file>` | 在终端确认后应用提案 |
+
+| 选项 | 描述 |
+| --- | --- |
+| `-g`, `--global` | 使用用户范围的策略，而不是项目策略 |
+| `-h`, `--help` | 显示帮助 |
+
+<span id="which-file-policy-writes"></span>
+
+## policy 写入哪个文件
+
+`policy` 写入项目中的 `.cc-safety-net/policy.json`。带 `--global` 时改为写入你的用户策略文件。
+
+不带 `--global` 时，两个子命令都不会在存放用户 `.cc-safety-net/` 的目录下运行，因为[用户配置目录不是项目](/zh-Hans/configuration/policy#the-user-config-directory-is-not-a-project)。它们打印以下错误并退出 `1`：
+
+```text
+<cwd>/.cc-safety-net/policy.json is the user policy, not a project policy; use --global for the user scope, or run from a project directory
+```
+
+## policy 差异报告
+
+在 `apply` 写入任何内容之前，两个子命令都会打印相同的报告：
+
+```text
+Scope: project (<path>)
+Proposal: <file>
+Effective policy (user + project merged):
+Changes (<n>):
+  <field>: <before> -> <after>
+```
+
+带 `--global` 时，第一行为 `Scope: user (<path>)`。没有任何改动时，差异只有一行 `No changes.`。某一侧没有值时显示为 `(unset)`。`check` 打印完差异就结束，退出 `0`。
+
+### 项目范围差异比较的内容
+
+项目范围下，差异比较的是改动前后的生效策略。生效策略由用户策略与项目文件合并而成，因此差异显示的是会话实际运行的级别，而不是文件本身的内容。提案不设置 `safety.level` 时，级别恢复为从用户策略继承的值。用户范围下，差异比较的是用户策略文件本身，不打印 `Effective policy` 标题。
+
+## policy 报错
+
+未知选项或子命令、缺少文件、多余的参数，都会在打印差异之前向 stderr 打印错误并退出 `1`。审计设置只属于用户范围，因此含 `audit` 段的项目提案同样会失败：
+
+```text
+<file>: audit settings are user scope only; remove the audit section from a project proposal
+```
+
+## 用 policy apply 应用策略
+
+`apply` 要求 stdin 和 stdout 都是交互式终端。否则它打印需要你自己运行的命令（你传了 `--global` 时也会带上），并退出 `1`。
+
+```text
+policy apply confirms interactively; run this yourself in a terminal:
+  cc-safety-net policy apply <file>
+```
+
+在终端中，`apply` 会询问 `Apply this policy to <path>? [y/N] `。
+
+- 只有 `y` 或 `yes`（不区分大小写）算确认。确认后写入文件，打印 `Policy applied: <path>`，并退出 `0`。
+- 其他任何回答或输入结束都视为拒绝。拒绝时打印 `Cancelled; nothing was written.` 并退出 `0`。
+
+应用到项目时只写入提案设置的字段，提案未设置的字段继续从用户策略继承。
+
+<Warning>
+  没有 `--yes`，也没有非交互模式。应用提案的唯一方式，就是在终端里回答这个提示。
+</Warning>
+
+<span id="agents-cannot-run-policy-apply"></span>
+
+## 智能体不能运行 policy apply
+
+智能体运行 `policy apply` 时，CC Safety Net 会以固定 ID `guard.policy-apply` 阻止它。`policy check` 仍然允许，因此智能体可以起草提案并把差异展示给你。参见[智能体运行 `cc-safety-net policy apply`](/zh-Hans/reference/blocked-commands#agent-run-cc-safety-net-policy-apply)。

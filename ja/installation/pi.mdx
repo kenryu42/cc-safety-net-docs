@@ -1,0 +1,65 @@
+---
+title: "Pi に CC Safety Net をインストールする"
+sidebarTitle: "Pi"
+description: "pi.dev の Pi コーディングエージェントにプロセス内の拡張機能として CC Safety Net をインストールする方法、拡張機能が検査する内容とチェック失敗時の動作、削除方法、拡張機能を無効にしている extensions フィルターの直し方を説明します。"
+keywords:
+  - "pi"
+  - "pi.dev"
+  - "pi コーディングエージェント"
+  - "PI_CODING_AGENT_DIR"
+  - "settings.json"
+  - "extensions フィルター"
+---
+
+`npx -y cc-safety-net@latest install --pi` を実行すると、[pi.dev](https://pi.dev) のコーディングエージェントである Pi に `cc-safety-net` の npm パッケージがインストールされ、Pi がそれをプロセス内の拡張機能として実行します。Pi を再起動して拡張機能を読み込ませ、`npx cc-safety-net doctor` で拡張機能が有効か確認してください。
+
+## Pi に CC Safety Net をインストールする
+
+<Steps>
+  <Step title="インストーラーを実行する">
+    ```bash
+    npx -y cc-safety-net@latest install --pi
+    ```
+  </Step>
+  <Step title="Pi を再起動する">
+    拡張機能を読み込むため、Pi を再起動します。
+  </Step>
+  <Step title="拡張機能が有効か確認する">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+## Pi のインストールで変わること
+
+- インストーラーは `pi install npm:cc-safety-net` を実行します。
+- Pi が拡張機能を読み込むように、`settings.json` にある CC Safety Net のパッケージエントリから `extensions` フィルターを取り除きます。
+
+`settings.json` は Pi のエージェントディレクトリにあります。このディレクトリは、`PI_CODING_AGENT_DIR` が設定されていればその値、未設定であれば `~/.pi/agent` です。
+
+<span id="what-the-pi-extension-checks"></span>
+
+## Pi の拡張機能が検査する内容
+
+- Pi 組み込みの `bash` ツールと `powershell` ツールを、それぞれのシェルの方言でシェルコマンドとして解析します。
+- その他のツールについては、入力に保護対象のパスが含まれていないかを検査します。
+- pi-grok-cli が追加するものなど、`Shell` という名前のカスタムコマンドツールには対応していません。
+- ルールブックを管理するための `/cc-safety-net` コマンドを追加します。
+
+## Pi のチェックが失敗したときの動作
+
+CC Safety Net の拡張機能が例外を投げた場合、Pi は呼び出しをブロックします。Pi にはチェックのタイムアウトがありません。Pi の起動時に拡張機能の読み込みに失敗すると、Pi は終了します。`/reload` の実行中に読み込みに失敗した場合は、Pi は拡張機能なしで動き続けるため、再読み込みに失敗したら Pi を再起動してください。
+
+## Pi から CC Safety Net をアンインストールする
+
+```bash
+npx -y cc-safety-net@latest uninstall --pi
+```
+
+<span id="troubleshoot-pi"></span>
+
+## Pi のトラブルシューティング
+
+- **`doctor` が `Error (Pi): npm:cc-safety-net is installed but its extension is disabled in Pi settings` と表示する。** `settings.json` の `npm:cc-safety-net` エントリに、`dist/pi/index.js` を読み込まない `extensions` フィルターがあります。`install --pi` をもう一度実行して、フィルターを取り除いてください。
+- **インストール済みなのに `doctor` で Pi が `n/a` と表示される。** `doctor` が `settings.json` に `npm:cc-safety-net` のパッケージを見つけられませんでした。`PI_CODING_AGENT_DIR` で Pi のエージェントディレクトリを移動している場合は、`doctor` を実行する環境にも同じ値を設定してください。そうでなければ、`install --pi` をもう一度実行してください。

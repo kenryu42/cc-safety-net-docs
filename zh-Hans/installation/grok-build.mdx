@@ -1,0 +1,81 @@
+---
+title: "在 Grok Build 中安装 CC Safety Net"
+sidebarTitle: "Grok Build"
+description: "通过 ~/.grok/hooks 下的一个 PreToolUse hook 文件在 Grok Build 中安装 CC Safety Net，了解 hook 检查哪些工具、检查失败时会怎样、如何卸载，以及如何修复列在 disabled-hooks 中的 hook。"
+keywords:
+  - "grok"
+  - "grok build"
+  - "GROK_HOME"
+  - "PreToolUse"
+  - "disabled-hooks"
+  - "workspaceRoot"
+---
+
+运行 `npx -y cc-safety-net@latest install --grok-build`。它会写入一个 `PreToolUse` hook 文件 `~/.grok/hooks/cc-safety-net.json`，让每次工具调用都先经过 CC Safety Net。然后运行 `npx cc-safety-net doctor`，确认 hook 已生效。Grok Build 的 hook 是 fail open，hook 崩溃或超时时，调用照常执行。
+
+## 在 Grok Build 中安装 CC Safety Net
+
+<Steps>
+  <Step title="运行安装程序">
+    ```bash
+    npx -y cc-safety-net@latest install --grok-build
+    ```
+  </Step>
+  <Step title="确认 hook 已生效">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+## Grok Build 安装会改动什么
+
+安装程序把以下托管 `PreToolUse` 条目写入 `~/.grok/hooks/cc-safety-net.json`，设置了 `GROK_HOME` 时写入 `$GROK_HOME/hooks/cc-safety-net.json`：
+
+```json
+{ "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --grok-build", "timeout": 30 }] }
+```
+
+- 该条目不带 matcher，因此到达 hook 的不只是 `run_terminal_command`，而是每一次工具调用。
+- 该文件中不由 CC Safety Net 管理的 hook 原样保留。
+- 文件无法解析时，安装会替换它。Grok Build 会跳过无法解析的 hook 文件，所以这样的文件里本来就没有可用的 hook。
+
+<span id="what-the-grok-build-hook-checks"></span>
+
+## Grok Build hook 检查什么
+
+- hook 把 `run_terminal_command`、`run_terminal_cmd`、`monitor`、`bash` 和 `Shell` 调用当作 shell 命令分析，并自动识别各自的 shell 方言。
+- 对文件类和 patch 类工具，hook 检查工具输入中的受保护路径。
+- 输入被 Grok Build 截断的调用会被拒绝。Grok Build 会把工具输入截断在 128 KB，被截断的命令无法分析。
+
+hook 在会话目录下检查命令，该目录必须位于工作区根目录之内。`bash` 和 `Shell` 可以在 `workdir` 或 `working_directory` 中指定自己的目录，这个目录同样必须存在且位于工作区根目录之内。任一目录位于根目录之外或无法解析时，hook 拒绝该调用。
+
+## Grok Build 检查失败时会怎样
+
+Grok Build 的 hook 是 fail open，而且 Grok Build 没有 `failClosed` 设置。只有明确的拒绝才能阻止工具调用。hook 崩溃、超时或输出格式错误时，调用照常执行。对于自己捕获的失败，例如输入被截断或工作目录不可用，hook 仍会输出拒绝。
+
+## 从 Grok Build 卸载 CC Safety Net
+
+```bash
+npx -y cc-safety-net@latest uninstall --grok-build
+```
+
+卸载只移除托管 hook。`cc-safety-net.json` 中不再有其他内容时会删除该文件；无法解析的文件则原样保留。
+
+## Grok Build 故障排除
+
+<span id="when-grok-build-skips-the-cc-safety-net-hook"></span>
+
+### Grok Build 跳过 CC Safety Net hook 的情况
+
+Grok Build 会跳过 `disabled-hooks` 文件（`~/.grok/disabled-hooks` 或 `$GROK_HOME/disabled-hooks`）中列出的所有 hook。该文件列有 CC Safety Net hook 时，`doctor` 会打印：
+
+```text
+Error (Grok Build): Grok Build skips the hook: <name> is listed in <path>; enable it in /hooks
+```
+
+请在 Grok Build 的 `/hooks` 菜单中启用该 hook。`doctor` 无法读取 `disabled-hooks` 时，会警告 `Cannot read <path>, so doctor cannot tell whether Grok Build skips the hook`，但仍把该 hook 报告为已配置。
+
+### 托管条目被改动
+
+如果你或其他工具改动了托管条目，`doctor` 会打印[漂移警告](/zh-Hans/reference/cli/doctor#managed-hook-drift)。重新运行 `install --grok-build` 即可重写该条目。

@@ -1,0 +1,70 @@
+---
+title: "Install CC Safety Net in Codex"
+sidebarTitle: "Codex"
+description: "Install the CC Safety Net plugin in Codex from cc-marketplace, trust its PreToolUse hook in /hooks, know the interactive-session coverage boundary, remove it, and read the doctor trust reminder."
+keywords:
+  - "codex"
+  - "cc-marketplace"
+  - "trust hook"
+  - "/hooks"
+  - "codex plugin list"
+  - "PreToolUse"
+---
+
+Run `npx -y cc-safety-net@latest install --codex`. It adds the `cc-marketplace` marketplace and installs the `cc-safety-net@cc-marketplace` plugin. Then trust the hook in Codex's `/hooks` menu, because Codex will not run the hook until you trust it.
+
+## Install CC Safety Net in Codex
+
+<Steps>
+  <Step title="Run the installer">
+    ```bash
+    npx -y cc-safety-net@latest install --codex
+    ```
+  </Step>
+  <Step title="Trust the hook">
+    Start Codex, open `/hooks`, select the **cc-safety-net PreToolUse hook**, and press `t` to trust it.
+  </Step>
+  <Step title="Confirm the plugin is active">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+When the plugin is installed and enabled, the Codex row in the `doctor` output reads `Detected` and `Configured`.
+
+## What the Codex install changes
+
+The installer adds the `cc-marketplace` marketplace from `kenryu42/cc-marketplace` and installs the `cc-safety-net@cc-marketplace` plugin.
+
+The plugin also includes the [`/cc-safety-net` skill](/guides/skill).
+
+## What the Codex hook checks
+
+The plugin's hook runs `cc-safety-net hook --codex` (short flag `-cx`) on Codex's `PreToolUse` event.
+
+## Codex coverage limits
+
+- **Typed input.** Codex sends a `PreToolUse` event when a command opens a shell session, but none for `write_stdin`. So CC Safety Net checks only the command that opened the session. Text the model then types into the running session reaches the shell unchecked and leaves no audit entry. Only Codex can close this gap.
+- **Working directory.** Codex runs a command in the call's `workdir`, but does not send `workdir` to the hook. CC Safety Net analyzes the command against the turn's working directory instead. It then resolves relative paths, and the rules about paths outside the working directory, against the wrong directory. That can block a safe command or allow one the rules would block.
+
+If either gap matters to you, add a [sandbox](/guides/vs-sandboxing) as the containment layer.
+
+## What happens when the Codex check fails
+
+Codex hooks fail open. If the hook crashes, times out (600 seconds by default), cannot start, or prints invalid output, Codex marks the hook run as failed and runs the tool call anyway. Errors CC Safety Net catches itself still block, because the hook prints a deny.
+
+## Uninstall CC Safety Net from Codex
+
+```bash
+npx -y cc-safety-net@latest uninstall --codex
+```
+
+## Troubleshoot Codex
+
+- **The Codex row reads `Not configured`.** The plugin is installed but not enabled. Enable it in Codex. A row that reads `Not detected` means the plugin is not installed.
+- **`doctor` prints a trust reminder.** When the Codex row reads `Configured`, `doctor` prints this on every run, because it cannot check trust. It does not mean trust is missing, and it does not change the exit code.
+
+  ```text
+  Warning (Codex): Codex runs only trusted hooks, and doctor cannot check trust. Start Codex, open `/hooks`, select the cc-safety-net PreToolUse hook, and press `t` to trust it.
+  ```

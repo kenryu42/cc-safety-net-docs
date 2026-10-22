@@ -57,6 +57,15 @@ meaning and change only what a native technical editor would change.
   | fail open | フェイルオープン |
   | deny path | 拒否パス |
   | worktree / linked worktree / main worktree | ワークツリー / リンクされたワークツリー / メインワークツリー |
+  | allow path | 許可パス |
+  | override | オーバーライド |
+  | transparent wrapper | 透過ラッパー |
+  | finding (doctor) | 検出結果 |
+  | permission mode | 権限モード |
+  | credentials | 資格情報 |
+  | one-liner | ワンライナー |
+  | integration model | 連携方式 |
+  | coverage limits (agent pages) | 保護範囲の制限 |
 
   The renderings apply to prose only, frontmatter `title`, `description`, and
   `keywords` included. The machine-checkable strings below keep their English
@@ -95,9 +104,12 @@ meaning and change only what a native technical editor would change.
 **Links.** Every internal link in a `ja/` page points into the `ja/` tree:
 `/ja/configuration/modes`, not `/configuration/modes`. When the English page adds
 a deep link, the mirror keeps the deep link — dropping the anchor is a
-regression. Anchors must resolve against the *Japanese* heading on the target
-page, so check the target page's heading text before you write the anchor.
-`make check` runs `mint broken-links`; a link it cannot resolve is a defect, not
+regression. Keep the English anchor in the link
+(`/ja/installation/cursor#troubleshoot-the-cursor-hook`). The translated heading on the
+target page carries it as `<span id="troubleshoot-the-cursor-hook"></span>` on the line
+above, so never build an anchor from translated heading text, and never remove
+or move a span line. Keep the English page's headings one for one, at the same
+levels and in the same order. `make check` runs `mint broken-links`; a link it cannot resolve is a defect, not
 a style question.
 
 **Machine-checkable strings.** Flag spellings, defaults, error message text, rule

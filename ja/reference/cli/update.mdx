@@ -1,0 +1,66 @@
+---
+title: "update コマンド"
+sidebarTitle: "update"
+description: "cc-safety-net update のリファレンスです。更新されるインストール済みの連携、スキップされるエージェント、npx と bunx のキャッシュの消去、新しいバージョンの通知、終了コードを説明します。"
+keywords:
+  - "update"
+  - "アップグレード"
+  - "連携の更新"
+  - "bunx キャッシュ"
+  - "npx キャッシュ"
+  - "update available"
+---
+
+`update` は、マシンにすでにある CC Safety Net の連携すべてについて、インストールを再実行します。無効になっている連携も対象です。新しい連携をインストールすることはなく、未設定のエージェントには手を付けません。
+
+```bash
+npx -y cc-safety-net@latest update
+```
+
+対話型の [`install`](/ja/reference/cli/install#target-selector-keys) セレクターで `u` を押しても開始できます。`update` はターゲットフラグも引数も受け取らず、使えるのは `-h` または `--help` だけです。
+
+## update が更新する連携
+
+インストールされている連携は、無効になっていても対象です。一部のエージェントには独自の条件があります。
+
+| 連携 | 対象になる条件 |
+| --- | --- |
+| Amp Code | `amp plugins list` に Personal Plugins のプラグインが表示される場合 |
+| GitHub Copilot CLI | Copilot の `installed-plugins` ディレクトリに CC Safety Net のチェックアウトがある場合だけ |
+| Cursor | CC Safety Net が [Claude Code プラグイン](/ja/installation/cursor#cursor-through-the-claude-code-plugin)または[ネイティブ Cursor プラグイン](/ja/installation/cursor#cursor-through-a-native-cursor-plugin)経由でしか Cursor に届いていない場合は対象外。このとき `update` が Cursor のフックを書き込むことはない |
+
+`update` は、`safety-net@cc-marketplace` のような旧プラグイン識別子を使うインストールも、現在の識別子に移行します。[旧プラグイン識別子からの移行](/ja/installation#migrate-from-a-legacy-plugin-identifier)を参照してください。
+
+## update による各ターゲットの実行
+
+`update` は、各ターゲットに対して `install` と同じ操作を実行し、それぞれの結果を `Updated …` または `… up to date` として出力します。
+
+インストールでエージェント自身の CLI を実行するターゲットで、そのバイナリが見つからない場合、`update` は `<Agent> not found; skipped`（例：`Codex not found; skipped`）を出力して処理を続けます。Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build、Kimi Code は設定ファイルさえあればよいので、常に更新されます。
+
+ネイティブプラグイン経由の Kimi Code と DeepSeek Harness には、独自の更新動作があります。[Kimi Code](/ja/installation/kimi-code) と [DeepSeek Harness](/ja/installation/deepseek-harness) を参照してください。
+
+## update 中の npx キャッシュの消去
+
+`npx` で動作する連携が 1 つでもある場合、`update` はターゲットを実行する前に `npx` キャッシュを 1 回消去します。対象のエージェントとキャッシュの場所は、[npx キャッシュの消去](/ja/reference/cli/install#npx-cache-clearing)を参照してください。消去に失敗した場合、失敗するのは `npx` を使うターゲットだけです。
+
+## update 中の bunx キャッシュの消去
+
+`update` は、連携が 1 つも見つからない場合も含め、実行のたびに `bunx` キャッシュから `cc-safety-net` のエントリを消去します。これにより、次に `bunx cc-safety-net` を実行したときに最新のリリースが取得されます。消去に失敗した場合、`update` はエラーを出力して `1` で終了します。
+
+## インストール済みの連携がない場合の update
+
+対象が 1 つもない場合、`update` は ``No installed integrations found. Run `cc-safety-net install` to set one up.`` を出力して `0` で終了します。
+
+## 新しいバージョンの通知
+
+npm レジストリに新しいリリースがある場合、`update` は最後に次の通知を出力します。
+
+```text
+Update available: cc-safety-net <current> → <latest>. Update this CLI with your package manager, e.g. `npm i -g cc-safety-net@latest` for a global install.
+```
+
+`npx` や `bunx` での実行は、すでに最新のリリースを取得しているため、この確認をスキップします。確認に失敗した場合やオフラインの場合、`update` は何も出力せず、終了コードも変わりません。
+
+## update の終了コード
+
+1 つのターゲットが失敗しても、実行は止まりません。`update` は [`install`](/ja/reference/cli/install#install-failures-and-exit-code) と同じヒントを付けてエラーを出力します。いずれかのターゲットが失敗した場合、`bunx` キャッシュの消去に失敗した場合、不明なオプションや引数を指定した場合、`update` は `1` で終了します。それ以外は `0` で終了します。

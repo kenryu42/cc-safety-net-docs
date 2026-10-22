@@ -1,0 +1,105 @@
+---
+title: "Install CC Safety Net in Claude Code"
+sidebarTitle: "Claude Code"
+description: "Install the CC Safety Net plugin in Claude Code from cc-marketplace, turn on auto-updates, see what the Coding CLI hook checks and when it asks, remove it, and find where CLAUDE_CONFIG_DIR moves its configuration."
+keywords:
+  - "claude code"
+  - "cc-marketplace"
+  - "plugin"
+  - "CLAUDE_CONFIG_DIR"
+  - "CLAUDE_CODE_PLUGIN_CACHE_DIR"
+  - "coding-cli"
+---
+
+Run `npx -y cc-safety-net@latest install --claude-code`. It adds the `cc-marketplace` marketplace and installs the `cc-safety-net@cc-marketplace` plugin in Claude Code. The plugin runs the Coding CLI hook, `cc-safety-net hook --coding-cli`, before each tool call. Then run `npx cc-safety-net doctor` to confirm the plugin is active.
+
+## Install CC Safety Net in Claude Code
+
+<Steps>
+  <Step title="Run the installer">
+    ```bash
+    npx -y cc-safety-net@latest install --claude-code
+    ```
+  </Step>
+  <Step title="Confirm the plugin is active">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+## What the Claude Code install changes
+
+The installer adds the `cc-marketplace` marketplace from `kenryu42/cc-marketplace` and installs the `cc-safety-net@cc-marketplace` plugin. If a disabled copy is already present, it enables that copy.
+
+Claude Code writes the plugin under `$CLAUDE_CONFIG_DIR` when that variable is set, and under `~/.claude` otherwise. See [Where Claude Code keeps its configuration](#where-claude-code-keeps-its-configuration).
+
+## Turn on auto-updates for the Claude Code plugin
+
+<Steps>
+  <Step title="Open the plugin manager">
+    Run `/plugin` inside Claude Code.
+  </Step>
+  <Step title="Pick the marketplace">
+    Go to **Marketplaces** and select **cc-marketplace**.
+  </Step>
+  <Step title="Enable auto-update">
+    Turn on **auto-update** so CC Safety Net stays current.
+  </Step>
+</Steps>
+
+## What the Claude Code hook checks
+
+The plugin runs `cc-safety-net hook --coding-cli` on Claude Code's `PreToolUse` event, before each tool call. See [`hook`](/reference/cli/hook) for every flag.
+
+## Claude Code permission modes and bypass mode
+
+A deny from CC Safety Net still blocks the tool call in Claude Code's `default`, `auto`, and `bypassPermissions` modes. The project verified this on 2026-08-31 against Claude Code 2.1.251 and runs the check again on every release and Claude Code upgrade. It is a per-version result, not a standing guarantee.
+
+## When Claude Code asks you instead of blocking
+
+The Coding CLI hook is the only hook that can answer something other than allow or deny. In Claude Code's `default`, `acceptEdits`, `plan`, and `auto` permission modes, when the `standard` safety level cannot verify a command, the hook answers `hookSpecificOutput.permissionDecision: "ask"`. Claude Code then prompts you to approve the command.
+
+- In `auto`, Claude Code's classifier can still deny such a call. It cannot approve the call without the prompt.
+- In every other permission mode, the hook denies instead of asking.
+- Only two denials become a prompt, and only at the `standard` level. Every other denial stays a deny. At `strict` and `paranoid`, the hook never asks.
+- The audit log still records the call as a denial.
+
+The two denials that can ask:
+
+| Denial | When it stays a deny |
+| --- | --- |
+| The `raw-text.dangerous-command` rule, which fires when a command CC Safety Net could not parse still reads as destructive | Never at `standard` |
+| The reason `shell execution source cannot be verified safely. Use a literal command string or ask the user to run it manually.` | When the command's raw text also holds a destructive pattern, or when the unverifiable source feeds a bare shell reading stdin, such as `sh -` |
+
+No other agent asks. A host that does not prompt on `ask` would run the command, so every other hook answers deny. [When the message asks instead of blocking](/guides/how-it-works#when-the-message-asks-instead-of-blocking) shows the prompt text.
+
+## What happens when the Claude Code check fails
+
+Claude Code hooks fail open by default. If the hook crashes, times out (600 seconds by default), cannot start, or prints invalid output, Claude Code runs the tool call anyway. Errors CC Safety Net catches itself still block, because the hook prints a deny. Claude Code v2.1.295 and later can block on hook failure with `"onFailure": "block"`, but the CC Safety Net plugin does not set it.
+
+## Uninstall CC Safety Net from Claude Code
+
+```bash
+npx -y cc-safety-net@latest uninstall --claude-code
+```
+
+## Where Claude Code keeps its configuration
+
+CC Safety Net follows the same overrides as Claude Code, so it still finds a config you moved.
+
+| What | Where CC Safety Net reads it |
+| --- | --- |
+| Config directory | `CLAUDE_CONFIG_DIR` when set, otherwise `<home>/.claude` |
+| `settings.json` | The config directory |
+| Install record, `installed_plugins.json` | `CLAUDE_CODE_PLUGIN_CACHE_DIR` when set, because Claude Code keeps the record there. Otherwise the `plugins` directory under the config directory |
+
+Neither Claude Code nor CC Safety Net expands a leading `~` in `CLAUDE_CONFIG_DIR`. Both use the value as written.
+
+## Troubleshoot Claude Code
+
+If commands run without a check, run `/plugin` inside Claude Code and confirm that `cc-safety-net` is in the installed plugins list and enabled. If it is missing, run `/plugin install cc-safety-net@cc-marketplace`, then `/reload-plugins`. If `doctor` cannot find the plugin, check that `CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_PLUGIN_CACHE_DIR` are set the same way for `doctor` as for Claude Code.
+
+## Cursor and the Claude Code plugin
+
+When Cursor imports Claude Code plugins, Cursor can also run CC Safety Net from this plugin. That route reads `<home>/.claude` and ignores both `CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_PLUGIN_CACHE_DIR`. See [Cursor through the Claude Code plugin](/installation/cursor#cursor-through-the-claude-code-plugin).

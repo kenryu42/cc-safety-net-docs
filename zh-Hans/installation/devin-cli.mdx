@@ -1,0 +1,122 @@
+---
+title: "在 Devin CLI 中安装 CC Safety Net"
+sidebarTitle: "Devin CLI"
+description: "通过 config.json 中的一个 PreToolUse hook 在 Devin CLI 中安装 CC Safety Net，了解 hook 如何检查 exec 和 write_to_process 调用、如何卸载，以及配置损坏时 doctor 给出的消息。"
+keywords:
+  - "devin"
+  - "devin cli"
+  - "config.json"
+  - "PreToolUse"
+  - "write_to_process"
+  - "XDG_CONFIG_HOME"
+---
+
+运行 `npx -y cc-safety-net@latest install --devin`。它会在 Devin CLI 的 `config.json` 中添加一个 `PreToolUse` hook，让每次工具调用都先经过 CC Safety Net。然后运行 `npx cc-safety-net doctor`，确认 hook 已生效。Devin CLI 的 hook 是 fail open：hook 超时，或在给出应答前就退出时，调用照常执行。
+
+## 在 Devin CLI 中安装 CC Safety Net
+
+<Steps>
+  <Step title="运行安装程序">
+    ```bash
+    npx -y cc-safety-net@latest install --devin
+    ```
+  </Step>
+  <Step title="确认 hook 已生效">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+## Devin CLI 安装会改动什么
+
+安装程序在 Devin CLI `config.json` 的 `hooks.PreToolUse` 中写入以下托管条目：
+
+```json
+{ "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --devin", "timeout": 30 }] }
+```
+
+该文件是 `$XDG_CONFIG_HOME/devin/config.json`，默认为 `~/.config/devin/config.json`，Windows 上为 `%APPDATA%\devin\config.json`。具体规则见 [Devin CLI 的配置存放位置](#where-devin-cli-keeps-its-configuration)。
+
+- 该条目不带 matcher，因此到达 hook 的不只是 `exec`，而是每一次工具调用。
+- 安装会保留文件中其他所有键、hook 事件和 `PreToolUse` 条目。`config.json` 不存在时，安装会新建一个只含这一个 `hooks` 键的文件。
+- Devin CLI 允许在 `config.json` 中写注释和尾随逗号。安装和卸载写回的是普通 JSON，因此其中的注释会丢失。
+
+## Devin CLI hook 检查什么
+
+- `exec` 是唯一的命令工具，hook 会自动识别它的 shell 方言。
+- `write_to_process` 调用输入到运行中进程的文本，hook 也会分析。见 [Devin CLI hook 如何检查输入的文本](#how-the-devin-cli-hook-checks-typed-input)。
+- 对其他工具，hook 检查工具输入中的受保护路径。
+
+对允许的调用，hook 不输出任何内容，因此 Devin CLI 自己的权限提示照常生效。
+
+### Devin CLI hook 在哪个目录下分析命令
+
+Devin CLI 不会把会话的工作目录告诉 hook，因此 hook 以自身运行所在的目录为准。`exec` 调用可以在 `workdir` 中指定另一个目录，hook 就改在那个目录下分析命令。
+
+- 相对路径的 `workdir` 按会话目录解析。
+- `workdir` 不必位于会话目录之内。
+- `workdir` 为空或不是字符串时，hook 拒绝该调用。
+- `workdir` 不是已存在的目录时，hook 拒绝该调用，拒绝消息中会写明该目录。
+
+<span id="how-the-devin-cli-hook-checks-typed-input"></span>
+
+### Devin CLI hook 如何检查输入的文本
+
+`write_to_process` 调用向已在运行的进程输入内容。hook 把 `text_input` 或 `bytes_input` 中的文本当作 shell 命令分析。例如 `text_input` 为 `y`、`bytes_input` 为 `<CR>` 时，分析的是 `y`。
+
+无法确定接收程序实际执行哪一行时，hook 拒绝该调用：
+
+- 文本与 `<ESC>`、`<BS>`、方向键或 `<C-…>` 键一起出现。
+- `bytes_input` 中有 Devin CLI 文档未列出的 `<Name>` 按键。
+- `text_input` 和 `bytes_input` 都带有文本。
+
+单独发送的按键，例如 `<UP><CR>` 或 `<C-c>`，不是命令，hook 不会分析。
+
+## Devin CLI 检查失败时会怎样
+
+Devin CLI 的 hook 是 fail open。只有退出码 2 或 `block` 决策才能阻止工具调用。超时、缺少 `npx`，或 hook 进程在应答前退出时，调用照常执行。hook 自己捕获的错误仍会阻止调用，因为 hook 会为它返回 `block`。
+
+<span id="devin-cli-coverage-limits"></span>
+
+## Devin CLI 的覆盖限制
+
+- **项目级 hook。** CC Safety Net 只支持安装程序写入的用户级 `config.json`。项目中 `.devin/hooks.v1.json` 里的 hook 以仓库根目录为工作目录运行，而 Devin CLI 没有给 hook 提供纠正的途径。
+- **分段输入。** hook 对每次 `write_to_process` 调用单独分析，因此分几次输入的命令不会作为一条完整命令检查。
+- **Devin Cloud。** CC Safety Net 不覆盖 Devin Cloud 会话。
+- **Claude Code hook。** Devin 默认会加载 Claude Code 的 hook 文件，因此为 Claude Code 安装的 CC Safety Net hook 也可能在 Devin 会话中运行。这只会让拒绝重复出现。
+
+## 从 Devin CLI 卸载 CC Safety Net
+
+```bash
+npx -y cc-safety-net@latest uninstall --devin
+```
+
+卸载只移除托管处理程序，然后写回文件。即使 `hooks.PreToolUse` 最终变为空，卸载也不会删除 `config.json`。文件中没有托管处理程序时，卸载不写入任何内容，并报告该 hook 未安装。
+
+<span id="where-devin-cli-keeps-its-configuration"></span>
+
+## Devin CLI 的配置存放位置
+
+Devin CLI 允许移动它的配置目录。CC Safety Net 遵循同样的覆盖规则，因此配置移动后也能找到：
+
+- 设置了 `XDG_CONFIG_HOME` 且不为空时，为 `$XDG_CONFIG_HOME/devin`。
+- 否则为 `<home>/.config/devin`。
+- Windows 上为 `%APPDATA%\devin`；`APPDATA` 未设置或为空时，为 `<home>\AppData\Roaming\devin`。
+
+文件是该目录下的 `config.json`。CC Safety Net 按原样使用变量的值，不展开 `~`。
+
+<span id="troubleshoot-devin-cli"></span>
+
+## Devin CLI 故障排除
+
+`config.json` 有问题时，安装会停止，不写入任何内容。`doctor` 以 `Error (Devin CLI): <message>` 的形式打印同一条消息，把 Devin CLI 计为未配置，并以 `1` 退出。修复该文件后重新运行安装。
+
+| 问题 | 消息 |
+| --- | --- |
+| 文件无法解析 | `Failed to parse Devin CLI config <path>: <reason>` |
+| 根不是 JSON 对象 | `Devin CLI config <path> must be a JSON object` |
+| `hooks` 不是对象 | `Devin CLI config <path> "hooks" must be an object` |
+| `hooks.PreToolUse` 不是数组 | `Devin CLI config <path> "hooks.PreToolUse" must be an array` |
+
+如果 `doctor` 警告 hook 条目被改动，请重新运行安装。警告列表见[托管 hook 漂移](/zh-Hans/reference/cli/doctor#managed-hook-drift)。

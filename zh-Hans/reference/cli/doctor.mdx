@@ -1,0 +1,90 @@
+---
+title: "doctor 命令"
+sidebarTitle: "doctor"
+description: "cc-safety-net doctor 参考：报告的各个部分、JSON 与跳过更新检查选项、诊断项与退出码、旧版规则文件、托管 hook 漂移警告，以及 hook 配置解析错误。"
+keywords:
+  - "doctor"
+  - "健康检查"
+  - "诊断项"
+  - "退出码"
+  - "hook 漂移"
+  - "诊断"
+---
+
+`doctor` 对 CC Safety Net 的安装和配置做一次完整的健康检查，并分节打印报告。与 `status` 不同，它在发现问题时退出 `1`，脚本可以据此判定失败。
+
+```bash
+npx cc-safety-net doctor
+bunx cc-safety-net doctor
+```
+
+只想快速查看当前执行的保护，请改用 [`status`](/zh-Hans/reference/cli/status)。
+
+## doctor 检查的内容
+
+报告包含以下部分：
+
+| 部分 | 描述 |
+| --- | --- |
+| Hook Integration | 检查每个受支持智能体的配置 |
+| Guard Engine Verification | 运行自检，确认引擎会阻止危险命令、放行安全命令 |
+| Configuration | 校验用户和项目的规则配置，并列出生效的规则 |
+| Environment | 显示 CC Safety Net 各环境变量的状态 |
+| Effective Safety | 显示选定的预设、生效级别、能力和规则覆盖。项目策略的削弱列在 `Project policy deltas:` 下；设置了 `CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY` 时，标题为 `Project policy deltas (ignored):` |
+| Findings | 列出 `doctor` 发现的问题，每条都带有严重程度和修复提示 |
+| Recent Activity | 汇总过去 7 天内被阻止的命令 |
+| System Info | 显示所有相关工具的版本 |
+| Update Check | 检查是否有新版本 |
+
+各条诊断项的含义和修复方法见[配置恢复](/zh-Hans/configuration/recovery)。
+
+## doctor 选项
+
+| 选项 | 描述 |
+| --- | --- |
+| `--json` | 以 JSON 格式输出诊断信息，例如用于在错误报告中分享 |
+| `--skip-update-check` | 跳过 npm 注册表版本检查 |
+| `-h`, `--help` | 显示帮助 |
+
+## doctor 退出码
+
+引擎自检失败，或有任何诊断项的严重程度为 `error` 时，`doctor` 退出 `1`，否则退出 `0`。警告和 `info` 级别的诊断项从不影响退出码。以下诊断项属于 `error` 严重程度：
+
+- 没有配置任何智能体集成。
+- hook 检查失败。
+- 用户或项目的规则配置无效。
+- policy、config 或 audit 目录权限不安全，或不是目录。
+
+## 旧版规则文件的 doctor 诊断项
+
+有两条诊断项指向旧版本 CC Safety Net 遗留的文件。运行时会忽略这些文件。两条诊断项都不影响退出码。
+
+### config.v2-leftovers
+
+`config.v2-leftovers`（`info`）表示 `doctor` 发现了 `rule.lock` 文件或 `cache` 目录。运行 [`rule sync`](/zh-Hans/reference/cli/rule#rule-sync) 迁移它们（用户范围加上 `--global`），然后重新运行 `doctor`。
+
+### config.legacy-ignored
+
+`config.legacy-ignored`（`warning`）表示 `doctor` 在当前目录发现了 `.safety-net.json`，或在 CC Safety Net 主目录发现了 `config.json`。其中的规则不会执行。运行 [`rule migrate`](/zh-Hans/reference/cli/rule#rule-migrate) 转换它们，然后重新运行 `doctor`。加上 `--cleanup`，`rule migrate` 会在转换完每个文件后将其删除。`doctor --json` 在 `legacyConfigs` 中列出这些路径。
+
+## Recent Activity 汇总不完整
+
+`doctor` 无法读取部分审计日志文件时，Recent Activity 以 `Warning: <n> audit log sources could not be read; this summary is incomplete` 结尾。此时汇总的被阻止命令数可能偏少。
+
+<span id="managed-hook-drift"></span>
+
+## 托管 hook 漂移
+
+Cursor、Devin CLI、Factory Droid 和 Grok Build 的 hook 条目所在的配置文件也可以手动编辑。磁盘上的条目与 `install` 写入的条目不一致时，`doctor` 打印 `Warning (<Agent>): <message>`，例如 `Managed hook "timeout" is not 30; reinstall to repair`。该智能体仍为 `Configured`，退出码不变。
+
+每条漂移警告都以 `reinstall to repair` 或 `reinstall to collapse duplicates` 结尾。用该智能体的选项重新运行 `install` 即可重写条目，例如 `npx -y cc-safety-net install --cursor`。
+
+<span id="hook-config-parse-errors"></span>
+
+## hook 配置解析错误
+
+Antigravity CLI、Cursor、Devin CLI、Factory Droid 或 Grok Build 的 hook 配置文件无法解析时，`doctor` 打印 `Error (<Agent>): Failed to parse ... <path>: <reason>`，并把该智能体计为未配置。它还会产生一条 `error` 严重程度的 `<Agent> inspection failed` 诊断项，因此 `doctor` 退出 `1`。修好该文件，或为该智能体重新运行 `install`。各智能体的页面列出了它的配置路径。
+
+## 各智能体专属的 doctor 检查
+
+`doctor` 会为 [Codex](/zh-Hans/installation/codex)、[Cursor](/zh-Hans/installation/cursor)、[GitHub Copilot CLI](/zh-Hans/installation/github-copilot-cli)、[Grok Build](/zh-Hans/installation/grok-build)、[Hermes Agent](/zh-Hans/installation/hermes-agent)、[Kimi Code](/zh-Hans/installation/kimi-code)、[OpenCode](/zh-Hans/installation/opencode) 和 [Pi](/zh-Hans/installation/pi) 运行额外的检查，各智能体的页面分别作了说明。`doctor` 还会遵循各智能体支持的配置路径覆盖，因此你挪过位置的配置也能找到。

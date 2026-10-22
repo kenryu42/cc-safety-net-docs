@@ -1,0 +1,77 @@
+---
+title: "在 Hermes Agent 中安装 CC Safety Net"
+sidebarTitle: "Hermes Agent"
+description: "以托管 Python 插件的形式在 Hermes Agent 中安装 CC Safety Net，了解插件检查哪些工具、检查失败时会怎样、如何找到当前 profile，以及如何移除插件。"
+keywords:
+  - "hermes"
+  - "hermes agent"
+  - "HERMES_HOME"
+  - "active_profile"
+  - "pre_tool_call"
+  - "hermes plugins enable"
+---
+
+运行 `npx -y cc-safety-net@latest install --hermes-agent`。它会把托管的 Python 插件写入 Hermes 主目录下的 `plugins/cc-safety-net/`，并用 `hermes` CLI 启用它。然后重启 Hermes，加载插件。插件是 fail closed：分析无法完成时，Hermes 会阻止工具调用。此集成仅支持 macOS 和 Linux。
+
+## 在 Hermes Agent 中安装 CC Safety Net
+
+<Steps>
+  <Step title="运行安装程序">
+    ```bash
+    npx -y cc-safety-net@latest install --hermes-agent
+    ```
+  </Step>
+  <Step title="重启 Hermes">
+    重启 Hermes。每次更新或卸载后也要重启。
+  </Step>
+  <Step title="确认插件已生效">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+<span id="what-the-hermes-agent-install-changes"></span>
+
+## Hermes Agent 安装会改动什么
+
+- 安装程序把两个托管文件 `__init__.py` 和 `plugin.yaml` 写入 `<Hermes home>/plugins/cc-safety-net/`。
+- 然后运行 `hermes plugins enable cc-safety-net --no-allow-tool-override`。只有配置中把用户插件列为已启用时，Hermes 才会加载它。
+
+Hermes 主目录取 `HERMES_HOME`，未设置时为 `~/.hermes`。如果该目录下的 `active_profile` 文件指定了某个 profile，主目录就是其中的 `profiles/<name>`，与 `hermes` CLI 使用的 profile 相同。`HERMES_HOME` 已经指向 `profiles` 目录内部时，CC Safety Net 按原样使用它。
+
+## Hermes Agent 插件检查什么
+
+每次 `pre_tool_call` 事件发生时，插件把工具调用发送给 `npx -y cc-safety-net hook --hermes-agent`，超时为 30 秒。它检查 `terminal`、`read_file`、`write_file` 和 `patch` 工具，并且都在 Hermes 实际运行该工具的目录下检查。
+
+## Hermes Agent 检查失败时会怎样
+
+插件是 fail closed。缺少 `npx`，或者分析无法启动、超时、以非零状态退出、返回无法读取的输出时，插件会用明确的消息阻止工具调用。无法从 Hermes 读取工具所在的目录时，插件以下面的消息阻止调用：
+
+```text
+CC Safety Net failed closed: the Hermes file tool directory could not be read (<error>). Update cc-safety-net and reinstall the plugin with: npx -y cc-safety-net install --hermes-agent.
+```
+
+对于 `terminal` 调用，消息中的 `file tool` 换成 `session`。
+
+<span id="hermes-agent-coverage-limits"></span>
+
+## Hermes Agent 的覆盖限制
+
+- **其他工具。** 上述四个工具以外的 Hermes 工具调用不会得到决策。
+- **你自己输入的命令。** 你自己输入的 `!command` 不会触发 `pre_tool_call`，由 Hermes 自带的命令防护处理。CC Safety Net 只能看到模型发起的工具调用。
+- **Hermes 没有加载的插件。** Hermes 没有加载插件时，CC Safety Net 什么也阻止不了。`doctor` 读取插件文件和 Hermes 配置，但无法询问正在运行的 Hermes，因此改动后请重启 Hermes 并重新测试。
+- **Windows。** 安装把插件写到 POSIX 路径，而 Windows 上的 Hermes 不读取该路径。
+
+## 从 Hermes Agent 卸载 CC Safety Net
+
+```bash
+npx -y cc-safety-net@latest uninstall --hermes-agent
+```
+
+卸载先运行 `hermes plugins disable cc-safety-net`，再删除插件文件。`hermes` CLI 失败或缺失时，仍会删除文件，并警告 Hermes 配置中可能仍列有 `cc-safety-net`。卸载后请重启 Hermes。
+
+## Hermes Agent 故障排除
+
+- **安装或卸载拒绝改动某个路径。** 插件目录或某个托管文件是符号链接、不是普通文件或目录，或者缺少 CC Safety Net 托管标头。请自行移动或删除该路径，然后重新运行命令。
+- **`Invalid Hermes profile name "<profile>" in <root>/active_profile`。** `active_profile` 文件中的名称不是有效的 Hermes profile id。请用有效的 profile 运行 `hermes profile use <name>`。安装和卸载遇到此错误会停止，`doctor` 会在 Hermes Agent 一行中报告它。

@@ -4,15 +4,15 @@ sidebarTitle: "Security"
 description: "How to report a security vulnerability in CC Safety Net, what counts as a security issue, supported versions, and response expectations."
 ---
 
-Security fixes are provided for the **latest published release** of `cc-safety-net`. If you use an older version, upgrade before you report an issue unless the vulnerability also affects the latest release.
+A command CC Safety Net failed to block is a bug for a public GitHub issue. Harmful behavior by CC Safety Net itself, such as leaking a secret, is a vulnerability to report privately. If you are not sure which you have, read [Choose a public or private report](#choose-a-public-or-private-report). To diagnose the behavior first, start at [Troubleshooting](/guides/troubleshooting).
 
-This page explains how to report an issue. For trust boundaries, fail-closed enforcement, and attack surface, see [Security model](/guides/security-model). The canonical policy is [SECURITY.md](https://github.com/kenryu42/cc-safety-net/blob/main/SECURITY.md) in the source repository.
+The maintainer ships security fixes for the latest published release of `cc-safety-net` only. If you use an older version, upgrade and reproduce the issue there before you report it.
 
-A command that was not blocked is a **public** bug. Harmful behavior by CC Safety Net is a **private** vulnerability. If you are not sure which report you have, read [Choose a public or private report](#choose-a-public-or-private-report). If you still need to diagnose the behavior, start at [Troubleshooting](/guides/troubleshooting).
+For what CC Safety Net protects and trusts, see [Security model](/guides/security-model). The canonical policy is [SECURITY.md](https://github.com/kenryu42/cc-safety-net/blob/main/SECURITY.md) in the source repository.
 
 ## Report a vulnerability privately
 
-**Do not report security vulnerabilities in public GitHub issues.** Use GitHub private vulnerability reporting for the repository when available. If that is unavailable, email the maintainer at **jliew@420024lab.com**.
+**Do not report security vulnerabilities in public GitHub issues.** Use GitHub private vulnerability reporting for the repository when available. If that is unavailable, email the maintainer at jliew@420024lab.com.
 
 Include this information when it is safe to share:
 
@@ -23,19 +23,15 @@ Include this information when it is safe to share:
 - Any relevant output from `cc-safety-net explain` or `cc-safety-net doctor`
 - Whether the issue can cause data loss, command execution, secret exposure, or another concrete security impact
 
-Redact tokens, credentials, private repository names, and sensitive file paths before sending logs or command output.
-
-<Warning>
-  `explain` and `doctor` output is **not** automatically safe to attach. Redaction covers recognized credential shapes only. The output includes the command text you supplied, its parsed tokens, absolute paths including your home directory, hostnames, and your configuration paths. Reproduce the issue with **placeholder credentials** and read the output before you send it.
-</Warning>
+Redact tokens, credentials, private repository names, and sensitive file paths before you send logs or command output. `explain` and `doctor` output keeps paths and hostnames, so read [Before you share a trace](/reference/explain-trace#before-you-share-a-trace) first.
 
 ## Choose a public or private report
 
-CC Safety Net stops agents from running destructive commands within the selected safety level's documented guarantees. A report that the tool failed to do that job is a **bug**, and it belongs in a public GitHub issue. The strict and paranoid threat model assumes that an attacker can emit any destructive command through prompt injection or adversarial context. Publishing "this command shape is not caught" does not give the attacker a new capability. It helps fix the gap faster and lets users add a custom rule as an immediate workaround.
+Ask one question. Did the tool fail to stop a destructive command, or did the tool itself cause the harm?
 
-If the tool itself disclosed a secret its caller did not already hold, wrote a file outside its own directory, or shipped a tampered package, report a **vulnerability**. The method that caused this harm may not be obvious, so report it privately.
+A command CC Safety Net should have blocked is a bug for a public GitHub issue. The strict and paranoid threat model already assumes an attacker can make an agent emit any destructive command, so publishing "this command shape is not caught" gives an attacker nothing new. A public report gets the gap fixed faster and lets other users add a custom rule in the meantime.
 
-Use this dividing line: **did the tool fail to stop a destructive command, or did the tool itself cause the harm?**
+If the tool itself disclosed a secret its caller did not already hold, wrote a file outside its own directory, or shipped a tampered package, report a vulnerability privately.
 
 ## What counts as a security issue
 
@@ -60,22 +56,14 @@ Use normal [GitHub issues](https://github.com/kenryu42/cc-safety-net/issues) for
 
 Findings from Anthropic's OSS Scanner, including bypasses, are confidential under that service's terms. The maintainer fixes them privately and opens a public issue only after the fix is released.
 
-Grok Build hooks are fail-open by design, and the host exposes no `failClosed` knob. Only an explicit deny on stdout blocks a tool call, so a hook that crashes, times out, or emits malformed output lets the call proceed. The adapter still emits an explicit deny for its own fail-closed outcomes, such as truncated tool input or an unusable working directory. A failure that leaves the adapter with no output at all does not block the call on this host. That is host behavior, not a coverage gap.
-
-Factory Droid hooks also fail open. Only exit code 2 or an explicit deny on stdout blocks a tool call. When the adapter denies a call, it prints the deny on stdout, writes the reason to stderr, and exits with code 2. Droid 0.240.0 takes the first hook result that carries a permission decision, so another installed hook that allows or asks could override a stdout deny on its own. Exit code 2 always blocks. Droid treats an exit code other than 0 or 2, a crash, a timeout, or a missing `npx` as a non-blocking error and runs the call. The adapter emits nothing for an allowed call, so Droid's own permission prompt still applies. An enterprise `allowManagedHooksOnly` setting ignores user and project hooks, so the hook that `install --droid` writes to `~/.factory/hooks.json` does not run under it. The hook is verified against `Execute` and the file tools. Whether `Task` subagents, `Loop`, and automation tools reach it is unverified.
-
-Devin CLI hooks also fail open. Only exit code 2 or a `block` decision on stdout blocks a tool call. A timeout, a missing `npx`, or a hook process that dies before printing a decision lets the call proceed. Errors the adapter catches itself still produce a `block` decision. The adapter emits nothing for an allowed call, so Devin's own permission prompt still applies.
-
-CC Safety Net supports only the user-level Devin config that `install --devin` writes: `$XDG_CONFIG_HOME/devin/config.json`, by default `~/.config/devin/config.json`, or `%APPDATA%\devin\config.json` on Windows. Hooks in that file run in the session directory. Hooks in a project `.devin/hooks.v1.json` run with the repository root as their working directory, and the payload carries no `cwd` to correct that. The adapter analyzes each `write_to_process` call on its own, so a command split across several writes to an interactive shell is outside the analysis. The adapter analyzes text typed through `text_input` or `bytes_input` as a command. In `bytes_input`, only `<CR>` and `<LF>` end a line. The adapter denies a call that carries text in either field together with any other key (`<ESC>`, `<BS>`, an arrow key, or a `<C-…>` key), because the line the receiving program runs cannot be known. A call that sends those keys alone, such as `<UP><CR>` or `<C-c>`, is not analyzed as a command. The adapter also denies a call with an undocumented key token, or with text in both `text_input` and `bytes_input`. CC Safety Net does not cover Devin Cloud sessions. Devin also loads Claude Code hook files by default, so a CC Safety Net hook installed for Claude Code may run there as well, which only duplicates denials.
-
-Other hosts also have limits CC Safety Net cannot correct. For example, `openclaw agent exec` never runs the plugin hook, and Kimi Code sends the server's directory as `cwd` in `kimi web` and ACP sessions. [Known limitations](/guides/known-limitations) lists them. They are host behavior, not coverage gaps.
+Fail-open hosts such as Grok Build, Factory Droid, and Devin CLI, and other host limits CC Safety Net cannot correct, are host behavior, not coverage gaps. [Known limitations](/guides/known-limitations) lists each host's limits.
 
 <Note>
-  A destructive-command coverage gap stays public even when it looks severe. It is not reclassified as a vulnerability. Use the private path only for the categories listed above. A command allowed under [standard mode's documented relaxations](/guides/security-model#what-each-safety-level-guarantees) is not a gap. Standard is best-effort, while strict and paranoid fail closed on those forms.
+  A destructive-command coverage gap stays public even when it looks severe. The maintainer does not reclassify it as a vulnerability. Use the private path only for the categories listed above. A command allowed under [standard mode's documented relaxations](/configuration/modes#default-mode) is not a gap. Standard is best-effort, while strict and paranoid fail closed on those forms.
 </Note>
 
 ## What happens after you report
 
-You should receive an initial response within **7 days**. The maintainer will work with you to confirm the impact, identify affected versions, prepare a fix, and coordinate disclosure. Give the maintainer reasonable time to investigate before you publish details.
+You should receive an initial response within 7 days. The maintainer will work with you to confirm the impact, identify affected versions, prepare a fix, and coordinate disclosure. Give the maintainer reasonable time to investigate before you publish details.
 
-When a vulnerability is confirmed, the maintainer publishes a fix as soon as practical. The maintainer can also publish a GitHub security advisory or release note with appropriate credit unless you request otherwise. Do not disclose exploit details until a fixed version is available.
+When the maintainer confirms a vulnerability, they publish a fix as soon as practical. The maintainer can also publish a GitHub security advisory or release note with appropriate credit unless you request otherwise. Do not disclose exploit details until a fixed version is available.

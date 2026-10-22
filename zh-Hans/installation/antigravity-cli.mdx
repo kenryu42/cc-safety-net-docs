@@ -1,0 +1,64 @@
+---
+title: "在 Antigravity CLI 中安装 CC Safety Net"
+sidebarTitle: "Antigravity CLI"
+description: "通过 ~/.gemini/config/hooks.json 中的 PreToolUse hook 在 Antigravity CLI 中安装 CC Safety Net，了解它检查哪些 run_command 和 manage_task 调用、如何卸载，以及 doctor 如何报告它。"
+keywords:
+  - "antigravity"
+  - "agy-cli"
+  - "hooks.json"
+  - "PreToolUse"
+  - "run_command"
+  - "manage_task"
+---
+
+运行 `npx -y cc-safety-net@latest install --agy-cli`。它会在 `~/.gemini/config/hooks.json` 中添加一个托管的 `PreToolUse` hook，对每次工具调用运行 `npx -y cc-safety-net hook --agy-cli`。该 hook 检查 `run_command` 中的 shell 命令，以及通过 `manage_task` 发送给正在运行任务的输入。然后运行 `npx cc-safety-net doctor`，确认 hook 已生效。
+
+## 在 Antigravity CLI 中安装 CC Safety Net
+
+<Steps>
+  <Step title="运行安装程序">
+    ```bash
+    npx -y cc-safety-net@latest install --agy-cli
+    ```
+  </Step>
+  <Step title="确认 hook 已生效">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+hook 就位后，`doctor` 输出中 Antigravity CLI 一行显示 `Detected` 和 `Configured`。如果 hook 定义带有 `enabled: false`，则显示 `Detected` 和 `Not configured`。
+
+要在 Antigravity CLI 中使用 `/cc-safety-net` 技能，需要另行添加。见 [/cc-safety-net 技能](/zh-Hans/guides/skill#how-you-invoke-it)。
+
+## Antigravity CLI 安装会改动什么
+
+Antigravity 与 Gemini 共用 `.gemini` 目录，因此安装程序写入的是 `~/.gemini/config/hooks.json`。托管条目名为 `cc-safety-net`，它注册一个 `PreToolUse` 命令 hook，以 30 秒超时运行 `npx -y cc-safety-net hook --agy-cli`。文件不存在时，安装会新建该文件；托管条目被禁用时，安装会重新启用它。
+
+<span id="what-the-antigravity-cli-hook-checks"></span>
+
+## Antigravity CLI hook 检查什么
+
+- hook 把 `run_command` 调用作为 shell 命令分析。
+- `Action` 为 `send_input` 且 `Input` 为非空字符串的 `manage_task` 调用，hook 也会分析。这段文本会发送给已在运行的任务。hook 把 `Input` 作为 shell 命令分析，并检测其 shell 方言。
+- 其他 `manage_task` 操作被视为不运行命令的工具调用。
+
+## Antigravity CLI 检查失败时会怎样
+
+hook 失败时，Antigravity CLI 会阻止该工具调用。崩溃或非零退出、超时（30 秒）、缺少 `npx`，以及输出不是有效 JSON，都会让调用停止。这是本项目 2026 年 10 月在 macOS 上的 Antigravity CLI 1.4.5 中观察到的行为，Antigravity 并未把它作为约定公布。
+
+## 从 Antigravity CLI 卸载 CC Safety Net
+
+```bash
+npx -y cc-safety-net@latest uninstall --agy-cli
+```
+
+卸载只删除命令与托管字符串一致的条目，`~/.gemini/config/hooks.json` 中的其他内容保持不变。
+
+<span id="troubleshoot-antigravity-cli"></span>
+
+## Antigravity CLI 故障排除
+
+- **`doctor` 报告 `Error (Antigravity CLI): Failed to parse Antigravity hooks config <path>: <reason>`。** `~/.gemini/config/hooks.json` 不是有效的 JSON，因此 `doctor` 把 Antigravity CLI 计为未配置，并以 `1` 退出。修正 JSON 后重新安装。见 [hook 配置解析错误](/zh-Hans/reference/cli/doctor#hook-config-parse-errors)。
+- **你手动编辑过托管条目。** `doctor` 不对 Antigravity CLI 运行[漂移检查](/zh-Hans/reference/cli/doctor#managed-hook-drift)，因此条目被改动时不会发出警告。安装也会让已启用的托管条目保持原样。要恢复默认条目，先运行 `uninstall --agy-cli`，再重新安装。

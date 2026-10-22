@@ -1,0 +1,77 @@
+---
+title: "Install CC Safety Net in Grok Build"
+sidebarTitle: "Grok Build"
+description: "Install CC Safety Net in Grok Build with one PreToolUse hook file under ~/.grok/hooks, see which tools the hook checks and what happens when it fails, remove it, and fix a hook listed in disabled-hooks."
+keywords:
+  - "grok"
+  - "grok build"
+  - "GROK_HOME"
+  - "PreToolUse"
+  - "disabled-hooks"
+  - "workspaceRoot"
+---
+
+Run `npx -y cc-safety-net@latest install --grok-build`. It writes one `PreToolUse` hook file, `~/.grok/hooks/cc-safety-net.json`, so every tool call reaches CC Safety Net first. Then run `npx cc-safety-net doctor` to confirm the hook is active. Grok Build hooks fail open, so a hook that crashes or times out lets the call proceed.
+
+## Install CC Safety Net in Grok Build
+
+<Steps>
+  <Step title="Run the installer">
+    ```bash
+    npx -y cc-safety-net@latest install --grok-build
+    ```
+  </Step>
+  <Step title="Confirm the hook is active">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+## What the Grok Build install changes
+
+The installer writes this managed `PreToolUse` entry to `~/.grok/hooks/cc-safety-net.json`, or to `$GROK_HOME/hooks/cc-safety-net.json` when `GROK_HOME` is set:
+
+```json
+{ "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --grok-build", "timeout": 30 }] }
+```
+
+- The entry has no matcher, so every tool call reaches the hook, not only `run_terminal_command`.
+- Hooks in that file that CC Safety Net does not manage stay as they are.
+- If the file does not parse, install replaces it. Grok Build skips a hook file that does not parse, so such a file held no working hooks.
+
+## What the Grok Build hook checks
+
+- The hook analyzes `run_terminal_command`, `run_terminal_cmd`, `monitor`, `bash`, and `Shell` calls as shell commands, and detects each one's shell dialect.
+- For file and patch tools, it inspects the tool input for protected paths.
+- It denies a call whose input Grok Build truncated. Grok Build cuts tool input at 128 KB, and the hook cannot analyze a cut command.
+
+The hook checks commands in the session directory, which must be inside the workspace root. `bash` and `Shell` can name their own directory in `workdir` or `working_directory`. That directory must exist and be inside the workspace root too. The hook denies the call when either directory falls outside the root or cannot be resolved.
+
+## What happens when the Grok Build check fails
+
+Grok Build hooks fail open, and Grok Build has no `failClosed` setting. Only an explicit deny blocks a tool call. A hook that crashes, times out, or prints malformed output lets the call proceed. The hook still prints a deny for failures it catches itself, such as truncated input or an unusable working directory.
+
+## Uninstall CC Safety Net from Grok Build
+
+```bash
+npx -y cc-safety-net@latest uninstall --grok-build
+```
+
+Uninstall removes only the managed hook. It deletes `cc-safety-net.json` when nothing else remains in it, and leaves a file that does not parse alone.
+
+## Troubleshoot Grok Build
+
+### When Grok Build skips the CC Safety Net hook
+
+Grok Build skips every hook listed in its `disabled-hooks` file, `~/.grok/disabled-hooks` or `$GROK_HOME/disabled-hooks`. When that file lists the CC Safety Net hook, `doctor` prints:
+
+```text
+Error (Grok Build): Grok Build skips the hook: <name> is listed in <path>; enable it in /hooks
+```
+
+Enable the hook in Grok Build's `/hooks` menu. When `doctor` cannot read `disabled-hooks`, it warns `Cannot read <path>, so doctor cannot tell whether Grok Build skips the hook` and still reports the hook as configured.
+
+### The managed entry changed
+
+If you or another tool edited the managed entry, `doctor` prints a [drift warning](/reference/cli/doctor#managed-hook-drift). Run `install --grok-build` again to rewrite it.

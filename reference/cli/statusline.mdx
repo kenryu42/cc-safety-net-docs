@@ -1,0 +1,102 @@
+---
+title: "statusline command"
+sidebarTitle: "statusline"
+description: "Show CC Safety Net's safety level, worktree mode, project-policy weakenings, and degraded configuration in Claude Code's status line. Setup for bunx, npx, and claude x, and what every emoji indicator means."
+keywords:
+  - "statusline"
+  - "status line"
+  - "status bar"
+  - "emoji"
+  - "claude code"
+  - "indicator"
+---
+
+`statusline` prints CC Safety Net's current state as one line of emoji for Claude Code's status line, such as `🛡️ CC Safety Net ✅🌳`. It requires `--claude-code`, or its short form `-cc`. Without the flag, it prints an error, shows help, and exits `1`. For a multi-line report that explains each problem, run [`status`](/reference/cli/status) instead.
+
+```bash
+bunx cc-safety-net statusline --claude-code
+# -cc is the short form of --claude-code
+bunx cc-safety-net statusline -cc
+```
+
+The status line is for Claude Code only. It checks whether the marketplace plugin is enabled, so it does not suit other agents or a manual Claude Code hook.
+
+## Set up the Claude Code status line
+
+Add a `statusLine` entry to `~/.claude/settings.json`. Claude Code picks up the change without a restart. Choose the runner that matches your environment:
+
+<Tabs>
+  <Tab title="Bun (recommended)">
+    ```json
+    {
+      "statusLine": {
+        "type": "command",
+        "command": "bunx cc-safety-net statusline --claude-code"
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="Claude X">
+    ```json
+    {
+      "statusLine": {
+        "type": "command",
+        "command": "BUN_BE_BUN=1 claude x cc-safety-net statusline --claude-code"
+      }
+    }
+    ```
+
+    <Note>
+      `claude x` works only with a native Claude Code installation. If you installed Claude Code through npm, use `bunx` or `npx` instead.
+    </Note>
+  </Tab>
+  <Tab title="NPM">
+    ```json
+    {
+      "statusLine": {
+        "type": "command",
+        "command": "npx -y cc-safety-net statusline --claude-code"
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="Pipe with existing command">
+    If you already have a status line command, pipe it into CC Safety Net so both outputs show:
+
+    ```json
+    {
+      "statusLine": {
+        "type": "command",
+        "command": "your-existing-command | bunx cc-safety-net statusline --claude-code"
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## statusline indicators
+
+The line shows one level indicator, then any state indicators in this order:
+
+```text
+🛡️ CC Safety Net <level><worktree><weakened><degraded>
+```
+
+| Indicator | Meaning |
+| --- | --- |
+| `✅` | Effective level is `standard` |
+| `🔒` | Effective level is `strict` |
+| `👁️` | Effective level is `paranoid` |
+| `🔧` | Effective level is `custom`, because the enabled capabilities match no preset or a `destructive_command_protection.overrides` entry changes a rule from its level default |
+| `🌳` | [Worktree mode](/configuration/modes) is on |
+| `🔻` | A project `.cc-safety-net/policy.json` relaxes at least one field of your user policy. The line omits it for weakenings that `CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY` ignores |
+| `⚠️` | Part of the configuration failed to load, so it is [degraded](/configuration/recovery) |
+| `❌` | The `cc-safety-net@cc-marketplace` plugin is not enabled. It replaces every other indicator, so the line reads `🛡️ CC Safety Net ❌` |
+
+The level is the effective level after CC Safety Net combines `policy.json` with the environment. See [Environment](/configuration/environment#precedence). `🔻` and `⚠️` do not name the field or file involved. Run [`status`](/reference/cli/status) for the details.
+
+`❌` reads only `enabledPlugins["cc-safety-net@cc-marketplace"]` in your Claude Code settings. With a manual Claude Code hook, the line shows `❌` even though protection is active.
+
+## statusline piped input
+
+When you pipe input to `statusline`, it reads stdin. It discards Claude Code's JSON status payload. It keeps any other piped text and puts it in front of the indicators as `<stdin> | <status>`.

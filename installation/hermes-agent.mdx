@@ -1,0 +1,73 @@
+---
+title: "Install CC Safety Net in Hermes Agent"
+sidebarTitle: "Hermes Agent"
+description: "Install CC Safety Net in Hermes Agent as a managed Python plugin, see which tools the plugin checks, what happens when it fails, how it finds the active profile, and how to remove it."
+keywords:
+  - "hermes"
+  - "hermes agent"
+  - "HERMES_HOME"
+  - "active_profile"
+  - "pre_tool_call"
+  - "hermes plugins enable"
+---
+
+Run `npx -y cc-safety-net@latest install --hermes-agent`. It writes a managed Python plugin into `plugins/cc-safety-net/` inside the Hermes home directory and enables it with the `hermes` CLI. Then restart Hermes to load the plugin. The plugin fails closed, which means Hermes blocks the tool call when the analysis cannot finish. This integration runs on macOS and Linux only.
+
+## Install CC Safety Net in Hermes Agent
+
+<Steps>
+  <Step title="Run the installer">
+    ```bash
+    npx -y cc-safety-net@latest install --hermes-agent
+    ```
+  </Step>
+  <Step title="Restart Hermes">
+    Restart Hermes. Do the same after every update or uninstall.
+  </Step>
+  <Step title="Confirm the plugin is active">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+## What the Hermes Agent install changes
+
+- The installer writes two managed files, `__init__.py` and `plugin.yaml`, to `<Hermes home>/plugins/cc-safety-net/`.
+- It then runs `hermes plugins enable cc-safety-net --no-allow-tool-override`. Hermes loads a user plugin only when its config lists it as enabled.
+
+The Hermes home is `HERMES_HOME`, or `~/.hermes` when that is unset. When that directory's `active_profile` file names a profile, the home is `profiles/<name>` inside it, the same profile the `hermes` CLI uses. When `HERMES_HOME` already points into a `profiles` directory, CC Safety Net uses it as written.
+
+## What the Hermes Agent plugin checks
+
+On each `pre_tool_call` event, the plugin sends the tool call to `npx -y cc-safety-net hook --hermes-agent` with a 30-second timeout. It checks the `terminal`, `read_file`, `write_file`, and `patch` tools, each in the directory Hermes would run it in.
+
+## What happens when the Hermes Agent check fails
+
+The plugin fails closed. When `npx` is missing, or the analysis cannot start, times out, exits non-zero, or returns unreadable output, the plugin blocks the tool call with an explicit message. When it cannot read the tool's directory from Hermes, it blocks the call with:
+
+```text
+CC Safety Net failed closed: the Hermes file tool directory could not be read (<error>). Update cc-safety-net and reinstall the plugin with: npx -y cc-safety-net install --hermes-agent.
+```
+
+For a `terminal` call, the message says `session` in place of `file tool`.
+
+## Hermes Agent coverage limits
+
+- **Other tools.** Calls from any Hermes tool other than the four above get no decision.
+- **Commands you type.** A `!command` you type yourself does not raise `pre_tool_call`, so Hermes' own command guard handles it. CC Safety Net sees only the tool calls the model makes.
+- **A plugin Hermes never loads.** If Hermes does not load the plugin, CC Safety Net blocks nothing. `doctor` reads the plugin files and the Hermes config but cannot ask a running Hermes, so restart Hermes and test again after a change.
+- **Windows.** The install writes the plugin to a POSIX path that Hermes on Windows does not read.
+
+## Uninstall CC Safety Net from Hermes Agent
+
+```bash
+npx -y cc-safety-net@latest uninstall --hermes-agent
+```
+
+Uninstall runs `hermes plugins disable cc-safety-net`, then removes the plugin files. If the `hermes` CLI fails or is missing, it still removes the files and warns that the Hermes config may still list `cc-safety-net`. Restart Hermes afterward.
+
+## Troubleshoot Hermes Agent
+
+- **Install or uninstall refuses to touch a path.** The plugin directory or a managed file is a symlink, is not a regular file or directory, or lacks the CC Safety Net managed header. Move or remove that path yourself and run the command again.
+- **`Invalid Hermes profile name "<profile>" in <root>/active_profile`.** The `active_profile` file names a profile that is not a valid Hermes profile id. Run `hermes profile use <name>` with a valid profile. Install and uninstall stop at this error, and `doctor` reports it on the Hermes Agent row.

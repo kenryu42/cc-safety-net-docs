@@ -1,0 +1,82 @@
+---
+title: "Install CC Safety Net in Factory Droid"
+sidebarTitle: "Factory Droid"
+description: "Install CC Safety Net in Factory Droid with one PreToolUse hook in ~/.factory/hooks.json, see how install carries over legacy and settings.json hooks, what the hook checks, and how uninstall restores the old hook set."
+keywords:
+  - "factory droid"
+  - "droid"
+  - "hooks.json"
+  - "PreToolUse"
+  - "JSONC"
+  - "allowManagedHooksOnly"
+---
+
+Run `npx -y cc-safety-net@latest install --droid`. It adds one `PreToolUse` hook to `~/.factory/hooks.json`, so every tool call reaches CC Safety Net first. Then run `npx cc-safety-net doctor` to confirm the hook is active. Factory Droid hooks fail open, which means a crash, a timeout, or a missing `npx` lets the call proceed.
+
+## Install CC Safety Net in Factory Droid
+
+<Steps>
+  <Step title="Run the installer">
+    ```bash
+    npx -y cc-safety-net@latest install --droid
+    ```
+  </Step>
+  <Step title="Confirm the hook is active">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+## What the Factory Droid install changes
+
+The installer writes this managed entry into the top-level `PreToolUse` array in `~/.factory/hooks.json`:
+
+```json
+{ "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --droid", "timeout": 30 }] }
+```
+
+- The entry has no matcher and no `commandRegex`, so every tool call reaches the hook, not only `Execute`.
+- Install keeps every other key, hook event, and `PreToolUse` entry in `hooks.json`. It never writes `~/.factory/settings.json` or the legacy `~/.factory/hooks/hooks.json`.
+- Droid accepts comments and trailing commas in `hooks.json`. Install and uninstall write the file back as plain JSON, so your comments are lost.
+
+### How install seeds a new Factory Droid hooks.json
+
+Droid stops reading the legacy `~/.factory/hooks/hooks.json` once `hooks.json` exists, and a `PreToolUse` list in `hooks.json` hides the one in `~/.factory/settings.json`. So when `hooks.json` does not exist yet, install first copies in every hook event from the legacy file. If the legacy file has no `PreToolUse` hooks, install copies the `PreToolUse` hooks from `settings.json` instead. Your existing hooks keep running.
+
+## What the Factory Droid hook checks
+
+- `Execute` is the only command tool. The hook detects its shell dialect.
+- For other tools, the hook inspects the tool input for protected paths.
+
+For an allowed call, the hook writes nothing, so Factory Droid's own permission prompt still applies.
+
+## What happens when the Factory Droid check fails
+
+Factory Droid hooks fail open. Only exit code 2 or an explicit deny decision blocks a tool call. An exit code other than 0 or 2, a crash, a timeout, or a missing `npx` lets the call proceed. A CC Safety Net denial exits with code 2, so another hook's allow cannot override it.
+
+With the enterprise setting `allowManagedHooksOnly`, Droid ignores user and project hooks, so the hook that `install --droid` writes does not run.
+
+## Factory Droid coverage limits
+
+The project verified the hook against `Execute` and the file tools. It has not verified that `Task` subagents, `Loop`, and automation tools reach the hook.
+
+## Uninstall CC Safety Net from Factory Droid
+
+```bash
+npx -y cc-safety-net@latest uninstall --droid
+```
+
+Uninstall removes only the managed handler. Hooks that install copied in from the legacy file or `settings.json` stay, so the hooks in effect after uninstall match the ones before install.
+
+## Troubleshoot Factory Droid
+
+When a file it reads has a problem, install stops, writes nothing, and names the file. `doctor` prints the parse error for `hooks.json` as `Error (Factory Droid): <message>` and exits `1`. A comment alone is not a parse error. Fix the file, then run the install again.
+
+| Problem | Message |
+| --- | --- |
+| A file does not parse | `Failed to parse Factory Droid hooks config <path>: <reason>` |
+| The root of `hooks.json` or the legacy file is not a JSON object | `Factory Droid hooks config <path> must be a JSON object` |
+| Its `PreToolUse` is not an array | `Factory Droid hooks config <path> "PreToolUse" must be an array` |
+
+If `doctor` warns about a changed hook entry, run the install again. [Managed hook drift](/reference/cli/doctor#managed-hook-drift) lists the warnings.

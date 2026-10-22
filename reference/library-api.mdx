@@ -1,7 +1,7 @@
 ---
 title: "Library API reference"
 sidebarTitle: "Library API"
-description: "The cc-safety-net/api subpath export: the checkCommand function, its CheckCommandInput and CheckCommandResult types, the TypeError messages it throws, and what one call does and does not check."
+description: "Call checkCommand from cc-safety-net/api to check a shell command in your own Node.js agent or harness: when to use it instead of an installed hook, its types and errors, which policy a call reads, what stays stable across versions, and a plugin-host example."
 keywords:
   - "library API"
   - "checkCommand"
@@ -13,9 +13,20 @@ keywords:
   - "programmatic check"
 ---
 
-A Node.js host that needs an allow or deny decision inside its own process can call `checkCommand` instead of installing an agent integration. The function checks one shell command against the current policy and returns the decision. It never runs the command.
+A Node.js host that runs commands itself, such as an agent, a task runner, a CI harness, or a plugin host with a shell tool, can call `checkCommand` instead of installing an agent integration. The function checks one shell command against the current policy and returns allow or deny. It never runs the command.
 
-This is one function, not a plugin framework. See [Integration architecture](/guides/integration-architecture) for the integrations it can replace.
+## Library API or installed integration
+
+Both run the same analysis engine. They differ in who owns the call.
+
+| | Installed integration | `checkCommand` in process |
+| --- | --- | --- |
+| Who wires it | `cc-safety-net install <target>`, once per machine | Your code, at every command site |
+| Where the decision happens | A hook subprocess or an agent-loaded plugin | Your process, synchronously |
+| Audit trail | Every decision, readable with `logs` and the dashboard | None. Your host logs what it needs |
+| Works for | The sixteen supported agents | Any Node.js host |
+
+If your users run one of the supported agents, give them the install command. See [Integration models](/guides/how-it-works#integration-models). If your program runs the commands, call the function.
 
 ## Install and import
 
@@ -27,13 +38,7 @@ npm install cc-safety-net
 import { checkCommand } from 'cc-safety-net/api';
 ```
 
-The package exports the `cc-safety-net/api` subpath alongside its root export:
-
-```json
-"./api": { "types": "./dist/api.d.ts", "import": "./dist/api.js" }
-```
-
-It requires Node.js 18 or later and ESM. The package is `"type": "module"` and there is no CommonJS build, so `require()` cannot resolve the subpath.
+It requires Node.js 18 or later and ESM. There is no CommonJS build, so `require()` cannot load it. Import from `cc-safety-net/api`, because the package root export is the OpenCode plugin, not `checkCommand`.
 
 ## `checkCommand`
 
@@ -54,8 +59,8 @@ type CheckCommandInput = Readonly<{
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `command` | `string` | The shell command text to check. Must be non-empty |
-| `cwd` | `string` | An absolute directory path. It anchors relative command targets and selects the project's rule configuration |
+| `command` | `string` | The shell command text to check. It must not be empty |
+| `cwd` | `string` | An absolute directory path. The call resolves relative command targets against it and uses it to select the project's rule configuration |
 
 `cwd` is required and has no default. The API never falls back to `process.cwd()`, so the host decides which project a command belongs to.
 
@@ -75,11 +80,11 @@ type CheckCommandResult =
 
 Read `kind` for the decision. A `deny` means the host must not execute the command. `reason` is display text. Do not parse or compare it.
 
-Every deny carries a `ruleId`. It is a built-in rule id such as `git.reset-hard`, a secret rule id, a `custom.` rule id, or one of the [fixed denial ids](/reference/destructive-rules#fixed-denial-ids), such as `cwd.requested-unusable`. You can branch on it to handle one kind of deny differently, for example to tell the user to fix the working directory. A deny blocks the command whatever its id. A later version can add ids, so treat an id you do not recognize as a plain deny. For what a deny can be, see [Blocked commands](/reference/blocked-commands).
+Every deny carries a `ruleId`. It is a built-in rule id such as `git.reset-hard`, a secret rule id, a `custom.` rule id, or one of the [fixed denial ids](/reference/blocked-commands#fixed-denial-ids), such as `cwd.requested-unusable`. You can branch on it to handle one kind of deny differently, for example to tell the user to fix the working directory. A deny blocks the command whatever its id. A later version can add ids, so treat an id you do not recognize as a plain deny. For every kind of deny, see [Blocked commands](/reference/blocked-commands).
 
 ### Errors
 
-The function re-validates its input, because an untyped caller can pass anything TypeScript would reject. `checkCommand` throws `TypeError` with one of these messages:
+`checkCommand` validates its input at runtime and throws `TypeError` with one of these messages:
 
 | Message | Condition |
 | --- | --- |
@@ -87,7 +92,7 @@ The function re-validates its input, because an untyped caller can pass anything
 | `command must be a non-empty string` | `command` is not a string, or is blank |
 | `cwd must be an absolute directory path` | `cwd` is not a string, is blank, or is not absolute |
 
-`checkCommand` catches a known guard failure and returns its fail-closed deny instead, so that failure does not become a fail-open host mistake. Every other throw reaches the caller.
+A known guard failure returns a fail-closed deny instead of throwing. `checkCommand` throws any other error to the caller.
 
 <Warning>
   If `checkCommand` throws, do not execute the command. A throw is not an allow.
@@ -95,52 +100,75 @@ The function re-validates its input, because an untyped caller can pass anything
 
 ### Unusable working directory
 
-`cwd` is normalized with `resolve()`, then checked. The path must stat as a directory and be readable and searchable. There is deliberately no `realpath` step, so the OpenCode plugin and this function decide alike for one directory.
-
-When that check fails, the call returns a deny with `ruleId` `cwd.requested-unusable` instead of analyzing the wrong project. The reason is:
+`cwd` must be an existing directory that is readable and searchable. Otherwise the call returns a deny with `ruleId` `cwd.requested-unusable` instead of analyzing the wrong project. The reason is:
 
 ```
 CC Safety Net could not use the requested working directory because it does not exist, is inaccessible, is not a directory, or uses an unsupported path form. Use an existing accessible working directory. If the requested directory is missing, create it from an accessible location before retrying the command.
 ```
 
-## Example
+## Which policy a call reads
+
+A call reads the same user and project files as a hook. The project files come from `<cwd>/.cc-safety-net/` exactly. The call does not search parent directories, so pass the repository root as `cwd`, or the committed project policy does not load. [Policy](/configuration/policy#project-policy) covers how the two scopes merge.
+
+Because `cwd` selects the project, a host that manages several checkouts gets the right policy for each one by passing its directory. To see what your host will decide, run `status`, `doctor`, or `explain` in the directory you pass as `cwd`.
+
+## Stability across versions
+
+These hold across minor versions:
+
+- The input shape `{ command, cwd }`, and the two result kinds, `allow`, and `deny` with `reason` and `ruleId`.
+- A `deny` or a throw means do not run the command.
+- Relative command targets and the project configuration resolve against the `cwd` you pass, never `process.cwd()`.
+- A call writes no audit record and makes no network request. See [What one call checks](#what-one-call-checks).
+
+The rule catalog can change in any minor version. A new release can deny a command an older one allowed, and `reason` wording changes. Branch on `kind`, keep `reason` for people and logs, and pin the version in your lockfile.
+
+## Example: a plugin host
+
+A host with a plugin system usually has a pre-execution hook that can veto a tool call. The plugin maps the host's event to `{ command, cwd }`, calls `checkCommand`, and turns a deny into the host's veto:
 
 ```ts
 import { checkCommand } from 'cc-safety-net/api';
 
-function canRun(command: string, cwd: string): boolean {
-  try {
-    const result = checkCommand({ command, cwd });
-    if (result.kind === 'allow') return true;
-    console.error(result.reason);
-    return false;
-  } catch (error) {
-    console.error('CC Safety Net could not check the command', error);
-    return false;
-  }
-}
+export function registerSafetyNet(host: PluginHost) {
+  host.beforeToolCall((call, ctx) => {
+    if (call.toolName !== 'shell') return undefined;
 
-canRun('git status', process.cwd());
+    if (typeof call.input.command !== 'string' || call.input.command.trim() === '') {
+      return { block: true, reason: 'Malformed shell tool call.' };
+    }
+
+    try {
+      const result = checkCommand({ command: call.input.command, cwd: ctx.projectRoot });
+      if (result.kind === 'deny') return { block: true, reason: result.reason };
+      return undefined;
+    } catch (error) {
+      console.error('CC Safety Net could not check the command', error);
+      return { block: true, reason: 'Command check failed. The command was not executed.' };
+    }
+  });
+}
 ```
 
-## What one call does
+- The plugin sends only shell tool calls to `checkCommand`. It checks shell command text, not the host's read, write, or search tools.
+- `cwd` is the absolute project root. It selects the project policy, and `checkCommand` resolves relative paths in the command, such as `.env`, against it.
+- A throw blocks the call. If the handler let an error fall through to execution, a broken check would become an allow.
+- A malformed event blocks, because there is nothing to analyze.
 
-The function builds a command tool invocation named `library-api`, with the shell set to `auto` and both the config and execution working directories set to the resolved `cwd`. It then evaluates the guard directly. Because it calls the guard rather than an agent integration, it never executes the command, writes an audit record, changes configuration, or makes a network request.
+If your host vetoes by throwing, throw the denial message instead of returning it.
 
-It checks commands in full, including any secret-file access a command performs. It does not check the host's own non-shell file tools, such as read, write, edit, and search.
+## What one call checks
+
+The call detects the shell dialect automatically and uses `cwd` as both the project and the execution directory. It checks the command in full, including any secret-file access the command performs. It does not check the host's own non-shell file tools, such as read, write, edit, and search.
+
+A call never runs the command, changes configuration, or makes a network request. It writes no audit record, so the `logs` command and the dashboard never show it. If your host does not log a denial, nothing records it.
 
 ## Environment
 
-Every call reads the `CC_SAFETY_NET_*` settings from the process environment, so changing them changes later decisions. An invalid `CC_SAFETY_NET_LEVEL` is ignored and reported on stderr:
+Every call reads the `CC_SAFETY_NET_*` settings from the process environment, so changing them changes later decisions. The call ignores an invalid `CC_SAFETY_NET_LEVEL` and reports it on stderr:
 
 ```
 CC Safety Net: ignored invalid CC_SAFETY_NET_LEVEL="<value>". Use standard, strict, paranoid.
 ```
 
-The reported value is JSON-quoted and truncated to its first 40 characters. See [Environment variables](/configuration/environment) for the full list.
-
-## Related pages
-
-- [Environment variables](/configuration/environment) documents every setting a call reads.
-- [Blocked commands](/reference/blocked-commands) lists what a deny can be.
-- [Integration architecture](/guides/integration-architecture) covers the agent integrations this function replaces when the host runs its own commands.
+The message JSON-quotes the value and truncates it to its first 40 characters. See [Environment variables](/configuration/environment) for the full list.

@@ -1,0 +1,144 @@
+---
+title: "在 Kimi Code 中安装 CC Safety Net"
+sidebarTitle: "Kimi Code"
+description: "在 Kimi Code 中把 CC Safety Net 安装为 config.toml 中的全局 PreToolUse hook 或原生 Kimi Code 插件，了解两者检查什么、检查失败时会怎样，以及如何修复无效的 hooks 条目和卸载。"
+keywords:
+  - "kimi"
+  - "kimi code"
+  - "config.toml"
+  - "KIMI_CODE_HOME"
+  - "PreToolUse"
+  - "kimi 插件"
+---
+
+运行 `npx -y cc-safety-net@latest install --kimi-code`，并从两种方式中选择一种：由安装程序把全局 hook 写入 `~/.kimi-code/config.toml`，或在 Kimi Code 内安装原生插件。两种方式对每次工具调用执行相同的检查，用 `npx cc-safety-net doctor` 都能确认是否生效。无论哪种方式，Kimi Code 的 hook 都是 fail open。
+
+## 在 Kimi Code 中安装 CC Safety Net
+
+在终端中，`install --kimi-code` 和交互式安装程序会询问是立即安装全局 hook，还是打印原生插件的安装步骤。选择插件时不会写入任何内容。在终端以外的环境中，例如 CI，该选项直接安装全局 hook，不会询问。
+
+<Tabs>
+  <Tab title="全局 hook">
+    <Steps>
+      <Step title="运行安装程序">
+        ```bash
+        npx -y cc-safety-net@latest install --kimi-code
+        ```
+
+        在终端中，在提示里选择全局 hook。
+      </Step>
+      <Step title="确认 hook 已生效">
+        ```bash
+        npx cc-safety-net doctor
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+  <Tab title="原生插件">
+    <Steps>
+      <Step title="在 Kimi Code 中安装插件">
+        ```text
+        /plugins install https://github.com/kenryu42/cc-safety-net/tree/plugin
+        ```
+
+        保留 `/tree/plugin` 后缀。不加它，Kimi Code 会安装整个仓库。
+      </Step>
+      <Step title="确认信任提示">
+        选择确认信任的选项。该提示的默认选项是取消。
+      </Step>
+      <Step title="重新加载 Kimi Code">
+        运行 `/reload` 或开始新会话。
+      </Step>
+      <Step title="确认插件已生效">
+        ```bash
+        npx cc-safety-net doctor
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+如果想在 Kimi Code 中编写规则，请添加[规则编写技能](/zh-Hans/guides/skill#how-you-invoke-it)。
+
+## Kimi Code 全局 hook 安装会改动什么
+
+安装程序把一个 `[[hooks]]` 块写入 `~/.kimi-code/config.toml`，设置了 `KIMI_CODE_HOME` 时写入 `$KIMI_CODE_HOME/config.toml`。该块在每次 `PreToolUse` 调用时运行 `npx -y cc-safety-net hook --kimi-code`。
+
+## Kimi Code hook 检查什么
+
+全局 hook 和插件对每次工具调用执行相同的检查：把 `Bash` 调用当作 shell 命令分析，并检查其他工具输入中的受保护路径。
+
+## Kimi Code 检查失败时会怎样
+
+Kimi Code 的 hook 是 fail open。无论哪种方式，hook 进程无法启动、崩溃或超时时，工具调用都会照常执行。此外，只要有一个 hooks 条目无效，Kimi Code 就会忽略 `config.toml` 中的所有 hook。见 [Kimi Code 中无效的 hooks 条目](#invalid-hooks-entries-in-kimi-code)。
+
+<span id="kimi-code-coverage-limits"></span>
+
+## Kimi Code 的覆盖限制
+
+在 `kimi web` 和 ACP 会话中，Kimi Code 把服务器的启动目录作为 payload 的 `cwd` 发送，而不是会话自己的目录。因此在这些会话中，CC Safety Net 会以服务器启动目录为基准检查每次 `Bash` 调用：
+
+- 相对路径，以及针对工作目录之外路径的规则，都按错误的目录解析。安全的命令可能被阻止，本应阻止的命令也可能被放行。
+- 如果 `cwd` 参数指定的会话目录位于服务器启动目录之外，hook 会拒绝该调用。
+
+终端中的 `kimi` 会话不受影响。这个缺口只能由 Kimi Code 发送会话目录来弥补。
+
+## 从全局 hook 迁移到原生插件
+
+先安装插件并确认它已生效，再移除全局 hook：
+
+```bash
+npx -y cc-safety-net@latest uninstall --kimi-code
+```
+
+两者短暂同时运行，只会让拒绝消息重复出现；两者都未生效的空窗期则会让你失去保护。
+
+## 在 Kimi Code 中更新 CC Safety Net
+
+[`update`](/zh-Hans/reference/cli/update) 会刷新全局 hook，但从不更新原生插件。对于插件，它会打印：
+
+```text
+Kimi Code plugin skipped: update it in Kimi Code from /plugins (Installed tab, select cc-safety-net, press Enter)
+```
+
+## 从 Kimi Code 卸载 CC Safety Net
+
+```bash
+npx -y cc-safety-net@latest uninstall --kimi-code
+```
+
+卸载只移除全局 hook，不会改动原生插件。
+
+## Kimi Code 故障排除
+
+<span id="invalid-hooks-entries-in-kimi-code"></span>
+
+### Kimi Code 中无效的 hooks 条目
+
+只要有一个 hooks 条目不符合 schema，Kimi Code 就会忽略 `config.toml` 中的所有 hook。因此 `doctor` 会检查每一个 `[[hooks]]` 条目，而不只是 CC Safety Net 的那一个，并为每个有问题的条目打印以下错误：
+
+```text
+Kimi Code ignores every hook because hooks entry <n> is invalid (<problem>); fix it in <path>
+```
+
+`<n>` 从 `1` 开始计数。`<problem>` 为以下之一：
+
+| 问题 | 原因 |
+| --- | --- |
+| `"<text>" is not a key = value pair` | 条目中有一部分不是 `key = value` 键值对 |
+| `unknown key "<key>"` | 出现了 `event`、`matcher`、`command`、`timeout` 以外的键 |
+| `duplicate key "<key>"` | 同一个键在条目中出现了两次 |
+| `"event" is not a Kimi Code hook event` | 缺少 `event`，或其值不是 Kimi Code 的 hook 事件 |
+| `"matcher" is not a string` | 有 `matcher`，但不是字符串 |
+| `"command" is missing or empty` | 缺少 `command`、不是字符串或为空 |
+| `"timeout" is not an integer from 1 to 600` | 有 `timeout`，但不是 `1` 到 `600` 之间的整数 |
+
+### Kimi Code 插件已安装但未启用
+
+`doctor` 从 Kimi 主目录（`$KIMI_CODE_HOME` 或 `~/.kimi-code`）下 `plugins` 中的 `installed.json` 读取插件记录。记录显示未启用时，会打印：
+
+```text
+cc-safety-net is installed but not enabled in Kimi Code; run /plugins enable cc-safety-net
+```
+
+请在 Kimi Code 中运行 `/plugins enable cc-safety-net`。`doctor` 无法读取该文件时，会打印 `Cannot read <path>, so doctor cannot tell whether the Kimi Code plugin is installed` 并以 `1` 退出。

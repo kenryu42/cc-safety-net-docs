@@ -1,0 +1,104 @@
+---
+title: "statusline 命令"
+sidebarTitle: "statusline"
+description: "在 Claude Code 状态行中显示 CC Safety Net 的安全级别、worktree 模式、项目策略削弱和 degraded 配置。包括 bunx、npx 和 claude x 的设置方法，以及每个表情符号指示器的含义。"
+keywords:
+  - "statusline"
+  - "状态行"
+  - "状态栏"
+  - "表情符号"
+  - "claude code"
+  - "指示器"
+---
+
+`statusline` 把 CC Safety Net 的当前状态打印为一行表情符号，供 Claude Code 状态行使用，例如 `🛡️ CC Safety Net ✅🌳`。它需要 `--claude-code`，或简写 `-cc`。不带该选项时，它会打印错误、显示帮助并退出 `1`。需要逐条说明问题的多行报告时，请改用 [`status`](/zh-Hans/reference/cli/status)。
+
+```bash
+bunx cc-safety-net statusline --claude-code
+# -cc is the short form of --claude-code
+bunx cc-safety-net statusline -cc
+```
+
+状态行仅适用于 Claude Code。它检查的是市场插件是否启用，因此不适合其他智能体，也不适合手动配置的 Claude Code hook。
+
+<span id="set-up-the-claude-code-status-line"></span>
+
+## 设置 Claude Code 状态行
+
+在 `~/.claude/settings.json` 中添加 `statusLine` 条目。Claude Code 无需重启即可读取改动。选择适合你环境的运行器：
+
+<Tabs>
+  <Tab title="Bun（推荐）">
+    ```json
+    {
+      "statusLine": {
+        "type": "command",
+        "command": "bunx cc-safety-net statusline --claude-code"
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="Claude X">
+    ```json
+    {
+      "statusLine": {
+        "type": "command",
+        "command": "BUN_BE_BUN=1 claude x cc-safety-net statusline --claude-code"
+      }
+    }
+    ```
+
+    <Note>
+      `claude x` 仅适用于原生安装的 Claude Code。如果你通过 npm 安装了 Claude Code，请改用 `bunx` 或 `npx`。
+    </Note>
+  </Tab>
+  <Tab title="NPM">
+    ```json
+    {
+      "statusLine": {
+        "type": "command",
+        "command": "npx -y cc-safety-net statusline --claude-code"
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="与现有命令通过管道连接">
+    如果已有状态行命令，用管道把它接到 CC Safety Net，两者的输出会同时显示：
+
+    ```json
+    {
+      "statusLine": {
+        "type": "command",
+        "command": "your-existing-command | bunx cc-safety-net statusline --claude-code"
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## statusline 指示器
+
+该行先显示一个级别指示器，然后按以下顺序显示各项状态指示器：
+
+```text
+🛡️ CC Safety Net <level><worktree><weakened><degraded>
+```
+
+| 指示器 | 含义 |
+| --- | --- |
+| `✅` | 生效级别为 `standard` |
+| `🔒` | 生效级别为 `strict` |
+| `👁️` | 生效级别为 `paranoid` |
+| `🔧` | 生效级别为 `custom`：启用的能力不符合任何预设，或某个 `destructive_command_protection.overrides` 条目改变了规则在该级别下的默认值 |
+| `🌳` | 已启用 [worktree 模式](/zh-Hans/configuration/modes) |
+| `🔻` | 项目的 `.cc-safety-net/policy.json` 放宽了用户策略中的至少一个字段。被 `CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY` 忽略的削弱不显示该指示器 |
+| `⚠️` | 部分配置加载失败，因此处于 [degraded](/zh-Hans/configuration/recovery) 状态 |
+| `❌` | `cc-safety-net@cc-marketplace` 插件未启用。它会取代所有其他指示器，整行显示为 `🛡️ CC Safety Net ❌` |
+
+级别是 CC Safety Net 把 `policy.json` 与环境变量组合之后的生效级别，参见[环境变量](/zh-Hans/configuration/environment#precedence)。`🔻` 和 `⚠️` 不会指出涉及的字段或文件，详情请运行 [`status`](/zh-Hans/reference/cli/status)。
+
+`❌` 只读取 Claude Code 设置中的 `enabledPlugins["cc-safety-net@cc-marketplace"]`。使用手动配置的 Claude Code hook 时，即使保护已生效，该行也会显示 `❌`。
+
+## statusline 的管道输入
+
+通过管道向 `statusline` 传入输入时，它会读取 stdin。它丢弃 Claude Code 的 JSON 状态负载，保留其他管道文本，并以 `<stdin> | <status>` 的形式把这段文本放在指示器前面。

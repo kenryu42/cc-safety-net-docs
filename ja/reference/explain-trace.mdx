@@ -1,7 +1,7 @@
 ---
 title: "explain JSON トレースリファレンス"
 sidebarTitle: "explain トレース"
-description: "cc-safety-net explain --json が返す JSON のスキーマです。ExplainResult のフィールド、解析の各段階を表す TraceStep の種類、共有前に確認すべきトレース内の情報を示します。"
+description: "cc-safety-net explain を JSON モードで実行したときに返る JSON のスキーマです。ExplainResult のフィールド、解析の各段階を表す TraceStep の種類、共有する前にトレースから分かってしまう情報を説明します。"
 keywords:
   - "explain"
   - "explain --json"
@@ -13,154 +13,132 @@ keywords:
   - "ブロック理由"
 ---
 
-`explain --json` コマンドは、コマンド解析の構造化トレースを返します。このページでは、スクリプトやほかのツール向けに JSON の形式を定義し、共有前に確認すべき情報も説明します。
-
-フラグと終了動作については、[CLI コマンド](/ja/reference/cli-commands#explain)を参照してください。予期しないブロックに関するヘルプについては、[トラブルシューティング](/ja/guides/troubleshooting)を参照してください。
+`explain --json` は、コマンドに対する判定と、解析の各段階を記録したトレースを、1 つの JSON オブジェクトとして返します。スクリプトでは最上位のフィールドから判定を読み取り、詳細が必要なときにトレースをたどります。フラグと終了コードについては [`explain`](/ja/reference/cli/explain) を参照してください。
 
 ```bash
 npx cc-safety-net explain --json "git checkout -- file.txt"
 ```
 
 <Warning>
-  トレースは、そのまま安全に共有できるとは限りません。最初に[トレースを共有する前に](#before-you-share-a-trace)を読んでください。
+  トレースは、そのまま安全に共有できるとは限りません。先に[トレースを共有する前に](#before-you-share-a-trace)を読んでください。
 </Warning>
 
 ## ExplainResult
 
-`explain --json` が返す最上位オブジェクトです。
+`explain --json` が返す最上位のオブジェクトです。
 
 | フィールド | 型 | 有無 | 説明 |
 | --- | --- | --- | --- |
 | `result` | `"blocked" \| "allowed"` | 常にある | コマンドの最終結果 |
-| `reason` | `string` | ブロック時のみ | ブロック理由 |
-| `segment` | `string` | ブロック時のみ | 判定を発生させた特定のセグメント |
-| `ruleId` | `string` | ブロック時のみ | ブロックを発生させたルールまたは[固定の拒否](/ja/reference/destructive-rules#fixed-denial-ids)の ID |
-| `trace` | `ExplainTrace` | 常にある | 最上位およびセグメントごとの手順を持つトレースコンテナー |
-| `customRule` | `object` | カスタムルールまたはルールブックのルールが一致した場合 | `id` と、任意の `rulebook`（`name`、`version`）、`source`、`override`（`{ type: "reason", reason }`） |
-| `configSource` | `string \| null` | 常にある | 有効な設定を読み込んだ設定ファイル |
+| `reason` | `string` | ブロック時のみ | ブロックの理由 |
+| `segment` | `string` | ブロック時のみ | 判定のきっかけになったセグメント |
+| `ruleId` | `string` | ブロック時のみ | ブロックしたルールまたは[固定の拒否](/ja/reference/blocked-commands#fixed-denial-ids)の ID |
+| `trace` | `ExplainTrace` | 常にある | 最上位とセグメントごとのステップを持つトレースのコンテナー |
+| `customRule` | `object` | カスタムルールまたはルールブックのルールが一致した場合 | `id` と、省略可能な `rulebook`（`name`、`version`）、`source`、`override`（`{ type: "reason", reason }`） |
+| `configSource` | `string \| null` | 常にある | 有効な設定の読み込み元になった設定ファイル |
 | `configValid` | `boolean` | 常にある | 読み込んだ設定が問題なく検証されたか |
-| `effectiveLevel` | `"standard" \| "strict" \| "paranoid" \| "custom"` | 常にある | 環境変数フラグと override を適用した、実際に有効なレベル |
+| `effectiveLevel` | `"standard" \| "strict" \| "paranoid" \| "custom"` | 常にある | 環境変数のフラグとオーバーライドを反映した、実際に有効なレベル |
 | `selectedPreset` | `"standard" \| "strict" \| "paranoid"` | 常にある | ポリシーで指定したプリセット。既定値は `standard` |
-| `safetyPresetScope` | `"user" \| "project" \| "default"` | プロジェクトポリシーのファイルを読み込んだ場合のみ | `selectedPreset` を与えたスコープ |
+| `safetyPresetScope` | `"user" \| "project" \| "default"` | プロジェクトのポリシーファイルを読み込んだ場合のみ | `selectedPreset` の指定元のスコープ |
 | `effectiveCapabilities` | `object` | 常にある | 機能ごとの状態。下記を参照 |
-| `destructiveCommandRuleOverrides` | `Record<string, "on" \| "off">` | 常にある。`{}` の場合がある | ポリシーに保存されたルールごとの override |
-| `ruleActivation` | `object` | 条件付き。下記を参照 | 関連するルールが有効・無効のどちらになったか、その経緯 |
+| `destructiveCommandRuleOverrides` | `Record<string, "on" \| "off">` | 常にある。`{}` の場合もある | ポリシーに保存されたルールごとのオーバーライド |
+| `ruleActivation` | `object` | 条件付き。下記を参照 | 関連するルールが有効または無効になった経緯 |
 
-4 つの設定フィールド `effectiveLevel`、`selectedPreset`、`effectiveCapabilities`、`destructiveCommandRuleOverrides` は一度だけ作成され、すべての返却パスに含まれます。そのため、空のコマンドを explain する場合でも存在します。`safetyPresetScope` も同じ経路で作成されますが、含まれるのはプロジェクトの `.cc-safety-net/policy.json` を読み込んだ場合だけです。
-
-人間向けの出力では、プリセットは CONFIG セクションに <code>{'Safety preset: <preset> (<scope>)'}</code> の形で表示されます。スコープは `user policy`、`project policy`、`built-in default` のいずれかです。プロジェクトポリシーのファイルがない場合、この行は括弧なしの <code>{'Safety preset: <preset>'}</code> になります。
+`effectiveLevel`、`selectedPreset`、`effectiveCapabilities`、`destructiveCommandRuleOverrides` は、空のコマンドを explain した場合にも含まれます。
 
 ### `effectiveCapabilities`
 
-`effectiveCapabilities` は、`fail_closed`、`paranoid_rm`、`paranoid_interpreters` をキーにするレコードです。各値には次のフィールドがあります。
+`effectiveCapabilities` は、`fail_closed`、`paranoid_rm`、`paranoid_interpreters` をキーとするレコードです。各値には次のフィールドがあります。
 
 | フィールド | 型 | 説明 |
 | --- | --- | --- |
 | `enabled` | `boolean` | 機能が有効か |
-| `source` | `"preset" \| "capability_override" \| "environment"` | 最終状態を決めたもの |
-| `sources` | `array` | 影響したすべての入力。優先順位順 |
+| `source` | `"preset" \| "capability_override" \| "environment"` | 最終的な状態を決めたもの |
+| `sources` | `array` | 状態に影響したすべての入力。優先順位の順 |
 
-各機能が変更する動作については、[モード](/ja/configuration/modes)を参照してください。
+各機能で何が変わるかは[モード](/ja/configuration/modes)を参照してください。
 
 ### `ruleActivation`
 
-`ruleActivation` は、関連ルールが有効化機能を宣言している場合にのみ存在します。関連ルールは、一致したルールまたはモードで制御される候補ルールです。モードで制御される候補とは、必要なレベルまたは機能が有効なら一致するルールです。
+`ruleActivation` は、関連するルールを機能が制御している場合にだけ含まれます。関連するルールとは、一致したルール、またはレベルや機能が有効であれば一致するはずだったルールです。
 
 | フィールド | 型 | 説明 |
 | --- | --- | --- |
 | `id` | `string` | ルール ID |
 | `enabled` | `boolean` | ルールが現在有効か |
 | `inheritedEnabled` | `boolean` | 継承だけでルールが有効になるか |
-| `changesInherited` | `boolean` | 有効な状態が継承した状態と異なるか |
+| `changesInherited` | `boolean` | 実際の状態が継承した状態と異なるか |
 | `source` | `string` | 状態を決めたもの。`catastrophic`、`master_disabled`、`rule_override`、`preset`、`capability_override`、`environment`、`built_in_default` のいずれか |
-| `activationCapability` | `string` | 任意。ルールを制御する機能 |
-| `override` | `"on" \| "off"` | 任意。保存済みのルールごとの override（存在する場合） |
+| `activationCapability` | `string` | 省略可能。ルールを制御する機能 |
+| `override` | `"on" \| "off"` | 省略可能。保存されたルールごとのオーバーライド（ある場合） |
 
-人向けの出力では、1 行に <code>{'Rule activation: <id> \u2014 on|off via <source>'}</code> と表示されます。
+人間向けの出力では、<code>{'Rule activation: <id> \u2014 on|off via <source>'}</code> の 1 行で表示されます。
 
 ## `ExplainTrace`
 
 | フィールド | 型 | 説明 |
 | --- | --- | --- |
-| `steps` | `TraceStep[]` | 最上位の手順。多くのトレースはグローバルな `parse` 手順で始まる。保護の短絡処理では省略されることがある |
-| `segments` | `object[]` | セグメントごとのエントリ。各エントリに `index` と固有の `steps` 配列がある |
+| `steps` | `TraceStep[]` | 最上位のステップ。ほとんどのトレースはグローバルな `parse` ステップで始まる。保護による短絡で終わったトレースには含まれない。 |
+| `segments` | `object[]` | セグメントごとのエントリ。それぞれに `index` と専用の `steps` 配列がある |
 
-トレースの記録は判定に影響しません。通常のガード評価ではトレースを作らず、`explain` を実行したときだけ作ります。
+トレースを記録しても判定は変わりません。非常に長いトレースには上限があり、長いテキストの値は切り詰め、上限を超えたステップは破棄します。
 
-**上限。** レコーダーは保持する内容を制限します。イベントは最大 512 件、テキスト値は 1 件あたり 2,048 文字、リストは 1 件あたり 128 項目、オブジェクトは 1 件あたり 128 プロパティ、ネストは 16 レベルです。上限を超えたイベントは破棄します。いずれの上限もコンパイル時の定数です。`ExplainTrace` が公開するのは `steps` と `segments` だけです。
+## `TraceStep` の種類
 
-## `TraceStep` のバリエーション
-
-ほかのフィールドを読む前に、`type` を使ってバリエーションを選んでください。
+ほかのフィールドを読む前に、`type` で種類を判別してください。
 
 | `type` | 主なフィールド | 出現する場合 |
 | --- | --- | --- |
-| `parse` | `input`, `segments` | 最初のシェル分割で、入力をトークンセグメントに分けた場合 |
-| `env-strip` | `input`, `envVars`, `output` | セグメントの先頭から環境変数代入を削除した場合。`envVars` は代入された**名前**だけの配列で、値は含まない。代入トークン自体は `input` に残るが、値はマスク済み |
-| `leading-tokens-stripped` | `input`, `removed`, `output` | 解析前に先頭トークン（`env`、`command` など）を削除した場合 |
-| `shell-wrapper` | `wrapper`, `innerCommand` | `bash -c` などのシェルラッパーを展開した場合 |
-| `interpreter` | `interpreter`, `codeArg`, `paranoidBlocked` | インタープリターの 1 行コードを調べた場合。`paranoidBlocked` は paranoid モードによる即時拒否を示す |
-| `busybox` | `subcommand` | busybox 形式のディスパッチをサブコマンドに解決した場合 |
-| `transparent-wrapper` | `wrapper`, `output` | 登録済みの transparent wrapper を通して内部を確認した場合。下記を参照 |
-| `recurse` | `reason`, `innerCommand`, `depth` | 再帰的な再解析を開始した場合 |
-| `rule-check` | `rule`, `matched`, `reason?` | 組み込みルールモジュールを評価した場合。`rule` は `<module>:<function>` 形式の 1 つの文字列で、たとえば `git:analyzeGitMatch`。人向けの出力では `Rule:   <value>()` と表示される |
-| `worktree-relaxation` | `originalReason`, `gitCwd` | 対象がリンクされたワークツリーだと確認できたため、Git の破棄コマンドを緩和した場合 |
-| `temp-root-relaxation` | `originalReason`, `gitCwd` | 信頼された一時ルート配下の使い捨てリポジトリで git を実行したため、Git のルールを緩和した場合 |
-| `tmpdir-check` | `tmpdirValue`, `allowTmpdirVar` | `$TMPDIR` の解決と上書き検出 |
-| `fallback-scan` | `tokensScanned`, `embeddedCommandFound?` | 残りのトークンに対するフォールバックの危険テキストスキャン |
-| `custom-rules-check` | `rulesChecked`, `matched`, `reason?` | ユーザー定義ルールを評価した場合 |
-| `cwd-change` | `segment`, `effectiveCwdNowUnknown` | 実効カレントディレクトリが不明になった場合。以降の分類では基準にできるカレントディレクトリがなくなる。`effectiveCwdNowUnknown` は常に `true` で、追跡できた `cd` では記録されない |
-| `dangerous-text` | `token`, `matched`, `reason?` | トークンを危険テキストパターンと照合した場合 |
-| `strict-unparseable` | `rawCommand`, `reason` | strict モードが、解析できないコマンドをフェイルクローズで拒否した場合 |
-| `segment-skipped` | `index`, `reason` | 前のセグメントがすでにブロックされたため、セグメントをスキップした場合 |
-| `error` | `message`, `partial?` | 解析エラーを取得した場合。`partial` は部分的な出力を示す |
+| `parse` | `input`, `segments` | 最初のシェル分割で、入力をトークンのセグメントに分けた |
+| `env-strip` | `input`, `envVars`, `output` | セグメントの先頭から環境変数の代入を取り除いた。`envVars` には代入された名前だけが入り、値は含まない。代入のトークンは `input` に残るが、値はマスクされる |
+| `leading-tokens-stripped` | `input`, `removed`, `output` | 解析の前に、`env` や `command` などの先頭のトークンを取り除いた |
+| `shell-wrapper` | `wrapper`, `innerCommand` | `bash -c` などのシェルラッパーを展開した |
+| `interpreter` | `interpreter`, `codeArg`, `paranoidBlocked` | インタープリターのワンライナーを検査した。`paranoidBlocked` は paranoid モードでそのまま拒否したことを示す |
+| `busybox` | `subcommand` | busybox 形式のディスパッチをサブコマンドに解決した |
+| `transparent-wrapper` | `wrapper`, `output` | 登録済みの透過ラッパーの中を確認した。下記を参照 |
+| `recurse` | `reason`, `innerCommand`, `depth` | 再帰的な再解析を始めた |
+| `rule-check` | `rule`, `matched`, `reason?` | 組み込みルールを評価した |
+| `worktree-relaxation` | `originalReason`, `gitCwd` | 対象がリンクされたワークツリーなので、Git の破棄コマンドを緩和した |
+| `temp-root-relaxation` | `originalReason`, `gitCwd` | 信頼された一時ルート配下の使い捨てリポジトリで git を実行するため、Git のルールを緩和した |
+| `tmpdir-check` | `tmpdirValue`, `allowTmpdirVar` | `$TMPDIR` の解決と、その値が変更されているかの検出 |
+| `fallback-scan` | `tokensScanned`, `embeddedCommandFound?` | 残りのトークンに対する、危険なテキストのフォールバックスキャン |
+| `custom-rules-check` | `rulesChecked`, `matched`, `reason?` | カスタムルールを評価した |
+| `cwd-change` | `segment`, `effectiveCwdNowUnknown` | 実効カレントディレクトリが不明になり、以降の分類でカレントディレクトリを基準にできなくなった。`effectiveCwdNowUnknown` は常に `true` で、追跡できた `cd` ではステップを記録しない |
+| `dangerous-text` | `token`, `matched`, `reason?` | トークンを危険なテキストのパターンと照合した |
+| `strict-unparseable` | `rawCommand`, `reason` | strict モードで、解析できないコマンドをフェイルクローズで拒否した |
+| `segment-skipped` | `index`, `reason` | 前のセグメントでコマンドがすでにブロックされたため、セグメントをスキップした |
+| `error` | `message`, `partial?` | 解析エラーを捕捉した。`partial` は出力が部分的であることを示す |
 
-人向けの出力では、`temp-root-relaxation` は番号付きの `Temp-root relaxation` 手順として表示され、`Git cwd:` と `Result: Allowed git discard in a temp-root repository` を示します。条件は[一時ルートの緩和](/ja/guides/analysis-engine#temp-root-relaxation)を、どの `cd` が `cwd-change` を記録するのかは[作業ディレクトリの追跡](/ja/guides/analysis-engine#working-directory-tracking)を参照してください。
+`temp-root-relaxation` が適用される条件は、[一時ルートの緩和](/ja/reference/blocked-commands#git-commands-in-a-temp-repository)を参照してください。
 
 ### `recurse` の理由
 
-`recurse.reason` は、`shell-wrapper`、`interpreter`、`busybox`、`shell-eval`、`shell-trap`、`shell-stdin`、`shell-heredoc`、`heredoc-file` の 8 値のいずれかです。
+`recurse.reason` は、`shell-wrapper`、`interpreter`、`busybox`、`shell-eval`、`shell-trap`、`shell-stdin`、`shell-heredoc`、`heredoc-file` の 8 つの値のいずれかです。
 
-`heredoc-file` は、解析側がすでに内容を把握しているスクリプトファイルをコマンドが実行した場合に記録されます。その内容とは、同じコマンド内で先に `cat >` や `tee` を使ってそのパスへ書き込んだ、引用符付きの heredoc の本文です。保存された本文は、スクリプトとして解析し直されます。[heredoc の解析](/ja/guides/analysis-engine#heredoc-analysis)を参照してください。
+`heredoc-file` は、同じコマンド内で先に heredoc が書き出したスクリプトを、コマンドが実行したことを示します。[アナライザーが見抜く書き方](/ja/guides/how-it-works#what-the-analyzer-sees-through)を参照してください。
 
-### `transparent-wrapper` 手順
+### `transparent-wrapper` ステップ
 
-`transparent-wrapper` は、`rule wrapper add` で登録したコマンドを通して内部を確認したときに記録される、セグメント範囲の手順です。主要な子と各代替候補を含む候補の子ごとに 1 手順が出力され、各手順には次のフィールドがあります。
-
-| フィールド | 型 | 説明 |
-| --- | --- | --- |
-| `wrapper` | `string` | ラッパーコマンド名 |
-| `output` | `string[]` | 解析が再帰的に処理する候補トークンリスト |
-
-この手順は、対象トークンへの再帰の直前に記録されます。そのため、ラップされたコマンドの解析より必ず前にあります。人向けの出力では、番号付きの `Transparent wrapper` 手順として表示され、`Wrapper:` と `Tokens:` が示されます。
-
-ラッパーは `rule wrapper add`、`rule wrapper remove`、`rule wrapper list` コマンドで管理します。[`rule wrapper`](/ja/reference/cli-commands#rule-wrapper)を参照してください。
+`transparent-wrapper` ステップは、[`rule wrapper add`](/ja/reference/cli/rule#rule-wrapper) で登録したコマンドの中を解析が確認したときに現れます。`wrapper` はラッパーの名前、`output` はラップされたコマンドのトークンのリストです。このステップは、ラップされたコマンドの解析の直前に、候補ごとに 1 つずつ記録されます。
 
 ## トレースの順序
 
-典型的なトレースは、`parse` → セグメントごとの `env-strip` / `leading-tokens-stripped` → 検出（`shell-wrapper` / `interpreter` / `busybox` / `transparent-wrapper`）→ `rule-check` または `custom-rules-check` → 判定、という順に進みます。再帰は `depth` が増える `recurse` 手順として表示されます。ただし、`busybox` ディスパッチは `recurse` 手順を記録しても再帰深度を消費しません。そのため、busybox ラッパーのチェーンでは同じ `depth` 値が繰り返されます。判定だけが必要な場合は、トレースをたどらず、最上位の `result` と、必要に応じて `reason`、`segment`、`ruleId` を読んでください。
+典型的なトレースは `parse` で始まります。続いて各セグメントに `env-strip` または `leading-tokens-stripped` が現れ、次にラッパーを検出するステップ `shell-wrapper`、`interpreter`、`busybox`、`transparent-wrapper`、その後に `rule-check` または `custom-rules-check` が続きます。入れ子のコマンドは、`depth` を持つ `recurse` ステップとして現れます。判定だけが必要な場合は、トレースをたどらずに、最上位の `result`、`reason`、`segment`、`ruleId` を読んでください。
 
-4 つの保護は、エバリュエーターの実行前に短絡します。ポリシーファイル保護、`policy apply` の保護、Git メタデータ保護、シークレット保護です。これらのいずれかがコマンドをブロックすると、トレースには**合成された 1 つの `rule-check` 手順だけが入り、`parse` 手順はありません**。`ruleId` は `guard.policy-config`、`guard.policy-apply`、`guard.git-metadata`、または一致したシークレットルールの ID になります。すべてのトレースが `parse` 手順で始まると仮定するツールは、この場合を処理する必要があります。
+4 つの保護は、評価器より前に判定を確定させます。ポリシーファイルの保護、`policy apply` の保護、Git メタデータの保護、シークレット保護です。これらのいずれかがコマンドをブロックした場合、トレースには合成された `rule-check` ステップが 1 つだけ入り、`parse` ステップはありません。`ruleId` は `guard.policy-config`、`guard.policy-apply`、`guard.git-metadata`、または一致したシークレットルールの ID です。すべてのトレースが `parse` で始まることを前提にしたスクリプトは、この場合を処理する必要があります。
 
 <span id="before-you-share-a-trace"></span>
 
 ## トレースを共有する前に
 
 <Warning>
-  **explain トレースは、そのまま安全に共有できるものではありません。** `parse` 手順は、入力した生のコマンド文字列と、解析された各トークンを記録します。ほかの多くの手順にも生のテキストがあります。`fallback-scan.tokensScanned`、`dangerous-text.token`、`shell-wrapper.innerCommand`、`interpreter.codeArg`、`recurse.innerCommand`、`strict-unparseable.rawCommand`、`transparent-wrapper.output`、`worktree-relaxation.gitCwd`、`temp-root-relaxation.gitCwd`、`cwd-change.segment` が該当します。`configSource` は絶対パスであり、通常はホームディレクトリ内にあります。
+  explain のトレースは、そのまま安全に共有できるものではありません。`parse` ステップは、生のコマンド文字列とパースしたすべてのトークンを記録します。ほかにも生のテキストを含むフィールドがあります。`fallback-scan.tokensScanned`、`dangerous-text.token`、`shell-wrapper.innerCommand`、`interpreter.codeArg`、`recurse.innerCommand`、`strict-unparseable.rawCommand`、`transparent-wrapper.output`、`worktree-relaxation.gitCwd`、`temp-root-relaxation.gitCwd`、`cwd-change.segment` です。`configSource` は絶対パスで、通常はホームディレクトリ内を指します。
 
-  マスク処理が削除するのは、認識された資格情報の**形式**だけです。これは[監査ログ](/ja/reference/audit-log#secret-redaction)と同じ、範囲が限定されたパターンリストです。ファイルパス、ホスト名、IP アドレス、ユーザー名、プロジェクト名、クライアント名、リストにない形式のシークレットについては何も保証しません。認識できないものはマスクできません。
+  マスク処理が取り除くのは、認識できた資格情報の形式だけです。使うのは[監査ログ](/ja/reference/audit-log#secret-redaction)と同じ、範囲を限定したパターンのリストです。ファイルパス、ホスト名、IP アドレス、ユーザー名、プロジェクト名やクライアント名、認識できない形式のシークレットは対象外です。
 
-  トレースを共有する前に、**プレースホルダーの資格情報とパス**を使って問題を再現してください。その後、**出力を最初から最後まで読み**、公開したくないものを削除してください。
+  トレースを共有する前に、ダミーの資格情報とダミーのパスで問題を再現してください。そのうえで出力を最初から最後まで読み、公開したくないものを削除してください。
 </Warning>
 
-たとえば `--token=…` の代入を含むコマンドを explain すると、そのトークンはマスクされます。しかし同じコマンド内の `/srv/acme-prod/customer-dump.sql` のようなパスは、ホスト名、IP アドレス、アカウント名などとともに、そのままの形で返されます。
+たとえば `--token=…` の代入を含むコマンドを explain すると、出力ではそのトークンがマスクされます。しかし、同じコマンドにある `/srv/acme-prod/customer-dump.sql` のようなパスは、コマンドテキスト中のホスト名、IP アドレス、アカウント名とともに、そのまま返されます。
 
-脆弱性レポートには `explain` 出力を添えてかまいません。マスク処理はベストエフォートの制御であり、保証ではありません。自分で指定したテキスト中の資格情報の形式をマスク処理が見逃した場合、それは脆弱性ではなく、公開の GitHub Issue で扱う通常のバグです。貼り付ける前に完全な出力を確認してください。
-
-## 関連ページ
-
-- [CLI コマンド](/ja/reference/cli-commands#explain)：`explain` のフラグ、例、終了動作。
-- [監査ログ](/ja/reference/audit-log#secret-redaction)：マスクのパターンリストと、ログレコードに適用される同じ境界。
-- [解析エンジン](/ja/guides/analysis-engine)：各トレース手順に対応する動作。
-- [トラブルシューティング](/ja/guides/troubleshooting)：予期しないブロックの診断に `explain` を使う方法。
+脆弱性レポートに `explain` の出力を含めてかまいません。マスク処理は可能な範囲で行う対策であり、保証ではありません。自分で入力したテキストに含まれる資格情報の形式をマスク処理が見逃した場合、それは脆弱性ではなく、公開の GitHub Issue で報告する通常のバグです。貼り付ける前に、出力全体を確認してください。

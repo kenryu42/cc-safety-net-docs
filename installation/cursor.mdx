@@ -1,0 +1,96 @@
+---
+title: "Install CC Safety Net in Cursor"
+sidebarTitle: "Cursor"
+description: "Install CC Safety Net in Cursor IDE and Cursor CLI with one global preToolUse hook, check what it covers, remove it, and resolve double checks from the Claude Code plugin or a native Cursor plugin."
+keywords:
+  - "cursor"
+  - "cursor-agent"
+  - "hooks.json"
+  - "preToolUse"
+---
+
+Run `npx -y cc-safety-net@latest install --cursor`. It adds one `preToolUse` hook to your global Cursor hooks config, `~/.cursor/hooks.json`, so the hook protects Cursor IDE and Cursor CLI sessions in every project. Then run `npx cc-safety-net doctor` to confirm the hook is active. The hook fails closed, which means Cursor denies a tool call when the hook cannot reach a decision.
+
+## Install CC Safety Net in Cursor
+
+<Steps>
+  <Step title="Run the installer">
+    ```bash
+    npx -y cc-safety-net@latest install --cursor
+    ```
+  </Step>
+  <Step title="Confirm the hook is active">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+When the hook is in place, the Cursor row in the `doctor` output reads `Detected`, `Configured`, and `Verified`.
+
+## What the Cursor install changes
+
+The installer writes this entry under `hooks.preToolUse` in `~/.cursor/hooks.json`, inside a `"version": 1` document:
+
+```json
+{ "command": "npx -y cc-safety-net hook --cursor", "timeout": 30, "failClosed": true }
+```
+
+If install does not recognize the file's version or shape, it fails with an error instead of rewriting the file. Running the install again leaves one managed entry and removes duplicates.
+
+## What the Cursor hook checks
+
+The hook checks Cursor's `Shell` tool calls and analyzes each command before it runs. Cursor's `working_directory` must be inside the workspace roots. The hook denies the call when the field is declared but missing, or when it points outside the roots.
+
+## What happens when the Cursor check fails
+
+The entry sets `failClosed: true`, so Cursor denies a tool call the hook could not decide. The hook has a 30-second `timeout`.
+
+## Uninstall CC Safety Net from Cursor
+
+```bash
+npx -y cc-safety-net@latest uninstall --cursor
+```
+
+Uninstall removes only the managed hook entry and leaves the rest of `~/.cursor/hooks.json` alone.
+
+If a [native Cursor plugin](#cursor-through-a-native-cursor-plugin) is on disk, uninstall also removes it. It runs `cursor-agent plugin marketplace remove cc-safety-net`, deletes the plugin's files under `~/.cursor/plugins/`, and adds this to its report:
+
+```text
+Removed the cc-safety-net marketplace from your Cursor account.
+If /plugins in cursor-agent still lists CC Safety Net as installed, uninstall it there.
+```
+
+## Other ways Cursor can run CC Safety Net
+
+Cursor can run CC Safety Net through two more routes. `install --cursor` sets up neither of them. If one of them runs while the hook is also in place, Cursor checks every tool call twice. `doctor` reports both routes, but it cannot tell whether Cursor runs them.
+
+### Cursor through the Claude Code plugin
+
+The [Claude Code plugin](/installation/claude-code) also includes a Cursor plugin with the same `failClosed` hook. Cursor runs it when it imports Claude Code plugins. Cursor imports them only from `<home>/.claude`, so this route ignores `CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_PLUGIN_CACHE_DIR`.
+
+When the `install --cursor` hook is also configured, `doctor` prints:
+
+```text
+Warning (Cursor): The Claude Code plugin also runs this check in Cursor, so every tool call is checked twice. Cursor runs the Claude Code plugin only while it imports Claude Code plugins, which doctor cannot check. If Cursor runs it, run `cc-safety-net uninstall --cursor` to remove this hook.
+```
+
+When the plugin is the only route, `doctor` counts Cursor as `Configured` and warns that Cursor runs the plugin only while it imports Claude Code plugins. If Cursor stops importing them, run `install --cursor`. In this case [`update`](/reference/cli/update) does not add the `npx` hook, and the install selector shows Cursor as `already installed`.
+
+### Cursor through a native Cursor plugin
+
+You can also add CC Safety Net to Cursor as a native Cursor plugin through `cursor-agent`, which registers it on your Cursor account as a personal marketplace. Cursor pins a marketplace plugin to the commit it was added at, so `cc-safety-net update` cannot move it to a newer release. The `npx` hook resolves the current release on every call.
+
+`doctor` counts the plugin when its downloaded files are under `~/.cursor/plugins/cache/cc-safety-net`. Cursor keeps those files after you uninstall the plugin, so they do not prove the plugin still runs. When the `install --cursor` hook is also configured, `doctor` prints:
+
+```text
+Warning (Cursor): The Cursor plugin also runs this check, so every tool call is checked twice. Cursor records enabled plugins on your Cursor account, which doctor cannot check, and keeps a plugin's files after it is uninstalled. Cursor pins marketplace plugins to the commit they were added at, so `cc-safety-net update` cannot update this plugin, while the npx hook (`cc-safety-net install --cursor`) stays current. If the plugin is installed, run `cc-safety-net uninstall --cursor`, uninstall CC Safety Net from /plugins in cursor-agent, then run `cc-safety-net install --cursor`.
+```
+
+When the plugin is the only route, `doctor` counts Cursor as `Configured`. It still warns that it cannot check whether the plugin is enabled and that `update` cannot update the plugin. If `/plugins` in `cursor-agent` does not list CC Safety Net as installed, run `install --cursor`. In this case `update` does not add the `npx` hook.
+
+## Troubleshoot the Cursor hook
+
+- **`doctor` warns about a hook entry that changed.** You or another tool edited the managed entry, for example its `timeout` or `failClosed`. Run `install --cursor` again to rewrite it. [Managed hook drift](/reference/cli/doctor#managed-hook-drift) lists the warnings.
+- **`doctor` reports `Failed to parse Cursor hooks config`.** `~/.cursor/hooks.json` is not valid JSON. Fix the file, then run the install again. See [Hook config parse errors](/reference/cli/doctor#hook-config-parse-errors).
+- **The selector shows Cursor as `CLI not installed`.** The selector runs `cursor --version`, then `cursor-agent --version` if that fails. Put one of the two on your `PATH`.

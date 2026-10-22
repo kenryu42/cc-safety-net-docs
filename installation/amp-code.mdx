@@ -1,0 +1,89 @@
+---
+title: "Install CC Safety Net in Amp Code"
+sidebarTitle: "Amp Code"
+description: "Install CC Safety Net in Amp Code as a personal plugin published through the amp CLI, including the policy snapshot, migration from local and legacy copies, uninstall, and the errors install can raise."
+keywords:
+  - "amp"
+  - "amp code"
+  - "personal plugins"
+  - "amp orbs"
+  - "plugins: reload"
+  - "amp login"
+---
+
+Run `npx -y cc-safety-net@latest install --amp`. It publishes CC Safety Net as a plugin to your Amp Personal Plugins repository, which Amp hosts for your account. Every Amp session on your account then loads it, including threads on Amp Orbs. You need the `amp` CLI signed in to your account. After installing, restart Amp or run `plugins: reload`.
+
+## Install CC Safety Net in Amp Code
+
+<Steps>
+  <Step title="Sign in to the amp CLI">
+    Install the `amp` CLI and sign in with `amp login`. If either is missing, install stops and points you to `amp login`.
+  </Step>
+  <Step title="Run the installer">
+    ```bash
+    npx -y cc-safety-net@latest install --amp
+    ```
+  </Step>
+  <Step title="Reload Amp">
+    Restart Amp or run `plugins: reload` to load the plugin.
+  </Step>
+  <Step title="Confirm the plugin is active">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+To update the published plugin in place, run the install again or run [`update`](/reference/cli/update). `doctor` never reports version drift for Amp Code, because `amp plugins list` shows no plugin version.
+
+## What the Amp Code install changes
+
+Install commits `cc-safety-net/index.ts` to your Personal Plugins repository and pushes it. Amp loads that file as the plugin.
+
+Install also removes managed copies that earlier releases left behind, because a local copy hides the personal plugin:
+
+- `cc-safety-net.ts` at the root of the Personal Plugins repository
+- `~/.config/amp/plugins/cc-safety-net.ts`
+- `~/.config/amp/plugins/cc-safety-net/`, when it holds nothing but a managed `index.ts`
+
+### Amp Code policy snapshot
+
+Install embeds a snapshot of your user policy file in the published plugin. When you edit the policy, run `install --amp` or `update` again to publish the change.
+
+- The snapshot applies only on a machine that has no policy file, such as an Orb's empty home directory.
+- A policy file on the machine always takes precedence over the snapshot, even when the file is invalid.
+- If your policy file is absent or cannot be parsed, install publishes the plugin without a snapshot.
+- The snapshot does not carry audit retention, user rulebooks, or project-scope policy.
+
+## What happens when the Amp Code check fails
+
+If CC Safety Net hits an error while it checks a call, it rejects the call. Amp does not document what happens when a plugin crashes, stalls, or fails to load. Treat a session where the plugin did not load as unprotected, and check with `amp plugins list`.
+
+## Amp Code coverage limits
+
+Amp does not define the order in which several plugins subscribed to the same `tool.call` event run. CC Safety Net checks the input it receives. If another plugin rewrites the input after CC Safety Net allowed it, CC Safety Net cannot check the rewritten input.
+
+## Uninstall CC Safety Net from Amp Code
+
+```bash
+npx -y cc-safety-net@latest uninstall --amp
+```
+
+Uninstall removes `cc-safety-net/index.ts` from your Personal Plugins repository and the managed copies listed under [What the Amp Code install changes](#what-the-amp-code-install-changes). Anything else in the `cc-safety-net` directory stays, and so does any copy CC Safety Net does not manage. Afterwards, restart Amp or run `plugins: reload`.
+
+## Troubleshoot Amp Code
+
+Run `amp plugins list` and look for a `cc-safety-net (User Plugins)` row with the status `active`. With any other status, `doctor` prints:
+
+```text
+Amp personal plugin cc-safety-net is <status>; run "plugins: reload" in Amp or reinstall with install --amp
+```
+
+Run `plugins: reload` in Amp, or run `install --amp` again. Amp reads plugins at startup, so restart Amp or reload after any change.
+
+| Problem | Fix |
+| --- | --- |
+| `Local Amp plugin <path> is not a managed copy and masks the personal plugin. Remove it and rerun install --amp.` | Remove the local file or directory at `<path>`, then run `install --amp` again. |
+| An unmanaged `cc-safety-net.ts` is at the root of the Personal Plugins repository | Install fails. Remove the file from the repository, then run the install again. |
+| The repository's `cc-safety-net` entry is a symlink or not a directory, or its `index.ts` is a symlink, not a regular file, or lacks the CC Safety Net managed header | Install and uninstall both refuse to touch it. Remove that entry from the repository, then run the command again. |
+| The repository gitignores `cc-safety-net/index.ts` | Install stops. Remove the ignore rule, then run the install again. |

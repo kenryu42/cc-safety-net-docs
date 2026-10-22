@@ -1,0 +1,272 @@
+---
+title: "rule command"
+sidebarTitle: "rule"
+description: "Reference for cc-safety-net rule and its subcommands: init, add, remove, update, sync, list, wrapper, tool, verify, migrate, and doc, with their options, scope rules, output, and errors."
+keywords:
+  - "rule"
+  - "rulebook"
+  - "rule add"
+  - "rule tool"
+  - "transparent wrapper"
+  - "rule migrate"
+  - "rule verify"
+---
+
+`rule` manages your custom rules. Its subcommands edit the rule config, add and remove rulebook sources, and register transparent command wrappers and community shell tools for analysis. Most subcommands write the project scope unless you pass `--global`.
+
+```bash
+npx -y cc-safety-net rule <subcommand>
+```
+
+Running `rule` with no subcommand prints help and exits `1`. For the rulebook schema and how rules apply, see [Custom rules](/configuration/custom-rules).
+
+## rule options
+
+| Flag | Description | Valid with |
+| --- | --- | --- |
+| `-g`, `--global` | Use the user-scope rule config instead of the project scope | Every subcommand except `list`, `migrate`, and `tool` |
+| `--project` | Use the project-scope rule config instead of the user scope | `tool add` and `tool remove` only |
+| `--cleanup` | Delete legacy files after `rule migrate` verifies them | `migrate` only |
+| `--delete-source` | Delete a clean local source directory when removing it | `remove` only |
+| `--example` | Create an inactive example rulebook | `init` only |
+| `--ref <ref>` | Use a branch, tag, or commit | `add` only |
+| `--only <rulebook...>` | Add only these repository rulebooks | `add` only |
+| `--cwd-arg <name>` | Name the argument that carries the working directory | `tool add` only |
+| `-h`, `--help` | Show help | Any |
+
+There is no dry run. To validate rule config offline, use [`rule verify`](#rule-verify).
+
+## rule scope: project and user
+
+Most subcommands write the project-scope rule config by default and the user-scope config under `-g` or `--global`. `rule list` and `rule migrate` cover both scopes in one run.
+
+[`rule tool`](#rule-tool) is the exception. It writes the user scope by default and takes `--project` instead of `--global`.
+
+## rule in the user config directory
+
+In the directory that holds your user `.cc-safety-net/`, the project rule config is your user rule config. See [The user config directory is not a project](/configuration/policy#the-user-config-directory-is-not-a-project). There, the subcommands that write the project scope print one error and exit `1` before writing anything:
+
+```text
+<cwd>/.cc-safety-net/rules/rule.json is the user rule config, not a project rule config; use --global for the user scope, or run from a project directory
+```
+
+`rule tool add` and `rule tool remove` refuse only when you pass `--project`, and their error ends `drop --project for the user scope, or run from a project directory`. Subcommands that only read, and every subcommand under `--global`, still work there.
+
+## `rule init`
+
+`rule init` creates a rule configuration for the current scope. If the file exists, it rewrites it in the canonical format and keeps your rules, overrides, wrappers, and command tools.
+
+```bash
+npx -y cc-safety-net rule init
+npx -y cc-safety-net rule init --global
+```
+
+On its own, `rule init` writes a configuration that contains no rules and enforces nothing. Pass `--example` to also write a starter rulebook named `example-rules`, unless `example-rules/rulebook.json` already exists:
+
+```bash
+npx -y cc-safety-net rule init --example
+```
+
+The example rulebook is inactive until you run `rule add example-rules`. `rule init` prints `Rule config initialized.` and exits `0`, or prints the load error and exits `1`.
+
+## `rule add`
+
+`rule add [source] [--ref <ref>] [--only <rulebook...>]` adds a rulebook source to the rule config. The source takes three forms:
+
+- A bare local name, such as `project-rules`
+- A whole repository, such as `acme/safety-rules`
+- One rulebook in the canonical form `owner/repo#ref/<rulebook-name>`
+
+```bash
+cc-safety-net rule add project-rules
+cc-safety-net rule add acme/safety-rules
+cc-safety-net rule add acme/safety-rules --only aws gcloud
+cc-safety-net rule add acme/safety-rules --ref v2 --only aws
+cc-safety-net rule add --only terraform aws
+```
+
+### `rule add` with no source
+
+If you pass `--ref` or `--only` without a source, `rule add` uses `cc-safety-net/rulebooks`, the official catalog. With no source and neither flag, `rule add` exits `1`:
+
+```text
+rule add requires a source (pass --only <rulebook...> to select from cc-safety-net/rulebooks)
+```
+
+To add every official rulebook, run `rule add cc-safety-net/rulebooks`.
+
+### `rule add` from a repository
+
+For a repository source, `rule add` finds every `.cc-safety-net/rules/<name>/rulebook.json` the repository holds at the ref, or at its default branch without `--ref`.
+
+- Without `--only`, it adds all of them in name order.
+- With `--only`, it adds the named ones in the order you listed them. If the repository has no rulebook with a name you listed, the add fails.
+
+`rule.json` stores the canonical `owner/repo#ref/<rulebook-name>` with the ref you gave, not the resolved commit. A ref may contain `/`, such as `--ref feature/rulebook-v2`. `--ref` and `--only` work only with an `owner/repo` source.
+
+### `rule add` output
+
+A successful add opens with `Scope: project (<config dir>)`, or `Scope: user (<config dir>)` under `--global`, so you can see when you ran it from the wrong directory. A failed add writes nothing.
+
+A repository add then lists the rulebooks it added or found already configured, and prints `Vendored <spec> (<version>)` for each new file. For a changed file, it prints `Updated <spec> (<before> -> <after>)` with `+`, `-`, and `~` lines for rules added, removed, and changed. The output ends with `Rule config updated.` and an `Active rulebooks (<n>):` summary. A local or single-rulebook source ends with `Added rulebook source: <source>` instead.
+
+## `rule remove`
+
+`rule remove` removes a rulebook source. Add `--delete-source` to also delete the local source directory when it holds only `rulebook.json`:
+
+```bash
+npx -y cc-safety-net rule remove project-rules
+npx -y cc-safety-net rule remove project-rules --delete-source
+```
+
+If the directory holds other files, `rule remove` refuses the delete and keeps the source configured:
+
+```text
+Local rulebook source directory contains extra files: <dir>. delete manually if you really want to remove the directory.
+```
+
+## `rule update`
+
+`rule update` fetches the remote rulebooks again and writes a fresh copy into the config directory, for every configured source or for the one you name:
+
+```bash
+npx -y cc-safety-net rule update
+npx -y cc-safety-net rule update project-rules
+```
+
+A source pinned to a branch or a moving tag picks up its current commit. A local source has nothing to fetch. The report uses the same change lines as [`rule add`](#rule-add-output).
+
+### `rule update` failures
+
+Each source updates on its own. A source that fails to fetch or validate keeps its current copy, and the report shows `Failed to update <spec>: <message>`. The run exits `1` if any source failed and `0` otherwise.
+
+If a run exceeds its GitHub fetch limit, it stops with `Rule synchronization exceeds CC Safety Net's safe resource limits.` and every source in the run fails.
+
+## `rule sync`
+
+<Warning>
+  `rule sync` is deprecated. Rulebooks are live files, so there is nothing to synchronize.
+</Warning>
+
+```bash
+npx -y cc-safety-net rule sync
+```
+
+Run it only when `doctor` reports [`config.v2-leftovers`](/reference/cli/doctor#config-v2-leftovers). It works offline. It moves each rulebook from the `rule.lock` file and `cache` directory an earlier version wrote into the current layout, then removes both. A source it cannot recover prints the `rule update` command that fetches it again.
+
+With no leftovers, it prints `No v2 lock or cache leftovers found in <dir>; nothing to migrate.` and exits `0`. If leftovers remain but `rule.json` is missing or unreadable, it refuses and exits `1`. Restore `rule.json`, then run it again.
+
+## `rule list`
+
+`rule list` lists the active rulebooks and rules in both the user and project scope. It exits `1` only on policy errors.
+
+```bash
+npx -y cc-safety-net rule list
+```
+
+Each rule prints its scope and id, the command it matches, the arguments that trigger it, and its reason:
+
+```text
+Active rules (1):
+  - [project] infra/block-terraform-destroy
+      Command: terraform apply
+      Any args: -destroy, --destroy
+      Exclude args: --dry-run
+      Reason: Review a destroy plan first.
+```
+
+A version 1 rule shows `Block args:` instead of `Any args:` and `Exclude args:`.
+
+## `rule wrapper`
+
+`rule wrapper` manages [transparent wrappers](/configuration/custom-rules#transparent-wrappers). A wrapper passes its arguments to another command, so CC Safety Net analyzes the child command instead of the wrapper.
+
+```bash
+npx -y cc-safety-net rule wrapper list
+npx -y cc-safety-net rule wrapper add rtk
+npx -y cc-safety-net rule wrapper remove rtk
+```
+
+`add` and `remove` each take one command name. A wrapper name starts with a letter and uses only letters, digits, `_`, and `-`. You cannot register a reserved command as a wrapper. Registered wrappers show up in [explain traces](/reference/explain-trace) as `transparent-wrapper` steps.
+
+## `rule tool`
+
+`rule tool` declares [community shell tools](/configuration/custom-rules#community-shell-tools), the shell tools that agent plugins add, so CC Safety Net analyzes their commands. CC Safety Net does not analyze an undeclared plugin tool.
+
+```bash
+npx -y cc-safety-net rule tool list
+npx -y cc-safety-net rule tool add ops_bash ops_run_background
+npx -y cc-safety-net rule tool add ops_run_background --cwd-arg dir
+npx -y cc-safety-net rule tool remove ops_bash --project
+```
+
+- The user scope is the default, so CC Safety Net analyzes a tool you declare in every project. `--project` writes the project config instead.
+- `add` and `remove` take one or more names. `--cwd-arg` applies to every name in the call.
+- Adding a name that is already declared replaces its entry. That is how you change or drop its `--cwd-arg`.
+
+`add` and `remove` print one line per name, then the file they wrote:
+
+```text
+Added command tool: ops_bash
+Added command tool: ops_run_background (cwd argument: dir)
+Scope: user (/Users/you/.cc-safety-net/rules/rule.json)
+```
+
+`tool list` prints every declared tool in both scopes, or `Command tools: (none)`. If `rule.json` does not parse, `rule tool` prints an `Invalid JSON` error, writes nothing, and exits `1`.
+
+### `rule tool add` name errors
+
+`add` refuses a name that is empty, longer than 256 characters, or contains whitespace or control characters. It also refuses an agent's built-in shell or file tool, such as `bash` or `Write`, because CC Safety Net already analyzes those. Matching ignores case and the `-`, `_`, and space separators, so `add` refuses `Run-Shell-Command` as a match for Gemini CLI's `run_shell_command`.
+
+`add` is all or nothing. One bad name prints `Error: <message>`, writes nothing, and exits `1`. `rule tool remove bash` still clears a built-in name added to `rule.json` by hand.
+
+## `rule verify`
+
+`rule verify` validates the rule config files in both scopes, including legacy paths. Run it after you edit a config by hand:
+
+```bash
+npx -y cc-safety-net rule verify
+```
+
+It exits `0` when everything is valid and non-zero when it is not. A `command_tools` entry naming a built-in shell or file tool is an error.
+
+### `rule verify` can rewrite rule.json
+
+When a valid `rule.json` has no `$schema` key, `rule verify` adds it as the first key, rewrites the file with two-space indentation, and prints `Added $schema to user config.` or `Added $schema to project config.` No flag turns this off. In CI, it can leave a tracked file modified, so commit the `$schema` key if you need `rule verify` to change nothing:
+
+```json
+"$schema": "https://raw.githubusercontent.com/kenryu42/cc-safety-net/main/assets/cc-safety-net.schema.json"
+```
+
+## `rule migrate`
+
+`rule migrate` converts the legacy inline config files into the rulebook layout. Those files are `.safety-net.json` for a project and `~/.cc-safety-net/config.json` for the user. It covers both scopes and takes no `--global`.
+
+```bash
+npx -y cc-safety-net rule migrate
+npx -y cc-safety-net rule migrate --cleanup
+```
+
+`--cleanup` deletes the legacy files after the migrated rules pass verification. `doctor` reports an unmigrated legacy file as [`config.legacy-ignored`](/reference/cli/doctor#config-legacy-ignored).
+
+### `rule migrate` in the user config directory
+
+In the directory that holds your user `.cc-safety-net/`, `rule migrate` skips the project scope, migrates the user scope, and prints `Skipped the project scope: <cwd>/.cc-safety-net/rules/rule.json is the user rule config, not a project rule config`. The exit code follows the user scope.
+
+## `rule doc`
+
+`rule doc` prints the rulebook authoring guide to stdout. Pipe the guide to an agent when you want it to write or validate a rulebook:
+
+```bash
+npx -y cc-safety-net rule doc
+```
+
+### `rule doc` update notice
+
+When a newer version is on npm, `rule doc` writes one line to stderr after the guide, so a pipe carries only the guide:
+
+```text
+UPDATE_AVAILABLE: cc-safety-net v<latest> is available (running v<current>). Ask the user once whether to run `npx -y cc-safety-net@latest update`; continue the current task either way and do not raise this again.
+```
+
+It checks at most once a day. Set [`CC_SAFETY_NET_NO_UPDATE_CHECK`](/configuration/environment#update-check-opt-out) to turn the check off. The exit code stays `0` either way.

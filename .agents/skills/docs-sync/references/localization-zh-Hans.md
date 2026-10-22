@@ -77,7 +77,13 @@ context:
 | dependency | 依赖 |
 | command | 命令 |
 | option | 选项 |
-| flag | keep the flag itself unchanged; in prose use 选项 or 参数 by context |
+| flag | keep the flag itself unchanged; a CLI flag in prose is 选项 |
+| decision (allow/deny outcome) | 决策 |
+| verdict (`ready`/`degraded`) | 判定 |
+| finding (doctor) | 诊断项 |
+| host (agent or embedding host) | 宿主 |
+| drift | 漂移 |
+| coverage limits (agent pages) | 覆盖限制 |
 | environment variable | 环境变量 |
 | runtime | 运行时 |
 | build | 构建 |
@@ -109,9 +115,12 @@ context:
 **Links.** Every internal link in a `zh-Hans/` page points into the `zh-Hans/`
 tree: `/zh-Hans/configuration/modes`, not `/configuration/modes`. When the
 English page adds a deep link, the mirror keeps the deep link — dropping the
-anchor is a regression. Anchors must resolve against the *Chinese* heading on
-the target page, so check the target page's heading text before you write the
-anchor. `make check` runs `mint broken-links`; a link it cannot resolve is a
+anchor is a regression. Keep the English anchor in the link
+(`/zh-Hans/installation/cursor#troubleshoot-the-cursor-hook`). The translated heading on the
+target page carries it as `<span id="troubleshoot-the-cursor-hook"></span>` on the line
+above, so never build an anchor from translated heading text, and never remove
+or move a span line. Keep the English page's headings one for one, at the same
+levels and in the same order. `make check` runs `mint broken-links`; a link it cannot resolve is a
 defect, not a style question.
 
 **Machine-checkable strings.** Flag spellings, defaults, error message text, rule

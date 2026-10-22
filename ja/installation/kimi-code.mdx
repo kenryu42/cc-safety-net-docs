@@ -1,0 +1,144 @@
+---
+title: "Kimi Code に CC Safety Net をインストールする"
+sidebarTitle: "Kimi Code"
+description: "config.toml のグローバル PreToolUse フック、または Kimi Code のネイティブプラグインとして Kimi Code に CC Safety Net をインストールする方法、それぞれが検査する内容とチェック失敗時の動作、不正な hooks エントリの直し方、削除方法を説明します。"
+keywords:
+  - "kimi"
+  - "kimi code"
+  - "config.toml"
+  - "KIMI_CODE_HOME"
+  - "PreToolUse"
+  - "kimi プラグイン"
+---
+
+`npx -y cc-safety-net@latest install --kimi-code` を実行し、2 つの方法から 1 つを選びます。インストーラーに `~/.kimi-code/config.toml` へグローバルフックを書き込ませるか、Kimi Code 内からネイティブプラグインをインストールします。どちらもすべてのツール呼び出しに同じチェックを行い、どちらが有効かは `npx cc-safety-net doctor` で確認できます。どちらの方法でも、Kimi Code のフックはフェイルオープンです。
+
+## Kimi Code に CC Safety Net をインストールする
+
+ターミナルで `install --kimi-code` または対話式インストーラーを実行すると、グローバルフックを今すぐインストールするか、ネイティブプラグインの手順を表示するかを尋ねられます。プラグインを選んだ場合は何も書き込みません。CI などターミナル以外で実行すると、このフラグは確認なしでグローバルフックをインストールします。
+
+<Tabs>
+  <Tab title="グローバルフック">
+    <Steps>
+      <Step title="インストーラーを実行する">
+        ```bash
+        npx -y cc-safety-net@latest install --kimi-code
+        ```
+
+        ターミナルでは、プロンプトでグローバルフックを選びます。
+      </Step>
+      <Step title="フックが有効か確認する">
+        ```bash
+        npx cc-safety-net doctor
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+  <Tab title="ネイティブプラグイン">
+    <Steps>
+      <Step title="Kimi Code 内でプラグインをインストールする">
+        ```text
+        /plugins install https://github.com/kenryu42/cc-safety-net/tree/plugin
+        ```
+
+        末尾の `/tree/plugin` は省略しないでください。省略すると、Kimi Code はリポジトリ全体をインストールします。
+      </Step>
+      <Step title="信頼確認のプロンプトで承認する">
+        信頼を承認する選択肢を選びます。プロンプトの既定はキャンセルです。
+      </Step>
+      <Step title="Kimi Code を再読み込みする">
+        `/reload` を実行するか、新しいセッションを開始します。
+      </Step>
+      <Step title="プラグインが有効か確認する">
+        ```bash
+        npx cc-safety-net doctor
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+Kimi Code 内でルールを作成したい場合は、[ルール作成スキル](/ja/guides/skill#how-you-invoke-it)を追加してください。
+
+## Kimi Code のグローバルフックのインストールで変わること
+
+インストーラーは、`~/.kimi-code/config.toml` に `[[hooks]]` ブロックを書き込みます。`KIMI_CODE_HOME` が設定されている場合は `$KIMI_CODE_HOME/config.toml` です。このブロックは、`PreToolUse` の呼び出しのたびに `npx -y cc-safety-net hook --kimi-code` を実行します。
+
+## Kimi Code のフックが検査する内容
+
+グローバルフックとプラグインは、すべてのツール呼び出しに同じチェックを行います。`Bash` の呼び出しはシェルコマンドとして解析し、その他のツールについては入力に保護対象のパスが含まれていないかを検査します。
+
+## Kimi Code のチェックが失敗したときの動作
+
+Kimi Code のフックはフェイルオープンです。どちらの方法でも、フックのプロセスが起動できない、クラッシュする、タイムアウトするといった場合は、ツール呼び出しがそのまま実行されます。また、hooks のエントリが 1 つでも不正だと、Kimi Code は `config.toml` のフックをすべて無視します。[Kimi Code の不正な hooks エントリ](#invalid-hooks-entries-in-kimi-code)を参照してください。
+
+<span id="kimi-code-coverage-limits"></span>
+
+## Kimi Code での保護範囲の制限
+
+`kimi web` と ACP のセッションでは、Kimi Code はペイロードの `cwd` として、セッション自身のディレクトリではなくサーバーを起動したディレクトリを送ります。そのため、これらのセッションでは、CC Safety Net はすべての `Bash` 呼び出しをサーバーの起動ディレクトリを基準に検査します。
+
+- 相対パスの解決と、作業ディレクトリの外のパスに関するルールの判定が、誤ったディレクトリを基準に行われます。その結果、安全なコマンドをブロックしたり、本来ブロックすべきコマンドを許可したりすることがあります。
+- セッションのディレクトリがサーバーの起動ディレクトリの外にある場合、そのディレクトリを指定した `cwd` 引数をフックは拒否します。
+
+ターミナルの `kimi` セッションには影響しません。この問題は、Kimi Code がセッションのディレクトリを送るようにならない限り解消できません。
+
+## グローバルフックからネイティブプラグインへ移行する
+
+先にプラグインをインストールして有効になったことを確認し、その後でグローバルフックを削除します。
+
+```bash
+npx -y cc-safety-net@latest uninstall --kimi-code
+```
+
+両方が短期間だけ同時に動いても、拒否メッセージが重複するだけです。どちらも有効でない期間があると、その間は保護されません。
+
+## Kimi Code の CC Safety Net を更新する
+
+[`update`](/ja/reference/cli/update) はグローバルフックを更新しますが、ネイティブプラグインは更新しません。プラグインについては次のメッセージを表示します。
+
+```text
+Kimi Code plugin skipped: update it in Kimi Code from /plugins (Installed tab, select cc-safety-net, press Enter)
+```
+
+## Kimi Code から CC Safety Net をアンインストールする
+
+```bash
+npx -y cc-safety-net@latest uninstall --kimi-code
+```
+
+アンインストールが削除するのはグローバルフックだけです。ネイティブプラグインには手を触れません。
+
+## Kimi Code のトラブルシューティング
+
+<span id="invalid-hooks-entries-in-kimi-code"></span>
+
+### Kimi Code の不正な hooks エントリ
+
+hooks のエントリが 1 つでもスキーマに違反していると、Kimi Code は `config.toml` のフックをすべて無視します。そのため `doctor` は CC Safety Net のエントリに限らず、すべての `[[hooks]]` エントリを検査し、不正なエントリごとに次のエラーを表示します。
+
+```text
+Kimi Code ignores every hook because hooks entry <n> is invalid (<problem>); fix it in <path>
+```
+
+`<n>` は `1` から数えたエントリの番号です。`<problem>` は次のいずれかです。
+
+| 問題 | 原因 |
+| --- | --- |
+| `"<text>" is not a key = value pair` | エントリの一部が `key = value` の形になっていない |
+| `unknown key "<key>"` | `event`、`matcher`、`command`、`timeout` 以外のキーがある |
+| `duplicate key "<key>"` | エントリに同じキーが 2 回現れる |
+| `"event" is not a Kimi Code hook event` | `event` がない、または Kimi Code のフックイベントを指していない |
+| `"matcher" is not a string` | `matcher` があるが、文字列ではない |
+| `"command" is missing or empty` | `command` がない、文字列ではない、または空 |
+| `"timeout" is not an integer from 1 to 600` | `timeout` があるが、`1` から `600` までの整数ではない |
+
+### Kimi Code のプラグインがインストール済みだが有効になっていない
+
+`doctor` は、Kimi のホームディレクトリ（`$KIMI_CODE_HOME` または `~/.kimi-code`）の `plugins` にある `installed.json` からプラグインの記録を読みます。記録が有効になっていない場合は、次のように表示します。
+
+```text
+cc-safety-net is installed but not enabled in Kimi Code; run /plugins enable cc-safety-net
+```
+
+Kimi Code で `/plugins enable cc-safety-net` を実行してください。`doctor` がこのファイルを読み取れない場合は、`Cannot read <path>, so doctor cannot tell whether the Kimi Code plugin is installed` と表示し、終了コード `1` で終了します。

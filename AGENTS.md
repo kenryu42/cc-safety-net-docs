@@ -22,3 +22,14 @@
 
 ## Tests
 NO NEED TO DO TDD FOR THIS PROJECT. DO NOT WRITE ANY TESTS AT ALL.
+
+## Page structure
+
+Pages are written for people skimming and for the docs assistant, which retrieves sections split at headings. Keep every section readable on its own.
+
+- One page answers one question. Agent-specific behaviour lives on that agent's page under `installation/`; command behaviour lives on that command's page under `reference/cli/`. Link to the owning page instead of repeating a fact.
+- Open each page with one to three sentences that answer its main question. No "This page documents" openers.
+- Headings are sentence case and name their subject ("What the Cursor hook checks", "doctor exit code"), never bare "Output" or "Options". Never put `--` in a heading outside backticks: Mintlify turns it into an em dash and the anchor changes.
+- Keep paragraphs to about 60 words. Use `<Steps>` for procedures, tables for options and messages, and `<Accordion>` for rare edge cases.
+- Model pages: `installation/cursor.mdx` (agent page) and `reference/cli/status.mdx` (command page).
+- Follow `.claude/skills/unslop/SKILL.md` for English prose.

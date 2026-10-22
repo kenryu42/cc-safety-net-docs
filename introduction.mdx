@@ -1,46 +1,58 @@
 ---
-title: "What CC Safety Net does"
+title: "What is CC Safety Net"
 sidebarTitle: "Introduction"
-description: "CC Safety Net is a pre-execution hook that inspects what your coding agent is about to run and blocks the operations that destroy uncommitted work or expose your secrets."
+description: "CC Safety Net is a free, local pre-execution hook that blocks the commands and file reads that destroy uncommitted work or expose secrets in your coding agent. Answers on cost, LLM use, data, performance, Windows, and sandboxing."
 ---
 
 ## What is CC Safety Net?
 
-CC Safety Net is a pre-execution hook for AI coding agents like Claude Code, Codex, and Cursor. It blocks destructive git and filesystem commands and secret file reads before they run, instead of trusting the agent to follow guidelines. That covers `git reset --hard`, `git push --force`, `rm -rf` on your home directory, and reads of `.env` files, SSH keys, and cloud credentials. It supports 16 coding agent CLIs on macOS, Linux, and Windows, and is free and MIT licensed. It is not a sandbox: for process, filesystem, or network containment, run a sandbox alongside it.
+CC Safety Net is a pre-execution hook for AI coding agents like Claude Code, Codex, and Cursor. It checks each command and file operation before it runs and blocks the ones that destroy uncommitted work or expose secrets, such as `git reset --hard`, `git push --force`, `rm -rf` on your home directory, and reads of `.env` files, SSH keys, and cloud credentials. It supports 16 coding agents.
 
 ## Why it exists
 
-As of October 2026, no major coding CLI deterministically blocks destructive git commands inside the workspace you handed it. `git reset --hard`, `git checkout -- .`, `git clean -f`, `git stash clear`, and `git push --force` all act on files the agent is already allowed to write, so a sandbox that scopes writes to the project directory sees nothing wrong. OpenAI's [Codex security docs](https://learn.chatgpt.com/docs/security) say commands under workspace-write "can still mutate state and perform destructive operations". An [independent analysis of Codex permissions](https://codex.danielvaughan.com) (2026-04-20) puts it directly: "No command-level semantic blocking: the system cannot prevent git reset --hard". Claude Code's [sandboxing docs](https://code.claude.com/docs/en/sandboxing) scope writes to the working directory, which is where your uncommitted work lives.
+As of October 2026, no major coding CLI deterministically blocks destructive git commands inside the workspace you handed it. `git reset --hard`, `git checkout -- .`, `git clean -f`, `git stash clear`, and `git push --force` act on files the agent may already write, so a sandbox that scopes writes to the project sees nothing wrong. OpenAI's [Codex security docs](https://learn.chatgpt.com/docs/security) say commands under workspace-write "can still mutate state and perform destructive operations". Claude Code's [sandboxing docs](https://code.claude.com/docs/en/sandboxing) scope writes to the working directory, which is where your uncommitted work lives.
 
-Three more reasons the layer is worth running:
+Three more reasons to run it:
 
-- **A deterministic check under probabilistic ones.** As of October 2026, Anthropic publishes a 17% false-negative rate for the Claude Code [auto-mode](https://www.anthropic.com/engineering/claude-code-auto-mode) classifier on real overeager actions and calls it "not a drop-in replacement for careful human review". Deny rules and hooks are the deterministic layer instead of a judgment call. Verified on 2026-08-31 against Claude Code 2.1.251, a PreToolUse deny still fires in default, auto, and bypassPermissions modes (`tests/e2e-live/protection.test.ts` in the project repository). That is a per-version result, not a standing guarantee, so the suite runs again on every release and host upgrade.
-- **Secret protection with nothing to configure.** As of October 2026, Claude Code's [sandboxing docs](https://code.claude.com/docs/en/sandboxing) state that the default read behavior "still allows reading credential files such as ~/.aws/credentials and ~/.ssh/", and that "There is no built-in credential deny list". The native equivalents in other CLIs are opt-in config you write per CLI. CC Safety Net blocks content access to those paths and to project `.env` files on install, across shell commands and the read, edit, write, and search tools.
+- **A deterministic check under probabilistic ones.** As of October 2026, Anthropic publishes a 17% false-negative rate for the Claude Code [auto-mode](https://www.anthropic.com/engineering/claude-code-auto-mode) classifier on real overeager actions and calls it "not a drop-in replacement for careful human review". A hook applies fixed rules instead of a judgment call.
+- **Secret protection with nothing to configure.** Claude Code has no built-in credential deny list, and other CLIs make you write one per tool. CC Safety Net blocks `.env` files, SSH keys, and cloud credentials as soon as you install it. See [Secret protection](/reference/secret-protection).
 - **One policy and one audit trail across 16 CLIs.** Five vendors ship five incompatible permission mechanisms and no decision log you can read afterwards.
 
-Layers below this one have failed in the field. The [protection-layers comparison](/guides/vs-sandboxing) covers the sandbox and allowlist CVEs, and Adversa's [incident tracker](https://adversa.ai/blog/ai-coding-agent-incidents) records nine agent destruction cases from 2025 and 2026, with guardrails enabled in about half of them.
-
-The founding case still stands. It is just no longer the frontier. An agent [wiped hours of work](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/) with one `rm -rf ~/`, and instructions did not stop it. As of October 2026, Claude Code ships a deterministic circuit breaker for critical paths like that one, which is the right fix and the reason it is no longer the headline here. The git commands above have no such breaker. Rules in `CLAUDE.md` or `AGENTS.md` can guide an agent, but they cannot enforce a technical limit. CC Safety Net enforces that limit as a check before execution.
+Instructions in `CLAUDE.md` or `AGENTS.md` guide an agent but cannot enforce a limit. An agent once [wiped hours of work](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/) with one `rm -rf ~/` despite them. Adversa's [incident tracker](https://adversa.ai/blog/ai-coding-agent-incidents) records nine agent destruction cases from 2025 and 2026, with guardrails enabled in about half. The [protection-layers comparison](/guides/vs-sandboxing) covers the sandbox and allowlist CVEs.
 
 ## What it intercepts
 
 CC Safety Net installs into your coding agent. It runs before the agent's tool call reaches your machine.
 
-It inspects shell commands and file write, edit, search, and patch operations. It then allows the operation or blocks it with a direct reason. A block arrives as a normal tool result, so the agent can [continue the task without the blocked operation](/guides/design-principles#denials-that-keep-the-agent-on-task).
+It inspects shell commands and file write, edit, search, and patch operations. It then allows the operation or blocks it with a direct reason. A block arrives as a normal tool result, so the agent can [continue the task without the blocked operation](/guides/how-it-works#what-a-block-looks-like).
 
-CC Safety Net bases its decision on intent, not spelling. It allows `git checkout -b feature` because the command creates a branch. It blocks `git checkout -- file` because the command discards uncommitted changes. Both commands start with the same two words.
+CC Safety Net decides by what a command does, not how it is spelled. It allows `git checkout -b feature` because the command creates a branch. It blocks `git checkout -- file` because the command discards uncommitted changes. Both commands start with the same two words.
 
-For tool operations that an integration forwards, the same inspection protects supported credential-bearing files, including SSH keys, `.env` files, cloud credential stores, and coding CLI tokens. CC Safety Net blocks matching forwarded reads and writes before the agent accesses the file. Tool coverage differs by integration; see the [integration coverage boundaries](/guides/known-limitations#hermes-agent-and-openclaw-coverage-boundaries) and the [Secret protection reference](/reference/secret-protection).
+## Frequently asked questions
 
-Each agent uses a different integration. Some run CC Safety Net as a short-lived subprocess. Others load it in the agent process. The installer configures the correct integration for your agent. See [How it works](/guides/how-it-works) for the full lifecycle of one tool call.
+### Is CC Safety Net free?
 
-## What it does not replace
+Yes. CC Safety Net is free and MIT licensed. The source is on [GitHub](https://github.com/kenryu42/cc-safety-net).
 
-Use CC Safety Net with your agent's permission rules and native sandboxing. It does not replace them.
+### Does CC Safety Net use an LLM?
 
-Deny rules give you quick, user-configurable blocks. Sandboxing gives operating-system-level filesystem and network containment. CC Safety Net covers known-destructive Git and filesystem operations that a sandbox can permit inside your project. Use these layers together. See the [protection-layers comparison](/guides/vs-sandboxing).
+No. A local, rule-based parser makes every decision, and no model is called. The same command gets the same decision every time. See [How it works](/guides/how-it-works#does-cc-safety-net-use-an-llm).
 
-CC Safety Net does not give complete protection. It is a static pre-execution hook. It cannot see inside arbitrary binaries, and it cannot protect commands that bypass an installed integration. Read [Known limitations](/guides/known-limitations) before you rely on it.
+### Does CC Safety Net send my data anywhere?
+
+No. CC Safety Net has no telemetry and makes its decisions locally, with no network calls. It uses the network only when `npx` or `bunx` fetches the package, when `rule add` or `rule update` fetches a rulebook from GitHub, and when `update` checks the npm registry. The [audit log](/reference/audit-log) stays on your machine.
+
+### Does CC Safety Net slow down my agent?
+
+Integrations that load as a plugin inside the agent add little. Hooks that run through `npx` add a few hundred milliseconds per tool call. If yours are slower, see [Troubleshooting](/guides/troubleshooting).
+
+### Does CC Safety Net work on Windows?
+
+Yes, for every agent except Hermes Agent and OpenClaw, which run on macOS and Linux only. Amp documents macOS, Linux, and WSL rather than native Windows. See [Before you install](/installation#before-you-install).
+
+### Is CC Safety Net a sandbox?
+
+No. A sandbox contains the filesystem and network. CC Safety Net blocks destructive operations that a sandbox permits inside your project, so run both. It cannot see inside binaries or check commands that bypass its integration. See the [protection-layers comparison](/guides/vs-sandboxing) and [Known limitations](/guides/known-limitations).
 
 ## Get started
 

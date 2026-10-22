@@ -1,0 +1,74 @@
+---
+title: "Codex に CC Safety Net をインストールする"
+sidebarTitle: "Codex"
+description: "cc-marketplace から Codex に CC Safety Net プラグインをインストールし、/hooks で PreToolUse フックを信頼します。対話セッションでの保護範囲の境界、削除方法、doctor が表示する信頼のリマインダーも説明します。"
+keywords:
+  - "codex"
+  - "cc-marketplace"
+  - "フックの信頼"
+  - "/hooks"
+  - "codex plugin list"
+  - "PreToolUse"
+---
+
+`npx -y cc-safety-net@latest install --codex` を実行します。`cc-marketplace` マーケットプレイスが追加され、`cc-safety-net@cc-marketplace` プラグインがインストールされます。Codex は信頼されていないフックを実行しないため、続けて Codex の `/hooks` メニューでフックを信頼してください。
+
+<span id="install-cc-safety-net-in-codex"></span>
+
+## Codex に CC Safety Net をインストールする
+
+<Steps>
+  <Step title="インストーラーを実行する">
+    ```bash
+    npx -y cc-safety-net@latest install --codex
+    ```
+  </Step>
+  <Step title="フックを信頼する">
+    Codex を起動して `/hooks` を開き、**cc-safety-net PreToolUse hook** を選択して `t` を押し、信頼済みにします。
+  </Step>
+  <Step title="プラグインが有効か確認する">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+プラグインがインストールされて有効になっていれば、`doctor` の出力で Codex の行は `Detected` と `Configured` になります。
+
+## Codex のインストールで変わること
+
+インストーラーは `kenryu42/cc-marketplace` から `cc-marketplace` マーケットプレイスを追加し、`cc-safety-net@cc-marketplace` プラグインをインストールします。
+
+このプラグインには [`/cc-safety-net` スキル](/ja/guides/skill)も含まれています。
+
+## Codex のフックがチェックする内容
+
+プラグインのフックは、Codex の `PreToolUse` イベントで `cc-safety-net hook --codex`（短いフラグは `-cx`）を実行します。
+
+<span id="codex-coverage-limits"></span>
+
+## Codex での保護範囲の制限
+
+- **入力されたテキスト。** Codex は、コマンドがシェルセッションを開くときには `PreToolUse` イベントを送りますが、`write_stdin` では送りません。そのため CC Safety Net がチェックするのは、セッションを開いたコマンドだけです。その後モデルが実行中のセッションに入力したテキストは、チェックされないままシェルに届き、監査ログにも残りません。この穴をふさげるのは Codex だけです。
+- **作業ディレクトリ。** Codex はコマンドを呼び出しの `workdir` で実行しますが、`workdir` をフックに渡しません。そのため CC Safety Net は、代わりにそのターンの作業ディレクトリを基準にコマンドを解析します。結果として、相対パスや、作業ディレクトリ外のパスに関するルールを、誤ったディレクトリを基準に解決します。安全なコマンドをブロックしたり、ルール上ブロックされるはずのコマンドを許可したりすることがあります。
+
+どちらかの穴が問題になる場合は、封じ込めのレイヤーとして[サンドボックス](/ja/guides/vs-sandboxing)を追加してください。
+
+## Codex でチェックが失敗したときの動作
+
+Codex のフックはフェイルオープンです。フックがクラッシュした、タイムアウトした（既定は 600 秒）、起動できなかった、不正な出力を返した場合、Codex はフックの実行を失敗として記録し、そのままツール呼び出しを実行します。CC Safety Net 自身が捕捉したエラーは、フックが拒否を出力するため引き続きブロックされます。
+
+## Codex から CC Safety Net をアンインストールする
+
+```bash
+npx -y cc-safety-net@latest uninstall --codex
+```
+
+## Codex のトラブルシューティング
+
+- **Codex の行が `Not configured` になる。** プラグインはインストールされていますが、有効になっていません。Codex で有効にしてください。`Not detected` の場合は、プラグインがインストールされていません。
+- **`doctor` が信頼のリマインダーを表示する。** Codex の行が `Configured` のとき、`doctor` は信頼の状態を確認できないため、実行のたびに次のメッセージを表示します。信頼されていないという意味ではなく、終了コードも変わりません。
+
+  ```text
+  Warning (Codex): Codex runs only trusted hooks, and doctor cannot check trust. Start Codex, open `/hooks`, select the cc-safety-net PreToolUse hook, and press `t` to trust it.
+  ```

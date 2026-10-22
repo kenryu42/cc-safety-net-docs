@@ -1,0 +1,140 @@
+---
+title: "Install CC Safety Net in Kimi Code"
+sidebarTitle: "Kimi Code"
+description: "Install CC Safety Net in Kimi Code as a global PreToolUse hook in config.toml or as a native Kimi Code plugin, see what each checks and what happens when it fails, fix invalid hooks entries, and remove it."
+keywords:
+  - "kimi"
+  - "kimi code"
+  - "config.toml"
+  - "KIMI_CODE_HOME"
+  - "PreToolUse"
+  - "kimi plugin"
+---
+
+Run `npx -y cc-safety-net@latest install --kimi-code` and choose one of two methods. The installer can write a global hook to `~/.kimi-code/config.toml`, or you can install a native Kimi Code plugin from inside Kimi Code. Both run the same check on every tool call, and `npx cc-safety-net doctor` confirms either one is active. Kimi Code hooks fail open with either method.
+
+## Install CC Safety Net in Kimi Code
+
+In a terminal, `install --kimi-code` and the interactive installer ask whether to install the global hook now or print the native plugin steps. Choosing the plugin writes nothing. Outside a terminal, for example in CI, the flag installs the global hook without asking.
+
+<Tabs>
+  <Tab title="Global hook">
+    <Steps>
+      <Step title="Run the installer">
+        ```bash
+        npx -y cc-safety-net@latest install --kimi-code
+        ```
+
+        In a terminal, choose the global hook in the prompt.
+      </Step>
+      <Step title="Confirm the hook is active">
+        ```bash
+        npx cc-safety-net doctor
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+  <Tab title="Native plugin">
+    <Steps>
+      <Step title="Install the plugin inside Kimi Code">
+        ```text
+        /plugins install https://github.com/kenryu42/cc-safety-net/tree/plugin
+        ```
+
+        Keep the `/tree/plugin` suffix. Without it, Kimi Code installs the whole repository.
+      </Step>
+      <Step title="Confirm the trust prompt">
+        Select the option that confirms trust. The prompt defaults to cancel.
+      </Step>
+      <Step title="Reload Kimi Code">
+        Run `/reload` or start a new session.
+      </Step>
+      <Step title="Confirm the plugin is active">
+        ```bash
+        npx cc-safety-net doctor
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+To write rules from inside Kimi Code, add the [rule authoring skill](/guides/skill#how-you-invoke-it).
+
+## What the Kimi Code global hook install changes
+
+The installer writes a `[[hooks]]` block to `~/.kimi-code/config.toml`, or to `$KIMI_CODE_HOME/config.toml` when `KIMI_CODE_HOME` is set. The block runs `npx -y cc-safety-net hook --kimi-code` on each `PreToolUse` call.
+
+## What the Kimi Code hook checks
+
+The global hook and the plugin run the same check on every tool call. They analyze `Bash` calls as shell commands and inspect the inputs of other tools for protected paths.
+
+## What happens when the Kimi Code check fails
+
+Kimi Code hooks fail open. With either method, a hook process that cannot start, crashes, or times out lets the tool call proceed. Kimi Code also ignores every hook in `config.toml` when one hooks entry is invalid. See [Invalid hooks entries in Kimi Code](#invalid-hooks-entries-in-kimi-code).
+
+## Kimi Code coverage limits
+
+In `kimi web` and ACP sessions, Kimi Code sends the server's launch directory as the payload `cwd`, not the session's own directory. So CC Safety Net checks every `Bash` call in those sessions against the directory the server was launched from:
+
+- CC Safety Net resolves relative paths, and the rules about paths outside the working directory, against the wrong directory. That can block a safe command or allow one the rules would block.
+- The hook denies a `cwd` argument that names the session directory when that directory is outside the server's launch directory.
+
+Terminal `kimi` sessions are unaffected. Only Kimi Code can close this gap, by sending the session directory.
+
+## Move from the global hook to the native plugin
+
+Install the plugin and confirm it is active first, then remove the global hook:
+
+```bash
+npx -y cc-safety-net@latest uninstall --kimi-code
+```
+
+A short overlap where both run only repeats the denial message. A gap with neither active leaves you unprotected.
+
+## Update CC Safety Net in Kimi Code
+
+[`update`](/reference/cli/update) refreshes the global hook but never the native plugin. For the plugin, it prints:
+
+```text
+Kimi Code plugin skipped: update it in Kimi Code from /plugins (Installed tab, select cc-safety-net, press Enter)
+```
+
+## Uninstall CC Safety Net from Kimi Code
+
+```bash
+npx -y cc-safety-net@latest uninstall --kimi-code
+```
+
+Uninstall removes only the global hook. It does not touch the native plugin.
+
+## Troubleshoot Kimi Code
+
+### Invalid hooks entries in Kimi Code
+
+Kimi Code ignores every hook in `config.toml` when one hooks entry breaks its schema. So `doctor` checks every `[[hooks]]` entry, not only the CC Safety Net one, and prints this error for each bad entry:
+
+```text
+Kimi Code ignores every hook because hooks entry <n> is invalid (<problem>); fix it in <path>
+```
+
+`<n>` counts entries from `1`. `<problem>` is one of these:
+
+| Problem | Cause |
+| --- | --- |
+| `"<text>" is not a key = value pair` | Part of the entry is not a `key = value` pair |
+| `unknown key "<key>"` | A key other than `event`, `matcher`, `command`, or `timeout` |
+| `duplicate key "<key>"` | A key appears twice in the entry |
+| `"event" is not a Kimi Code hook event` | `event` is missing or names no Kimi Code hook event |
+| `"matcher" is not a string` | `matcher` is present and not a string |
+| `"command" is missing or empty` | `command` is missing, not a string, or empty |
+| `"timeout" is not an integer from 1 to 600` | `timeout` is present and not an integer from `1` to `600` |
+
+### Kimi Code plugin is installed but not enabled
+
+`doctor` reads the plugin record from `installed.json` under `plugins` in the Kimi home, `$KIMI_CODE_HOME` or `~/.kimi-code`. A record that is not enabled prints:
+
+```text
+cc-safety-net is installed but not enabled in Kimi Code; run /plugins enable cc-safety-net
+```
+
+Run `/plugins enable cc-safety-net` in Kimi Code. When `doctor` cannot read that file, it prints `Cannot read <path>, so doctor cannot tell whether the Kimi Code plugin is installed` and exits `1`.

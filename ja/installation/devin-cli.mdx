@@ -1,0 +1,122 @@
+---
+title: "Devin CLI に CC Safety Net をインストールする"
+sidebarTitle: "Devin CLI"
+description: "config.json に PreToolUse フックを 1 つ追加して Devin CLI に CC Safety Net をインストールする方法、フックが exec と write_to_process の呼び出しを検査する仕組み、アンインストール方法、壊れた設定に対する doctor のメッセージを説明します。"
+keywords:
+  - "devin"
+  - "devin cli"
+  - "config.json"
+  - "PreToolUse"
+  - "write_to_process"
+  - "XDG_CONFIG_HOME"
+---
+
+`npx -y cc-safety-net@latest install --devin` を実行すると、Devin CLI の `config.json` に `PreToolUse` フックが 1 つ追加され、すべてのツール呼び出しが最初に CC Safety Net を通るようになります。続けて `npx cc-safety-net doctor` を実行し、フックが有効か確認してください。Devin CLI のフックはフェイルオープンです。フックがタイムアウトしたり、応答する前に終了したりすると、その呼び出しはそのまま実行されます。
+
+## Devin CLI に CC Safety Net をインストールする
+
+<Steps>
+  <Step title="インストーラーを実行する">
+    ```bash
+    npx -y cc-safety-net@latest install --devin
+    ```
+  </Step>
+  <Step title="フックが有効か確認する">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+## Devin CLI のインストールで変わること
+
+インストーラーは、Devin CLI の `config.json` の `hooks.PreToolUse` に次の管理対象エントリを書き込みます。
+
+```json
+{ "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --devin", "timeout": 30 }] }
+```
+
+対象のファイルは `$XDG_CONFIG_HOME/devin/config.json` で、既定は `~/.config/devin/config.json` です。Windows では `%APPDATA%\devin\config.json` になります。正確な規則は [Devin CLI の設定の場所](#where-devin-cli-keeps-its-configuration)を参照してください。
+
+- このエントリにはマッチャーがありません。そのため `exec` だけでなく、すべてのツール呼び出しがフックに届きます。
+- インストールは、ファイル内の他のキー、フックイベント、`PreToolUse` エントリをすべてそのまま残します。`config.json` が存在しない場合は、この `hooks` キーだけを持つファイルを作ります。
+- Devin CLI は `config.json` のコメントと末尾のカンマを受け付けます。インストールとアンインストールは通常の JSON として書き戻すため、コメントは残りません。
+
+## Devin CLI のフックが検査する内容
+
+- コマンドを実行するツールは `exec` だけです。フックはそのシェルの方言を自動判定します。
+- `write_to_process` の呼び出しで実行中のプロセスに入力されるテキストも解析します。[Devin CLI のフックが入力テキストを検査する仕組み](#how-the-devin-cli-hook-checks-typed-input)を参照してください。
+- その他のツールについては、ツール入力に保護対象のパスが含まれていないかを検査します。
+
+許可する呼び出しにはフックが何も出力しないため、Devin CLI 自身の権限確認のプロンプトもそのまま働きます。
+
+### Devin CLI のフックがコマンドを解析するディレクトリ
+
+Devin CLI はセッションの作業ディレクトリをフックに渡さないため、フックは自身が動作しているディレクトリを使います。`exec` の呼び出しは `workdir` で別のディレクトリを指定でき、その場合フックはそのディレクトリを基準にコマンドを解析します。
+
+- 相対パスの `workdir` は、セッションのディレクトリを基準に解決します。
+- `workdir` はセッションのディレクトリの内側でなくてもかまいません。
+- 空または空白だけの `workdir` や、文字列でない `workdir` は拒否します。
+- 既存のディレクトリでない `workdir` も拒否し、拒否の理由にそのディレクトリを示します。
+
+<span id="how-the-devin-cli-hook-checks-typed-input"></span>
+
+### Devin CLI のフックが入力テキストを検査する仕組み
+
+`write_to_process` の呼び出しは、すでに動作しているプロセスにテキストを入力します。フックは `text_input` または `bytes_input` で入力されるテキストを、シェルコマンドとして解析します。`text_input` が `y`、`bytes_input` が `<CR>` の場合は、`y` を解析します。
+
+受け取ったプログラムが実行する行を特定できない場合、フックはその呼び出しを拒否します。
+
+- テキストと一緒に `<ESC>`、`<BS>`、矢印キー、`<C-…>` キーが送られる。
+- `bytes_input` に、Devin CLI のドキュメントにない `<Name>` 形式のキーが含まれる。
+- `text_input` と `bytes_input` の両方にテキストがある。
+
+`<UP><CR>` や `<C-c>` のようにキーだけを送る場合はコマンドではないため、フックは解析しません。
+
+## Devin CLI のチェックが失敗したときの動作
+
+Devin CLI のフックはフェイルオープンです。ツール呼び出しをブロックできるのは、終了コード 2 と `block` の判定だけです。タイムアウトした場合、`npx` が見つからない場合、フックのプロセスが応答する前に終了した場合は、その呼び出しはそのまま実行されます。フック自身が捕捉したエラーでは `block` を返すため、呼び出しはブロックされます。
+
+<span id="devin-cli-coverage-limits"></span>
+
+## Devin CLI での保護範囲の制限
+
+- **プロジェクトのフック。** CC Safety Net が対応するのは、インストールが書き込むユーザーレベルの `config.json` だけです。プロジェクトの `.devin/hooks.v1.json` にあるフックはリポジトリのルートを作業ディレクトリとして実行され、Devin CLI にはフック側でそれを補正する手段がありません。
+- **分割された入力。** フックは `write_to_process` の呼び出しを 1 回ずつ解析します。何回かに分けて入力されたコマンドを、1 つのコマンドとしては検査しません。
+- **Devin Cloud。** CC Safety Net は Devin Cloud のセッションを対象にしていません。
+- **Claude Code のフック。** Devin は既定で Claude Code のフックファイルも読み込みます。そのため、Claude Code 用にインストールした CC Safety Net のフックが Devin のセッションでも動くことがあります。その場合も、拒否が重複するだけです。
+
+## Devin CLI から CC Safety Net をアンインストールする
+
+```bash
+npx -y cc-safety-net@latest uninstall --devin
+```
+
+アンインストールは管理対象のハンドラーだけを取り除き、ファイルを書き戻します。`hooks.PreToolUse` が空になっても、`config.json` は削除しません。管理対象のハンドラーがファイルにない場合は何も書き込まず、フックは未インストールと報告します。
+
+<span id="where-devin-cli-keeps-its-configuration"></span>
+
+## Devin CLI の設定の場所
+
+Devin CLI では設定ディレクトリを移動できます。CC Safety Net も同じ規則で設定の場所を決めるため、移動した設定も見つけられます。
+
+- `XDG_CONFIG_HOME` が設定されていて空でなければ、`$XDG_CONFIG_HOME/devin`。
+- それ以外の場合は `<home>/.config/devin`。
+- Windows では `%APPDATA%\devin`。`APPDATA` が未設定または空の場合は `<home>\AppData\Roaming\devin`。
+
+ファイルは、そのディレクトリ内の `config.json` です。CC Safety Net は環境変数の値を書かれたとおりに使い、`~` は展開しません。
+
+<span id="troubleshoot-devin-cli"></span>
+
+## Devin CLI のトラブルシューティング
+
+`config.json` に問題があると、インストールは何も書き込まずに停止します。`doctor` は同じメッセージを `Error (Devin CLI): <message>` の形で表示し、Devin CLI を未設定として数え、終了コード `1` で終了します。ファイルを修正してから、インストールをやり直してください。
+
+| 問題 | メッセージ |
+| --- | --- |
+| ファイルをパースできない | `Failed to parse Devin CLI config <path>: <reason>` |
+| ルートが JSON オブジェクトではない | `Devin CLI config <path> must be a JSON object` |
+| `hooks` がオブジェクトではない | `Devin CLI config <path> "hooks" must be an object` |
+| `hooks.PreToolUse` が配列ではない | `Devin CLI config <path> "hooks.PreToolUse" must be an array` |
+
+フックのエントリが変更されていると `doctor` が警告した場合は、インストールをやり直してください。警告の一覧は[管理対象フックの設定ずれ](/ja/reference/cli/doctor#managed-hook-drift)にあります。

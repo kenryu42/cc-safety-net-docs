@@ -1,0 +1,81 @@
+---
+title: "Grok Build に CC Safety Net をインストールする"
+sidebarTitle: "Grok Build"
+description: "~/.grok/hooks に PreToolUse のフックファイルを 1 つ置いて Grok Build に CC Safety Net をインストールする方法、フックが検査するツールとチェック失敗時の動作、アンインストール方法、disabled-hooks に載ったフックの直し方を説明します。"
+keywords:
+  - "grok"
+  - "grok build"
+  - "GROK_HOME"
+  - "PreToolUse"
+  - "disabled-hooks"
+  - "workspaceRoot"
+---
+
+`npx -y cc-safety-net@latest install --grok-build` を実行すると、`PreToolUse` のフックファイル `~/.grok/hooks/cc-safety-net.json` が 1 つ書き込まれ、すべてのツール呼び出しが最初に CC Safety Net を通るようになります。続けて `npx cc-safety-net doctor` を実行し、フックが有効か確認してください。Grok Build のフックはフェイルオープンです。フックがクラッシュしたりタイムアウトしたりすると、その呼び出しはそのまま実行されます。
+
+## Grok Build に CC Safety Net をインストールする
+
+<Steps>
+  <Step title="インストーラーを実行する">
+    ```bash
+    npx -y cc-safety-net@latest install --grok-build
+    ```
+  </Step>
+  <Step title="フックが有効か確認する">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+## Grok Build のインストールで変わること
+
+インストーラーは、次の管理対象の `PreToolUse` エントリを `~/.grok/hooks/cc-safety-net.json` に書き込みます。`GROK_HOME` が設定されている場合は `$GROK_HOME/hooks/cc-safety-net.json` です。
+
+```json
+{ "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --grok-build", "timeout": 30 }] }
+```
+
+- このエントリにはマッチャーがありません。そのため `run_terminal_command` だけでなく、すべてのツール呼び出しがフックに届きます。
+- そのファイルにある、CC Safety Net の管理対象外のフックはそのまま残ります。
+- ファイルをパースできない場合、インストールはファイルを置き換えます。Grok Build はパースできないフックファイルを読み飛ばすため、そのファイルには機能するフックがもともとありません。
+
+<span id="what-the-grok-build-hook-checks"></span>
+
+## Grok Build のフックが検査する内容
+
+- `run_terminal_command`、`run_terminal_cmd`、`monitor`、`bash`、`Shell` の呼び出しはシェルコマンドとして解析し、それぞれのシェルの方言を自動判定します。
+- ファイル系ツールとパッチ系ツールについては、ツール入力に保護対象のパスが含まれていないかを検査します。
+- Grok Build が入力を切り詰めた呼び出しは拒否します。Grok Build はツール入力を 128 KB で切り詰めるため、途中で切れたコマンドはフックで解析できません。
+
+フックはセッションのディレクトリを基準にコマンドを検査します。このディレクトリはワークスペースルートの内側にある必要があります。`bash` と `Shell` は、`workdir` または `working_directory` で独自のディレクトリを指定できます。そのディレクトリも存在し、ワークスペースルートの内側にある必要があります。どちらかのディレクトリがルートの外にある場合や解決できない場合、フックは呼び出しを拒否します。
+
+## Grok Build のチェックが失敗したときの動作
+
+Grok Build のフックはフェイルオープンで、Grok Build には `failClosed` の設定もありません。ツール呼び出しをブロックできるのは明示的な拒否だけです。フックがクラッシュした場合、タイムアウトした場合、不正な形式の出力を返した場合は、その呼び出しはそのまま実行されます。切り詰められた入力や使えない作業ディレクトリなど、フック自身が捕捉した失敗では、フックが拒否を出力します。
+
+## Grok Build から CC Safety Net をアンインストールする
+
+```bash
+npx -y cc-safety-net@latest uninstall --grok-build
+```
+
+アンインストールは管理対象のフックだけを取り除きます。`cc-safety-net.json` に他に何も残らなければファイルを削除し、パースできないファイルには手を触れません。
+
+## Grok Build のトラブルシューティング
+
+<span id="when-grok-build-skips-the-cc-safety-net-hook"></span>
+
+### Grok Build が CC Safety Net のフックを読み飛ばす場合
+
+Grok Build は、`disabled-hooks` ファイル（`~/.grok/disabled-hooks` または `$GROK_HOME/disabled-hooks`）に載っているフックをすべて読み飛ばします。このファイルに CC Safety Net のフックが載っている場合、`doctor` は次のように表示します。
+
+```text
+Error (Grok Build): Grok Build skips the hook: <name> is listed in <path>; enable it in /hooks
+```
+
+Grok Build の `/hooks` メニューでフックを有効にしてください。`disabled-hooks` を読み取れない場合、`doctor` は `Cannot read <path>, so doctor cannot tell whether Grok Build skips the hook` と警告したうえで、フックを設定済みとして報告します。
+
+### 管理対象のエントリが変更された
+
+管理対象のエントリを自分で、または別のツールが編集した場合、`doctor` は[設定ずれの警告](/ja/reference/cli/doctor#managed-hook-drift)を表示します。`install --grok-build` をもう一度実行して書き直してください。

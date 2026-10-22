@@ -1,47 +1,59 @@
 ---
-title: "CC Safety Net 的作用"
+title: "CC Safety Net 是什么"
 sidebarTitle: "简介"
-description: "CC Safety Net 是一个执行前 hook。它检查编码智能体将要运行的操作，并阻止会破坏未提交工作或暴露机密的操作。"
+description: "CC Safety Net 是免费的本地执行前 hook，会阻止编码智能体中破坏未提交工作或泄露机密的命令和文件读取。本页解答费用、LLM 使用、数据、性能、Windows 和沙箱相关的问题。"
 ---
 
 ## CC Safety Net 是什么？
 
-CC Safety Net 是面向 Claude Code、Codex、Cursor 等 AI 编码智能体的执行前 hook。它在破坏性 git 和文件系统命令以及机密文件读取运行之前将其阻止，而不是指望智能体遵守准则。覆盖范围包括 `git reset --hard`、`git push --force`、针对主目录的 `rm -rf`，以及对 `.env` 文件、SSH 密钥和云凭证的读取。它支持 macOS、Linux 和 Windows 上的 16 个编码智能体 CLI，免费并采用 MIT 许可证。它不是沙箱：如果需要进程、文件系统或网络隔离，请同时运行沙箱。
+CC Safety Net 是面向 Claude Code、Codex、Cursor 等 AI 编码智能体的执行前 hook。它在每条命令和每个文件操作运行前进行检查，阻止会破坏未提交工作或泄露机密的操作，例如 `git reset --hard`、`git push --force`、针对主目录的 `rm -rf`，以及对 `.env` 文件、SSH 密钥和云凭证的读取。它支持 16 个编码智能体。
 
 ## 为什么需要它
 
-截至 2026 年 10 月，没有一家主流编码 CLI 会确定性地阻止你交给它的工作区内的破坏性 git 命令。`git reset --hard`、`git checkout -- .`、`git clean -f`、`git stash clear` 和 `git push --force` 作用的都是智能体本来就被允许写入的文件，因此把写入限制在项目目录内的沙箱看不出任何问题。OpenAI 的 [Codex 安全文档](https://learn.chatgpt.com/docs/security)称，workspace-write 下的命令“can still mutate state and perform destructive operations”。一份[针对 Codex 权限的独立分析](https://codex.danielvaughan.com)（2026-04-20）说得很直接：“No command-level semantic blocking: the system cannot prevent git reset --hard”。Claude Code 的[沙箱文档](https://code.claude.com/docs/en/sandboxing)把写入限制在工作目录内，而那里正是你未提交的工作所在之处。
+截至 2026 年 10 月，没有一款主流编码 CLI 会在你交给它的工作区内确定性地阻止破坏性 git 命令。`git reset --hard`、`git checkout -- .`、`git clean -f`、`git stash clear` 和 `git push --force` 操作的都是智能体本来就能写入的文件，因此把写入限制在项目内的沙箱看不出任何问题。OpenAI 的 [Codex 安全文档](https://learn.chatgpt.com/docs/security)称，workspace-write 下的命令“can still mutate state and perform destructive operations”。Claude Code 的[沙箱文档](https://code.claude.com/docs/en/sandboxing)把写入限制在工作目录内，而你未提交的工作恰恰就在那里。
 
-这一层还有另外三个值得运行的理由：
+运行它还有另外三个理由：
 
-- **在概率性检查之下再加一道确定性检查。** 截至 2026 年 10 月，Anthropic 公布了 Claude Code [auto-mode](https://www.anthropic.com/engineering/claude-code-auto-mode) 分类器在真实过激操作上 17% 的漏报率，并称它“not a drop-in replacement for careful human review”。deny rule 和 hook 是确定性的一层，而不是一次判断。2026-08-31 经 Claude Code 2.1.251 验证，PreToolUse 拒绝在 default、auto 和 bypassPermissions 模式下都仍会触发（项目仓库中的 `tests/e2e-live/protection.test.ts`）。这是针对特定版本的结果，不是长期保证，因此该测试套件会在每次发布和宿主升级时重新运行。
-- **无需配置的机密保护。** 截至 2026 年 10 月，Claude Code 的[沙箱文档](https://code.claude.com/docs/en/sandboxing)写明，默认读取行为“still allows reading credential files such as ~/.aws/credentials and ~/.ssh/”，并且“There is no built-in credential deny list”。其他 CLI 的原生等价能力需要你为每个 CLI 单独编写选择性启用的配置。CC Safety Net 从安装那一刻起就阻止对这些路径和项目 `.env` 文件的内容访问，覆盖 shell 命令以及 read、edit、write、search 工具。
-- **横跨 16 个 CLI 的同一份策略和同一份审计记录。** 五家厂商提供五套互不兼容的权限机制，而且没有事后可读的决策日志。
+- **在概率性检查之下加一道确定性检查。** 截至 2026 年 10 月，Anthropic 公布 Claude Code [auto-mode](https://www.anthropic.com/engineering/claude-code-auto-mode) 分类器在真实过激操作上的漏报率为 17%，并称它“not a drop-in replacement for careful human review”。hook 执行的是固定规则，而不是一次主观判断。
+- **无需配置的机密保护。** Claude Code 没有内置的凭证拒绝列表，其他 CLI 则要求你为每个工具单独编写。CC Safety Net 一经安装就会阻止访问 `.env` 文件、SSH 密钥和云凭证。见[机密保护](/zh-Hans/reference/secret-protection)。
+- **16 个 CLI 共用一份策略和一份审计记录。** 五家厂商提供五套互不兼容的权限机制，而且都没有事后可查阅的决策日志。
 
-这一层之下的防线在实际使用中已经失守过。[保护层比较](/zh-Hans/guides/vs-sandboxing)介绍了沙箱和允许列表的 CVE；Adversa 的[事件追踪](https://adversa.ai/blog/ai-coding-agent-incidents)记录了 2025 和 2026 年的九起智能体破坏事件，其中约一半开启了防护措施。
-
-最初的那起事故依然成立，只是不再是最前沿的威胁。一个智能体用一条 `rm -rf ~/` [清除了数小时的工作](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/)，指令并没有拦住它。截至 2026 年 10 月，Claude Code 已为这类关键路径内置了确定性断路器，这是正确的修复，也是这里不再把它当作头条的原因。而上面列出的 git 命令没有这样的断路器。`CLAUDE.md` 或 `AGENTS.md` 中的规则可以引导智能体，但无法强制实施技术限制。CC Safety Net 把这道限制变成一次执行前检查来强制实施。
+`CLAUDE.md` 或 `AGENTS.md` 中的指令可以引导智能体，但无法强制实施限制。曾有智能体无视这些指令，用一条 `rm -rf ~/` [清除了数小时的工作](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/)。Adversa 的[事件追踪](https://adversa.ai/blog/ai-coding-agent-incidents)记录了 2025 和 2026 年的九起智能体破坏事件，其中约一半开启了防护措施。沙箱和允许列表的 CVE 见[保护层比较](/zh-Hans/guides/vs-sandboxing)。
 
 ## 它拦截什么
 
-CC Safety Net 安装在编码智能体内部，在智能体的工具调用到达你的机器之前运行。
+CC Safety Net 安装在编码智能体中，在智能体的工具调用到达你的机器之前运行。
 
-它检查 shell 命令，以及文件写入、编辑、搜索和补丁操作。允许的操作会继续执行。被阻止的操作不会执行，并会附上原因。阻止结果以普通工具结果的形式返回，智能体可以[跳过被阻止的操作并继续任务](/zh-Hans/guides/design-principles#denials-that-keep-the-agent-on-task)。
+它检查 shell 命令，以及文件写入、编辑、搜索和补丁操作，然后放行该操作，或者阻止它并直接说明原因。阻止结果以普通工具结果的形式返回，因此智能体可以[在不执行被阻止操作的情况下继续任务](/zh-Hans/guides/how-it-works#what-a-block-looks-like)。
 
-判定依据是意图，而不是命令的字面写法。`git checkout -b feature` 创建分支，会被允许；`git checkout -- file` 丢弃未提交的更改，会被阻止。两条命令都以相同的两个单词开头。
+CC Safety Net 依据命令的实际作用做出决策，而不是看它的字面写法。`git checkout -b feature` 会创建分支，因此被允许；`git checkout -- file` 会丢弃未提交的更改，因此被阻止。两条命令开头的两个单词完全相同。
 
-对于集成转发的工具操作，同一套检查也会保护 SSH 密钥、`.env` 文件、云凭证存储和编码 CLI 令牌等受支持的凭证文件。CC Safety Net 会在文件访问发生前，阻止匹配的读取和写入。各集成覆盖的工具不同，详情见[集成覆盖边界](/zh-Hans/guides/known-limitations#hermes-agent-and-openclaw-coverage-boundaries)和[机密保护参考](/zh-Hans/reference/secret-protection)。
+## 常见问题
 
-每个智能体使用不同的集成。有些将 CC Safety Net 作为短生命周期子进程运行，另一些则把它加载到智能体进程内。安装程序会为你的智能体配置正确的集成。一个工具调用的完整生命周期见[工作原理](/zh-Hans/guides/how-it-works)。
+### CC Safety Net 免费吗？
 
-## 它不能替代什么
+免费。CC Safety Net 采用 MIT 许可证，源代码托管在 [GitHub](https://github.com/kenryu42/cc-safety-net) 上。
 
-CC Safety Net 是对智能体权限规则和原生沙箱的补充。它不能替代这些措施。
+### CC Safety Net 使用 LLM 吗？
 
-拒绝规则让你快速配置要阻止的操作。沙箱在操作系统层隔离文件系统和网络。CC Safety Net 会拦截已知的破坏性 Git 和文件系统操作，而沙箱可能允许这些操作在项目内执行。两者应配合使用。详情见[保护层比较](/zh-Hans/guides/vs-sandboxing)。
+不使用。所有决策都由本地基于规则的解析器做出，不调用任何模型。同一条命令每次得到的决策都相同。见[工作原理](/zh-Hans/guides/how-it-works#does-cc-safety-net-use-an-llm)。
 
-CC Safety Net 无法提供完整保护。它是静态的执行前 hook，无法查看任意二进制文件的内部，也无法防范绕过已安装集成的命令。使用前请阅读[已知限制](/zh-Hans/guides/known-limitations)。
+### CC Safety Net 会把我的数据发送到别处吗？
+
+不会。CC Safety Net 没有遥测，在本地做出决策，不发起任何网络调用。只有三种情况会用到网络：`npx` 或 `bunx` 获取软件包时，`rule add` 或 `rule update` 从 GitHub 获取 rulebook 时，以及 `update` 查询 npm 注册表 时。[审计日志](/zh-Hans/reference/audit-log)始终保存在你的机器上。
+
+### CC Safety Net 会拖慢智能体吗？
+
+以插件形式加载到智能体内部的集成几乎没有额外开销。通过 `npx` 运行的 hook 每次工具调用会增加几百毫秒。如果你的环境更慢，见[故障排除](/zh-Hans/guides/troubleshooting)。
+
+### CC Safety Net 支持 Windows 吗？
+
+支持。只有 Hermes Agent 和 OpenClaw 例外，它们仅能在 macOS 和 Linux 上运行。Amp 的文档只写明支持 macOS、Linux 和 WSL，没有提到原生 Windows。见[安装前须知](/zh-Hans/installation#before-you-install)。
+
+### CC Safety Net 是沙箱吗？
+
+不是。沙箱负责隔离文件系统和网络。沙箱允许在项目内执行的破坏性操作，CC Safety Net 会将其阻止，因此两者应同时运行。它无法查看二进制文件内部，也无法检查绕过其集成的命令。见[保护层比较](/zh-Hans/guides/vs-sandboxing)和[已知限制](/zh-Hans/guides/known-limitations)。
 
 ## 开始使用
 
-在[安装](/zh-Hans/installation)页面选择你的智能体，然后用[快速入门](/zh-Hans/quickstart)确认保护已生效。
+在[安装](/zh-Hans/installation)页面选择你的智能体，然后按照[快速入门](/zh-Hans/quickstart)确认保护已生效。

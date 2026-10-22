@@ -1,47 +1,59 @@
 ---
-title: "CC Safety Net の機能"
+title: "CC Safety Net とは"
 sidebarTitle: "概要"
-description: "CC Safety Net は、コーディングエージェントが実行しようとしている処理を検査し、未コミットの作業を破壊する操作やシークレットを露出させる操作をブロックする実行前フックです。"
+description: "CC Safety Net は、無料でローカルに動作する実行前フックです。コーディングエージェントが未コミットの作業を破壊したりシークレットを露出させたりするコマンドとファイル読み取りをブロックします。費用、LLM の使用、データの扱い、パフォーマンス、Windows 対応、サンドボックスとの違いにも答えます。"
 ---
 
 ## CC Safety Net とは何ですか？
 
-CC Safety Net は、Claude Code、Codex、Cursor などの AI コーディングエージェント向けの実行前フックです。エージェントがガイドラインを守ることを当てにせず、破壊的な git やファイルシステムのコマンドとシークレットファイルの読み取りを、実行前にブロックします。対象には `git reset --hard`、`git push --force`、ホームディレクトリへの `rm -rf`、`.env` ファイル・SSH 鍵・クラウドの資格情報の読み取りが含まれます。macOS、Linux、Windows 上の 16 のコーディングエージェント CLI に対応し、MIT ライセンスのもと無料で使えます。サンドボックスではありません。プロセス、ファイルシステム、ネットワークの封じ込めが必要なら、サンドボックスを併用してください。
+CC Safety Net は、Claude Code、Codex、Cursor などの AI コーディングエージェント向けの実行前フックです。コマンドやファイル操作を実行前に 1 つずつチェックし、未コミットの作業を破壊する操作やシークレットを露出させる操作をブロックします。対象は `git reset --hard`、`git push --force`、ホームディレクトリへの `rm -rf`、`.env` ファイル・SSH 鍵・クラウドの資格情報の読み取りなどです。16 のコーディングエージェントに対応しています。
 
 ## CC Safety Net が必要な理由
 
-2026 年 10 月時点で、あなたが作業を任せたワークスペースの中で破壊的な git コマンドを決定的にブロックする主要なコーディング CLI は、1 つもありません。`git reset --hard`、`git checkout -- .`、`git clean -f`、`git stash clear`、`git push --force` は、いずれもエージェントがすでに書き込みを許可されているファイルに作用します。そのため、書き込みをプロジェクトディレクトリに限定するサンドボックスからは、何も問題が見えません。OpenAI の [Codex セキュリティドキュメント](https://learn.chatgpt.com/docs/security)は、workspace-write 下のコマンドについて「can still mutate state and perform destructive operations」と述べています。[Codex の権限に関する独立した分析](https://codex.danielvaughan.com)（2026-04-20）は端的にこう記しています。「No command-level semantic blocking: the system cannot prevent git reset --hard」。Claude Code の[サンドボックスドキュメント](https://code.claude.com/docs/en/sandboxing)は書き込みを作業ディレクトリに限定しますが、そこはまさに未コミット作業が置かれている場所です。
+2026 年 10 月時点で、作業を任せたワークスペースの中で破壊的な git コマンドを決定的にブロックする主要なコーディング CLI は 1 つもありません。`git reset --hard`、`git checkout -- .`、`git clean -f`、`git stash clear`、`git push --force` は、いずれもエージェントがもともと書き込めるファイルに作用します。そのため、書き込みをプロジェクト内に限定するサンドボックスからは、何も問題が見えません。OpenAI の [Codex セキュリティドキュメント](https://learn.chatgpt.com/docs/security)も、workspace-write モードで動くコマンドについて「can still mutate state and perform destructive operations」と述べています。Claude Code の[サンドボックスドキュメント](https://code.claude.com/docs/en/sandboxing)は書き込みを作業ディレクトリに限定しますが、未コミットの作業が置かれているのはまさにその場所です。
 
-このレイヤーを動かす価値がある理由は、ほかに 3 つあります。
+導入する理由はほかに 3 つあります。
 
-- **確率的なチェックの下に置く、決定的なチェック。** Anthropic は 2026 年 10 月時点で、Claude Code の [auto-mode](https://www.anthropic.com/engineering/claude-code-auto-mode) 分類器について、実際の行き過ぎた操作に対する偽陰性率 17% を公表し、「not a drop-in replacement for careful human review」だとしています。deny ルールとフックは、判断任せにしない決定的なレイヤーです。2026-08-31 に Claude Code 2.1.251 で検証したところ、PreToolUse の deny は default、auto、bypassPermissions のいずれのモードでも発火しました（プロジェクトリポジトリの `tests/e2e-live/protection.test.ts`）。これはバージョンごとの結果であって恒久的な保証ではないため、このスイートはリリースとホストの更新のたびに再実行します。
-- **設定なしで使えるシークレット保護。** 2026 年 10 月時点で、Claude Code の[サンドボックスドキュメント](https://code.claude.com/docs/en/sandboxing)は、既定の読み取り動作について「still allows reading credential files such as ~/.aws/credentials and ~/.ssh/」であり、「There is no built-in credential deny list」だと明記しています。他の CLI のネイティブ機能で同等の保護を得るには、CLI ごとにオプトインの設定を書く必要があります。CC Safety Net はインストールした時点から、これらのパスとプロジェクトの `.env` ファイルへのコンテンツアクセスを、シェルコマンドと read、edit、write、search の各ツールにわたってブロックします。
-- **16 の CLI にまたがる 1 つのポリシーと 1 つの監査証跡。** 5 つのベンダーは互換性のない 5 つの権限機構を提供しており、後から読める判断ログはありません。
+- **確率的なチェックの下に置く、決定的なチェック。** Anthropic は 2026 年 10 月時点で、Claude Code の [auto モード](https://www.anthropic.com/engineering/claude-code-auto-mode)の分類器について、実際の行き過ぎた操作に対する偽陰性率 17% を公表し、「not a drop-in replacement for careful human review」だとしています。フックは判断に頼らず、固定のルールを適用します。
+- **設定なしで使えるシークレット保護。** Claude Code には資格情報の拒否リストが組み込まれておらず、ほかの CLI ではツールごとに自分で書く必要があります。CC Safety Net は、インストールした時点から `.env` ファイル、SSH 鍵、クラウドの資格情報をブロックします。[シークレット保護](/ja/reference/secret-protection)を参照してください。
+- **16 の CLI にまたがる 1 つのポリシーと 1 つの監査証跡。** 5 つのベンダーが互換性のない 5 つの権限機構を提供しており、後から読める判定ログはどれにもありません。
 
-この層より下のレイヤーは、実際の現場で破られてきました。サンドボックスと許可リストの CVE は[保護レイヤーの比較](/ja/guides/vs-sandboxing)で扱っています。また Adversa の[インシデントトラッカー](https://adversa.ai/blog/ai-coding-agent-incidents)には、2025 年と 2026 年のエージェントによる破壊事例が 9 件記録されており、その約半数ではガードレールが有効でした。
-
-きっかけとなった事例は今も有効です。ただ、もはや最前線ではありません。あるエージェントはたった 1 つの `rm -rf ~/` で[数時間分の作業を消し去り](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/)、指示はそれを止められませんでした。2026 年 10 月時点で、Claude Code はそうしたクリティカルパスに対する決定的なサーキットブレーカーを備えています。これは正しい修正で、だからこそこの事例をもう主役には置いていません。しかし、上に挙げた git コマンドにはそのようなブレーカーがありません。`CLAUDE.md` や `AGENTS.md` のルールはエージェントを導きますが、技術的に強制する力はありません。CC Safety Net は、その制限を実行前のチェックとして強制します。
+`CLAUDE.md` や `AGENTS.md` の指示はエージェントを導きますが、制限を強制することはできません。指示があったにもかかわらず、あるエージェントはたった 1 つの `rm -rf ~/` で[数時間分の作業を消し去りました](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/)。Adversa の[インシデントトラッカー](https://adversa.ai/blog/ai-coding-agent-incidents)には、2025 年と 2026 年のエージェントによる破壊事例が 9 件記録されており、その約半数ではガードレールが有効でした。サンドボックスと許可リストの CVE は[保護レイヤーの比較](/ja/guides/vs-sandboxing)で扱っています。
 
 ## インターセプトする操作
 
-CC Safety Net はコーディングエージェントに組み込まれ、ツール呼び出しがマシンに届く前に動作します。
+CC Safety Net はコーディングエージェントに組み込まれ、エージェントのツール呼び出しがマシンに届く前に動作します。
 
-シェルコマンドと、ファイルの書き込み・編集・検索・patch の各操作を検査し、許可するか、明確な理由を添えてブロックするかを決めます。ブロックは通常のツール結果として返るため、エージェントは[ブロックされた操作を使わずにタスクを続行できます](/ja/guides/design-principles#denials-that-keep-the-agent-on-task)。
+シェルコマンドと、ファイルの書き込み・編集・検索・パッチの各操作を検査し、許可するか、理由を明示してブロックするかを決めます。ブロックは通常のツール結果として返るため、エージェントは[ブロックされた操作を使わずにタスクを続けられます](/ja/guides/how-it-works#what-a-block-looks-like)。
 
-判定は表記ではなく意図に基づきます。`git checkout -b feature` はブランチを作成するため許可し、`git checkout -- file` は未コミットの変更を破棄するためブロックします。どちらも先頭の 2 語は同じです。
+判定はコマンドの表記ではなく、実際の動作に基づきます。`git checkout -b feature` はブランチを作成するので許可し、`git checkout -- file` は未コミットの変更を破棄するのでブロックします。どちらも先頭の 2 語は同じです。
 
-連携が転送するツール操作にも同じ検査がかかり、SSH キー、`.env` ファイル、クラウド資格情報ストア、コーディング CLI のトークンといった資格情報ファイルを保護します。CC Safety Net は、エージェントがファイルにアクセスする前に、一致する転送済みの読み取りと書き込みをブロックします。ツールの対象範囲は連携ごとに異なります。[連携の対象境界](/ja/guides/known-limitations#hermes-agent-and-openclaw-coverage-boundaries)と[シークレット保護リファレンス](/ja/reference/secret-protection)を参照してください。
+## よくある質問
 
-連携方式はエージェントごとに異なります。CC Safety Net を短命なサブプロセス として実行するエージェントもあれば、プロセス内に読み込むエージェントもあります。インストーラーは、使用するエージェントに合う連携を設定します。1 回のツール呼び出しのライフサイクルは、[仕組み](/ja/guides/how-it-works)を参照してください。
+### CC Safety Net は無料ですか？
 
-## 置き換えないもの
+はい。CC Safety Net は無料で、MIT ライセンスで公開されています。ソースコードは [GitHub](https://github.com/kenryu42/cc-safety-net) にあります。
 
-CC Safety Net は、エージェントの権限ルールやネイティブサンドボックスを補完します。置き換えるものではありません。
+### CC Safety Net は LLM を使いますか？
 
-deny ルールでは、ユーザーが禁止する操作を指定できます。サンドボックスは、OS レベルでファイルシステムとネットワークを制限します。CC Safety Net は、サンドボックスがプロジェクト内では許可する、既知の破壊的な Git 操作とファイルシステム操作を防ぎます。これらのレイヤーは組み合わせてください。[保護レイヤーの比較](/ja/guides/vs-sandboxing)を参照してください。
+いいえ。すべての判定はローカルのルールベースのパーサーが行い、モデルは呼び出しません。同じコマンドには毎回同じ判定が返ります。[仕組み](/ja/guides/how-it-works#does-cc-safety-net-use-an-llm)を参照してください。
 
-CC Safety Net だけですべてを保護できるわけではありません。静的な実行前フックであるため、任意のバイナリの内部は検査できず、インストール済みの連携を迂回するコマンドも保護できません。使用する前に、[既知の制限](/ja/guides/known-limitations)を確認してください。
+### CC Safety Net はデータをどこかに送信しますか？
+
+いいえ。CC Safety Net にはテレメトリーがなく、判定はネットワーク通信なしにローカルで行います。ネットワークを使うのは、`npx` や `bunx` がパッケージを取得するとき、`rule add` や `rule update` が GitHub からルールブックを取得するとき、`update` が npm レジストリを確認するときだけです。[監査ログ](/ja/reference/audit-log)もマシンの外には出ません。
+
+### CC Safety Net を入れるとエージェントは遅くなりますか？
+
+エージェント内にプラグインとして読み込まれる連携では、ほとんど遅くなりません。`npx` 経由で実行するフックでは、ツール呼び出し 1 回ごとに数百ミリ秒かかります。それより遅い場合は、[トラブルシューティング](/ja/guides/troubleshooting)を参照してください。
+
+### CC Safety Net は Windows で動きますか？
+
+はい。ただし Hermes Agent と OpenClaw は macOS と Linux でしか動作しないため除きます。Amp のドキュメントが対象としているのは macOS、Linux、WSL で、ネイティブの Windows ではありません。[インストール前の確認](/ja/installation#before-you-install)を参照してください。
+
+### CC Safety Net はサンドボックスですか？
+
+いいえ。サンドボックスはファイルシステムとネットワークを封じ込めます。CC Safety Net は、サンドボックスがプロジェクト内では許可してしまう破壊的な操作をブロックします。両方を併用してください。CC Safety Net はバイナリの内部を検査できず、連携を迂回するコマンドもチェックできません。[保護レイヤーの比較](/ja/guides/vs-sandboxing)と[既知の制限](/ja/guides/known-limitations)を参照してください。
 
 ## はじめる
 
-[インストール](/ja/installation)ページでエージェントを選び、[クイックスタート](/ja/quickstart)で保護が有効であることを確認してください。
+[インストール](/ja/installation)ページで使っているエージェントを選び、[クイックスタート](/ja/quickstart)で保護が有効になったことを確認してください。

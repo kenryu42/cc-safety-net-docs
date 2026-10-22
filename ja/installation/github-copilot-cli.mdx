@@ -1,0 +1,92 @@
+---
+title: "GitHub Copilot CLI に CC Safety Net をインストールする"
+sidebarTitle: "GitHub Copilot CLI"
+description: "GitHub Copilot CLI に cc-safety-net@cc-marketplace プラグインをインストールして Copilot CLI を再起動する方法、フックが検査する内容、プラグインの削除方法、doctor がオフまたは不正と報告したフックの直し方を説明します。"
+keywords:
+  - "copilot"
+  - "github copilot cli"
+  - "cc-marketplace"
+  - "enabledPlugins"
+  - "disableAllHooks"
+  - "COPILOT_HOME"
+  - "preToolUse"
+---
+
+`npx -y cc-safety-net@latest install --copilot-cli` を実行すると、Copilot CLI 自身のプラグインマーケットプレイスのコマンドで `cc-safety-net@cc-marketplace` プラグインがインストールされます。プラグインが無効になっていた場合は、`~/.copilot/settings.json` で有効にします。Copilot CLI はプラグインを再起動後にしか読み込まないため、最後に Copilot CLI を再起動してください。
+
+## GitHub Copilot CLI に CC Safety Net をインストールする
+
+<Steps>
+  <Step title="インストーラーを実行する">
+    ```bash
+    npx -y cc-safety-net@latest install --copilot-cli
+    ```
+  </Step>
+  <Step title="Copilot CLI を再起動する">
+    プラグインを読み込むため、Copilot CLI を再起動します。
+  </Step>
+  <Step title="プラグインが有効か確認する">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+## GitHub Copilot CLI のインストールで変わること
+
+- `cc-marketplace` マーケットプレイスが未登録であれば追加します。
+- `cc-safety-net@cc-marketplace` プラグインをインストールします。
+- プラグインが明示的に無効化されていた場合は、`~/.copilot/settings.json` の `enabledPlugins` でプラグインを `true` にします。
+
+## GitHub Copilot CLI のフックが検査する内容
+
+プラグインのフックは、Copilot CLI の `preToolUse` イベントで動作します。`bash` と `powershell` のツール呼び出しはシェルコマンドとして解析し、その他のツールについては入力に保護対象のパスが含まれていないかを検査します。
+
+フックを手動で追加する場合、Copilot CLI が対応しているかどうかはバージョンによって異なります。設定ファイル内のインラインフック定義には `1.0.8` 以降、ユーザーフックファイルには `0.0.422` 以降が必要です。`doctor` は、検出したバージョンと、そのバージョンが対応しているフックの取得元を報告します。
+
+## GitHub Copilot CLI のチェックが失敗したときの動作
+
+フックがクラッシュした場合、0 以外の終了コードで終了した場合、起動できない場合、GitHub Copilot CLI はツール呼び出しをブロックします。既定の 30 秒でタイムアウトした場合や、不正な出力を返した場合は、その呼び出しはそのまま実行されます。
+
+## GitHub Copilot CLI から CC Safety Net をアンインストールする
+
+```bash
+npx -y cc-safety-net@latest uninstall --copilot-cli
+```
+
+プラグインを削除した後、変更を反映するため Copilot CLI を再起動してください。
+
+<span id="troubleshoot-github-copilot-cli"></span>
+
+## GitHub Copilot CLI のトラブルシューティング
+
+`doctor` は、プラグインと、手動で追加した CC Safety Net のフックの両方を確認します。`COPILOT_HOME` の既定は `~/.copilot` です。
+
+### 手動で追加したフック
+
+`doctor` は、次のいずれかのファイルにある CC Safety Net のフックを数えます。優先度の高い順に並べています。
+
+1. `<repo>/.github/copilot/settings.local.json`
+2. `<repo>/.github/copilot/settings.json`
+3. `<repo>/.claude/settings.local.json`
+4. `<repo>/.claude/settings.json`
+5. `$COPILOT_HOME/settings.json`
+6. フックファイル `<repo>/.github/hooks/*.json` と `$COPILOT_HOME/hooks/*.json`
+
+`.claude` のファイルにあるエントリは、コマンドに `hook --copilot-cli` または `hook -cp` を含む場合だけ数えます。Claude Code 用のフックだけでは数えません。
+
+フックファイルや設定のエントリがまだ CC Safety Net のフックを実行している場合、`doctor` はプラグインが無効でも、それを `hook config` という方式で報告します。
+
+### フックまたはプラグインがオフになっている
+
+- リポジトリの設定ファイルで `disableAllHooks: true` を指定すると、そのリポジトリでは CC Safety Net がプラグインも含めてオフになります。
+- `$COPILOT_HOME/settings.json` の `disableAllHooks: true` がオフにするのは、そのファイル自身のインラインフックだけです。フックファイルとプラグインは動き続けます。
+- 自身の `disableAllHooks` を `true` にしているフックファイルは数えません。他のフックファイルは引き続き数えます。
+- `enabledPlugins` の `cc-safety-net@cc-marketplace` は、最初にそれを設定しているリポジトリの設定ファイルが `$COPILOT_HOME/settings.json` より優先されます。ユーザー側が `false` でも、リポジトリ側が `true` なら再び有効になります。
+
+### GitHub Copilot CLI のフック設定エラー
+
+| 問題 | メッセージ |
+| --- | --- |
+| `hooks.preToolUse` のエントリの形が正しくない | `Invalid hook config <path>: hooks.preToolUse must be an array of hook objects` |
+| ファイルをパースできない | `Failed to parse <path>: <reason>` |

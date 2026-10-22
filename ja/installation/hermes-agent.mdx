@@ -1,0 +1,77 @@
+---
+title: "Hermes Agent に CC Safety Net をインストールする"
+sidebarTitle: "Hermes Agent"
+description: "管理対象の Python プラグインとして Hermes Agent に CC Safety Net をインストールする方法、プラグインが検査するツール、チェック失敗時の動作、有効なプロファイルの見つけ方、削除方法を説明します。"
+keywords:
+  - "hermes"
+  - "hermes agent"
+  - "HERMES_HOME"
+  - "active_profile"
+  - "pre_tool_call"
+  - "hermes plugins enable"
+---
+
+`npx -y cc-safety-net@latest install --hermes-agent` を実行すると、Hermes のホームディレクトリ内の `plugins/cc-safety-net/` に管理対象の Python プラグインが書き込まれ、`hermes` CLI で有効になります。その後、Hermes を再起動してプラグインを読み込ませてください。プラグインはフェイルクローズで動作します。つまり、解析を完了できない場合、Hermes はツール呼び出しをブロックします。この連携は macOS と Linux でのみ動作します。
+
+## Hermes Agent に CC Safety Net をインストールする
+
+<Steps>
+  <Step title="インストーラーを実行する">
+    ```bash
+    npx -y cc-safety-net@latest install --hermes-agent
+    ```
+  </Step>
+  <Step title="Hermes を再起動する">
+    Hermes を再起動します。更新やアンインストールの後も同様に再起動してください。
+  </Step>
+  <Step title="プラグインが有効か確認する">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+<span id="what-the-hermes-agent-install-changes"></span>
+
+## Hermes Agent のインストールで変わること
+
+- インストーラーは、`<Hermes home>/plugins/cc-safety-net/` に管理対象のファイル `__init__.py` と `plugin.yaml` の 2 つを書き込みます。
+- 続けて `hermes plugins enable cc-safety-net --no-allow-tool-override` を実行します。Hermes は、設定で有効と指定されたユーザープラグインしか読み込みません。
+
+Hermes のホームディレクトリは `HERMES_HOME` で、未設定の場合は `~/.hermes` です。そのディレクトリの `active_profile` ファイルにプロファイル名が書かれていれば、ホームディレクトリはその中の `profiles/<name>` になります。これは `hermes` CLI が使うのと同じプロファイルです。`HERMES_HOME` がすでに `profiles` ディレクトリの中を指している場合、CC Safety Net はその値をそのまま使います。
+
+## Hermes Agent のプラグインが検査する内容
+
+プラグインは `pre_tool_call` イベントのたびに、ツール呼び出しを `npx -y cc-safety-net hook --hermes-agent` に渡します。タイムアウトは 30 秒です。検査対象は `terminal`、`read_file`、`write_file`、`patch` の各ツールで、それぞれ Hermes が実行するディレクトリを基準に検査します。
+
+## Hermes Agent のチェックが失敗したときの動作
+
+プラグインはフェイルクローズで動作します。`npx` が見つからない場合や、解析を開始できない、タイムアウトする、0 以外の終了コードで終了する、出力を解釈できないといった場合は、明示的なメッセージを付けてツール呼び出しをブロックします。Hermes からツールのディレクトリを読み取れない場合は、次のメッセージでブロックします。
+
+```text
+CC Safety Net failed closed: the Hermes file tool directory could not be read (<error>). Update cc-safety-net and reinstall the plugin with: npx -y cc-safety-net install --hermes-agent.
+```
+
+`terminal` の呼び出しでは、メッセージの `file tool` が `session` になります。
+
+<span id="hermes-agent-coverage-limits"></span>
+
+## Hermes Agent での保護範囲の制限
+
+- **その他のツール。** 上の 4 つ以外の Hermes のツールからの呼び出しには、判定を返しません。
+- **自分で入力するコマンド。** 自分で入力した `!command` は `pre_tool_call` を発生させないため、Hermes 自身のコマンドガードが処理します。CC Safety Net が検査するのは、モデルが行うツール呼び出しだけです。
+- **Hermes が読み込まないプラグイン。** Hermes がプラグインを読み込まなければ、CC Safety Net は何もブロックしません。`doctor` はプラグインのファイルと Hermes の設定を読みますが、動作中の Hermes には問い合わせられません。変更後は Hermes を再起動してから、もう一度テストしてください。
+- **Windows。** インストールは POSIX のパスにプラグインを書き込みますが、Windows の Hermes はそのパスを読みません。
+
+## Hermes Agent から CC Safety Net をアンインストールする
+
+```bash
+npx -y cc-safety-net@latest uninstall --hermes-agent
+```
+
+アンインストールは `hermes plugins disable cc-safety-net` を実行してから、プラグインのファイルを削除します。`hermes` CLI が失敗した場合や見つからない場合もファイルは削除し、Hermes の設定に `cc-safety-net` が残っている可能性を警告します。その後、Hermes を再起動してください。
+
+## Hermes Agent のトラブルシューティング
+
+- **インストールやアンインストールがパスに手を触れない。** プラグインのディレクトリか管理対象のファイルが、シンボリックリンクである、通常のファイルやディレクトリでない、または CC Safety Net の管理用ヘッダーを持たない、のいずれかです。そのパスを自分で移動または削除してから、コマンドを再実行してください。
+- **`Invalid Hermes profile name "<profile>" in <root>/active_profile`。** `active_profile` ファイルに書かれたプロファイル名が、Hermes のプロファイル ID として正しくありません。正しいプロファイルを指定して `hermes profile use <name>` を実行してください。インストールとアンインストールはこのエラーで停止し、`doctor` は Hermes Agent の行でこのエラーを報告します。

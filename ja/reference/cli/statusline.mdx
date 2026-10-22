@@ -1,0 +1,104 @@
+---
+title: "statusline コマンド"
+sidebarTitle: "statusline"
+description: "CC Safety Net の安全レベル、ワークツリーモード、プロジェクトポリシーによる緩和、degraded の設定を Claude Code のステータスラインに表示します。bunx、npx、claude x での設定方法と、各絵文字インジケーターの意味を説明します。"
+keywords:
+  - "statusline"
+  - "ステータスライン"
+  - "ステータスバー"
+  - "絵文字"
+  - "claude code"
+  - "インジケーター"
+---
+
+`statusline` は、CC Safety Net の現在の状態を、`🛡️ CC Safety Net ✅🌳` のような絵文字 1 行で Claude Code のステータスライン向けに出力します。`--claude-code`（短縮形は `-cc`）が必要です。このフラグがないとエラーを出力し、ヘルプを表示して `1` で終了します。問題ごとに説明する複数行のレポートが必要な場合は、代わりに [`status`](/ja/reference/cli/status) を実行してください。
+
+```bash
+bunx cc-safety-net statusline --claude-code
+# -cc is the short form of --claude-code
+bunx cc-safety-net statusline -cc
+```
+
+ステータスラインは Claude Code 専用です。マーケットプレイスのプラグインが有効かどうかを確認するため、ほかのエージェントや手動で設定した Claude Code フックには向きません。
+
+<span id="set-up-the-claude-code-status-line"></span>
+
+## Claude Code のステータスラインを設定する
+
+`~/.claude/settings.json` に `statusLine` の項目を追加します。Claude Code は再起動しなくても変更を反映します。環境に合った実行方法を選んでください。
+
+<Tabs>
+  <Tab title="Bun（推奨）">
+    ```json
+    {
+      "statusLine": {
+        "type": "command",
+        "command": "bunx cc-safety-net statusline --claude-code"
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="Claude X">
+    ```json
+    {
+      "statusLine": {
+        "type": "command",
+        "command": "BUN_BE_BUN=1 claude x cc-safety-net statusline --claude-code"
+      }
+    }
+    ```
+
+    <Note>
+      `claude x` は、Claude Code のネイティブインストールでのみ動作します。Claude Code を npm でインストールした場合は、代わりに `bunx` または `npx` を使ってください。
+    </Note>
+  </Tab>
+  <Tab title="NPM">
+    ```json
+    {
+      "statusLine": {
+        "type": "command",
+        "command": "npx -y cc-safety-net statusline --claude-code"
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="既存コマンドにつなげる">
+    すでにステータスラインのコマンドがある場合は、その出力を CC Safety Net にパイプすると、両方の出力が表示されます。
+
+    ```json
+    {
+      "statusLine": {
+        "type": "command",
+        "command": "your-existing-command | bunx cc-safety-net statusline --claude-code"
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## statusline のインジケーター
+
+行には、レベルのインジケーターが 1 つ表示され、その後ろに状態のインジケーターが次の順で続きます。
+
+```text
+🛡️ CC Safety Net <level><worktree><weakened><degraded>
+```
+
+| インジケーター | 意味 |
+| --- | --- |
+| `✅` | 有効なレベルが `standard` |
+| `🔒` | 有効なレベルが `strict` |
+| `👁️` | 有効なレベルが `paranoid` |
+| `🔧` | 有効なレベルが `custom`。有効な機能の組み合わせがどのプリセットにも一致しないか、`destructive_command_protection.overrides` のエントリがルールをレベルの既定から変えている |
+| `🌳` | [ワークツリーモード](/ja/configuration/modes)が有効 |
+| `🔻` | プロジェクトの `.cc-safety-net/policy.json` が、ユーザーポリシーのフィールドを少なくとも 1 つ緩めている。`CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY` で無視される緩和では表示されない |
+| `⚠️` | 設定の一部を読み込めず、[degraded](/ja/configuration/recovery) の状態になっている |
+| `❌` | `cc-safety-net@cc-marketplace` プラグインが有効になっていない。ほかのインジケーターはすべて置き換えられ、行は `🛡️ CC Safety Net ❌` になる |
+
+レベルは、CC Safety Net が `policy.json` と環境変数を組み合わせた後の有効なレベルです。[環境変数](/ja/configuration/environment#precedence)を参照してください。`🔻` と `⚠️` は、関係するフィールドやファイルまでは示しません。詳細は [`status`](/ja/reference/cli/status) を実行して確認してください。
+
+`❌` が参照するのは、Claude Code の設定にある `enabledPlugins["cc-safety-net@cc-marketplace"]` だけです。手動で設定した Claude Code フックでは、保護が有効でも `❌` が表示されます。
+
+## statusline へのパイプ入力
+
+`statusline` に入力をパイプすると、標準入力を読み取ります。Claude Code の JSON ステータスペイロードは破棄します。それ以外のパイプされたテキストは残し、`<stdin> | <status>` の形でインジケーターの前に置きます。

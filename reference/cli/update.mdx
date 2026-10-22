@@ -1,0 +1,66 @@
+---
+title: "update command"
+sidebarTitle: "update"
+description: "Reference for cc-safety-net update: which installed integrations it refreshes, skipped agents, npx and bunx cache clearing, the update-available notice, and exit codes."
+keywords:
+  - "update"
+  - "upgrade"
+  - "refresh integrations"
+  - "bunx cache"
+  - "npx cache"
+  - "update available"
+---
+
+`update` re-runs the install for every CC Safety Net integration already on your machine, including disabled ones. It never installs a new integration and leaves unconfigured agents unchanged.
+
+```bash
+npx -y cc-safety-net@latest update
+```
+
+You can also start it by pressing `u` in the interactive [`install`](/reference/cli/install#target-selector-keys) selector. `update` takes no target flags or arguments, only `-h` or `--help`.
+
+## Which integrations update refreshes
+
+An integration qualifies when it is installed, even when it is disabled. A few agents have their own rules:
+
+| Integration | When it qualifies |
+| --- | --- |
+| Amp Code | When `amp plugins list` shows the personal plugin |
+| GitHub Copilot CLI | Only when a CC Safety Net checkout exists in Copilot's `installed-plugins` directory |
+| Cursor | Not when CC Safety Net reaches Cursor only through the [Claude Code plugin](/installation/cursor#cursor-through-the-claude-code-plugin) or a [native Cursor plugin](/installation/cursor#cursor-through-a-native-cursor-plugin). `update` never writes a Cursor hook for those |
+
+`update` also migrates an install that uses a legacy plugin identifier, such as `safety-net@cc-marketplace`, to the current one. See [Migrate from a legacy plugin identifier](/installation#migrate-from-a-legacy-plugin-identifier).
+
+## How update runs each target
+
+`update` runs the same operation as `install` for each target, then prints each report as `Updated …` or `… up to date`.
+
+When an install runs the agent's own CLI and that binary is missing, `update` prints `<Agent> not found; skipped`, for example `Codex not found; skipped`, and continues. Antigravity CLI, Cursor, Devin CLI, Factory Droid, Grok Build, and Kimi Code only need a config file, so they always refresh.
+
+Kimi Code through its native plugin and DeepSeek Harness have their own update behavior. See [Kimi Code](/installation/kimi-code) and [DeepSeek Harness](/installation/deepseek-harness).
+
+## npx cache clearing during update
+
+When any integration that runs through `npx` is present, `update` clears the `npx` cache once before it runs the targets. See [npx cache clearing](/reference/cli/install#npx-cache-clearing) for the agents and cache locations. If the clear fails, only the `npx` targets fail.
+
+## bunx cache clearing during update
+
+Every `update` run clears your `cc-safety-net` entries from the `bunx` cache, even when it finds no integrations, so your next `bunx cc-safety-net` fetches the latest release. If the clear fails, `update` prints the error and exits `1`.
+
+## update with no installed integrations
+
+When nothing qualifies, `update` prints ``No installed integrations found. Run `cc-safety-net install` to set one up.`` and exits `0`.
+
+## Update-available nudge
+
+When the npm registry has a newer release, `update` ends with this notice:
+
+```text
+Update available: cc-safety-net <current> → <latest>. Update this CLI with your package manager, e.g. `npm i -g cc-safety-net@latest` for a global install.
+```
+
+Runs through `npx` or `bunx` skip the check, because those runs already fetch the latest release. If the check fails or you are offline, `update` prints nothing and the exit code does not change.
+
+## update exit code
+
+One target's failure does not stop the run. `update` prints its error with the same hints as [`install`](/reference/cli/install#install-failures-and-exit-code). `update` exits `1` if any target failed, if the `bunx` cache clear failed, or on an unknown option or argument. Otherwise it exits `0`.

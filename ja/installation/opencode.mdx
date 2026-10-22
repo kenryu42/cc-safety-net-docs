@@ -1,0 +1,113 @@
+---
+title: "OpenCode に CC Safety Net をインストールする"
+sidebarTitle: "OpenCode"
+description: "OpenCode のプラグインコマンドで OpenCode 1.18.29+ または 2.0.6+ に CC Safety Net をインストールする方法、プラグインが検査する内容とチェック失敗時の動作、インストールエラーの直し方、削除方法を説明します。"
+keywords:
+  - "opencode"
+  - "opencode プラグイン"
+  - "opencode.json"
+  - "OPENCODE_CONFIG_DIR"
+  - "CCSafetyNetPlugin"
+  - "plugin.list"
+---
+
+`npx -y cc-safety-net@latest install --opencode` を実行すると、OpenCode 自身のプラグインコマンドで `cc-safety-net@latest` プラグインがインストールされ、OpenCode がそれを読み込んだかも確認されます。その後、OpenCode を再起動してください。CC Safety Net は、同じ npm パッケージで OpenCode 1.18.29+ と 2.0.6+ に対応しています。
+
+## OpenCode に CC Safety Net をインストールする
+
+<Steps>
+  <Step title="OpenCode のバージョンを確認する">
+    OpenCode 1.18.29+ または 2.0.6+ を使っていることを確認します。それより古いリリースの場合は、CC Safety Net を更新する前に OpenCode をアップグレードしてください。
+  </Step>
+  <Step title="インストーラーを実行する">
+    ```bash
+    npx -y cc-safety-net@latest install --opencode
+    ```
+  </Step>
+  <Step title="OpenCode を再起動する">
+    OpenCode を再起動します。更新の後も同様に再起動してください。
+  </Step>
+  <Step title="プラグインが有効か確認する">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+## OpenCode のインストールで変わること
+
+- OpenCode 1.x では、OpenCode がキャッシュしているパッケージを削除してから、`opencode plugin -g -f cc-safety-net@latest` を実行します。
+- OpenCode 2.x では、`opencode plugin add cc-safety-net@latest` を実行します。プラグインがすでに設定済みの場合は `opencode plugin update` を実行します。
+
+その後、OpenCode がプラグインを読み込めること、2.x では有効化されたことも確認します。OpenCode が読み込まないプラグインは何も保護しないため、問題があればインストールは黙って完了せずに失敗します。エラーの一覧は [OpenCode のトラブルシューティング](#troubleshoot-opencode)を参照してください。
+
+## OpenCode の設定の場所
+
+OpenCode の設定ディレクトリは、次のうち最初に当てはまるものです。
+
+1. `OPENCODE_CONFIG_DIR`（設定されていて空でない場合）。
+2. `$XDG_CONFIG_HOME/opencode`（`XDG_CONFIG_HOME` が設定されている場合）。
+3. `~/.config/opencode`。
+
+設定ファイルは、そのディレクトリ内の `opencode.json` または `opencode.jsonc` です。`OPENCODE_CONFIG_DIR` が設定されている場合、OpenCode 2.x はそのディレクトリだけを読みますが、OpenCode 1.x は XDG のディレクトリも読み込みます。
+
+## OpenCode のプラグインが検査する内容
+
+OpenCode は CC Safety Net をプロセス内のプラグインとして読み込みます。コマンドとして検査するツールは、OpenCode 1.x では `bash`、2.x では `shell` です。read、edit、write、patch、grep、glob などのその他のツールは、パスとシークレットの保護でチェックします。
+
+### OpenCode 2.x でシェルの方言を設定する
+
+OpenCode 2.x は、コマンドを実行するシェルをプラグインに伝えません。そのため、アナライザーの方言はプラグインの `shell` オプションで選びます。既定は Windows では `powershell`、それ以外では `posix` です。Unix で PowerShell を使う場合や、Windows で Git Bash を使う場合は、設定のエントリで指定してください。
+
+```json
+{
+  "plugins": [
+    {
+      "package": "cc-safety-net@latest",
+      "options": { "shell": "powershell" }
+    }
+  ]
+}
+```
+
+ash、bash、dash、ksh、sh、zsh など、POSIX の `sh` 構文を実行するシェルには `"posix"` を、powershell と pwsh には `"powershell"` を指定します。このオプションで OpenCode が使うシェルが変わるわけではなく、OpenCode が使うシェルに合わせる必要があります。それ以外の値を指定すると、プラグインは `CC Safety Net: plugin option shell must be posix or powershell.` で失敗します。
+
+OpenCode がシェルを起動する前に、プラグインは実行ファイルがこのオプションと一致するか確認します。fish、nushell、tcsh など POSIX の `sh` 構文を実行しないシェルは、`"posix"` の確認に通りません。確認に失敗すると、シェルは起動しません。
+
+```text
+CC Safety Net: actual shell "<actual>" does not match plugin option shell "<configured>". Configure the plugin's shell option to match OpenCode; supported dialects are posix and powershell.
+```
+
+この停止は通常のツールの拒否とは異なります。実行中の操作が失敗することがあり、セッションに結び付いた監査エントリも残りません。
+
+## OpenCode のチェックが失敗したときの動作
+
+CC Safety Net のプラグインが例外を投げた場合、OpenCode は呼び出しをブロックします。OpenCode にはプラグインのフックのタイムアウトがないため、チェックが止まると呼び出しは待たされたままになります。プラグインの読み込みに失敗した場合、OpenCode はプラグインなしで起動し、ツールはチェックされずに実行されます。2.x では、正常に動作していた以前のコピーが有効な状態で再読み込みに失敗した場合、そのコピーが引き続き呼び出しを検査します。
+
+<span id="opencode-coverage-limits"></span>
+
+## OpenCode での保護範囲の制限
+
+Windows の OpenCode 1.x は、POSIX シェルを実行するときに、`/tmp` のような POSIX のルートから始まる `workdir` を `cygpath -w` で変換します。一方、CC Safety Net は同じ `workdir` を現在のドライブを基準に `C:\tmp` と解決します。そのため、このような呼び出しでは、実際に実行されるディレクトリとは別のディレクトリを基準に検査することがあります。
+
+## OpenCode から CC Safety Net をアンインストールする
+
+```bash
+npx -y cc-safety-net@latest uninstall --opencode
+```
+
+アンインストールは、`opencode.json` と `opencode.jsonc` から `cc-safety-net` のエントリを削除します。JSONC のコメントはそのまま残ります。キャッシュされたパッケージも削除します。
+
+<span id="troubleshoot-opencode"></span>
+
+## OpenCode のトラブルシューティング
+
+| メッセージ | 対処方法 |
+| --- | --- |
+| `OpenCode 1.18.29+ or 2.0.6+ is required; found <version>.` | OpenCode をアップグレードしてから、インストールをやり直す |
+| `Change the cc-safety-net package spec in <path> to cc-safety-net@latest, preserving its options, then retry. Adding another spec would create a duplicate plugin ID.` | そのエントリを `cc-safety-net@latest` に書き換え、オプションとコメントは残したまま、インストールをやり直す |
+| ``OpenCode did not load cc-safety-net from cc-safety-net@latest. Run `opencode plugin list` for details.`` | `opencode plugin list` を実行し、`cc-safety-net` の行を確認する |
+| `OpenCode reports cc-safety-net failed: <first line of OpenCode's error>` | OpenCode が示すエラーを解消してから、インストールをやり直す |
+| ``OpenCode lists no active cc-safety-net for this directory. Run `opencode api plugin.list` for details.`` | 同じディレクトリで `opencode api plugin.list` を実行する |
+
+OpenCode 2.x では、`doctor` を実行したディレクトリでプラグインが有効化されたかどうかも、`doctor` が OpenCode に問い合わせます。有効化されていない場合は、`Error (OpenCode): OpenCode reports cc-safety-net failed: <the host's first error line>` と表示します。

@@ -1,0 +1,97 @@
+---
+title: "在 Amp Code 中安装 CC Safety Net"
+sidebarTitle: "Amp Code"
+description: "通过 amp CLI 以个人插件的形式在 Amp Code 中安装 CC Safety Net，包括策略快照、从本地副本和旧版副本迁移、卸载，以及安装可能报出的错误。"
+keywords:
+  - "amp"
+  - "amp code"
+  - "个人插件"
+  - "amp orbs"
+  - "plugins: reload"
+  - "amp login"
+---
+
+运行 `npx -y cc-safety-net@latest install --amp`。它会把 CC Safety Net 作为插件发布到你的 Amp Personal Plugins 仓库，该仓库由 Amp 为你的账户托管。之后，你账户下的每个 Amp 会话都会加载它，包括 Amp Orbs 上的线程。前提是 `amp` CLI 已登录你的账户。安装后，请重启 Amp 或运行 `plugins: reload`。
+
+## 在 Amp Code 中安装 CC Safety Net
+
+<Steps>
+  <Step title="登录 amp CLI">
+    安装 `amp` CLI，并用 `amp login` 登录。缺少 CLI 或未登录时，安装会停止并提示你运行 `amp login`。
+  </Step>
+  <Step title="运行安装程序">
+    ```bash
+    npx -y cc-safety-net@latest install --amp
+    ```
+  </Step>
+  <Step title="重新加载 Amp">
+    重启 Amp 或运行 `plugins: reload`，加载插件。
+  </Step>
+  <Step title="确认插件已生效">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+要原地更新已发布的插件，再次运行安装命令或运行 [`update`](/zh-Hans/reference/cli/update) 即可。`amp plugins list` 不显示插件版本，因此 `doctor` 从不报告 Amp Code 的版本偏差。
+
+<span id="what-the-amp-code-install-changes"></span>
+
+## Amp Code 安装会改动什么
+
+安装会把 `cc-safety-net/index.ts` 提交到你的 Personal Plugins 仓库并推送。Amp 把这个文件作为插件加载。
+
+本地副本会遮蔽个人插件，因此安装还会删除早期版本留下的托管副本：
+
+- Personal Plugins 仓库根目录下的 `cc-safety-net.ts`
+- `~/.config/amp/plugins/cc-safety-net.ts`
+- `~/.config/amp/plugins/cc-safety-net/`（仅当其中只有一个托管的 `index.ts` 时）
+
+<span id="amp-code-policy-snapshot"></span>
+
+### Amp Code 策略快照
+
+安装会把用户策略文件的快照嵌入已发布的插件。修改策略后，请再次运行 `install --amp` 或 `update` 发布改动。
+
+- 快照只在没有策略文件的机器上生效，例如 Orb 的空主目录。
+- 机器上存在的策略文件始终优先于快照，即使该文件无效也是如此。
+- 策略文件不存在或无法解析时，安装会发布不含快照的插件。
+- 快照不包含审计保留期、用户 rulebook 和项目范围的策略。
+
+## Amp Code 检查失败时会怎样
+
+CC Safety Net 在检查调用时出错，会拒绝该调用。插件崩溃、卡住或加载失败时 Amp 会如何处理，Amp 没有文档说明。插件未加载的会话应视为没有保护，可以用 `amp plugins list` 检查。
+
+<span id="amp-code-coverage-limits"></span>
+
+## Amp Code 的覆盖限制
+
+多个插件订阅同一个 `tool.call` 事件时，Amp 没有规定它们的运行顺序。CC Safety Net 只检查自己收到的输入。如果 CC Safety Net 放行之后，另一个插件又改写了输入，改写后的输入就不会经过 CC Safety Net 的检查。
+
+## 从 Amp Code 卸载 CC Safety Net
+
+```bash
+npx -y cc-safety-net@latest uninstall --amp
+```
+
+卸载会从 Personal Plugins 仓库中删除 `cc-safety-net/index.ts`，并删除 [Amp Code 安装会改动什么](#what-the-amp-code-install-changes)中列出的托管副本。`cc-safety-net` 目录中的其他内容会保留，非 CC Safety Net 管理的副本也会保留。卸载后，请重启 Amp 或运行 `plugins: reload`。
+
+<span id="troubleshoot-amp-code"></span>
+
+## Amp Code 故障排除
+
+运行 `amp plugins list`，查找状态为 `active` 的 `cc-safety-net (User Plugins)` 行。状态为其他值时，`doctor` 会输出：
+
+```text
+Amp personal plugin cc-safety-net is <status>; run "plugins: reload" in Amp or reinstall with install --amp
+```
+
+在 Amp 中运行 `plugins: reload`，或再次运行 `install --amp`。Amp 在启动时读取插件，因此每次改动后都需要重启 Amp 或重新加载。
+
+| 问题 | 解决方法 |
+| --- | --- |
+| `Local Amp plugin <path> is not a managed copy and masks the personal plugin. Remove it and rerun install --amp.` | 删除 `<path>` 处的本地文件或目录，然后再次运行 `install --amp`。 |
+| Personal Plugins 仓库根目录下有一个非托管的 `cc-safety-net.ts` | 安装会失败。从仓库中删除该文件，然后重新安装。 |
+| 仓库中的 `cc-safety-net` 条目是符号链接或不是目录，或者其中的 `index.ts` 是符号链接、不是普通文件或缺少 CC Safety Net 托管标头 | 安装和卸载都会拒绝改动它。从仓库中删除该条目，然后重新运行命令。 |
+| 仓库通过 gitignore 忽略了 `cc-safety-net/index.ts` | 安装会停止。删除该忽略规则，然后重新安装。 |

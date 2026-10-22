@@ -1,0 +1,109 @@
+---
+title: "OpenClaw に CC Safety Net をインストールする"
+sidebarTitle: "OpenClaw"
+description: "OpenClaw 2026.8.1 以降にプロセス内プラグインとして CC Safety Net をインストールする方法、プラグインの読み込みをインストールが確認する仕組み、exec のチェックの対象とチェック失敗時の動作、削除方法を説明します。"
+keywords:
+  - "openclaw"
+  - "openclaw plugins install"
+  - "openclaw.json"
+  - "OPENCLAW_HOME"
+  - "before_tool_call"
+  - "exec"
+---
+
+macOS または Linux 上の OpenClaw 2026.8.1 以降が必要です。`npx -y cc-safety-net@latest install --openclaw` を実行すると、OpenClaw 自身の CLI で CC Safety Net が OpenClaw のプラグインとしてインストールされ、プラグインが読み込まれたかも確認されます。その後、OpenClaw Gateway を再起動してください。プラグインは `exec` の呼び出しを検査し、フェイルクローズで動作します。
+
+## OpenClaw に CC Safety Net をインストールする
+
+<Steps>
+  <Step title="OpenClaw のバージョンを確認する">
+    OpenClaw 2026.8.1 以降を使っていることを確認します。それより古いリリースの場合は、OpenClaw をアップグレードしてください。
+  </Step>
+  <Step title="インストーラーを実行する">
+    ```bash
+    npx -y cc-safety-net@latest install --openclaw
+    ```
+  </Step>
+  <Step title="OpenClaw Gateway を再起動する">
+    Gateway を再起動します。更新やアンインストールの後も同様に再起動してください。
+  </Step>
+  <Step title="プラグインが有効か確認する">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  `openclaw.json` に `plugins.allow` が設定されている場合は、そこに `cc-safety-net` も記載する必要があります。許可リストに含まれていないと、有効になっていてもプラグインは読み込まれません。
+</Note>
+
+## OpenClaw のインストールで変わること
+
+インストーラーは、npm パッケージに同梱されたプラグインのディレクトリを指定して、`openclaw plugins install` を `--force --accept-capabilities` 付きで実行します。このコマンドはプラグインの有効化も行います。ただし、`openclaw.json` で自分で無効にしたプラグインは、インストールや更新の後も無効のままです。有効にするには `openclaw plugins enable cc-safety-net` を実行してください。
+
+<span id="how-install-verifies-the-openclaw-plugin-loaded"></span>
+
+### OpenClaw のプラグインが読み込まれたことをインストールが確認する仕組み
+
+インストール後、インストーラーは `openclaw plugins inspect cc-safety-net --runtime --json` を実行します。状態が `loaded` 以外であれば、インストールは失敗します。状態が `disabled` の場合は次のメッセージを表示します。
+
+```text
+OpenClaw reports the cc-safety-net plugin with status "disabled"; run `openclaw plugins enable cc-safety-net`. Run `openclaw plugins inspect cc-safety-net --runtime` for details.
+```
+
+## OpenClaw の設定の場所
+
+インストールと `doctor` は OpenClaw と同じ方法でパスを解決するため、場所を移した OpenClaw も見つけられます。
+
+| パス | 解決方法 |
+| --- | --- |
+| 実効ホームディレクトリ | `OPENCLAW_HOME` が設定されていればその値、なければ OS のホームディレクトリ |
+| 状態ディレクトリ | `OPENCLAW_STATE_DIR` が設定されていればその値、なければ `OPENCLAW_CONFIG_PATH` があるディレクトリ、どちらもなければ実効ホームディレクトリ内の `.openclaw` |
+| 設定ファイル | `OPENCLAW_CONFIG_PATH` が設定されていればその値、なければ状態ディレクトリ内の `openclaw.json` |
+
+## OpenClaw のプラグインが検査する内容
+
+OpenClaw は CC Safety Net をプロセス内のプラグインとして読み込みます。プラグインが検査するのは `exec` ツールだけで、エージェントのワークスペースディレクトリを基準に検査します。OpenClaw のファイル系ツールは検査しません。
+
+## OpenClaw のチェックが失敗したときの動作
+
+プラグインはフェイルクローズで動作します。エージェントのワークスペースを解決できない場合、`workdir` がワークスペースの外に解決される場合、`auto` と `gateway` 以外の実行ホスト（`sandbox` や `node` など）が指定された場合は、`exec` の呼び出しをブロックします。プラグインが例外を投げた場合は、OpenClaw が呼び出しをブロックします。
+
+Gateway の起動時にプラグインの読み込みに失敗すると、Gateway はプラグインなしで動き続け、`exec` はチェックされずに実行されます。再起動後は、`openclaw plugins inspect cc-safety-net --runtime` でプラグインが読み込まれたか確認してください。
+
+<span id="openclaw-coverage-limits"></span>
+
+## OpenClaw での保護範囲の制限
+
+- **その他のツール。** プラグインは `apply_patch` も、OpenClaw の read、write、edit のファイル系ツールも検査しません。Code Mode の JavaScript `exec` のように `toolKind` を持つ `exec` イベントには、判定を返しません。
+- **設定された既定のホスト。** プラグインが読むのは呼び出し自身の `host` だけです。`host` のない呼び出しは、`tools.exec.host` によって `node` や `sandbox` に振り分けられる場合でも、ローカルの Gateway での呼び出しとして検査します。
+- **サンドボックスでの `auto`。** サンドボックスのランタイムが有効な場合、`auto` の呼び出しはサンドボックスのファイルシステムで実行されますが、プラグインはパスのルールを Gateway のワークスペースを基準に検査します。コマンドのルールには影響しません。
+- **`openclaw agent exec`。** このコマンドはプラグインのフックレジストリを読み込まないため、CC Safety Net はそのツール呼び出しを検査も監査もしません。同じ呼び出しでも、`openclaw agent --local` を通せばプラグインが検査します。
+- **Codex ネイティブのリレー。** OpenClaw が中継する Codex ネイティブのシェル、パッチ、MCP の呼び出しについて、CC Safety Net は何も保証しません。
+- **`doctor` から見える範囲。** `doctor` が読むのはプラグインのディレクトリと `openclaw.json` だけです。動作中の Gateway に、プラグインが読み込まれたかどうかは問い合わせません。
+- **Windows。** OpenClaw 自身の CLI はプラグインをインストールできますが、`doctor` は POSIX の状態ディレクトリ構成を探すため、状態を誤って報告します。
+
+### エージェントのワークスペースの外で動くセッション
+
+OpenClaw は `exec` をセッションの作業ディレクトリで実行します。このディレクトリはエージェントのワークスペースと一致するとは限りません。管理対象のワークツリーを使うセッションは、既定では `<state>/worktrees` 以下にある専用のチェックアウトで動き、`cwd` を指定して作成したセッションはその場所で動きます。フックのコンテキストには作業ディレクトリが含まれないため、プラグインはすべての `exec` の呼び出しをエージェントのワークスペースを基準に検査します。このようなセッションでは、次のようになります。
+
+- `workdir` のないコマンドはワークスペースを基準に検査しますが、実際にはセッションのディレクトリで実行されます。
+- 相対パスの `workdir` は、セッションのディレクトリではなくワークスペースを基準に解決します。
+- セッション自身のワークツリーなど、ワークスペースの外を指す絶対パスの `workdir` はブロックします。
+
+この問題は、OpenClaw が実行ディレクトリを公開しない限り解消できません。
+
+## OpenClaw から CC Safety Net をアンインストールする
+
+```bash
+npx -y cc-safety-net@latest uninstall --openclaw
+```
+
+その後、OpenClaw Gateway を再起動してください。
+
+## OpenClaw のトラブルシューティング
+
+- **インストールが `--accept-capabilities` の unknown-option エラーで失敗する。** OpenClaw が 2026.8.1 より古いバージョンです。OpenClaw をアップグレードしてから、インストールをやり直してください。
+- **インストールが状態 `disabled` を報告する。** `openclaw plugins enable cc-safety-net` を実行し、Gateway を再起動してください。
+- **インストールやアンインストールが実行を拒否する。** `cc-safety-net` の拡張機能ディレクトリに、CC Safety Net の管理対象プラグイン以外のものがあります。そのディレクトリを移動または削除してから、コマンドを再実行してください。

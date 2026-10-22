@@ -1,61 +1,85 @@
 ---
 title: "How CC Safety Net intercepts and blocks destructive commands"
 sidebarTitle: "How it works"
-description: "The lifecycle of a single tool call: agent request, integration interception, ordered protection and analysis, the allow or block response, the audit record, and where to look when a decision surprises you."
+description: "How one tool call travels from your agent to an allow or block: the local rule-based parser, the four integration models, the order of checks, what the analyzer sees through, the block message, and where to look when a decision surprises you."
 ---
 
-CC Safety Net sits between your coding agent and the protected tools. It inspects each supported tool operation before that operation runs. It then allows the operation or returns a block that the agent can act on. This page follows one tool call from end to end.
+CC Safety Net is a pre-execution hook. It receives each shell command and file operation your coding agent is about to run, checks it on your machine, and returns allow or block before the operation reaches the operating system. A blocked call never runs, and the agent gets a message telling it why and what to do instead.
 
-See [Integration architecture](/guides/integration-architecture) for how each agent connects to CC Safety Net.
+## Does CC Safety Net use an LLM?
+
+No. A local, rule-based parser makes every decision. It parses the command into its executable, subcommand, flags, and arguments, then applies fixed rules to that structure. The same command, working directory, and configuration always get the same decision. Nothing is sent to a model or over the network, and no wording in a prompt can turn a block into an allow.
 
 ## The lifecycle of one tool call
 
 <Steps>
   <Step title="Your agent prepares a tool call">
-    The agent prepares a shell command such as `git reset --hard`, or a file write, edit, search, or patch. It then hands the operation to its tool layer.
+    The agent prepares a shell command such as `git reset --hard`, or a file write, edit, search, or patch, and hands it to its tool layer.
   </Step>
   <Step title="The integration intercepts it">
-    CC Safety Net's integration for that agent receives the call before the tool executes and before the operating system ever sees it. Some agents call CC Safety Net as a short-lived subprocess hook; others load it in-process as a plugin or extension. Either way the same guard runs. See [Integration architecture](/guides/integration-architecture) for which agent uses which model.
+    CC Safety Net's integration for that agent receives the call before the tool executes. How it receives the call depends on the agent. See [Integration models](#integration-models).
   </Step>
   <Step title="CC Safety Net checks the operation">
-    CC Safety Net reads the tool input with limits on its depth, size, and number of fields. It parses the input once, then runs the fixed sequence in [What gets checked, in order](#what-gets-checked-in-order). The order does not depend on the agent.
+    CC Safety Net parses the input once and runs the checks in [What gets checked, in order](#what-gets-checked-in-order). The order is the same for every agent.
   </Step>
   <Step title="An allow or a block comes back">
-    A safe call is allowed and executes normally. A blocked call never runs; the agent receives a block message naming the reason, the offending command, and what it should do next. See [What a block looks like](#what-a-block-looks-like).
+    An allowed call executes normally. A blocked call never runs, and the agent receives the [block message](#what-a-block-looks-like) as the tool result.
   </Step>
-  <Step title="The decision can be audited">
-    Denials are appended to the local audit log. Eligible allowed command decisions are also logged when the configured audit scope includes them. See [The audit record](#the-audit-record).
+  <Step title="The decision is logged">
+    The decision goes to the local [audit log](#the-audit-record).
   </Step>
 </Steps>
+
+## Integration models
+
+CC Safety Net supports sixteen agents through four integration models. Every model runs the same checks and reaches the same decision for the same call.
+
+| Model | Agents | How the agent calls CC Safety Net |
+| --- | --- | --- |
+| Stdin hook subprocess | [Antigravity CLI](/installation/antigravity-cli), [Claude Code](/installation/claude-code), [Codex](/installation/codex), [Cursor](/installation/cursor), [Devin CLI](/installation/devin-cli), [Factory Droid](/installation/factory-droid), [Gemini CLI](/installation/gemini-cli), [GitHub Copilot CLI](/installation/github-copilot-cli), [Grok Build](/installation/grok-build), [Hermes Agent](/installation/hermes-agent), [Kimi Code](/installation/kimi-code) | The agent runs [`cc-safety-net hook`](/reference/cli/hook) as a short-lived process for each tool call and passes the call as JSON on stdin. |
+| Agent-loaded plugin | [DeepSeek Harness](/installation/deepseek-harness), [OpenClaw](/installation/openclaw), [OpenCode](/installation/opencode) | The agent loads CC Safety Net as a plugin in its own package format. There is no `hook` flag for these agents. |
+| In-process extension | [Pi](/installation/pi) | Pi loads CC Safety Net's extension into the Pi process and calls it in memory. |
+| Event plugin | [Amp Code](/installation/amp-code) | Amp loads a personal plugin from your account's Personal Plugins repository and sends it each `tool.call` event. |
+
+Each agent's page under Installation lists the tools it protects and where its configuration lives. To call the same check from your own Node.js program, see the [Library API](/reference/library-api).
 
 ## What gets checked, in order
 
 Every tool call runs through the same stages, in this order:
 
-1. **Bounded input extraction.** The command is read out of the tool input under traversal limits on depth, node count, key count, and size. Exceeding a limit blocks the call rather than risking an unbounded walk.
-2. **A single parse.** The command is parsed once into structural facts that every later stage reuses. Exhausting a parser budget blocks the call at every safety level.
-3. **Policy-file protection.** Anything that would modify or delete CC Safety Net's own `policy.json`, its directory, or an ancestor is stopped outright.
-4. **Git-metadata protection.** Anything that would delete, move, overwrite, or patch your repository's `.git` metadata or hooks directory is stopped outright, including from inside the working directory.
-5. **Configuration load.** Your policy, rulebooks, and safety level are resolved.
-6. **Sensitive-path protection.** Commands, paths, searches, and patches are checked against built-in sensitive locations (`.env`, `~/.ssh`, cloud and coding-CLI credential files) and any deny paths you configured.
-7. **Destructive-command analysis.** The command is split into segments, and wrappers and interpreters are unwrapped. The matching analyzer then classifies each segment. Analyzers cover `git`, `rm`, `Remove-Item`, `find`, `xargs`, `parallel`, device commands, and custom rules.
+1. **Bounded input extraction.** CC Safety Net reads the command out of the tool input under limits on depth, field count, and size. It blocks input past a limit.
+2. **A single parse.** CC Safety Net parses the command once, and every later stage reuses the result. It blocks input that exhausts a parser budget at every safety level.
+3. **Policy-file protection.** CC Safety Net blocks anything that would modify or delete its own `policy.json`, its directory, or an ancestor.
+4. **Git-metadata protection.** CC Safety Net blocks anything that would delete, move, overwrite, or patch your repository's `.git` metadata or hooks directory, including from inside the working directory.
+5. **Configuration load.** CC Safety Net resolves your policy, rulebooks, and safety level.
+6. **Sensitive-path protection.** CC Safety Net checks commands, paths, searches, and patches against built-in sensitive locations (`.env`, `~/.ssh`, cloud and coding-CLI credential files) and any deny paths you configured.
+7. **Destructive-command analysis.** CC Safety Net splits the command into segments and unwraps wrappers and interpreters. The matching analyzer then classifies each segment. Analyzers cover `git`, `rm`, `Remove-Item`, `find`, `xargs`, `parallel`, device commands, and custom rules.
 
-Steps 3 and 4 deliberately run **before** step 5. Those two protections are always on and cannot be weakened by your configuration, because they take effect before that configuration is even read. Step 6 is policy-controlled, so you can disable it or extend it with your own deny paths.
+Steps 3 and 4 run before step 5, so no configuration can weaken them. Step 6 follows your policy, so you can turn it off or extend it with your own deny paths.
 
-See [Architecture](/guides/architecture#the-ordered-guard-stages) for the same sequence with stage names and evidence. See [Analysis engine](/guides/analysis-engine) for the classifier internals.
+## What the analyzer sees through
+
+Hiding a command inside another one does not get it past step 7:
+
+- **Wrappers and interpreters.** The analyzer unwraps `sh -c`, `bash -c`, `sudo`, `env`, and `python -c` or `node -e` one-liners and analyzes the inner command, up to 10 levels deep. Deeper nesting is blocked. See [Shell wrappers and interpreter one-liners](/reference/blocked-commands#shell-wrappers-and-interpreter-one-liners).
+- **`cd` within one command.** The analyzer judges `cd dir && rm -rf x` in `dir`. A `cd` the analyzer cannot resolve makes later targets unverifiable. See [Filesystem commands](/reference/blocked-commands#filesystem-commands).
+- **Shell functions.** The analyzer checks a function body where the function is called, so `cleanup() { rm -rf ../outside; }; cleanup` blocks. A definition that is never called is allowed. See [Filesystem commands](/reference/blocked-commands#filesystem-commands).
+- **Heredocs.** `cat > note.md <<'EOF'` writes data and is allowed whatever the body says. A script written by a heredoc and then run in the same command, as in `cat > x.sh <<'EOF' … EOF && bash x.sh`, is analyzed as a script. See [Heredocs in strict and paranoid](/reference/blocked-commands#heredocs).
+- **Compound commands.** The analyzer checks commands inside `if`, `while`, `until`, and `{ …; }` bodies like top-level commands, so `if true; then rm -rf ~; fi` blocks.
+- **Dynamic targets.** A target built from a variable or substitution, such as `rm -rf "$target"`, cannot be verified before it runs. Standard allows it, and [strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) and paranoid block it. See [Filesystem commands](/reference/blocked-commands#filesystem-commands).
 
 ## Why intent, not string matching
 
-CC Safety Net analyzes what a command *does*, not what it *looks like*. It parses the executable, subcommand, flags, and arguments. The analyzer for that executable applies its option grammar.
+CC Safety Net decides on what a command does. Two commands with the same first words can get different outcomes:
 
 | Command | What it does | Outcome |
 | --- | --- | --- |
-| `git checkout -b feature` | Creates a new branch | **Allowed** |
-| `git checkout -- file` | Discards uncommitted changes in a file | **Blocked** |
+| `git checkout -b feature` | Creates a new branch | Allowed |
+| `git checkout -- file` | Discards uncommitted changes in a file | Blocked |
 
-Both begin with `git checkout`. A simple prefix rule cannot distinguish these outcomes without duplicating Git option logic. Structural analysis also handles reordered flags (`rm -r -f /`), shell wrappers (`sh -c "rm -rf /"`), and interpreter one-liners (`python -c 'import os; os.system("rm -rf /")'`). CC Safety Net unwraps and re-analyzes nested commands up to 10 levels deep.
+Both begin with `git checkout`, so a prefix rule cannot tell them apart without repeating Git's option logic. Parsing the command also catches reordered flags (`rm -r -f /`), shell wrappers (`sh -c "rm -rf /"`), and interpreter one-liners (`python -c 'import os; os.system("rm -rf /")'`).
 
-This page does not list every rule. See [Blocked commands](/reference/blocked-commands) for the full behavior matrix of what is stopped, and [Allowed commands](/reference/allowed-commands) for what deliberately is not.
+This page does not list rules. [Blocked and allowed commands](/reference/blocked-commands) lists what is stopped and what is not.
 
 ## What a block looks like
 
@@ -73,19 +97,19 @@ Command: git checkout -- src/main.py
 Do not retry the blocked form. Continue the task using the safer alternative described above.
 ```
 
-The `Rule:` line gives the id of the rule or [fixed denial](/reference/destructive-rules#fixed-denial-ids) that blocked the call. Only a hook call whose input is missing or cannot be parsed as JSON is blocked without one. When they apply, the message also carries the `Tool:` name, the specific `Segment:` that triggered the block, the `Working directory:` when the call was refused over the directory it would have run in, and a `Config warning:` if a fallback configuration is in force. Command and segment text is excerpted, and everything in the message is secret-redacted before it leaves the process.
+The `Rule:` line gives the id of the rule or [fixed denial](/reference/blocked-commands#fixed-denial-ids) that blocked the call. Only a hook call whose input is missing or is not valid JSON is blocked without one. When they apply, the message also carries the `Tool:` name, the `Segment:` that triggered the block, and a `Config warning:` when a fallback configuration is in force. It adds a `Working directory:` line when CC Safety Net refused the call over the directory it would have run in. CC Safety Net shortens command and segment text and redacts secrets from the whole message.
 
-A block does not end the agent session. The message arrives as a normal tool result and directs the agent back to the task instead of retrying variants. The rule's intent selects the closing instruction:
+A block does not end the agent session. The rule's intent selects the closing instruction, which sends the agent back to its task instead of retrying variants:
 
 | Intent | What the agent is told to do |
 | --- | --- |
 | `hard_stop` | Do not retry or work around it by any means; report the block and continue with the rest of the task |
 | `use_alternative` | Do not retry the blocked form; continue using the safer alternative named in the reason |
-| `scope_down` | Retry with a narrower, explicit target; escalate to the user if the broad operation is genuinely required |
+| `scope_down` | Retry with a narrower, explicit target; escalate to the user if the broad operation is required |
 | `manual_only` | Ask the user for explicit permission and have them run it manually |
 | `stop_and_explain` | Do not brute-force variants; simplify or restructure the command, or report the block |
 
-[Design principles](/guides/design-principles#denials-that-keep-the-agent-on-task) explains why the messages use this structure and why the instruction is advisory while the guard enforces the decision.
+The instruction tells the agent what to do next. The block itself does not depend on the agent following it, because the command never runs.
 
 ### When the message asks instead of blocking
 
@@ -103,34 +127,26 @@ Segment: eval $CMD
 Approve only if you expected this command.
 ```
 
-The closing line replaces the intent instruction, because you decide this one rather than the agent. Approving runs the command and declining does not, and the audit log records the call as a denial either way. Which denials can ask, and in which Claude Code permission modes, is in [Integration architecture](/guides/integration-architecture#when-claude-code-asks-instead-of-denying).
+The closing line replaces the intent instruction, because you decide this one rather than the agent. Approving runs the command and declining does not. The audit log records the call as a denial either way. [When Claude Code asks you instead of blocking](/installation/claude-code#when-claude-code-asks-you-instead-of-blocking) lists which denials can ask and in which permission modes.
 
 ## The audit record
 
-CC Safety Net always records denials in a local audit log. It records allowed command decisions by default. Read the log with:
-
-```bash
-npx cc-safety-net logs
-```
-
-Where the log lives, what each record contains, how long records are kept, and exactly what is redacted before anything is written are all documented in the [audit log reference](/reference/audit-log).
+CC Safety Net records every denial, and allowed command decisions by default, in a local audit log. Read it with `npx cc-safety-net logs`. The [audit log reference](/reference/audit-log) covers its location, fields, retention, and redaction.
 
 ## When a decision surprises you
 
 <Steps>
   <Step title="Ask why">
-    `npx cc-safety-net explain "<command>"` replays the analysis for a command and shows which rule matched and why. Add `--json` for the structured trace.
+    `npx cc-safety-net explain "<command>"` replays the analysis and shows which rule matched and why. Add `--json` for the structured trace.
   </Step>
-  <Step title="Check that protection is actually in force">
-    `npx cc-safety-net status` prints `ready` or `degraded` in one screen, and lists anything that is not enforced, including a disabled Claude Code plugin, under `Not active`. `degraded` means a configuration source was rejected and a fallback is being enforced. See [Configuration recovery](/configuration/recovery) for what is and is not active, and how to repair it. `npx cc-safety-net doctor` gives the full report.
+  <Step title="Check that protection is in force">
+    `npx cc-safety-net status` prints `ready` or `degraded`. `degraded` means a configuration source was rejected and a fallback is in force. See [`status`](/reference/cli/status) for the output and [Configuration recovery](/configuration/recovery) to repair the source.
   </Step>
   <Step title="Adjust or report">
     If the block is correct but too strict for your workflow, change your [safety mode](/configuration/modes) or add a per-rule override. If a safe command is blocked or a destructive one was not, see [Troubleshooting](/guides/troubleshooting) and the [security policy](/security) for where to report it.
   </Step>
 </Steps>
 
-## What this does not cover
+## What CC Safety Net does not cover
 
-CC Safety Net analyzes the tool call your agent attempts to make, so it cannot see behavior hidden inside arbitrary binaries, unconfigured or opaque command proxies, or network activity. It is a static pre-execution hook. It is not an OS sandbox or a privilege boundary, and it does not protect commands that bypass an installed integration. See [Known limitations](/guides/known-limitations) for the full list and the recommended mitigations.
-
-Next, see [Integration architecture](/guides/integration-architecture) for how each agent connects to CC Safety Net.
+CC Safety Net checks the tool call your agent attempts. It cannot see what an arbitrary binary does once it runs, commands sent through an opaque proxy, or network activity. It is not an OS sandbox or a privilege boundary, and it does not protect commands that bypass an installed integration. See [Known limitations](/guides/known-limitations) for the full list and mitigations.

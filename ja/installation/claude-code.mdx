@@ -1,0 +1,115 @@
+---
+title: "Claude Code に CC Safety Net をインストールする"
+sidebarTitle: "Claude Code"
+description: "cc-marketplace から Claude Code に CC Safety Net プラグインをインストールし、自動更新を有効にします。Coding CLI フックがチェックする内容と確認を求める条件、削除方法、CLAUDE_CONFIG_DIR で設定の場所が変わる仕組みも説明します。"
+keywords:
+  - "claude code"
+  - "cc-marketplace"
+  - "プラグイン"
+  - "CLAUDE_CONFIG_DIR"
+  - "CLAUDE_CODE_PLUGIN_CACHE_DIR"
+  - "coding-cli"
+---
+
+`npx -y cc-safety-net@latest install --claude-code` を実行します。Claude Code に `cc-marketplace` マーケットプレイスが追加され、`cc-safety-net@cc-marketplace` プラグインがインストールされます。このプラグインは、ツール呼び出しのたびに事前に Coding CLI フック `cc-safety-net hook --coding-cli` を実行します。その後、`npx cc-safety-net doctor` を実行してプラグインが有効か確認してください。
+
+## Claude Code に CC Safety Net をインストールする
+
+<Steps>
+  <Step title="インストーラーを実行する">
+    ```bash
+    npx -y cc-safety-net@latest install --claude-code
+    ```
+  </Step>
+  <Step title="プラグインが有効か確認する">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+## Claude Code のインストールで変わること
+
+インストーラーは `kenryu42/cc-marketplace` から `cc-marketplace` マーケットプレイスを追加し、`cc-safety-net@cc-marketplace` プラグインをインストールします。無効化されたプラグインがすでにある場合は、それを有効にします。
+
+Claude Code はプラグインを、`$CLAUDE_CONFIG_DIR` が設定されていればその下に、未設定なら `~/.claude` の下に書き込みます。[Claude Code の設定の保存場所](#where-claude-code-keeps-its-configuration)を参照してください。
+
+<span id="turn-on-auto-updates-for-the-claude-code-plugin"></span>
+
+## Claude Code プラグインの自動更新を有効にする
+
+<Steps>
+  <Step title="プラグインマネージャーを開く">
+    Claude Code 内で `/plugin` を実行します。
+  </Step>
+  <Step title="マーケットプレイスを選ぶ">
+    **Marketplaces** に移動し、**cc-marketplace** を選択します。
+  </Step>
+  <Step title="自動更新を有効にする">
+    **auto-update** を有効にすると、CC Safety Net が常に最新に保たれます。
+  </Step>
+</Steps>
+
+## Claude Code のフックがチェックする内容
+
+プラグインは、Claude Code の `PreToolUse` イベントで、つまり各ツール呼び出しの前に `cc-safety-net hook --coding-cli` を実行します。フラグの一覧は [`hook`](/ja/reference/cli/hook) を参照してください。
+
+<span id="claude-code-permission-modes-and-bypass-mode"></span>
+
+## Claude Code の権限モードとバイパスモード
+
+Claude Code の `default`、`auto`、`bypassPermissions` のいずれのモードでも、CC Safety Net が拒否したツール呼び出しはブロックされます。プロジェクトは 2026-08-31 に Claude Code 2.1.251 でこれを確認しており、リリースのたび、また Claude Code を更新するたびに再確認しています。これはバージョンごとの結果であって、恒久的な保証ではありません。
+
+<span id="when-claude-code-asks-you-instead-of-blocking"></span>
+
+## Claude Code がブロックせずに確認を求める場合
+
+許可と拒否以外の応答を返せるのは、Coding CLI フックだけです。Claude Code の権限モードが `default`、`acceptEdits`、`plan`、`auto` のとき、`standard` 安全レベルでコマンドを検証しきれなければ、フックは `hookSpecificOutput.permissionDecision: "ask"` を返します。Claude Code はそのコマンドを承認するかどうかをユーザーに確認します。
+
+- `auto` では、Claude Code の分類器がこの呼び出しを拒否することはあります。ただし、確認なしに承認することはできません。
+- それ以外の権限モードでは、フックは確認を求めずに拒否します。
+- 確認に変わるのは 2 種類の拒否だけで、それも `standard` レベルに限られます。それ以外の拒否は拒否のままです。`strict` と `paranoid` では、フックが確認を求めることはありません。
+- 監査ログには、その呼び出しが拒否として記録されます。
+
+確認に変わりうる 2 種類の拒否は次のとおりです。
+
+| 拒否 | 拒否のままになる条件 |
+| --- | --- |
+| `raw-text.dangerous-command` ルール。CC Safety Net がパースできなかったコマンドが、それでも破壊的に見える場合に発火する | `standard` ではなし |
+| 理由が `shell execution source cannot be verified safely. Use a literal command string or ask the user to run it manually.` の拒否 | コマンドの生テキストにも破壊的なパターンが含まれる場合、または検証できない入力元が `sh -` のように stdin を読むシェル単体に渡される場合 |
+
+確認を求めるエージェントはほかにありません。`ask` を受けても確認を出さないホストではコマンドがそのまま実行されてしまうため、ほかのフックはすべて拒否を返します。確認の文面は[ブロックせずに確認を求める場合](/ja/guides/how-it-works#when-the-message-asks-instead-of-blocking)に載っています。
+
+## Claude Code でチェックが失敗したときの動作
+
+Claude Code のフックは、既定でフェイルオープンです。フックがクラッシュした、タイムアウトした（既定は 600 秒）、起動できなかった、不正な出力を返した場合、Claude Code はそのままツール呼び出しを実行します。CC Safety Net 自身が捕捉したエラーは、フックが拒否を出力するため引き続きブロックされます。Claude Code v2.1.295 以降では `"onFailure": "block"` でフックの失敗時にブロックできますが、CC Safety Net プラグインはこれを設定していません。
+
+## Claude Code から CC Safety Net をアンインストールする
+
+```bash
+npx -y cc-safety-net@latest uninstall --claude-code
+```
+
+<span id="where-claude-code-keeps-its-configuration"></span>
+
+## Claude Code の設定の保存場所
+
+CC Safety Net は Claude Code と同じ方法で設定の場所の変更を反映するため、設定を移動していても見つけられます。
+
+| 対象 | CC Safety Net が読み取る場所 |
+| --- | --- |
+| 設定ディレクトリ | `CLAUDE_CONFIG_DIR` が設定されていればその値、なければ `<home>/.claude` |
+| `settings.json` | 設定ディレクトリ |
+| インストール記録 `installed_plugins.json` | `CLAUDE_CODE_PLUGIN_CACHE_DIR` が設定されていればそこ（Claude Code が記録をそこに置くため）。なければ設定ディレクトリ内の `plugins` ディレクトリ |
+
+Claude Code も CC Safety Net も、`CLAUDE_CONFIG_DIR` の先頭の `~` は展開せず、書かれた値をそのまま使います。
+
+<span id="troubleshoot-claude-code"></span>
+
+## Claude Code のトラブルシューティング
+
+コマンドがチェックされずに実行される場合は、Claude Code 内で `/plugin` を実行し、インストール済みプラグインの一覧に `cc-safety-net` があり、有効になっているか確認してください。見つからなければ、`/plugin install cc-safety-net@cc-marketplace` を実行してから `/reload-plugins` を実行します。`doctor` がプラグインを見つけられない場合は、`CLAUDE_CONFIG_DIR` と `CLAUDE_CODE_PLUGIN_CACHE_DIR` が、Claude Code を動かすときと同じように `doctor` の実行時にも設定されているか確認してください。
+
+## Cursor と Claude Code プラグイン
+
+Cursor が Claude Code のプラグインを取り込む設定になっている場合、Cursor もこのプラグインから CC Safety Net を実行できます。この経路では `<home>/.claude` を読み取り、`CLAUDE_CONFIG_DIR` と `CLAUDE_CODE_PLUGIN_CACHE_DIR` はどちらも無視されます。[Claude Code プラグイン経由の Cursor](/ja/installation/cursor#cursor-through-the-claude-code-plugin)を参照してください。

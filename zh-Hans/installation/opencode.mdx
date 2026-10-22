@@ -1,0 +1,113 @@
+---
+title: "在 OpenCode 中安装 CC Safety Net"
+sidebarTitle: "OpenCode"
+description: "通过 OpenCode 的插件命令在 OpenCode 1.18.29+ 或 2.0.6+ 中安装 CC Safety Net，了解插件检查什么、检查失败时会怎样，以及如何修复安装错误和移除插件。"
+keywords:
+  - "opencode"
+  - "opencode 插件"
+  - "opencode.json"
+  - "OPENCODE_CONFIG_DIR"
+  - "CCSafetyNetPlugin"
+  - "plugin.list"
+---
+
+运行 `npx -y cc-safety-net@latest install --opencode`。它通过 OpenCode 自己的插件命令安装 `cc-safety-net@latest` 插件，然后确认 OpenCode 已加载该插件。安装后请重启 OpenCode。CC Safety Net 用同一个 npm 包支持 OpenCode 1.18.29+ 和 2.0.6+。
+
+## 在 OpenCode 中安装 CC Safety Net
+
+<Steps>
+  <Step title="检查 OpenCode 版本">
+    确认运行的是 OpenCode 1.18.29+ 或 2.0.6+。版本更旧时，请先升级 OpenCode，再更新 CC Safety Net。
+  </Step>
+  <Step title="运行安装程序">
+    ```bash
+    npx -y cc-safety-net@latest install --opencode
+    ```
+  </Step>
+  <Step title="重启 OpenCode">
+    重启 OpenCode。每次更新后也要重启。
+  </Step>
+  <Step title="确认插件已生效">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+## OpenCode 安装会改动什么
+
+- 在 OpenCode 1.x 上，安装先清除 OpenCode 缓存的包副本，再运行 `opencode plugin -g -f cc-safety-net@latest`。
+- 在 OpenCode 2.x 上，安装运行 `opencode plugin add cc-safety-net@latest`；插件已配置时改为运行 `opencode plugin update`。
+
+随后，安装会确认 OpenCode 能加载该插件，在 2.x 上还会确认插件已激活。OpenCode 从未加载的插件起不到任何保护作用，因此这种情况下安装会失败，而不是悄无声息地结束。错误列表见 [OpenCode 故障排除](#troubleshoot-opencode)。
+
+## OpenCode 的配置存放位置
+
+OpenCode 的配置目录取以下第一个适用的位置：
+
+1. `OPENCODE_CONFIG_DIR`，已设置且非空时。
+2. `$XDG_CONFIG_HOME/opencode`，设置了 `XDG_CONFIG_HOME` 时。
+3. `~/.config/opencode`。
+
+该目录中的配置文件是 `opencode.json` 或 `opencode.jsonc`。设置了 `OPENCODE_CONFIG_DIR` 时，OpenCode 2.x 只读取这个目录，而 OpenCode 1.x 还会加载 XDG 目录。
+
+## OpenCode 插件检查什么
+
+OpenCode 把 CC Safety Net 作为进程内插件加载。在 OpenCode 1.x 上，插件把 `bash` 工具当作命令检查；在 2.x 上检查的是 `shell` 工具。其他工具，例如 read、edit、write、patch、grep 和 glob，走路径与机密保护。
+
+### 在 OpenCode 2.x 上设置 shell 方言
+
+OpenCode 2.x 不会告诉插件由哪个 shell 运行命令，因此由插件的 `shell` 选项决定分析器使用的方言。Windows 上默认为 `powershell`，其他平台默认为 `posix`。如果在 Unix 上使用 PowerShell，或在 Windows 上使用 Git Bash，请在配置条目中设置它：
+
+```json
+{
+  "plugins": [
+    {
+      "package": "cc-safety-net@latest",
+      "options": { "shell": "powershell" }
+    }
+  ]
+}
+```
+
+凡是运行 POSIX `sh` 语法的 shell，例如 ash、bash、dash、ksh、sh 或 zsh，都用 `"posix"`；powershell 或 pwsh 用 `"powershell"`。该选项不决定 OpenCode 使用哪个 shell，而是必须与 OpenCode 实际使用的 shell 一致。其他值会让插件以 `CC Safety Net: plugin option shell must be posix or powershell.` 失败。
+
+OpenCode 启动 shell 之前，插件会检查可执行文件是否与该选项一致。不运行 POSIX `sh` 语法的 shell，例如 fish、nushell 或 tcsh，无法通过 `"posix"` 检查。检查失败时，shell 不会启动：
+
+```text
+CC Safety Net: actual shell "<actual>" does not match plugin option shell "<configured>". Configure the plugin's shell option to match OpenCode; supported dialects are posix and powershell.
+```
+
+这种中止不是普通的工具拒绝。它可能导致当前操作失败，也不会留下与会话关联的审计条目。
+
+## OpenCode 检查失败时会怎样
+
+CC Safety Net 插件抛出异常时，OpenCode 会阻止该调用。OpenCode 对插件 hook 没有超时，因此检查卡住时，调用会一直等待。插件加载失败时，OpenCode 会在没有插件的情况下启动，工具调用不经检查就会执行。在 2.x 上，如果重新加载失败而之前可用的副本仍处于活动状态，该副本会继续检查调用。
+
+<span id="opencode-coverage-limits"></span>
+
+## OpenCode 的覆盖限制
+
+在 Windows 上，OpenCode 1.x 运行 POSIX shell 时，会用 `cygpath -w` 转换以 POSIX 根开头的 `workdir`，例如 `/tmp`。CC Safety Net 则把同一个 `workdir` 按当前驱动器解析为 `C:\tmp`。因此 CC Safety Net 检查这类调用时所用的目录，可能与调用实际运行的目录不同。
+
+## 从 OpenCode 卸载 CC Safety Net
+
+```bash
+npx -y cc-safety-net@latest uninstall --opencode
+```
+
+卸载会从 `opencode.json` 和 `opencode.jsonc` 中删除 `cc-safety-net` 条目，并保留其中的 JSONC 注释，同时清除缓存的包。
+
+<span id="troubleshoot-opencode"></span>
+
+## OpenCode 故障排除
+
+| 消息 | 处理方法 |
+| --- | --- |
+| `OpenCode 1.18.29+ or 2.0.6+ is required; found <version>.` | 升级 OpenCode，然后重新运行安装 |
+| `Change the cc-safety-net package spec in <path> to cc-safety-net@latest, preserving its options, then retry. Adding another spec would create a duplicate plugin ID.` | 把该条目改为 `cc-safety-net@latest`，保留其选项和注释，然后重新运行安装 |
+| ``OpenCode did not load cc-safety-net from cc-safety-net@latest. Run `opencode plugin list` for details.`` | 运行 `opencode plugin list`，查看 `cc-safety-net` 一行 |
+| `OpenCode reports cc-safety-net failed: <first line of OpenCode's error>` | 修复 OpenCode 指出的错误，然后重新运行安装 |
+| ``OpenCode lists no active cc-safety-net for this directory. Run `opencode api plugin.list` for details.`` | 在同一目录下运行 `opencode api plugin.list` |
+
+在 OpenCode 2.x 上，`doctor` 还会询问 OpenCode，插件在运行 `doctor` 的目录中是否已激活。未激活时，`doctor` 打印 `Error (OpenCode): OpenCode reports cc-safety-net failed: <the host's first error line>`。

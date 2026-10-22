@@ -1,0 +1,109 @@
+---
+title: "在 OpenClaw 中安装 CC Safety Net"
+sidebarTitle: "OpenClaw"
+description: "在 OpenClaw 2026.8.1 或更高版本中以进程内插件的形式安装 CC Safety Net，了解安装如何确认插件已加载、exec 检查覆盖哪些内容、检查失败时会怎样，以及如何移除插件。"
+keywords:
+  - "openclaw"
+  - "openclaw plugins install"
+  - "openclaw.json"
+  - "OPENCLAW_HOME"
+  - "before_tool_call"
+  - "exec"
+---
+
+需要 macOS 或 Linux 上的 OpenClaw 2026.8.1 或更高版本。运行 `npx -y cc-safety-net@latest install --openclaw`，它会通过 OpenClaw 自己的 CLI 把 CC Safety Net 安装为 OpenClaw 插件，并确认插件已加载。然后重启 OpenClaw Gateway。插件检查 `exec` 调用，并且是 fail closed。
+
+## 在 OpenClaw 中安装 CC Safety Net
+
+<Steps>
+  <Step title="检查 OpenClaw 版本">
+    确认运行的是 OpenClaw 2026.8.1 或更高版本。版本更旧时请先升级 OpenClaw。
+  </Step>
+  <Step title="运行安装程序">
+    ```bash
+    npx -y cc-safety-net@latest install --openclaw
+    ```
+  </Step>
+  <Step title="重启 OpenClaw Gateway">
+    重启 Gateway。每次更新或卸载后也要重启。
+  </Step>
+  <Step title="确认插件已生效">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  如果 `openclaw.json` 中设置了 `plugins.allow`，其中也必须列出 `cc-safety-net`。允许列表遗漏它时，即使插件已启用也不会加载。
+</Note>
+
+## OpenClaw 安装会改动什么
+
+安装程序对 npm 包中附带的插件目录运行 `openclaw plugins install`，并带上 `--force --accept-capabilities`。这条命令同时会启用插件。你自己在 `openclaw.json` 中禁用的插件，在安装和更新时都保持禁用，需要时运行 `openclaw plugins enable cc-safety-net` 启用它。
+
+<span id="how-install-verifies-the-openclaw-plugin-loaded"></span>
+
+### 安装如何确认 OpenClaw 插件已加载
+
+安装完成后，安装程序运行 `openclaw plugins inspect cc-safety-net --runtime --json`。状态不是 `loaded` 时，安装失败。状态为 `disabled` 时会打印：
+
+```text
+OpenClaw reports the cc-safety-net plugin with status "disabled"; run `openclaw plugins enable cc-safety-net`. Run `openclaw plugins inspect cc-safety-net --runtime` for details.
+```
+
+## OpenClaw 的配置存放位置
+
+安装和 `doctor` 按 OpenClaw 自己的方式解析路径，因此 OpenClaw 移动过位置也能找到。
+
+| 路径 | 解析来源 |
+| --- | --- |
+| 生效的主目录 | 设置了 `OPENCLAW_HOME` 时取该值，否则取操作系统主目录 |
+| 状态目录 | 依次取 `OPENCLAW_STATE_DIR`、`OPENCLAW_CONFIG_PATH` 所在目录、生效主目录下的 `.openclaw` |
+| 配置文件 | 设置了 `OPENCLAW_CONFIG_PATH` 时取该值，否则取状态目录中的 `openclaw.json` |
+
+## OpenClaw 插件检查什么
+
+OpenClaw 把 CC Safety Net 作为进程内插件加载。插件只检查 `exec` 工具，并以智能体的工作区目录为基准。它不检查 OpenClaw 的文件类工具。
+
+## OpenClaw 检查失败时会怎样
+
+插件是 fail closed。以下情况下，插件会阻止 `exec` 调用：无法解析智能体的工作区、`workdir` 解析到工作区之外，或调用指定的执行 host 不是 `auto` 或 `gateway`（例如 `sandbox` 或 `node`）。插件抛出异常时，OpenClaw 会阻止该调用。
+
+如果 Gateway 启动时插件加载失败，Gateway 会在没有插件的情况下继续运行，`exec` 不经检查就会执行。重启后，请用 `openclaw plugins inspect cc-safety-net --runtime` 确认插件已加载。
+
+<span id="openclaw-coverage-limits"></span>
+
+## OpenClaw 的覆盖限制
+
+- **其他工具。** 插件不检查 `apply_patch`，也不检查 OpenClaw 的读、写、编辑等文件类工具。带有 `toolKind` 的 `exec` 事件，例如 Code Mode 的 JavaScript `exec`，不会得到决策。
+- **配置的默认 host。** 插件只读取调用本身的 `host`。即使 `tools.exec.host` 把调用路由到 `node` 或 `sandbox`，不带 `host` 的调用仍按本地 Gateway 调用检查。
+- **带沙箱的 `auto`。** 沙箱运行时处于活动状态时，`auto` 调用在沙箱文件系统中运行，但插件仍以 Gateway 工作区为基准检查路径规则。命令规则不受影响。
+- **`openclaw agent exec`。** 这条命令从不加载插件的 hook 注册表，因此 CC Safety Net 既不检查也不审计它的工具调用。通过 `openclaw agent --local` 发起的同一调用，插件会检查。
+- **Codex 原生中继。** 对 OpenClaw 中继的 Codex 原生 shell、patch 或 MCP 调用，CC Safety Net 不作任何保证。
+- **`doctor` 能看到什么。** `doctor` 只读取插件目录和 `openclaw.json`，不会询问正在运行的 Gateway 插件是否已加载。
+- **Windows。** OpenClaw 自己的 CLI 能安装插件，但 `doctor` 按 POSIX 状态布局查找，会误报。
+
+### 在智能体工作区之外运行的会话
+
+OpenClaw 在会话的工作目录中运行 `exec`，而这个目录不一定是智能体工作区。托管 worktree 会话在自己的检出目录中运行，默认位于 `<state>/worktrees` 下；带 `cwd` 创建的会话则在该目录中运行。hook 上下文中没有工作目录，因此插件以智能体工作区为基准检查每次 `exec` 调用。在这类会话中：
+
+- 不带 `workdir` 的命令按工作区检查，但实际在会话目录中运行。
+- 相对路径的 `workdir` 按工作区解析，而不是按会话目录。
+- 位于工作区之外的绝对 `workdir`，例如会话自己的 worktree，会被插件阻止。
+
+这个缺口只能由 OpenClaw 公开执行目录来弥补。
+
+## 从 OpenClaw 卸载 CC Safety Net
+
+```bash
+npx -y cc-safety-net@latest uninstall --openclaw
+```
+
+卸载后请重启 OpenClaw Gateway。
+
+## OpenClaw 故障排除
+
+- **安装失败，报告 `--accept-capabilities` 是未知选项。** 你的 OpenClaw 早于 2026.8.1。请升级 OpenClaw，然后重新运行安装。
+- **安装报告状态为 `disabled`。** 运行 `openclaw plugins enable cc-safety-net`，然后重启 Gateway。
+- **安装或卸载拒绝运行。** `cc-safety-net` 扩展目录中有托管 CC Safety Net 插件以外的内容。请移动或删除该目录，然后重新运行命令。

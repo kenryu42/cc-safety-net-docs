@@ -1,0 +1,91 @@
+---
+title: "logs コマンド"
+sidebarTitle: "logs"
+description: "cc-safety-net logs のリファレンスです。監査ログの読み方、フィルターのフラグ、誤検知らしい拒否の見つけ方、JSON 出力、フラグの競合、レガシーのログファイルの削除を説明します。"
+keywords:
+  - "logs"
+  - "監査ログ"
+  - "拒否"
+  - "suspect"
+  - "prune-legacy"
+  - "誤検知"
+---
+
+`logs` は、[監査ログ](/ja/reference/audit-log)のエントリを表示します。監査ログには、CC Safety Net が許可またはブロックしたコマンドごとに 1 レコードが記録されています。フラグなしで実行すると、すべてのプロジェクトを対象に、過去 30 日間の最新の拒否 20 件を出力します。許可の判定も含めるには `--all` を指定します。
+
+```bash
+npx cc-safety-net logs
+npx cc-safety-net logs --suspect --since 7
+npx cc-safety-net logs --id 3fa9c2d1a70e8b42
+```
+
+## logs のフィルターとオプション
+
+| フラグ | 引数 | 説明 |
+| --- | --- | --- |
+| `--id` | `<id>` | 保持されている履歴から、16 文字の小文字 16 進数の ID で 1 エントリを表示する |
+| `--limit` | `<n>` | 出力するエントリの最大数。既定値は `20` |
+| `--since` | `<days>` | 指定した日数より新しいエントリだけを表示する。既定値は `30`。上限は固定値ではなく、設定した監査ログの保持期間 |
+| `--agent` | `<name>` | 記録されたエージェント ID が完全一致するエントリだけを表示する。例：`claude-code` |
+| `--rule` | `<ruleId>` | 記録されたルール ID が完全一致するエントリだけを表示する |
+| `--session` | `<id>` | 記録されたセッション ID が一致するエントリだけを表示する |
+| `--project` | `<path>` | このプロジェクトディレクトリとその配下のディレクトリのエントリだけを表示する |
+| `--suspect` | | 誤検知に見える拒否だけを表示する |
+| `--all` | | 拒否に加えて `allow` のエントリも含める |
+| `--prune-legacy` | | レガシーのルートレベルのログファイルを完全に削除する |
+| `--dry-run` | | `--prune-legacy` と組み合わせ、削除対象を報告するだけで何も削除しない |
+| `--json` | | エントリを JSON として出力する |
+| `-h`, `--help` | | ヘルプを表示する |
+
+## `--suspect` で誤検知らしい拒否を見つける
+
+`--suspect` は、見直す価値のある拒否だけを表示します。次のどちらかに当てはまる拒否が対象です。
+
+- `failureStage` を持つ。解析に失敗したため、CC Safety Net が危険だと証明しないままコマンドをブロックしたことを意味します。
+- 同じセッション内で、同じコマンドが 2 回以上拒否された。
+
+## logs のフラグの競合とエラー
+
+`--id` と組み合わせられるのは `--all` と `--json` だけです。`--prune-legacy` と組み合わせられるのは `--json` と `--dry-run` だけで、`--dry-run` には `--prune-legacy` が必要です。これ以外の組み合わせや不明なオプションを指定すると、問題を示すエラーを出力して `1` で終了します。
+
+監査ログファイルを読み取れない場合や、不正なレコードがある場合、`logs` は標準エラー出力に警告を 1 つ出力します。標準出力のエントリと終了コードは変わりません。
+
+```text
+warning: <n> audit log sources could not be read; these results are incomplete
+```
+
+## logs の出力
+
+`--json` を付けない場合、`logs` はエントリごとに 1 行を出力します。各行には、ID、タイムスタンプ、判定、エージェント、ルール ID、50 文字に切り詰めたコマンドが並びます。完全なコマンドと異なるセグメントには `↳` が付きます。
+
+`--id` を付けた場合は、代わりにレコードのすべてのフィールドをラベル付きのブロックで出力します。
+
+<span id="logs-json-output"></span>
+
+## logs の JSON 出力
+
+| 呼び出し | JSON の形式 |
+| --- | --- |
+| `logs --json` | 生の監査エントリの配列。フィルタリング、新しい順の並べ替え、`--limit` の適用後に、2 スペースのインデントで出力される |
+| `logs --id <id> --json` | 0 個または 1 個のエントリを持つ配列 |
+| 監査ログディレクトリがない場合の `logs --json` | `[]` |
+| `logs --prune-legacy --json` | 1 つのコンパクトなオブジェクト：`{"removedFiles":n,"removedBytes":n,"failedFiles":n}` |
+| `logs --prune-legacy --dry-run --json` | 1 つのコンパクトなオブジェクト：`{"dryRun":true,"files":n,"bytes":n}` |
+
+<span id="delete-legacy-log-files"></span>
+
+## レガシーのログファイルを削除する
+
+`logs --prune-legacy` は、監査ルートの直下にある `*.jsonl` ファイルを、経過時間や内容に関係なくすべて削除します。これらはレガシー配置のファイルです。
+
+<Warning>
+  削除は即時に行われ、元に戻せません。確認プロンプトも `--yes` もありません。削除対象を確かめるため、先に `--dry-run` を付けて実行してください。
+</Warning>
+
+`--prune-legacy` は、サブディレクトリにあるプロジェクトごとの監査ログには触れません。すべての削除に成功すると `0`、削除できなかったファイルが 1 つでもあると `1` で終了します。
+
+レガシー配置と現在の配置の違いは、[監査ログ](/ja/reference/audit-log#log-layout)を参照してください。
+
+### `--dry-run` で削除対象を確認する
+
+`--dry-run` を付けると、何も削除せずに `0` で終了します。出力は `Would remove <n> legacy audit log files (<size>).` または `No legacy audit log files found.` です。`--json` を付けると、[logs の JSON 出力](#logs-json-output)に示したオブジェクトを出力します。

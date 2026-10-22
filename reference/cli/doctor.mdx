@@ -1,0 +1,86 @@
+---
+title: "doctor command"
+sidebarTitle: "doctor"
+description: "Reference for cc-safety-net doctor: the report sections, the JSON and skip-update-check options, findings and the exit code, old rule files, managed hook drift warnings, and hook config parse errors."
+keywords:
+  - "doctor"
+  - "health check"
+  - "findings"
+  - "exit code"
+  - "hook drift"
+  - "diagnostics"
+---
+
+`doctor` runs a full health check of your CC Safety Net installation and configuration, and prints a report in sections. Unlike `status`, it exits `1` on a problem, so a script can fail on it.
+
+```bash
+npx cc-safety-net doctor
+bunx cc-safety-net doctor
+```
+
+Use [`status`](/reference/cli/status) instead for a quick look at what is enforced right now.
+
+## What doctor checks
+
+The report has these sections:
+
+| Section | Description |
+| --- | --- |
+| Hook Integration | Checks the configuration for each supported agent |
+| Guard Engine Verification | Runs a self-test that confirms the engine blocks dangerous commands and allows a safe one |
+| Configuration | Validates user and project rule config and lists the effective rules |
+| Environment | Shows the state of the CC Safety Net environment variables |
+| Effective Safety | Shows the selected preset, effective level, capabilities, and rule overrides. Project policy weakenings appear under `Project policy deltas:`, or `Project policy deltas (ignored):` when `CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY` is set |
+| Findings | Lists the problems `doctor` found, each with a severity and a fix hint |
+| Recent Activity | Summarizes blocked commands from the last 7 days |
+| System Info | Shows the versions of all relevant tools |
+| Update Check | Checks whether a newer version is available |
+
+For what a finding means and how to repair it, see [Configuration recovery](/configuration/recovery).
+
+## doctor options
+
+| Flag | Description |
+| --- | --- |
+| `--json` | Output diagnostics as JSON, for example to share in a bug report |
+| `--skip-update-check` | Skip the npm registry version check |
+| `-h`, `--help` | Show help |
+
+## doctor exit code
+
+`doctor` exits `1` when the engine self-test fails or any finding has `error` severity. Otherwise it exits `0`. Warnings and `info` findings never change the exit code. These findings carry `error` severity:
+
+- No agent integration is configured.
+- A hook inspection failed.
+- The user or project rule configuration is invalid.
+- The policy, config, or audit directory has unsafe permissions or is not a directory.
+
+## doctor findings for old rule files
+
+Two findings point at files an earlier version of CC Safety Net left behind. The runtime ignores those files. Neither finding changes the exit code.
+
+### config.v2-leftovers
+
+`config.v2-leftovers` (`info`) means `doctor` found a `rule.lock` file or a `cache` directory. Run [`rule sync`](/reference/cli/rule#rule-sync), with `--global` for the user scope, to migrate them, then rerun `doctor`.
+
+### config.legacy-ignored
+
+`config.legacy-ignored` (`warning`) means `doctor` found `.safety-net.json` in the current directory or `config.json` in your CC Safety Net home directory. Their rules enforce nothing. Run [`rule migrate`](/reference/cli/rule#rule-migrate) to convert them, then rerun `doctor`. Add `--cleanup` to delete each file after `rule migrate` converts it. `doctor --json` lists the paths in `legacyConfigs`.
+
+## Incomplete Recent Activity summary
+
+When `doctor` cannot read some audit log files, Recent Activity ends with `Warning: <n> audit log sources could not be read; this summary is incomplete`. The summary may undercount blocked commands.
+
+## Managed hook drift
+
+Cursor, Devin CLI, Factory Droid, and Grok Build keep their hook entry in a config file you can also edit by hand. When the entry on disk differs from the one `install` writes, `doctor` prints `Warning (<Agent>): <message>`, such as `Managed hook "timeout" is not 30; reinstall to repair`. The agent stays `Configured` and the exit code does not change.
+
+Every drift warning ends in `reinstall to repair` or `reinstall to collapse duplicates`. Rerun `install` with that agent's flag, for example `npx -y cc-safety-net install --cursor`, to rewrite the entry.
+
+## Hook config parse errors
+
+When the hook config file of Antigravity CLI, Cursor, Devin CLI, Factory Droid, or Grok Build does not parse, `doctor` prints `Error (<Agent>): Failed to parse ... <path>: <reason>` and counts the agent as not configured. It also raises an `<Agent> inspection failed` finding with `error` severity, so `doctor` exits `1`. Fix the file, or rerun `install` for that agent. The agent's page lists its config path.
+
+## Agent-specific doctor checks
+
+`doctor` runs extra checks for [Codex](/installation/codex), [Cursor](/installation/cursor), [GitHub Copilot CLI](/installation/github-copilot-cli), [Grok Build](/installation/grok-build), [Hermes Agent](/installation/hermes-agent), [Kimi Code](/installation/kimi-code), [OpenCode](/installation/opencode), and [Pi](/installation/pi). Each agent's page explains them. `doctor` also follows the config path overrides each agent honors, so it finds a config you moved.

@@ -1,0 +1,86 @@
+---
+title: "Factory Droid に CC Safety Net をインストールする"
+sidebarTitle: "Factory Droid"
+description: "~/.factory/hooks.json に PreToolUse フックを 1 つ追加して Factory Droid に CC Safety Net をインストールする方法、旧形式のファイルと settings.json のフックをインストールが引き継ぐ仕組み、フックが検査する内容、アンインストールで元のフック構成に戻る仕組みを説明します。"
+keywords:
+  - "factory droid"
+  - "droid"
+  - "hooks.json"
+  - "PreToolUse"
+  - "JSONC"
+  - "allowManagedHooksOnly"
+---
+
+`npx -y cc-safety-net@latest install --droid` を実行すると、`~/.factory/hooks.json` に `PreToolUse` フックが 1 つ追加され、すべてのツール呼び出しが最初に CC Safety Net を通るようになります。続けて `npx cc-safety-net doctor` を実行し、フックが有効か確認してください。Factory Droid のフックはフェイルオープンです。クラッシュ、タイムアウト、`npx` が見つからない場合は、その呼び出しはそのまま実行されます。
+
+## Factory Droid に CC Safety Net をインストールする
+
+<Steps>
+  <Step title="インストーラーを実行する">
+    ```bash
+    npx -y cc-safety-net@latest install --droid
+    ```
+  </Step>
+  <Step title="フックが有効か確認する">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+## Factory Droid のインストールで変わること
+
+インストーラーは、`~/.factory/hooks.json` の最上位にある `PreToolUse` 配列に、次の管理対象エントリを書き込みます。
+
+```json
+{ "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --droid", "timeout": 30 }] }
+```
+
+- このエントリにはマッチャーも `commandRegex` もありません。そのため `Execute` だけでなく、すべてのツール呼び出しがフックに届きます。
+- インストールは、`hooks.json` 内の他のキー、フックイベント、`PreToolUse` エントリをすべてそのまま残します。`~/.factory/settings.json` と旧形式の `~/.factory/hooks/hooks.json` には書き込みません。
+- Droid は `hooks.json` のコメントと末尾のカンマを受け付けます。インストールとアンインストールは通常の JSON として書き戻すため、コメントは残りません。
+
+### 新しい Factory Droid の hooks.json にインストールが引き継ぐフック
+
+Droid は `hooks.json` ができると、旧形式の `~/.factory/hooks/hooks.json` を読まなくなります。また、`hooks.json` に `PreToolUse` があると、`~/.factory/settings.json` の `PreToolUse` が隠れます。そこで `hooks.json` がまだない場合、インストールはまず旧形式のファイルからすべてのフックイベントを引き継ぎます。旧形式のファイルに `PreToolUse` のフックがなければ、代わりに `settings.json` の `PreToolUse` のフックを引き継ぎます。既存のフックはそのまま動き続けます。
+
+## Factory Droid のフックが検査する内容
+
+- コマンドを実行するツールは `Execute` だけです。フックはそのシェルの方言を自動判定します。
+- その他のツールについては、ツール入力に保護対象のパスが含まれていないかを検査します。
+
+許可する呼び出しにはフックが何も出力しないため、Factory Droid 自身の権限確認のプロンプトもそのまま働きます。
+
+<span id="what-happens-when-the-factory-droid-check-fails"></span>
+
+## Factory Droid のチェックが失敗したときの動作
+
+Factory Droid のフックはフェイルオープンです。ツール呼び出しをブロックできるのは、終了コード 2 と明示的な拒否の判定だけです。0 でも 2 でもない終了コード、クラッシュ、タイムアウト、`npx` が見つからない場合は、その呼び出しはそのまま実行されます。CC Safety Net が拒否するときは終了コード 2 で終了するため、別のフックが許可を返しても拒否は覆りません。
+
+エンタープライズ設定の `allowManagedHooksOnly` が有効な場合、Droid はユーザーとプロジェクトのフックを無視します。そのため、`install --droid` が書き込むフックは実行されません。
+
+<span id="factory-droid-coverage-limits"></span>
+
+## Factory Droid での保護範囲の制限
+
+フックの動作は、`Execute` とファイル系ツールで検証済みです。`Task` のサブエージェント、`Loop`、自動化ツールの呼び出しがフックに届くかどうかは、まだ検証していません。
+
+## Factory Droid から CC Safety Net をアンインストールする
+
+```bash
+npx -y cc-safety-net@latest uninstall --droid
+```
+
+アンインストールは管理対象のハンドラーだけを取り除きます。インストール時に旧形式のファイルや `settings.json` から引き継いだフックは残るため、アンインストール後に有効なフックはインストール前と同じになります。
+
+## Factory Droid のトラブルシューティング
+
+読み込んだファイルに問題があると、インストールは何も書き込まずに停止し、そのファイルを示します。`hooks.json` のパースエラーは、`doctor` が `Error (Factory Droid): <message>` の形で表示し、終了コード `1` で終了します。コメントがあるだけではパースエラーになりません。ファイルを修正してから、インストールをやり直してください。
+
+| 問題 | メッセージ |
+| --- | --- |
+| ファイルをパースできない | `Failed to parse Factory Droid hooks config <path>: <reason>` |
+| `hooks.json` または旧形式のファイルのルートが JSON オブジェクトではない | `Factory Droid hooks config <path> must be a JSON object` |
+| そのファイルの `PreToolUse` が配列ではない | `Factory Droid hooks config <path> "PreToolUse" must be an array` |
+
+フックのエントリが変更されていると `doctor` が警告した場合は、インストールをやり直してください。警告の一覧は[管理対象フックの設定ずれ](/ja/reference/cli/doctor#managed-hook-drift)にあります。

@@ -1,0 +1,92 @@
+---
+title: "在 GitHub Copilot CLI 中安装 CC Safety Net"
+sidebarTitle: "GitHub Copilot CLI"
+description: "在 GitHub Copilot CLI 中安装 cc-safety-net@cc-marketplace 插件并重启 Copilot CLI，了解 hook 检查什么、如何移除插件，以及如何修复 doctor 报告为已关闭或无效的 hook。"
+keywords:
+  - "copilot"
+  - "github copilot cli"
+  - "cc-marketplace"
+  - "enabledPlugins"
+  - "disableAllHooks"
+  - "COPILOT_HOME"
+  - "preToolUse"
+---
+
+运行 `npx -y cc-safety-net@latest install --copilot-cli`。它通过 Copilot CLI 自己的插件市场命令安装 `cc-safety-net@cc-marketplace` 插件。插件原先被禁用时，还会在 `~/.copilot/settings.json` 中启用它。之后请重启 Copilot CLI，插件要重启后才会加载。
+
+## 在 GitHub Copilot CLI 中安装 CC Safety Net
+
+<Steps>
+  <Step title="运行安装程序">
+    ```bash
+    npx -y cc-safety-net@latest install --copilot-cli
+    ```
+  </Step>
+  <Step title="重启 Copilot CLI">
+    重启 Copilot CLI，加载插件。
+  </Step>
+  <Step title="确认插件已生效">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+## GitHub Copilot CLI 安装会改动什么
+
+- 如果 `cc-marketplace` 市场尚未注册，则添加它。
+- 安装 `cc-safety-net@cc-marketplace` 插件。
+- 如果插件被显式禁用，则在 `~/.copilot/settings.json` 的 `enabledPlugins` 中把它设为 `true`。
+
+## GitHub Copilot CLI hook 检查什么
+
+插件的 hook 在 Copilot CLI 的 `preToolUse` 事件上运行。它把 `bash` 和 `powershell` 工具调用当作 shell 命令分析，并检查其他工具输入中的受保护路径。
+
+手动添加 hook 时，能否生效取决于 Copilot CLI 的版本：设置文件中的内联 hook 定义需要 `1.0.8` 或更高版本，用户 hook 文件需要 `0.0.422` 或更高版本。`doctor` 会报告检测到的版本，以及该版本支持哪些 hook 来源。
+
+## GitHub Copilot CLI 检查失败时会怎样
+
+hook 崩溃、以非零状态退出或无法启动时，GitHub Copilot CLI 会阻止工具调用。hook 超过默认的 30 秒超时或输出无效内容时，调用照常执行。
+
+## 从 GitHub Copilot CLI 卸载 CC Safety Net
+
+```bash
+npx -y cc-safety-net@latest uninstall --copilot-cli
+```
+
+移除插件后，请重启 Copilot CLI，使更改生效。
+
+<span id="troubleshoot-github-copilot-cli"></span>
+
+## GitHub Copilot CLI 故障排除
+
+`doctor` 会检查插件，以及你手动添加的 CC Safety Net hook。`COPILOT_HOME` 默认为 `~/.copilot`。
+
+### 手动添加的 hook
+
+以下任一文件中的 CC Safety Net hook 都会被 `doctor` 计入，按优先级从高到低排列：
+
+1. `<repo>/.github/copilot/settings.local.json`
+2. `<repo>/.github/copilot/settings.json`
+3. `<repo>/.claude/settings.local.json`
+4. `<repo>/.claude/settings.json`
+5. `$COPILOT_HOME/settings.json`
+6. hook 文件 `<repo>/.github/hooks/*.json` 和 `$COPILOT_HOME/hooks/*.json`
+
+`.claude` 文件中的条目只有在命令包含 `hook --copilot-cli` 或 `hook -cp` 时才计入，仅有 Claude Code hook 不算。
+
+只要某个 hook 文件或设置条目仍在运行 CC Safety Net hook，即使插件已禁用，`doctor` 也会以 `hook config` 方式报告它。
+
+### hook 或插件被关闭
+
+- 仓库设置文件中的 `disableAllHooks: true` 会在该仓库中关闭 CC Safety Net，插件也包括在内。
+- `$COPILOT_HOME/settings.json` 中的 `disableAllHooks: true` 只关闭该文件自己的内联 hook，hook 文件和插件照常运行。
+- 自身把 `disableAllHooks` 设为 `true` 的 hook 文件不计入，其他 hook 文件仍然计入。
+- 对于 `enabledPlugins` 中的 `cc-safety-net@cc-marketplace`，第一个设置了它的仓库设置文件优先于 `$COPILOT_HOME/settings.json`。仓库中的 `true` 会重新启用用户级的 `false`。
+
+### GitHub Copilot CLI 的 hook 配置错误
+
+| 问题 | 消息 |
+| --- | --- |
+| `hooks.preToolUse` 条目的结构不对 | `Invalid hook config <path>: hooks.preToolUse must be an array of hook objects` |
+| 文件无法解析 | `Failed to parse <path>: <reason>` |

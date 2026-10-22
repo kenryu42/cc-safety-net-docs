@@ -1,0 +1,63 @@
+---
+title: "explain command"
+sidebarTitle: "explain"
+description: "Reference for cc-safety-net explain: tracing why a command is blocked or allowed, the JSON and working-directory options, how a double dash ends flag parsing, exit codes, and refused commands."
+keywords:
+  - "explain"
+  - "trace"
+  - "why blocked"
+  - "analysis"
+  - "--cwd"
+  - "json"
+---
+
+`explain` shows, step by step, how CC Safety Net analyzes a command. Use it to learn why a command is blocked or allowed, or how a custom rule applies.
+
+```bash
+npx cc-safety-net explain "git reset --hard"
+bunx cc-safety-net explain "git reset --hard"
+```
+
+## explain options
+
+| Flag | Description |
+| --- | --- |
+| `--json` | Output the full analysis result as JSON |
+| `--cwd <path>` | Analyze as if run from this working directory |
+| `-h`, `--help` | Show help |
+
+```bash
+npx cc-safety-net explain "rm -rf /"
+npx cc-safety-net explain --json "git checkout -- file.txt"
+npx cc-safety-net explain --cwd /tmp "git status"
+```
+
+See the [Explain trace reference](/reference/explain-trace) for the `--json` schema, the `ExplainResult` fields, and every `TraceStep` variant.
+
+## Explain a command that starts with a dash
+
+`--` ends option parsing, and everything after it is the command. So `explain -- --help` explains the literal command `--help` instead of printing help. Quote the command as one argument to keep shell operators such as `|` and `&&` in it.
+
+## explain exit code
+
+`explain` exits `0` for both blocked and allowed results, so read the `result` field instead of the exit code. It exits `1` on an option error, such as an unknown option or a `--cwd` path that does not exist, and on a command it refuses to analyze.
+
+## Commands explain refuses to analyze
+
+`explain` refuses a command that exceeds CC Safety Net's analysis limits, or whose syntax the parser rejects, such as `echo ${`. It exits `1` with a one-line error. With `--json`, stdout holds only an error object:
+
+```bash
+npx cc-safety-net explain --json 'echo ${'
+```
+
+```json
+{"error":"Command could not be safely analyzed (strict mode). Simplify the command and retry, or ask the user to verify."}
+```
+
+When an agent runs such a command, CC Safety Net blocks it with a [fixed denial id](/reference/blocked-commands#fixed-denial-ids).
+
+## Sharing explain output
+
+<Warning>
+  Explain output can contain your command, its tokens, and absolute paths, including your home directory. Read [Before you share a trace](/reference/explain-trace#before-you-share-a-trace) first.
+</Warning>

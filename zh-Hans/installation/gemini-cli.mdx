@@ -1,0 +1,55 @@
+---
+title: "在 Gemini CLI 中安装 CC Safety Net"
+sidebarTitle: "Gemini CLI"
+description: "通过 gemini-safety-net 扩展在 Gemini CLI 中安装 CC Safety Net，重启 Gemini CLI 加载扩展，了解 hook 检查什么、检查失败时会怎样，以及如何移除扩展。"
+keywords:
+  - "gemini"
+  - "gemini cli"
+  - "gemini-safety-net"
+  - "扩展"
+  - "BeforeTool"
+---
+
+运行 `npx -y cc-safety-net@latest install --gemini-cli`。它会从独立仓库安装 Gemini Safety Net 扩展 `gemini-safety-net`。然后重启 Gemini CLI，让它加载该扩展。
+
+## 在 Gemini CLI 中安装 CC Safety Net
+
+<Steps>
+  <Step title="运行安装程序">
+    ```bash
+    npx -y cc-safety-net@latest install --gemini-cli
+    ```
+  </Step>
+  <Step title="重启 Gemini CLI">
+    重启 Gemini CLI 或开始新会话，加载扩展及其 hook。
+  </Step>
+  <Step title="确认扩展已生效">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+## Gemini CLI 安装会改动什么
+
+安装程序从 `https://github.com/kenryu42/gemini-safety-net` 安装 Gemini Safety Net 扩展。如果已有被禁用的副本，则改为启用该副本。
+
+## Gemini CLI hook 检查什么
+
+扩展的 hook 在 Gemini CLI 的 `BeforeTool` 事件上运行。它把 `run_shell_command` 调用当作 shell 命令分析，并检查其他工具输入中的受保护路径。
+
+## Gemini CLI 检查失败时会怎样
+
+Gemini CLI 的 hook 大多是 fail open。hook 崩溃、超过默认的 60 秒超时或输出无效内容时，Gemini CLI 照样执行工具调用。缺少 `npx` 或 `node` 时，shell 以退出码 127 退出，Gemini CLI 会阻止该调用。CC Safety Net 自己捕获的错误总会阻止调用，因为 hook 会输出拒绝。
+
+## 从 Gemini CLI 卸载 CC Safety Net
+
+```bash
+npx -y cc-safety-net@latest uninstall --gemini-cli
+```
+
+<span id="troubleshoot-gemini-cli"></span>
+
+## Gemini CLI 故障排除
+
+如果命令未经检查就执行了，请运行 `gemini extensions list`，确认 `gemini-safety-net` 已安装并启用。Gemini CLI 可以分别在用户级和工作区级启用或禁用扩展，工作区设置优先。扩展被禁用时，`doctor` 会打印 `gemini-safety-net is disabled in Gemini CLI`。再次运行 `install --gemini-cli` 会启用被禁用的副本，之后开始新的 Gemini CLI 会话即可。

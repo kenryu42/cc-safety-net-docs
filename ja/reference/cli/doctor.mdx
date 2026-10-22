@@ -1,0 +1,90 @@
+---
+title: "doctor コマンド"
+sidebarTitle: "doctor"
+description: "cc-safety-net doctor のリファレンスです。レポートのセクション、JSON と skip-update-check のオプション、検出結果と終了コード、古いルールファイル、管理対象フックの設定ずれの警告、フック設定のパースエラーを説明します。"
+keywords:
+  - "doctor"
+  - "ヘルスチェック"
+  - "検出結果"
+  - "終了コード"
+  - "フックの設定ずれ"
+  - "診断"
+---
+
+`doctor` は、CC Safety Net のインストールと設定の正常性を一通り検査し、セクションに分けたレポートを出力します。`status` と違い、問題があると `1` で終了するため、スクリプトを失敗させられます。
+
+```bash
+npx cc-safety-net doctor
+bunx cc-safety-net doctor
+```
+
+現在の適用内容をすばやく確認するだけなら、代わりに [`status`](/ja/reference/cli/status) を使います。
+
+## doctor が検査する内容
+
+レポートには次のセクションがあります。
+
+| セクション | 説明 |
+| --- | --- |
+| Hook Integration | 対応する各エージェントの設定を確認する |
+| Guard Engine Verification | エンジンが危険なコマンドをブロックし、安全なコマンドを許可することを確かめるセルフテストを実行する |
+| Configuration | ユーザーとプロジェクトのルール設定を検証し、有効なルールを一覧表示する |
+| Environment | CC Safety Net の環境変数の状態を表示する |
+| Effective Safety | 選択されたプリセット、有効なレベル、機能、ルールのオーバーライドを表示する。プロジェクトポリシーによる緩和は `Project policy deltas:` の下に表示される。`CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY` が設定されている場合の見出しは `Project policy deltas (ignored):` |
+| Findings | `doctor` が見つけた問題を一覧表示する。それぞれに重大度と修正ヒントが付く |
+| Recent Activity | 過去 7 日間にブロックされたコマンドを要約する |
+| System Info | 関連するすべてのツールのバージョンを表示する |
+| Update Check | 新しいバージョンがあるかを確認する |
+
+検出結果の意味と修復方法は、[設定の復旧](/ja/configuration/recovery)を参照してください。
+
+## doctor のオプション
+
+| フラグ | 説明 |
+| --- | --- |
+| `--json` | 診断を JSON として出力する。バグレポートでの共有などに使う |
+| `--skip-update-check` | npm レジストリでのバージョン確認をスキップする |
+| `-h`, `--help` | ヘルプを表示する |
+
+## doctor の終了コード
+
+`doctor` が `1` で終了するのは、エンジンのセルフテストが失敗した場合と、`error` 重大度の検出結果が 1 つでもある場合です。それ以外は `0` で終了します。警告と `info` の検出結果は終了コードに影響しません。次の検出結果は `error` 重大度です。
+
+- エージェント連携が 1 つも設定されていない。
+- フックの検査に失敗した。
+- ユーザーまたはプロジェクトのルール設定が無効である。
+- policy、config、audit のいずれかのディレクトリの権限が安全でない、またはディレクトリではない。
+
+## 古いルールファイルに関する doctor の検出結果
+
+以前のバージョンの CC Safety Net が残したファイルを指す検出結果が 2 つあります。ランタイムはこれらのファイルを無視します。どちらの検出結果も終了コードには影響しません。
+
+### config.v2-leftovers
+
+`config.v2-leftovers`（`info`）は、`doctor` が `rule.lock` ファイルまたは `cache` ディレクトリを見つけたことを示します。[`rule sync`](/ja/reference/cli/rule#rule-sync) を実行して移行し（ユーザースコープでは `--global` を付ける）、`doctor` を再実行してください。
+
+### config.legacy-ignored
+
+`config.legacy-ignored`（`warning`）は、`doctor` がカレントディレクトリの `.safety-net.json`、または CC Safety Net のホームディレクトリの `config.json` を見つけたことを示します。これらのファイルのルールは何も適用されません。[`rule migrate`](/ja/reference/cli/rule#rule-migrate) で変換してから、`doctor` を再実行してください。`--cleanup` を付けると、`rule migrate` が変換し終えたファイルを 1 つずつ削除します。`doctor --json` は、これらのパスを `legacyConfigs` に出力します。
+
+## Recent Activity の要約が不完全な場合
+
+一部の監査ログファイルを読み取れない場合、Recent Activity の末尾に `Warning: <n> audit log sources could not be read; this summary is incomplete` が表示されます。このとき、ブロックされたコマンドの件数は実際より少なく数えられている可能性があります。
+
+<span id="managed-hook-drift"></span>
+
+## 管理対象フックの設定ずれ
+
+Cursor、Devin CLI、Factory Droid、Grok Build は、フックのエントリを手で編集もできる設定ファイルに保持します。ディスク上のエントリが `install` の書き込むエントリと異なる場合、`doctor` は `Managed hook "timeout" is not 30; reinstall to repair` のような `Warning (<Agent>): <message>` を出力します。エージェントは `Configured` のままで、終了コードも変わりません。
+
+設定ずれの警告は、どれも `reinstall to repair` または `reinstall to collapse duplicates` で終わります。そのエージェントのフラグを付けて `install` を再実行すると（例：`npx -y cc-safety-net install --cursor`）、エントリが書き直されます。
+
+<span id="hook-config-parse-errors"></span>
+
+## フック設定のパースエラー
+
+Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build のフック設定ファイルをパースできない場合、`doctor` は `Error (<Agent>): Failed to parse ... <path>: <reason>` を出力し、そのエージェントを未設定として数えます。さらに `error` 重大度の `<Agent> inspection failed` の検出結果が発生するため、`doctor` は `1` で終了します。ファイルを修正するか、そのエージェントの `install` を再実行してください。設定ファイルのパスは各エージェントのページに記載しています。
+
+## エージェント固有の doctor の検査
+
+`doctor` は、[Codex](/ja/installation/codex)、[Cursor](/ja/installation/cursor)、[GitHub Copilot CLI](/ja/installation/github-copilot-cli)、[Grok Build](/ja/installation/grok-build)、[Hermes Agent](/ja/installation/hermes-agent)、[Kimi Code](/ja/installation/kimi-code)、[OpenCode](/ja/installation/opencode)、[Pi](/ja/installation/pi) に対して追加の検査を実行します。内容は各エージェントのページで説明しています。また `doctor` は、各エージェントと同じ規則で設定ファイルの場所を決めるため、移動した設定も見つけられます。

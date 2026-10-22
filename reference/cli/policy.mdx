@@ -1,0 +1,94 @@
+---
+title: "policy command"
+sidebarTitle: "policy"
+description: "Reference for cc-safety-net policy check and policy apply: the project and user targets, the diff report, errors, the terminal confirmation prompt, and why agents cannot apply a policy."
+keywords:
+  - "policy"
+  - "policy check"
+  - "policy apply"
+  - "proposal"
+  - "policy.json"
+  - "diff"
+---
+
+`policy` checks and applies a policy proposal, a JSON file with the policy settings you want. `policy check` validates the proposal and prints the changes it would make. `policy apply` writes it after you confirm in a terminal, and only a person can run it.
+
+```bash
+cc-safety-net policy check proposal.json
+cc-safety-net policy apply proposal.json
+cc-safety-net policy apply proposal.json --global
+```
+
+See [Policy](/configuration/policy) for the fields a policy file carries and what each one does.
+
+## policy subcommands and options
+
+| Subcommand | Description |
+| --- | --- |
+| `check <file>` | Validate a policy proposal and print its diff |
+| `apply <file>` | Apply a proposal after confirming in a terminal |
+
+| Flag | Description |
+| --- | --- |
+| `-g`, `--global` | Use the user-scope policy instead of the project one |
+| `-h`, `--help` | Show this help |
+
+## Which file policy writes
+
+`policy` writes `.cc-safety-net/policy.json` in the project. With `--global`, it writes your user policy file instead.
+
+Without `--global`, both subcommands refuse to run in the directory that holds your user `.cc-safety-net/`, because [the user config directory is not a project](/configuration/policy#the-user-config-directory-is-not-a-project). They print this error and exit `1`:
+
+```text
+<cwd>/.cc-safety-net/policy.json is the user policy, not a project policy; use --global for the user scope, or run from a project directory
+```
+
+## policy diff report
+
+Both subcommands print the same report before `apply` writes anything:
+
+```text
+Scope: project (<path>)
+Proposal: <file>
+Effective policy (user + project merged):
+Changes (<n>):
+  <field>: <before> -> <after>
+```
+
+With `--global`, the first line reads `Scope: user (<path>)`. When nothing would change, the diff is the single line `No changes.` A side with no value reads `(unset)`. `check` stops after the diff and exits `0`.
+
+### What the project-scope diff compares
+
+In project scope, the diff compares the effective policy before and after the change. The effective policy is your user policy merged with the project file, so the diff shows the level the session will run at, not the file's own contents. A proposal that leaves out `safety.level` restores the level inherited from the user policy. In user scope, the diff compares the user policy file itself and prints no `Effective policy` heading.
+
+## policy errors
+
+An unknown option or subcommand, a missing file, or an extra argument prints an error to stderr and exits `1` before any diff. Audit settings are user scope only, so a project proposal with an `audit` section also fails:
+
+```text
+<file>: audit settings are user scope only; remove the audit section from a project proposal
+```
+
+## Applying a policy with policy apply
+
+`apply` requires an interactive terminal on both stdin and stdout. Without one, it prints the command for you to run yourself, including `--global` when you passed it, and exits `1`.
+
+```text
+policy apply confirms interactively; run this yourself in a terminal:
+  cc-safety-net policy apply <file>
+```
+
+In a terminal, `apply` asks `Apply this policy to <path>? [y/N] `.
+
+- Only `y` or `yes`, in any case, confirms. A confirmed apply writes the file, prints `Policy applied: <path>`, and exits `0`.
+- Any other answer, or end of input, declines. A declined apply prints `Cancelled; nothing was written.` and exits `0`.
+
+A project apply writes only the fields the proposal sets. Every field it leaves out keeps inheriting from your user policy.
+
+<Warning>
+  There is no `--yes` and no non-interactive mode. Answering the prompt in a terminal is the only way to apply a proposal.
+</Warning>
+
+## Agents cannot run policy apply
+
+CC Safety Net blocks an agent that runs `policy apply`, with the fixed id `guard.policy-apply`. `policy check` stays allowed, so an agent can draft a proposal and show you its diff. See [Agent-run `cc-safety-net policy apply`](/reference/blocked-commands#agent-run-cc-safety-net-policy-apply).

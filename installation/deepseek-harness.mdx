@@ -1,0 +1,124 @@
+---
+title: "Install CC Safety Net in DeepSeek Harness"
+sidebarTitle: "DeepSeek Harness"
+description: "Install CC Safety Net in DeepSeek Harness as a profile plugin bundle for the web and Desktop profiles, add it to other profiles, see what its tool guard checks, remove it, and resolve the Desktop and enable errors."
+keywords:
+  - "deepseek harness"
+  - "dsh"
+  - "profile plugin"
+  - "DSH_HOME"
+  - "desktop profile"
+  - "web profile"
+  - "pnpm"
+---
+
+Quit DeepSeek Harness Desktop, then run `npx -y cc-safety-net@latest install --deepseek-harness`. It adds CC Safety Net as a plugin bundle to the `web` profile and the `desktop` profile. The bundle registers a deny-only tool guard, a check that can block a tool call but never approves one. A bundle that fails to load only warns, so that profile runs unprotected. Then run `npx cc-safety-net doctor` to confirm the bundle is active.
+
+## Install CC Safety Net in DeepSeek Harness
+
+<Steps>
+  <Step title="Open Desktop once, then quit it">
+    Open DeepSeek Harness Desktop once, then quit it.
+  </Step>
+  <Step title="Check that pnpm is on your PATH">
+    Make sure `pnpm` is on your `PATH`.
+  </Step>
+  <Step title="Run the installer">
+    ```bash
+    npx -y cc-safety-net@latest install --deepseek-harness
+    ```
+  </Step>
+  <Step title="Confirm the bundle is active">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+Install covers the `desktop` profile only when that profile already exists, which is why you open Desktop once first. You quit it because Desktop plugins can change only while Desktop is closed. DeepSeek Harness needs `pnpm` on your `PATH` to add the bundle.
+
+A successful install reports `Added cc-safety-net to the DeepSeek Harness Desktop and web profiles.` A web-only run says `the web profile` in place of `the Desktop and web profiles`.
+
+## What the DeepSeek Harness install changes
+
+DeepSeek Harness loads CC Safety Net as a profile plugin bundle, not as a hook process, so there is no `hook` flag for it. Install adds `cc-safety-net` to each profile at the same version as the installer you ran. Each profile's `package.json` then lists the `cc-safety-net` dependency and enables its bundle.
+
+### DeepSeek Harness profiles the install covers
+
+One install covers two profiles:
+
+- the `web` profile, which `npx @deepseek-ai/dsh web` and a global install share
+- the `desktop` profile, which the Desktop app uses, when that profile already exists
+
+The `acp`, `headless`, `sdk`, and `sdk-minimal` profiles, and any profile created later, run without CC Safety Net. Add the plugin to each one yourself:
+
+```bash
+dsh plugin --profile <name> add cc-safety-net
+```
+
+For the `desktop` profile, install runs the `dsh` that Desktop bundles. It looks for that binary here:
+
+| Platform | Path |
+| --- | --- |
+| macOS | `DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh` under `~/Applications`, then under `/Applications` |
+| Windows | `%LOCALAPPDATA%\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd` |
+
+## What the DeepSeek Harness tool guard checks
+
+DeepSeek Harness runs the guard after every other `tools/pre-execute` listener, including approvals and Auto review.
+
+- The guard sends `bash` calls to the POSIX analyzer.
+- It sends `pwsh` calls to the PowerShell analyzer.
+- It checks file and search tool calls with path and secret protection.
+
+## What happens when the DeepSeek Harness check fails
+
+When the CC Safety Net guard hits an error, DeepSeek Harness blocks the call. If the plugin bundle fails to load, DeepSeek Harness only prints a warning, and that profile runs with no checks.
+
+## DeepSeek Harness coverage limits
+
+- **Other profiles.** Only the `web` and `desktop` profiles get the bundle. See [DeepSeek Harness profiles the install covers](#deepseek-harness-profiles-the-install-covers).
+- **A bundle that fails to load.** DeepSeek Harness treats a failed import or `apply()` of an optional plugin as a warning and keeps running, so that profile runs unprotected. `doctor` reads the manifests on disk, not the running host, so it still reports the profile as configured.
+- **Desktop crash recovery.** Desktop's crash-recovery action disables third-party bundles. They stay off until you enable them again from the Plugins page.
+- **`run_code` in PTC mode.** PTC mode is off by default. In it, `run_code` runs model-written TypeScript that can call Node.js APIs directly. Only the tool calls that code makes reach the guard, so a write it makes through `node:fs` gets no decision.
+- **`terminal_send`.** The opt-in terminal tools write `terminal_send` text into a persistent shell without analysis. A persistent `bash` or `pwsh` shell keeps its directory changes across calls, but CC Safety Net checks each call against the session workspace, so the two can differ.
+- **Windows Desktop.** The Desktop paths on Windows are untested: the `dsh.cmd` path above and the `%APPDATA%\@deepseek-ai\dsh-desktop\lockfile` that tells install whether Desktop is running. The web profile is unaffected.
+
+## Uninstall CC Safety Net from DeepSeek Harness
+
+```bash
+npx -y cc-safety-net@latest uninstall --deepseek-harness
+```
+
+Uninstall removes the bundle from the `web` and `desktop` profiles when their manifests list it. It leaves a copy you added to any other profile in place. Like install, it stops while Desktop is running.
+
+When neither of those two profiles has the bundle, uninstall stops with:
+
+```text
+cc-safety-net is not installed in the DeepSeek Harness web or Desktop profile
+```
+
+## Update CC Safety Net in DeepSeek Harness
+
+[`update`](/reference/cli/update) runs the install again for each profile, so it fails while the Desktop app is open. Quit Desktop first.
+
+## Where DeepSeek Harness keeps its profiles
+
+DeepSeek Harness keeps profiles in `$DSH_HOME/profiles` when `DSH_HOME` is set, otherwise in `<home>/.dsh/profiles`. A leading `~` in `DSH_HOME` expands against your home directory.
+
+## Troubleshoot DeepSeek Harness
+
+- **`Quit DeepSeek Harness Desktop, then run this command again: Desktop plugins can only change while it is closed.`** Desktop is running. Install and uninstall both stop until you quit it.
+- **`DeepSeek Harness Desktop is not in its default location, so add cc-safety-net from its Plugins page.`** A `desktop` profile exists, but Desktop is not at the path in [the table above](#deepseek-harness-profiles-the-install-covers). Install still covers the web profile. Add the plugin from Desktop's Plugins page yourself.
+- **`DeepSeek Harness installed cc-safety-net in the web profile but did not enable it. Enable it from the Plugins page.`** DeepSeek Harness added the bundle without enabling it, so it protects nothing. Enable it from the Plugins page. The message names the profiles the install covered.
+- **`doctor` reports `cc-safety-net is installed in the <name> profile but its bundle is disabled`.** The profile's `package.json` lists the `cc-safety-net` dependency, but `dsh.profile.bundles` does not include it. Enable the bundle from the Plugins page.
+
+### Uninstall when Desktop is not in its default location
+
+If the Desktop profile has the bundle but Desktop is not in its default location, uninstall removes the web copy first and then exits `1`:
+
+```text
+Removed cc-safety-net from the DeepSeek Harness web profile, but DeepSeek Harness Desktop is not in its default location, so remove cc-safety-net from its Plugins page.
+```
+
+Remove the bundle from Desktop's Plugins page. When Desktop is the only profile with the bundle, uninstall removes nothing and prints the same instruction on its own.

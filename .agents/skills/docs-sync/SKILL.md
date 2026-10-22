@@ -45,9 +45,14 @@ sync (see Feedback at the end).
    in step 5 before the sync is committed.
 9. Internal links in a mirror stay inside that mirror's tree (`/ja/…`,
    `/zh-Hans/…`), and a deep link in the English page stays a deep link in both
-   mirrors. The anchor resolves against the *translated* heading on the target
-   page, so read that page's headings before writing the anchor. Dropping or
-   flattening a deep link is a regression, not a simplification.
+   mirrors. Mirror links keep the English anchor (`/ja/installation/cursor#troubleshoot-the-cursor-hook`).
+   The translated heading on the target page carries it as
+   `<span id="<english-anchor>"></span>` on the line above, followed by a blank
+   line. A draft that adds a link to a heading with no span adds the span in
+   both mirrors; a draft that renames an English heading updates the span ids
+   and every link to the old anchor. Mirrors keep the English page's headings
+   one for one, at the same levels and in the same order. Dropping or flattening
+   a deep link is a regression, not a simplification.
 
 ## Workflow
 
@@ -77,7 +82,8 @@ Convert the commit list into a page plan. Several commits often form one story
 (for example, a rule-catalogue restructure across five commits is ONE rewrite
 of one section). Plan in ENGLISH pages; the two mirrors of each planned page
 follow automatically (rule 7). Published English pages are the `.mdx` files in
-the repo root and in `configuration/`, `reference/`, and `guides/`; their
+the repo root and in `installation/`, `configuration/`, `reference/`
+(including `reference/cli/`), and `guides/`; their
 mirrors live under `ja/` and `zh-Hans/`. `docs/`, `cc-safety-net-wiki/`,
 `.agents/`, and `.impeccable/` are not published.
 
@@ -85,6 +91,11 @@ mirrors live under `ja/` and `zh-Hans/`. `docs/`, `cc-safety-net-wiki/`,
 
 Read `.claude/skills/unslop/SKILL.md` before drafting, so its patterns are in
 context while you write (hard rule 2).
+
+Put each fact on the page that owns it, following "Page structure" in
+`AGENTS.md`: agent-specific behaviour on that agent's `installation/<agent>`
+page, command behaviour on that command's `reference/cli/<command>` page.
+Other pages link there instead of repeating the fact.
 
 Edit the pages directly in the working tree. Each English page and its `ja/`
 and `zh-Hans/` mirrors are ONE unit of work: draft the English edit first, then

@@ -65,8 +65,10 @@ External link checking (`--check-external`) is deliberately excluded, because re
 | --- | --- |
 | `docs.json` | Navigation, theme, and site configuration |
 | `index.mdx`, `introduction.mdx`, `installation.mdx`, `quickstart.mdx` | Landing and onboarding pages |
+| `installation/` | One page per supported coding agent |
 | `configuration/` | Modes, policy, environment, custom rules, status line, recovery |
-| `reference/` | Blocked/allowed commands, CLI, audit log, explain trace, glossary |
+| `reference/` | Blocked/allowed commands, audit log, explain trace, glossary |
+| `reference/cli/` | One page per CLI command, plus an overview |
 | `guides/` | Concepts, comparisons, integration, limits, troubleshooting |
 | `assets/` | Logos, integration marks, and images |
 | `contributing.mdx`, `security.mdx` | Project pages |

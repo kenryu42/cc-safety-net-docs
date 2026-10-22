@@ -1,0 +1,55 @@
+---
+title: "Gemini CLI に CC Safety Net をインストールする"
+sidebarTitle: "Gemini CLI"
+description: "gemini-safety-net 拡張機能で Gemini CLI に CC Safety Net をインストールし、Gemini CLI を再起動して読み込む方法、フックが検査する内容とチェック失敗時の動作、拡張機能の削除方法を説明します。"
+keywords:
+  - "gemini"
+  - "gemini cli"
+  - "gemini-safety-net"
+  - "拡張機能"
+  - "BeforeTool"
+---
+
+`npx -y cc-safety-net@latest install --gemini-cli` を実行すると、独自のリポジトリで公開されている Gemini Safety Net 拡張機能 `gemini-safety-net` がインストールされます。その後、Gemini CLI を再起動して拡張機能を読み込ませてください。
+
+## Gemini CLI に CC Safety Net をインストールする
+
+<Steps>
+  <Step title="インストーラーを実行する">
+    ```bash
+    npx -y cc-safety-net@latest install --gemini-cli
+    ```
+  </Step>
+  <Step title="Gemini CLI を再起動する">
+    拡張機能とそのフックを読み込むため、Gemini CLI を再起動するか、新しいセッションを開始します。
+  </Step>
+  <Step title="拡張機能が有効か確認する">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+## Gemini CLI のインストールで変わること
+
+インストーラーは、`https://github.com/kenryu42/gemini-safety-net` から Gemini Safety Net 拡張機能をインストールします。無効化されたものがすでにある場合は、それを有効にします。
+
+## Gemini CLI のフックが検査する内容
+
+拡張機能のフックは、Gemini CLI の `BeforeTool` イベントで動作します。`run_shell_command` の呼び出しはシェルコマンドとして解析し、その他のツールについては入力に保護対象のパスが含まれていないかを検査します。
+
+## Gemini CLI のチェックが失敗したときの動作
+
+Gemini CLI のフックは、ほとんどの場合フェイルオープンです。フックがクラッシュした場合、既定の 60 秒でタイムアウトした場合、不正な出力を返した場合、Gemini CLI はツール呼び出しをそのまま実行します。`npx` や `node` が見つからない場合は、シェルが終了コード 127 で終了し、Gemini CLI は呼び出しをブロックします。CC Safety Net 自身が捕捉したエラーでは、フックが拒否を出力するため、必ずブロックされます。
+
+## Gemini CLI から CC Safety Net をアンインストールする
+
+```bash
+npx -y cc-safety-net@latest uninstall --gemini-cli
+```
+
+<span id="troubleshoot-gemini-cli"></span>
+
+## Gemini CLI のトラブルシューティング
+
+コマンドがチェックされずに実行される場合は、`gemini extensions list` を実行し、`gemini-safety-net` がインストール済みで有効になっているか確認してください。Gemini CLI では拡張機能の有効・無効をユーザー単位とワークスペース単位で設定でき、ワークスペースの設定が優先されます。拡張機能が無効のとき、`doctor` は `gemini-safety-net is disabled in Gemini CLI` と表示します。`install --gemini-cli` をもう一度実行すると無効化されたものが有効になるので、その後に新しい Gemini CLI のセッションを開始してください。

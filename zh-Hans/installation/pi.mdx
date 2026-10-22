@@ -1,0 +1,65 @@
+---
+title: "在 Pi 中安装 CC Safety Net"
+sidebarTitle: "Pi"
+description: "以进程内扩展的形式在 pi.dev 的 Pi 编码智能体中安装 CC Safety Net，了解扩展检查什么、检查失败时会怎样、如何卸载，以及如何修复禁用它的 extensions 过滤器。"
+keywords:
+  - "pi"
+  - "pi.dev"
+  - "pi 编码智能体"
+  - "PI_CODING_AGENT_DIR"
+  - "settings.json"
+  - "extensions 过滤器"
+---
+
+运行 `npx -y cc-safety-net@latest install --pi`。它会把 `cc-safety-net` npm 包安装到 Pi（来自 [pi.dev](https://pi.dev) 的编码智能体）中，由 Pi 作为进程内扩展运行。重启 Pi 加载扩展，然后运行 `npx cc-safety-net doctor`，确认扩展已生效。
+
+## 在 Pi 中安装 CC Safety Net
+
+<Steps>
+  <Step title="运行安装程序">
+    ```bash
+    npx -y cc-safety-net@latest install --pi
+    ```
+  </Step>
+  <Step title="重启 Pi">
+    重启 Pi，加载扩展。
+  </Step>
+  <Step title="确认扩展已生效">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+## Pi 安装会改动什么
+
+- 安装程序运行 `pi install npm:cc-safety-net`。
+- 删除 `settings.json` 中 CC Safety Net 包条目上的 `extensions` 过滤器，让 Pi 加载扩展。
+
+`settings.json` 位于 Pi 智能体目录中：设置了 `PI_CODING_AGENT_DIR` 时取该值，否则为 `~/.pi/agent`。
+
+<span id="what-the-pi-extension-checks"></span>
+
+## Pi 扩展检查什么
+
+- 扩展把 Pi 内置的 `bash` 和 `powershell` 工具当作 shell 命令分析，各自使用对应的 shell 方言。
+- 检查其他工具输入中的受保护路径。
+- 不支持名为 `Shell` 的自定义命令工具，例如 pi-grok-cli 添加的那个。
+- 添加用于管理 rulebook 的 `/cc-safety-net` 命令。
+
+## Pi 检查失败时会怎样
+
+CC Safety Net 扩展抛出异常时，Pi 会阻止该调用。Pi 对检查没有超时。Pi 启动时扩展加载失败，Pi 会退出；在 `/reload` 时加载失败，Pi 会在没有扩展的情况下继续运行，因此重新加载失败后请重启 Pi。
+
+## 从 Pi 卸载 CC Safety Net
+
+```bash
+npx -y cc-safety-net@latest uninstall --pi
+```
+
+<span id="troubleshoot-pi"></span>
+
+## Pi 故障排除
+
+- **`doctor` 打印 `Error (Pi): npm:cc-safety-net is installed but its extension is disabled in Pi settings`。** `settings.json` 中的 `npm:cc-safety-net` 条目带有 `extensions` 过滤器，且该过滤器不加载 `dist/pi/index.js`。重新运行 `install --pi` 即可删除该过滤器。
+- **Pi 已安装，但在 `doctor` 中显示 `n/a`。** `doctor` 在 `settings.json` 中没有找到 `npm:cc-safety-net` 包。如果用 `PI_CODING_AGENT_DIR` 移动过 Pi 智能体目录，请在运行 `doctor` 的环境中设置相同的值；否则重新运行 `install --pi`。

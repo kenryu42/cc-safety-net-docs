@@ -1,77 +1,46 @@
 ---
 title: "自定义规则：额外的命令参数模式"
 sidebarTitle: "自定义规则"
-description: "使用 JSON rulebook，在 CC Safety Net 中定义项目级和用户级自定义阻止规则。可用版本 1 的子命令和字面参数模式匹配，也可用版本 2 的精确命令路径匹配，并从 GitHub 仓库安装 rulebook，使用自定义原因消息阻止命令。"
+description: "使用 JSON rulebook 在 CC Safety Net 中定义项目级和用户级的自定义阻止规则。阻止所有 git push、关闭单条规则、用版本 1 的子命令和参数模式或版本 2 的精确命令路径匹配，并用你自己的原因消息阻止命令。"
 ---
 
-自定义阻止规则可以强制执行团队约定或项目专用的安全策略。规则采用 **rulebook 布局**，并合并用户范围与项目范围的配置。你可以保留个人默认值，再用项目配置调整项目规则。
+自定义规则用你写的原因，阻止内置规则放行的命令，例如 `git push` 或 `npm install -g`。规则写在 rulebook 文件中，每个范围的 `rule.json` 列出要加载的 rulebook。自定义规则只会新增阻止，绝不放宽内置规则。
 
 <Warning>
-**重大更改**：运行时不再加载旧版内联配置文件（`.safety-net.json` 和 `~/.cc-safety-net/config.json`）。旧文件中的规则**在迁移前不会生效**，运行时也不会为此给出提示。`doctor` 和 `rule verify` 会报告旧文件。普通命令仍会运行。执行 `npx -y cc-safety-net rule migrate` 可把旧规则转换为 rulebook 布局。请参阅[迁移旧配置](#迁移旧配置)。
+  旧版内联配置文件（`.safety-net.json` 和 `~/.cc-safety-net/config.json`）已不再加载。在[迁移](#migrate-legacy-configuration)之前，其中的规则不起任何作用。
 </Warning>
 
 <Tip>
-编写规则是 **`/cc-safety-net` 技能**的工作流之一。在智能体中运行它，用自然语言说明你想要什么：
-
-  ```text
-  /cc-safety-net read my package.json and suggest blocking rules
-  /cc-safety-net set up rules to block all terraform destroy commands
-  /cc-safety-net verify my rules and fix any errors
-  ```
-
-该技能的其他工作流见 [`/cc-safety-net` 技能](/zh-Hans/guides/skill)。如果智能体不支持技能，可以这样提示它：
-
-  ```text
-  run npx -y cc-safety-net rule doc and help me set up custom rules
-  ```
+  [`/cc-safety-net` 技能](/zh-Hans/guides/skill)可以替你编写规则。说明你想要什么即可，例如 `/cc-safety-net block terraform destroy in this project`。
 </Tip>
 
 ## 规则配置文件位置
 
-CC Safety Net 从两个范围加载 rulebook 并将它们合并：
+CC Safety Net 从两个范围加载 rulebook 并合并：
 
-1. **用户范围**：`~/.cc-safety-net/rules/rule.json`（用 `rule init --global` 创建）。用它保存适用于所有项目的个人默认值。
-2. **项目范围**：项目根目录中的 `.cc-safety-net/rules/rule.json`。用它保存可提交到版本控制的团队或项目专属规则。
+1. **用户范围**：`~/.cc-safety-net/rules/rule.json`（用 `rule init --global` 创建）。用于适用于所有项目的个人默认规则。
+2. **项目范围**：项目根目录下的 `.cc-safety-net/rules/rule.json`。用于可提交到版本控制的团队或项目专属规则。
 
-本地 rulebook 来源通过 `project-rules` 这样的裸名称引用。GitHub rulebook 来源使用 `owner/repo#ref/<rulebook-name>`，指向该仓库中的 `.cc-safety-net/rules/<rulebook-name>/rulebook.json`。`rule add` 和 `rule update` 会把该文件按相同的相对路径落盘到你自己的范围内，因此生效的每个 rulebook 都是配置目录下的一个文件。
+两个文件都不存在时，只有内置规则生效。在存放用户 `.cc-safety-net/` 的目录（默认是主目录）中，项目路径就是用户配置，因此写入项目范围的 `rule` 子命令在那里会拒绝运行。参见[在用户配置目录中运行 rule](/zh-Hans/reference/cli/rule#rule-in-the-user-config-directory)。
+
+<span id="scope-merge-behavior"></span>
 
 ### 范围合并行为
 
-- 两个范围的 rulebook 会合并，用户范围在前。
-- **活动 rulebook 名称重复时，以先声明者为准。** 用户范围先加载，因此会遮蔽同名的项目 rulebook。后一个 rulebook 的所有规则都不生效。名称冲突会产生警告，并使运行时进入 `degraded`。请在 rulebook 文件和引用它的 `rule.json` 中同时重命名其中一个 rulebook。名称冲突有确定的处理方式，不是致命错误，因此即使另一个范围已经占用了该名称，在本范围添加或更新来源仍会成功。
-- **每个范围的 `overrides` 只作用于该范围自己的规则。** 指向用户范围规则的项目覆盖会被忽略并给出警告，该规则保持用户配置的状态。项目配置无法禁用或改写用户规则。
-- 不匹配任何已知规则的覆盖键会被忽略并给出警告；其他覆盖和规则保持各自配置的状态。
-- 两个范围的 `transparent_wrappers` 取并集。
-- 两个范围的 `command_tools` 会合并，用户范围在前。两处声明了同一个工具名时，以用户范围的条目为准，丢弃项目范围的条目，因此项目配置无法改变由哪个参数承载工作目录。
-
-如果两个位置都没有配置，则只有内置规则生效。
-
-<span id="the-user-config-directory-is-not-a-project"></span>
-
-### 用户配置目录不是项目
-
-存放用户 `.cc-safety-net/` 的目录（默认是主目录）绝不会同时又是项目。在那里运行时，`.cc-safety-net/rules/rule.json` 就是用户配置，加载器只按用户范围读一次，项目范围保持为空。
-
-每个会写入项目配置的 `rule` 子命令都拒绝在这个目录里运行。不带 `--global` 的 `rule init`、`rule add`、`rule remove`、`rule update`、`rule sync`、`rule wrapper add` 和 `rule wrapper remove` 会打印一行错误并以退出码 1 结束，不写入任何内容：
-
-```text
-<home>/.cc-safety-net/rules/rule.json is the user rule config, not a project rule config; use --global for the user scope, or run from a project directory
-```
-
-若要改用户配置，请加上 `--global`；否则请在项目目录下运行。读取不受影响：`rule list` 和 `rule wrapper list` 在这个目录下的行为与在其他目录下一致。
-
-`policy.json` 的路径比较与此相同。它如何解析 `CC_SAFETY_NET_HOME` 以及通过符号链接到达的主目录，见[策略](/zh-Hans/configuration/policy#the-user-config-directory-is-not-a-project)。
-
-<span id="managing-rulebook-sources"></span>
+- CC Safety Net 先加载用户范围，再合并两个范围的 rulebook。
+- 两个范围列出同名 rulebook 时，以用户范围的为准，项目范围的那个不贡献任何规则。CC Safety Net 会报告警告，运行时显示 `degraded`。重命名其中一个即可解决。
+- 每个范围的 `overrides` 只作用于本范围的规则。指向用户规则的项目覆盖会被忽略并报告警告，因此项目配置无法关闭或改写用户规则。
+- 不匹配任何规则的覆盖键同样会被忽略并报告警告。
+- 两个范围的 `transparent_wrappers` 和 `command_tools` 会合并。
 
 ## 管理 rulebook 来源
 
-rulebook 来源由 `rule.json` 的 `rules` 数组中的条目引用。共有两类：
+`rule.json` 的 `rules` 数组中的每个条目都是一个 rulebook 来源：
 
-- **本地来源**：形如 `project-rules` 的裸名称。rulebook 位于 `.cc-safety-net/rules/project-rules/rulebook.json`（项目）或 `~/.cc-safety-net/rules/project-rules/rulebook.json`（用户）。本地来源必须留在各自的配置目录内。
-- **GitHub 来源**：`owner/repo#ref/<rulebook-name>`，指向该仓库该 ref 下的 `.cc-safety-net/rules/<rulebook-name>/rulebook.json`。`rule add` 和 `rule update` 会把获取到的字节原样落盘到你自己范围内的 `.cc-safety-net/rules/<rulebook-name>/rulebook.json`，因此它的加载方式与本地 rulebook 完全一致。
+- **本地来源**：`project-rules` 这样的裸名称。rulebook 位于 `.cc-safety-net/rules/project-rules/rulebook.json`（项目）或 `~/.cc-safety-net/rules/project-rules/rulebook.json`（用户）。
+- **GitHub 来源**：`owner/repo#ref/<rulebook-name>`，指向该仓库中的 `.cc-safety-net/rules/<rulebook-name>/rulebook.json`。`rule add` 和 `rule update` 会把这个文件复制到你自己范围内的相同路径，因此它的加载方式与本地 rulebook 相同。
 
-用 `rule` 命令来添加、更新和删除来源，不要手动编辑 `rule.json`：
+请用 `rule` 命令管理来源，不要手动编辑 `rule.json`：
 
 ```bash
 # Add a local rulebook source
@@ -96,69 +65,23 @@ npx -y cc-safety-net rule list
 npx -y cc-safety-net rule remove example-rules --delete-source
 ```
 
-加上 `--global`（`-g`）即可操作用户范围而非项目范围。`rule list` 例外：它始终读取两个范围，且不接受 `--global`。每个 `rule` 子命令、它的选项及退出行为见 [CLI 命令](/zh-Hans/reference/cli-commands)。
-
-### 从仓库安装 rulebook
-
-除规范形式 `owner/repo#ref/<rulebook-name>` 外，`rule add` 还接受只写仓库的 `owner/repo`。只写仓库时，会添加该仓库在 `.cc-safety-net/rules/` 下发布的全部 rulebook。有两个选项可以缩小范围，且都只能用于 `owner/repo` 形式的 `rule add`：
-
-- `--only <rulebook...>` 接受一个或多个 rulebook 名称，并保留你书写的顺序。
-- `--ref <ref>` 指定分支、标签或提交，而不使用仓库的默认分支。ref 可以包含 `/` 分段，因此 `--ref feature/rulebook-v2` 也可用。
-
-`rule.json` 保存的是规范形式 `owner/repo#ref/<rulebook-name>`，其中保留的是你指定的 ref，而不是解析出的提交，因此这个 ref 仍会跟着上游移动。解析出的提交只会报告、不会保存：添加时打印 `Vendored at 1a2b3c4.` 并写入 rulebook 文件，没有 lockfile 来固定它。
-
-`rule update` 会重新解析每个选中的来源，分支或标签 ref 会跟到它当前指向的位置，落盘副本据此重写。各个来源相互独立：获取或校验失败的来源保留原有落盘副本，并报告 `Failed to update <spec>: <message>`，其余来源照常更新。唯一的例外是资源限制失败，它会中止整次运行。
-
-### 资源限制
-
-每个范围的 `rules` 数组最多容纳 **64** 个来源。超过限制时，`rule.json` 校验失败，并只报告一条错误：`Rule config exceeds CC Safety Net's safe source limit.` 系统不会逐条列出超限数组，整个范围的配置会像其他无效 `rule.json` 一样被丢弃。
-
-从 GitHub 获取内容时有固定预算。`rule add` 和 `rule update` 最多并发处理 **4** 个来源，单次运行最多发出 **131** 个 GitHub 请求，所有来源合计最多读取 **64 MiB** 响应字节。超出任一预算都会中止本次运行，并报 `Rule synchronization exceeds CC Safety Net's safe resource limits.`，而且失败的不只是超限的那个来源，而是本次运行中的全部来源。
-
-rulebook 文件本身也有上限，且在 schema 校验之前检查。超出其中任何一项的 rulebook 只会得到一行 `Rulebook exceeds CC Safety Net's safe validation limits.`，不含逐字段的说明：
-
-| 上限 | 值 |
-| --- | --- |
-| `allowed_commands` 条目数 | 1,024 |
-| `rules` 条目数 | 1,024 |
-| `tests` 条目数 | 2,048 |
-| 单条规则的 `block_args`、`match.command_path`、`match.any_args` 或 `match.exclude_args` 的 token 数 | 1,024 |
-| 整个 rulebook 中这些列表的 token 总数 | 16,384 |
-| 单个字符串的长度 | 1,048,576 个 UTF-16 码元 |
-| rulebook 内所有字符串的长度合计 | 4,194,304 个 UTF-16 码元 |
-| 单个 fixture 的 `command` 字符串 | 131,072 个 UTF-16 码元 |
-
-通过上限检查、但未通过 schema 校验的 rulebook，最多报告 64 条错误，其后是 `Additional rulebook validation errors were omitted.`
+加上 `--global`（`-g`）即可修改用户范围而不是项目范围。`--only` 和 `--ref` 的说明见[官方 rulebook](/zh-Hans/configuration/rulebooks#install)，每个子命令及其输出和错误见 [`rule`](/zh-Hans/reference/cli/rule)。
 
 <span id="rulebooks-are-live-files"></span>
 
 ### rulebook 是实时文件
 
-没有 lockfile，没有 digest，也没有缓存。每个来源都从 `<config-dir>/<rulebook-name>/rulebook.json` 加载，运行时在每次工具调用时读取该文件。本地 rulebook 直接在该位置编写，远程 rulebook 由 `rule add` 和 `rule update` 落盘到同一位置。保存后的改动从下一条命令起生效，之后无需再做任何发布或重建。
-
-如果某个来源的 `rulebook.json` 缺失、不可读或无效，该来源不生效：它不贡献任何规则，其余所有来源和全部内置保护继续生效，普通命令也照常运行，运行时报告 `degraded`。`rule.json` 不可读或无效时，该范围内的所有来源都不生效。GitHub 来源尚未落盘时，运行 `npx -y cc-safety-net rule update`。
-
-完整的状态模型、确切的诊断字符串和修复步骤见[配置恢复](/zh-Hans/configuration/recovery)。
-
-### `rule sync` 已弃用
-
-`rule sync` 不再做任何同步。它现在只做一件事：离线迁移早期版本遗留的 `rule.lock` 文件和 `cache` 目录。它会把仍与记录的 digest 一致的缓存 rulebook 落盘到其来源实际加载的路径，然后删除这两者。每次运行都以这一行开头：
-
-```text
-`cc-safety-net rule sync` is deprecated: rulebooks are live files that need no synchronization. This run only migrates the lock and cache an earlier version left behind.
-```
-
-遗留文件由 `doctor` 报告为 `info` 级检查项 `Rulebook lock and cache leftovers detected`。迁移打印的全部消息，以及它拒绝运行的情形，见 [`rule sync`](/zh-Hans/reference/cli-commands#rule-sync)。
+运行时在每次工具调用时从磁盘读取每个 `rulebook.json`。保存的修改从下一条命令起生效，无需发布或重建。缺失、不可读或无效的 rulebook 不贡献任何规则，其他所有 rulebook 和内置规则继续生效，运行时报告 `degraded`。对于从未获取过的 GitHub 来源，请运行 `npx -y cc-safety-net rule update`。修复步骤见[配置恢复](/zh-Hans/configuration/recovery)。
 
 <span id="transparent-wrappers"></span>
 
 ## 透明包装器
 
-如果团队通过 `rtk` 之类的包装器运行命令，分析器默认只能看到包装器。把包装器列入 `transparent_wrappers` 后，CC Safety Net 会提取其中可见的受保护子命令。内置分析和自定义规则便能像处理裸命令一样，处理 `rtk git reset --hard` 和 `rtk docker system prune`。
+透明包装器是运行另一条命令的命令，例如 `timeout 5 git push`。CC Safety Net 会穿过透明包装器，看到它实际运行的命令，因此内置规则和自定义规则对 `timeout 5 docker system prune` 的作用与对 `docker system prune` 相同。
 
-`caffeinate`、`exec`、`nice`、`nohup`、`setsid`、`stdbuf`、`time` 和 `timeout` 无需列入就是包装器，因此 `timeout 5 docker system prune` 会命中与裸命令相同的自定义规则。
+有八个包装器是内置的，无需配置：`caffeinate`、`exec`、`nice`、`nohup`、`setsid`、`stdbuf`、`time` 和 `timeout`。
 
-用 `rule wrapper` 子命令来配置包装器，不要手动编辑 `rule.json`：
+如果团队通过 `rtk` 等其他包装器运行命令，请添加它：
 
 ```bash
 # List configured wrappers for the project scope
@@ -172,23 +95,17 @@ npx -y cc-safety-net rule wrapper remove rtk
 npx -y cc-safety-net rule wrapper add rtk --global
 ```
 
-这个字段的规则：
+- 包装器名称必须匹配 `^[a-zA-Z][a-zA-Z0-9_-]*$`，且在文件内唯一。
+- 保留命令不能作为包装器：`git`、`busybox`、内置分析的命令 `rm`、`find`、`xargs` 和 `parallel`、所有 shell 包装器、所有解释器以及 awk 解释器。
+- 只添加按原样运行子命令的包装器。会改写或隐藏子命令的包装器，即使列出了，CC Safety Net 也不会穿过它。
 
-- **有八个包装器是内置的。** `caffeinate`、`exec`、`nice`、`nohup`、`setsid`、`stdbuf`、`time` 和 `timeout` 总会执行一个可见的子命令，因此无论文件中是否列出，分析都会穿透它们。其余包装器中，只配置你有意信任的那些。
-- 包装器名称必须匹配 `^[a-zA-Z][a-zA-Z0-9_-]*$`，并且在文件内必须唯一。
-- **保留命令不能作为包装器**：`git`、`busybox`、内置分析的命令 `rm`、`find`、`xargs` 和 `parallel`、所有 shell 包装器、所有解释器以及 awk 解释器。
-- 解包时，会取包装器标志和 `VAR=value` 赋值之后的第一个*可保护*子命令，或者显式 `--` 之后紧跟的那个 token。本身不可保护的子命令不会被解包。
-- 既不是内置、这里也**未**列出的包装器，以及重写或隐藏子命令而不是 exec 一个可见子命令的包装器，仍然不会被解包。这类命令只有顶层危险文本 fallback 扫描才可能捕获。
-
-<Warning>
-`transparent_wrappers` 位于 `rule.json` 中。如果某个范围的 `rule.json` 变得不可读，该范围声明的包装器就不再生效，内置的七个仍然有效。配置被丢弃会削弱内置覆盖范围，这里和[已声明的命令工具](#community-shell-tools)都是如此。**rulebook** 加载失败不影响 `rule.json` 的可读性，因此声明的包装器不受影响。
-</Warning>
+你添加的包装器保存在 `rule.json` 中，因此 `rule.json` 不可读时它们会失效。参见 [`rule.json` 中声明的覆盖范围](/zh-Hans/configuration/recovery#coverage-declared-in-rule-json)。
 
 <span id="community-shell-tools"></span>
 
 ## 社区 shell 工具
 
-插件可以为智能体添加自带的 shell 工具，例如 `dsh-ops` 插件会加入 `ops_bash` 和 `ops_run_background`。CC Safety Net 不认识这些名称，因此集成把它们按未知工具路由：会检查其中的路径值有没有受保护路径，但绝不把它们的 `command` 解析为 shell 命令。在你声明它们之前，`ops_bash` 执行 `git reset --hard` 不会被阻止。
+插件可以为智能体添加自带的 shell 工具，例如 `dsh-ops` 插件会加入 `ops_bash` 和 `ops_run_background`。CC Safety Net 不认识这些名称，因此只检查它们的路径参数，从不把它们的 `command` 当作 shell 命令解析。在你声明之前，`ops_bash` 执行 `git reset --hard` 不会被阻止。
 
 声明该工具后，CC Safety Net 就会分析它的命令：
 
@@ -219,142 +136,112 @@ npx -y cc-safety-net rule tool remove ops_bash
 }
 ```
 
-从下一次工具调用起，CC Safety Net 分析已声明的调用就和分析内置 shell 工具一样：同样的内置规则、同样的自定义规则、你自己的安全级别，以及该级别对敏感路径的严格程度。此时 `ops_bash` 执行 `git reset --hard` 会被 `git.reset-hard` 阻止；获得允许的调用也会像 `Bash` 调用一样，连同命令和工作目录一起记入审计。
+从下一次工具调用起，已声明工具的调用会和内置 shell 工具一样，适用相同的内置规则、自定义规则和安全级别。此时 `ops_bash` 执行 `git reset --hard` 会被 `git.reset-hard` 阻止。
 
-其他 `rule` 子命令写入的是项目配置，要写入用户范围需加 `-g`/`--global`。`rule tool` 正好相反：默认就是用户范围，因此漏掉标志不会导致某个工具在单个项目之外得不到分析。命令接口及其错误消息见 [`rule tool`](/zh-Hans/reference/cli-commands#rule-tool)。
+- `rule tool` 默认写入用户配置，加 `--project` 则写入项目配置。
+- 名称必须与智能体发送的工具名完全一致，包括大小写。
+- 声明无法改变 CC Safety Net 处理内置工具的方式，`rule tool add` 也会拒绝内置工具名。其他命名规则见 [`rule tool add` 名称错误](/zh-Hans/reference/cli/rule#rule-tool-add-name-errors)。
+- CC Safety Net 只分析带有非空字符串 `command` 的调用。
+- `cwd` 指出由哪个参数承载工作目录。未指定时，CC Safety Net 读取 `workdir`、`cwd` 或 `working_directory`。没有工作目录的调用在会话工作区中运行。值为空白或目录不存在时，该调用 fail closed。
 
-这个字段的规则：
+声明保存在 `rule.json` 中，因此 `rule.json` 不可读时，该范围声明的工具会失效。手动编辑该文件后，请运行 `npx -y cc-safety-net rule verify`。
 
-- **条目可以是工具名，也可以是 `{ "name": "ops_bash", "cwd": "dir" }` 这样的对象**，其中 `cwd` 指出由哪个参数承载工作目录。
-- **名称必须与智能体发送的工具名完全一致。** 内置工具名的比较忽略大小写和分隔符差异，声明则不会。
-- 名称必须非空、最多 256 个字符，且不含空白字符和控制字符。`mcp__server__tool` 这类 MCP 风格的名称可以使用。同一个文件中重复声明同一名称属于错误。
-- **声明只对集成按未知工具路由的工具生效。** 它无法改变内置工具的处理方式，而且 `rule tool add` 会拒绝任何集成的内置 shell 工具名和文件工具名。
-- **只有非空字符串 `command` 才会被分析。** 不带 `command` 的已声明调用仍走未知工具路由，只保留路径检查。
+## 创建你的第一条自定义规则
 
-<span id="the-working-directory-of-a-declared-call"></span>
+<Steps>
+  <Step title="创建 rule.json">
+    ```bash
+    npx -y cc-safety-net rule init
+    ```
 
-### 已声明调用的工作目录
+    这会创建一个空的 `.cc-safety-net/rules/rule.json`，其中没有任何 rulebook 来源：
 
-`rm -rf build` 是否具有破坏性取决于它在哪里运行，因此已声明工具的工作目录决定了判定结果。CC Safety Net 从 `cwd` 指定的参数读取工作目录。声明未指定 `cwd` 时，则读取 `workdir`、`cwd` 和 `working_directory` 这三个默认键，三者之间没有优先级之分。
-
-| 调用中的工作目录参数 | 结果 |
-| --- | --- |
-| 不存在 | 分析使用会话工作区 |
-| 指向已存在目录的绝对路径 | 分析使用该目录，无论它在磁盘上的什么位置 |
-| 相对路径 | 基于会话工作区解析，然后规范化 |
-| 只含空白字符，或不是字符串 | 拒绝，fail closed |
-| 三个默认键中有两个的值不同 | 拒绝，fail closed |
-| 目录不存在，或是 Windows 命名空间路径 | 以 `cwd.requested-unusable` 拒绝 |
-
-`cwd` 指定的参数是唯一被读取的键，因此随它一起发送的 `workdir` 值会被忽略。与 DeepSeek Harness、Amp Code 和 Gemini CLI 适配器一样，已声明工具可以指定任何已存在的目录，不必位于会话工作区内。
-
-<Warning>
-`command_tools` 位于 `rule.json` 中。如果某个范围的 `rule.json` 变得不可读，该范围的声明就不再生效，它声明的工具重新回到不被分析的状态，直到你修复诊断中指出的那个文件。另一范围的声明不受影响。手动编辑该文件后请运行 `cc-safety-net rule verify`，它也会报告其中声明的内置工具名。
-</Warning>
-
-## 创建你的第一个自定义规则
-
-创建一份入门用的项目规则配置：
-
-```bash
-npx -y cc-safety-net rule init
-```
-
-这会创建一个**未生效的** `.cc-safety-net/rules/rule.json`，其中尚未配置 rulebook 来源：
-
-```json
-{
-  "version": 1,
-  "rules": [],
-  "overrides": {},
-  "transparent_wrappers": []
-}
-```
-
-加上 `--example` 还会在 `.cc-safety-net/rules/example-rules/rulebook.json` 写入一个未激活的示例 rulebook。只有该文件尚不存在时才会写入；而且 `rule init` 并不会引用它，因此必须把它添加为来源，它才会生效：
-
-```bash
-npx -y cc-safety-net rule init --example
-npx -y cc-safety-net rule add example-rules
-```
-
-要编写自己的 rulebook，请创建 `.cc-safety-net/rules/project-rules/rulebook.json`，再用 `npx -y cc-safety-net rule add project-rules` 注册它。此时 `rule.json` 如下：
-
-```json
-{
-  "version": 1,
-  "rules": ["project-rules"],
-  "overrides": {},
-  "transparent_wrappers": []
-}
-```
-
-规则定义就写在该 rulebook 文件里：
-
-```json
-{
-  "rulebook_version": 1,
-  "name": "project-rules",
-  "version": "1.0.0",
-  "description": "Project-specific CC Safety Net rules.",
-  "author": "project",
-  "allowed_commands": ["git"],
-  "rules": [
+    ```json
     {
-      "name": "block-git-add-all",
-      "command": "git",
-      "subcommand": "add",
-      "block_args": ["-A", "--all", "."],
-      "reason": "Use 'git add <specific-files>' instead of blanket add."
+      "version": 1,
+      "rules": [],
+      "overrides": {},
+      "transparent_wrappers": []
     }
-  ],
-  "tests": [
+    ```
+
+    `rule init --example` 还会在 `.cc-safety-net/rules/example-rules/rulebook.json` 写入一个示例 rulebook。在运行 `npx -y cc-safety-net rule add example-rules` 之前，它不会生效。
+  </Step>
+  <Step title="编写 rulebook">
+    创建 `.cc-safety-net/rules/project-rules/rulebook.json`：
+
+    ```json
     {
-      "command": "git add -A",
-      "expect": "blocked",
-      "rule": "block-git-add-all"
-    },
-    {
-      "command": "git add README.md",
-      "expect": "allowed"
+      "rulebook_version": 1,
+      "name": "project-rules",
+      "version": "1.0.0",
+      "description": "Project-specific CC Safety Net rules.",
+      "author": "project",
+      "allowed_commands": ["git"],
+      "rules": [
+        {
+          "name": "block-git-add-all",
+          "command": "git",
+          "subcommand": "add",
+          "block_args": ["-A", "--all", "."],
+          "reason": "Use 'git add <specific-files>' instead of blanket add."
+        }
+      ],
+      "tests": [
+        {
+          "command": "git add -A",
+          "expect": "blocked",
+          "rule": "block-git-add-all"
+        },
+        {
+          "command": "git add README.md",
+          "expect": "allowed"
+        }
+      ]
     }
-  ]
-}
-```
+    ```
+  </Step>
+  <Step title="注册 rulebook">
+    ```bash
+    npx -y cc-safety-net rule add project-rules
+    ```
 
-保存文件就够了。从下一条命令起，`git add -A`、`git add --all` 和 `git add .` 都会被阻止，并显示你的自定义消息。想在此之前检查这个文件，运行：
+    现在 `rule.json` 中列有 `"rules": ["project-rules"]`。从下一条命令起，CC Safety Net 会以你写的原因阻止 `git add -A`、`git add --all` 和 `git add .`。
+  </Step>
+  <Step title="验证 rulebook">
+    ```bash
+    npx -y cc-safety-net rule verify
+    ```
 
-```bash
-npx -y cc-safety-net rule verify
-```
-
-<span id="rule-json-schema"></span>
+    `rule verify` 会检查两个范围的 `rule.json`，按运行时的方式加载每个来源，并运行版本 2 的 fixture。它从不获取远程内容。
+  </Step>
+</Steps>
 
 ## `rule.json` schema
 
-顶层 `rule.json` 决定哪些 rulebook 生效、应用覆盖，并声明透明包装器和社区 shell 工具。它与 `policy.json` 相互独立。`policy.json` 配置安全级别、内置保护、允许路径、拒绝路径和审计保留期，详情见[策略](/zh-Hans/configuration/policy)。
+`rule.json` 选择生效的 rulebook、应用覆盖，并声明透明包装器和社区 shell 工具。安全级别、内置保护、允许路径和拒绝路径以及审计保留期在另一个文件中配置，参见[策略](/zh-Hans/configuration/policy)。
 
 <ParamField body="version" type="integer" required>
-schema 版本。必须为 `1`。
+  Schema 版本，必须为 `1`。
 </ParamField>
 
 <ParamField body="rules" type="array">
-rulebook 来源字符串列表。默认为空数组。文件内的来源名称必须唯一，且最多允许 64 个来源。见[资源限制](#资源限制)。
+  rulebook 来源字符串列表，默认为空数组。来源名称在文件内必须唯一，文件最多列出 64 个来源。
 </ParamField>
 
 <ParamField body="overrides" type="object">
-以 `<rulebook-name>/<rule-name>` 为键的规则覆盖。值可以是 `"off"`（禁用该规则），也可以是一个对象（替换该规则的阻止消息）。对象形式必须包含 `reason`，可以带上可选的 `intent`；省略 `intent` 时，规则自身的意图保持不变。
+  以 `<rulebook-name>/<rule-name>` 为键的规则覆盖。值可以是 `"off"`（关闭该规则），也可以是一个对象（替换该规则的阻止消息）。对象形式必须包含 `reason`，可以带上可选的 `intent`；省略 `intent` 时，规则自身的意图保持不变。
 </ParamField>
 
 <ParamField body="transparent_wrappers" type="array">
-会透明执行可见受保护子命令的命令名称，让分析能够看穿它们。默认为空数组，此时内置的七个包装器依然生效。条目必须唯一，且不能是保留命令。见[透明包装器](#透明包装器)。
+  在八个内置包装器之外，额外需要穿过的命令，默认为空数组。条目必须唯一，且不能是保留命令。参见[透明包装器](#transparent-wrappers)。
 </ParamField>
 
 <ParamField body="command_tools" type="array">
-插件为你的智能体添加、而 CC Safety Net 并不认识的 shell 工具。在这里声明某个工具，CC Safety Net 就会像分析内置 shell 工具一样分析它的 `command`。每个条目可以是工具名，也可以是 `{ "name": "ops_bash", "cwd": "dir" }` 这样的对象，用于指出由哪个参数承载工作目录。默认为空数组。名称在文件内必须唯一，且不能是内置工具名。见[社区 shell 工具](#community-shell-tools)。
+  插件为智能体添加、而 CC Safety Net 并不认识的 shell 工具。在这里声明后，CC Safety Net 会像分析内置 shell 工具一样分析它的 `command`。每个条目可以是工具名，也可以是 `{ "name": "ops_bash", "cwd": "dir" }` 这样的对象，指出由哪个参数承载工作目录。默认为空数组。名称在文件内必须唯一，且不能是内置工具名。参见[社区 shell 工具](#community-shell-tools)。
 </ParamField>
 
-同时替换消息和面向智能体的意图的覆盖如下所示：
+同时替换消息和面向智能体的意图的覆盖如下：
 
 ```json
 {
@@ -373,7 +260,7 @@ rulebook 来源字符串列表。默认为空数组。文件内的来源名称�
 
 ### `rule.json` 编辑器支持
 
-CC Safety Net 为 `rule.json` 发布了一份 JSON Schema。该文件由人工维护，其中的字段、正则模式、上限和枚举值一旦与运行时所用的校验器不一致，就会有测试失败。把编辑器指向它，即可获得补全和校验：
+CC Safety Net 为 `rule.json` 发布了一份 JSON Schema。把编辑器指向它，即可获得补全和校验：
 
 ```json
 {
@@ -385,93 +272,97 @@ CC Safety Net 为 `rule.json` 发布了一份 JSON Schema。该文件由人工�
 }
 ```
 
-它涵盖上面列出的 `rule.json` 字段，即 `version`、`rules`、`overrides`、`transparent_wrappers` 和 `command_tools`。运行 `rule verify` 会为缺少 `$schema` 的有效规则配置补上这一引用。`policy.json` 没有公开发布的 schema。
+对于缺少这一行的有效 `rule.json`，`rule verify` 会补上 `$schema`。`policy.json` 没有发布 schema。
 
 ## Rulebook schema
 
 每个 rulebook 都放在各自的 `rulebook.json` 文件中。
 
 <ParamField body="rulebook_version" type="integer" required>
-rulebook schema 版本。必须为 `1` 或 `2`。其他取值会以 `rulebook_version must be 1 or 2` 校验失败。见[版本 2 规则](#版本-2-规则)。
+  rulebook schema 版本，必须为 `1` 或 `2`。其他值会以 `rulebook_version must be 1 or 2` 校验失败。参见[版本 2 规则](#version-2-rules)。
 </ParamField>
 
 <ParamField body="name" type="string" required>
-rulebook 名称。必须与本地目录名或 GitHub 来源名称一致。
+  rulebook 名称，必须与本地目录名或 GitHub 来源名称一致。
 </ParamField>
 
 <ParamField body="version" type="string" required>
-rulebook 版本字符串。
+  rulebook 版本字符串。
 </ParamField>
 
 <ParamField body="description" type="string">
-rulebook 的人类可读描述。
+  rulebook 的可读描述。
 </ParamField>
 
 <ParamField body="author" type="string">
-rulebook 作者。
+  rulebook 作者。
 </ParamField>
 
 <ParamField body="allowed_commands" type="array" required>
-此 rulebook 允许为其定义规则的命令。
+  此 rulebook 可以为其定义规则的命令。
 </ParamField>
 
 <ParamField body="rules" type="array" required>
-自定义阻止规则。见[规则 schema](#规则-schema)。
+  自定义阻止规则。参见[规则 schema](#rule-schema)。
 </ParamField>
 
 <ParamField body="tests" type="array">
-可选的 rulebook fixture。见 [Fixture schema](#fixture-schema)。版本 1 的 fixture 只做结构校验；版本 2 的 fixture 还会针对该 rulebook 自身的规则实际求值。
+  可选的 rulebook fixture。参见 [Fixture schema](#fixture-schema)。版本 1 的 fixture 只校验结构；版本 2 的 fixture 还会针对该 rulebook 自身的规则求值。
 </ParamField>
+
+<span id="rule-schema"></span>
 
 ## 规则 schema
 
-下面这些字段定义的是 `rulebook_version` 1 的规则。版本 2 用 `match` 对象取代了 `subcommand` 和 `block_args`，见[版本 2 规则](#版本-2-规则)。
+以下字段定义 `rulebook_version` 1 的规则。版本 2 用 `match` 对象取代了 `subcommand` 和 `block_args`，参见[版本 2 规则](#version-2-rules)。
 
 <ParamField body="name" type="string" required>
-在 rulebook 内必须唯一。必须以字母开头，后跟字母、数字、连字符或下划线。最多 64 个字符。
+  在 rulebook 内唯一的名称，最多 64 个字符。必须以字母开头，后跟字母、数字、连字符或下划线。
 </ParamField>
 
 <ParamField body="command" type="string" required>
-要匹配的基础命令。必须列在 `allowed_commands` 中。
+  要匹配的基础命令，必须列在 `allowed_commands` 中。
 </ParamField>
 
 <ParamField body="subcommand" type="string">
-要匹配的子命令，例如 `add` 或 `install`。如果省略，则匹配任何子命令。
+  要匹配的子命令，例如 `add` 或 `install`。省略时匹配任何子命令。
 </ParamField>
 
 <ParamField body="block_args" type="array" required>
-触发阻止的参数（至少需要一个）。
+  触发阻止的参数。至少需要一个，因此版本 1 规则无法阻止某个子命令的所有用法。这种需求请用[版本 2 规则](#block-every-git-push)。
 </ParamField>
 
 <ParamField body="reason" type="string" required>
-阻止时显示的消息。最多 256 个字符。
+  规则阻止命令时 CC Safety Net 显示的消息，最多 256 个字符。
 </ParamField>
 
 <ParamField body="intent" type="string">
-追加到阻止消息页脚的智能体行为意图。取 `hard_stop`、`use_alternative`、`scope_down`、`manual_only` 或 `stop_and_explain` 之一。默认为 `manual_only`。
+  给智能体的意图，追加在阻止消息的页脚。取 `hard_stop`、`use_alternative`、`scope_down`、`manual_only` 或 `stop_and_explain` 之一，默认为 `manual_only`。
 </ParamField>
+
+<span id="version-2-rules"></span>
 
 ## 版本 2 规则
 
-写上 `"rulebook_version": 2`，即可按命令路径精确匹配，而不是靠子命令加一堆参数。在 `gcloud compute` 下阻止 `delete` 的版本 1 规则，只要命令里任意位置出现该 token 就会命中，因此 `gcloud compute instances create delete` 也会被阻止；命令路径写作 `["compute", "instances", "delete"]` 的版本 2 规则则不会。
+设置 `"rulebook_version": 2`，即可按精确的命令路径匹配，而不是子命令加一组参数。在 `gcloud compute` 下阻止 `delete` 的版本 1 规则，会在命令中任意位置查找该 token，因此也会阻止 `gcloud compute instances create delete`；命令路径为 `["compute", "instances", "delete"]` 的版本 2 规则则不会。
 
-版本 1 的 rulebook 保持原样：字段、匹配行为，以及只做结构校验的 fixture 都不变。每个 rulebook 都按它自己声明的版本校验。
+版本 1 的 rulebook 保持原有的字段、匹配方式和只校验结构的 fixture。CC Safety Net 按每个 rulebook 自己声明的版本校验它。
 
 版本 2 规则沿用版本 1 的 `name`、`command`、`reason` 和 `intent`，并用 `match` 对象取代 `subcommand` 和 `block_args`。
 
 <ParamField body="match.command_path" type="array" required>
-必须按此顺序跟在命令后面的命令词。非空字符串组成的非空数组。
+  必须按顺序跟在命令后面的命令词，是由非空字符串组成的非空数组。由于路径不能为空，没有规则能匹配某个命令的所有调用，例如所有 `aws` 调用。
 </ParamField>
 
 <ParamField body="match.any_args" type="array">
-参数中必须至少字面出现其中一个 token。非空字符串组成、无重复的非空数组。
+  参数中必须至少字面出现其中一个 token。由非空字符串组成、无重复的非空数组。省略时，命令路径匹配后不论参数如何都会命中。
 </ParamField>
 
 <ParamField body="match.exclude_args" type="array">
-参数中只要字面出现其中任意一个 token，就不匹配。非空字符串组成、无重复的非空数组。
+  参数中只要字面出现其中任意一个 token，规则就不匹配。由非空字符串组成、无重复的非空数组。
 </ParamField>
 
-版本 2 不是忽略版本 1 的字段，而是直接拒绝。仍带有 `subcommand` 或 `block_args` 的规则会以 `rules[0].subcommand: not supported in rulebook_version 2` 和 `rules[0].block_args: not supported in rulebook_version 2` 校验失败。
+版本 2 不会忽略版本 1 的字段，而是直接拒绝。仍带有 `subcommand` 或 `block_args` 的规则会以 `rules[0].subcommand: not supported in rulebook_version 2` 和 `rules[0].block_args: not supported in rulebook_version 2` 校验失败。
 
 ```json
 {
@@ -509,34 +400,31 @@ rulebook 作者。
 
 ### 版本 2 匹配
 
-- **命令**：与版本 1 一样，规范化为小写 basename。
-- **命令路径**：CC Safety Net 依次扫描参数，跳过已知的带值全局选项及其取值。此后遇到的命令词必须与 `command_path` 完全一致，顺序也要一致。路径之后的参数不影响路径匹配。
-- **全局选项表**：内置带值全局选项表只有 `aws`、`gcloud` 和 `az` 三份。Terraform 不需要：它唯一的全局选项 `-chdir=DIR` 用 `=` 连接，会作为单个 token 被跳过。
-- **未知选项**：以 `-` 开头、不在该命令选项表中的 token 会被跳过，且不消耗取值。因此把表外的带值选项与取值分开书写（`--newflag value`），规则就匹配不上了。这是有意为之：对识别不了的选项，CC Safety Net 选择 fail open 而不是阻止。作为 rulebook 作者，请把它当作已知缺口并在 rulebook 中写明。
-- **不展开短选项**：`-Ap` 就是 `-Ap`。请把想匹配的每种写法都列出来，例如 `"-destroy"` 和 `"--destroy"`。
-- **字面匹配且区分大小写**：不支持正则表达式、glob 或子串匹配。
-- **先命中者生效**：规则按顺序求值，第一条命中的规则产生阻止。
-- **发布通道需要单独的规则**：`gcloud beta compute instances delete` 不会匹配 `command_path` 为 `["compute", "instances", "delete"]` 的规则。请另写一条 `["beta", "compute", "instances", "delete"]` 的规则。
+- **命令**：与版本 1 一样，CC Safety Net 把命令规范化为小写 basename。
+- **命令路径**：CC Safety Net 跳过已识别的全局选项及其取值。之后的命令词必须与 `command_path` 完全一致，顺序也要一致。路径之后的参数不影响路径匹配。
+- **全局选项**：CC Safety Net 只认识 `aws`、`gcloud` 和 `az` 的带值全局选项。对其他命令，取值分开书写的选项（如 `git -C repo push`）会导致规则匹配不上。Terraform 的 `-chdir=DIR` 是单个 token，会被跳过。
+- **不展开短选项**：`-Ap` 就是 `-Ap`。请列出想匹配的每种写法，例如 `"-destroy"` 和 `"--destroy"`。
+- **字面匹配，区分大小写**：不支持正则表达式、glob 或子串匹配。
+- **先命中者生效**：CC Safety Net 按顺序求值规则，第一条命中的规则产生阻止。
+- **发布通道需要单独的规则**：`gcloud beta compute instances delete` 不匹配 `command_path` 为 `["compute", "instances", "delete"]` 的规则。请另写一条 `["beta", "compute", "instances", "delete"]` 的规则。
 
 ## Fixture schema
 
-fixture 用于记录预期行为。CC Safety Net 只解析它们的命令并交给该 rulebook 的规则求值，绝不执行。
+Fixture 用于记录预期行为。CC Safety Net 解析其中的命令，交给该 rulebook 的规则求值，但从不执行它们。
 
 <ParamField body="command" type="string" required>
-Shell 命令 fixture。
+  Shell 命令 fixture。
 </ParamField>
 
 <ParamField body="expect" type="string" required>
-只能是 `blocked` 或 `allowed`。
+  `blocked` 或 `allowed`。
 </ParamField>
 
 <ParamField body="rule" type="string">
-预期会阻止该命令的规则。`blocked` fixture 必填。
+  预期会阻止该命令的规则。`blocked` fixture 必填。
 </ParamField>
 
-版本 1 的 fixture 只做结构校验。版本 2 的 fixture 会在 `rule add` 或 `rule update` 获取来源时、以及 `rule verify` 读取 rulebook 目录时，针对该 rulebook 自身的规则求值。`blocked` fixture 只有在它指定的规则先命中时才算通过；`allowed` fixture 只有在没有任何规则命中时才算通过。fixture 失败的来源会在文件写入之前被拒绝，因此与自身 fixture 相矛盾的 rulebook 不会生效。加载 rulebook 时不会重新求值 fixture。
-
-每条失败都会带上该 fixture 在 `tests` 中的下标：
+版本 1 的 fixture 只校验结构。`rule add`、`rule update` 和 `rule verify` 会对版本 2 的 fixture 求值。`blocked` fixture 只有在它指定的规则第一个命中时才算通过，`allowed` fixture 只有在没有任何规则命中时才算通过。fixture 失败的来源会在写入之前被 `rule add` 和 `rule update` 拒绝。每条失败都以该 fixture 在 `tests` 中的下标标明：
 
 ```text
 tests[<index>]: expected "<rule>" to block "<command>" but no rule matched
@@ -549,133 +437,154 @@ tests[<index>]: could not parse fixture command: <command>
 
 ## 匹配行为
 
-下面关于子命令、参数和选项的说明适用于 `rulebook_version` 1 的规则；版本 2 规则的匹配方式见[版本 2 匹配](#版本-2-匹配)。命令规范化、执行顺序和透明包装器对两个版本都适用。
+下面关于子命令、参数和选项的说明适用于 `rulebook_version` 1 的规则，版本 2 规则的匹配方式见[版本 2 匹配](#version-2-matching)。命令规范化、透明包装器和嵌套对两个版本都适用。
 
-- **命令规范化**：匹配前，命令先取其 basename。`/usr/local/bin/npm` 能匹配 `"command": "npm"` 的规则。
-- **子命令检测**：子命令是紧跟在命令之后的第一个非选项参数。在 `git --no-pager add -A` 中，子命令是 `add`。
+- **命令规范化**：匹配前，CC Safety Net 把命令规范化为 basename。`/usr/local/bin/npm` 能匹配 `"command": "npm"` 的规则。
+- **子命令检测**：子命令是命令之后的第一个非选项参数。在 `git --no-pager add -A` 中，子命令是 `add`。
 - **参数匹配**：`block_args` 中的参数按字面匹配，不支持正则表达式或 glob。
-- **短选项展开**：合并书写的短标志会在匹配前拆开。`-Ap` 视为 `-A` 和 `-p`。
-- **长选项匹配**：长选项按字符串精确匹配。`--all-files` **不**匹配 `--all`。
-- **任意参数匹配**：只要命令中出现 `block_args` 里的任意一个参数，就会被阻止。
+- **短选项展开**：匹配前，CC Safety Net 会拆开合并书写的短选项。`-Ap` 视为 `-A` 和 `-p`。
+- **长选项匹配**：长选项按字符串精确匹配。`--all-files` 不匹配 `--all`。
+- **任意参数匹配**：只要出现 `block_args` 中的任意一个参数，规则就阻止该命令。
 - **只增不减**：自定义规则只能新增限制，无法绕过内置保护。
-- **任意嵌套深度**：规则作用于嵌套命令的方式，与作用于顶层命令完全相同。为 `rm` 写了规则后，`bash -c 'rm -r ./tmpdir'` 和 `eval 'rm -r ./tmpdir'` 都会被阻止，`sh -c` 和被调用的函数正文同理。内置分析器同样覆盖的那些命令也不例外：`rm`、`rmdir`、`git`、`find`、`xargs` 和 `parallel`。
+- **任意嵌套深度**：规则作用于嵌套命令的方式与顶层命令相同。为 `rm` 写了规则后，`bash -c 'rm -r ./tmpdir'` 和 `eval 'rm -r ./tmpdir'` 都会被阻止，`sh -c` 和被调用的函数正文也一样。内置分析器同样覆盖的命令也不例外：`rm`、`rmdir`、`git`、`find`、`xargs` 和 `parallel`。
 
 <Note>
-**已知限制**：`-Cfoo` 被视为 `-C -f -o -o`，而不是 `-C foo`。阻止 `-f` 时，可能对紧贴在选项后的取值产生误报。
+  **已知限制**：CC Safety Net 把 `-Cfoo` 视为 `-C -f -o -o`，而不是 `-C foo`。因此阻止 `-f` 的规则可能误匹配紧贴在选项后的取值。
 </Note>
+
+### 规则匹配的是命令，不是文件路径
+
+自定义规则匹配的是 shell 命令及其参数。它看不到智能体用自带的读取和编辑工具打开的文件，因此规则无法保护 `~/.zshrc` 这样的文件。要阻止对某个文件或目录的一切访问，请把它加入 `policy.json` 的 [`secret_protection.deny_paths`](/zh-Hans/configuration/policy#deny-paths)。拒绝路径也会阻止读取。
 
 ## 示例
 
-<AccordionGroup>
-<Accordion title="阻止全局 npm 安装">
-阻止智能体全局安装包：
+<span id="block-every-git-push"></span>
 
-    ```json
+### 阻止所有 git push
+
+`command_path: ["push"]` 且不带 `any_args` 的版本 2 规则，会阻止带任何参数的 `git push`。版本 1 规则做不到这一点，因为 `block_args` 至少需要一个参数。
+
+```json
+{
+  "rulebook_version": 2,
+  "name": "project-rules",
+  "version": "1.0.0",
+  "allowed_commands": ["git"],
+  "rules": [
     {
-      "rulebook_version": 1,
-      "name": "project-rules",
-      "version": "1.0.0",
-      "allowed_commands": ["npm"],
-      "rules": [
-        {
-          "name": "block-npm-global",
-          "command": "npm",
-          "subcommand": "install",
-          "block_args": ["-g", "--global"],
-          "reason": "Global npm installs can cause version conflicts. Use npx or local install."
-        }
-      ],
-      "tests": [
-        {
-          "command": "npm install -g typescript",
-          "expect": "blocked",
-          "rule": "block-npm-global"
-        },
-        {
-          "command": "npm install typescript",
-          "expect": "allowed"
-        }
-      ]
+      "name": "block-git-push",
+      "command": "git",
+      "match": {
+        "command_path": ["push"]
+      },
+      "reason": "A person pushes this repository. Commit locally and stop."
     }
-    ```
-</Accordion>
-
-<Accordion title="阻止危险的 docker 命令">
-阻止 `docker system prune`：
-
-    ```json
+  ],
+  "tests": [
     {
-      "rulebook_version": 1,
-      "name": "project-rules",
-      "version": "1.0.0",
-      "allowed_commands": ["docker"],
-      "rules": [
-        {
-          "name": "block-docker-system-prune",
-          "command": "docker",
-          "subcommand": "system",
-          "block_args": ["prune"],
-          "reason": "docker system prune removes all unused data. Use targeted cleanup instead."
-        }
-      ],
-      "tests": [
-        {
-          "command": "docker system prune",
-          "expect": "blocked",
-          "rule": "block-docker-system-prune"
-        },
-        {
-          "command": "docker ps",
-          "expect": "allowed"
-        }
-      ]
-    }
-    ```
-</Accordion>
-
-<Accordion title="一个 rulebook 中的多个规则">
-    ```json
+      "command": "git push",
+      "expect": "blocked",
+      "rule": "block-git-push"
+    },
     {
-      "rulebook_version": 1,
-      "name": "project-rules",
-      "version": "1.0.0",
-      "allowed_commands": ["git", "npm"],
-      "rules": [
-        {
-          "name": "block-git-add-all",
-          "command": "git",
-          "subcommand": "add",
-          "block_args": ["-A", "--all", ".", "-u", "--update"],
-          "reason": "Use 'git add <specific-files>' instead of blanket add."
-        },
-        {
-          "name": "block-npm-global",
-          "command": "npm",
-          "subcommand": "install",
-          "block_args": ["-g", "--global"],
-          "reason": "Use npx or local install instead of global."
-        }
-      ],
-      "tests": [
-        {
-          "command": "git add -A",
-          "expect": "blocked",
-          "rule": "block-git-add-all"
-        },
-        {
-          "command": "npm install -g typescript",
-          "expect": "blocked",
-          "rule": "block-npm-global"
-        }
-      ]
+      "command": "git push --force origin main",
+      "expect": "blocked",
+      "rule": "block-git-push"
+    },
+    {
+      "command": "git status",
+      "expect": "allowed"
     }
-    ```
-</Accordion>
-</AccordionGroup>
+  ]
+}
+```
+
+由于 `timeout` 是[透明包装器](#transparent-wrappers)，这条规则也会阻止 `timeout 5 git push`。它不会命中 `git -C repo push`，因为 `push` 前面有一个取值分开书写的 git 全局选项。参见[版本 2 匹配](#version-2-matching)。
+
+<span id="turn-off-one-rule"></span>
+
+### 关闭单条规则
+
+要关闭某条自定义规则，在列出该 rulebook 的那个范围的 `rule.json` 中，把它的 `<rulebook-name>/<rule-name>` 键加入 `overrides`，值设为 `"off"`。阻止消息中会打印这个键。
+
+```json
+{
+  "version": 1,
+  "rules": ["project-rules"],
+  "overrides": {
+    "project-rules/block-git-push": "off"
+  },
+  "transparent_wrappers": []
+}
+```
+
+rulebook 文件本身保持不变，因此 `rule update` 不会撤销这条覆盖。要关闭 `git.push-force` 这样的内置规则，请改用 `policy.json`，参见[允许被阻止的命令](/zh-Hans/reference/blocked-commands#allow-a-blocked-command)。
+
+### 阻止全局 npm 安装
+
+```json
+{
+  "rulebook_version": 1,
+  "name": "project-rules",
+  "version": "1.0.0",
+  "allowed_commands": ["npm"],
+  "rules": [
+    {
+      "name": "block-npm-global",
+      "command": "npm",
+      "subcommand": "install",
+      "block_args": ["-g", "--global"],
+      "reason": "Global npm installs can cause version conflicts. Use npx or local install."
+    }
+  ],
+  "tests": [
+    {
+      "command": "npm install -g typescript",
+      "expect": "blocked",
+      "rule": "block-npm-global"
+    },
+    {
+      "command": "npm install typescript",
+      "expect": "allowed"
+    }
+  ]
+}
+```
+
+### 阻止 docker system prune
+
+```json
+{
+  "rulebook_version": 1,
+  "name": "project-rules",
+  "version": "1.0.0",
+  "allowed_commands": ["docker"],
+  "rules": [
+    {
+      "name": "block-docker-system-prune",
+      "command": "docker",
+      "subcommand": "system",
+      "block_args": ["prune"],
+      "reason": "docker system prune removes all unused data. Use targeted cleanup instead."
+    }
+  ],
+  "tests": [
+    {
+      "command": "docker system prune",
+      "expect": "blocked",
+      "rule": "block-docker-system-prune"
+    },
+    {
+      "command": "docker ps",
+      "expect": "allowed"
+    }
+  ]
+}
+```
 
 ## 阻止消息格式
 
-完整布局见[阻止消息的形式](/zh-Hans/guides/how-it-works#what-a-block-looks-like)。自定义规则会在原因前加上 rulebook 名称和规则名称，用于识别触发阻止的 rulebook：
+阻止消息的完整布局见[阻止消息的形式](/zh-Hans/guides/how-it-works#what-a-block-looks-like)。自定义规则会在原因前加上 rulebook 名称和规则名称，便于看出是哪个 rulebook 触发了阻止：
 
 ```text
 BLOCKED by CC Safety Net
@@ -685,31 +594,13 @@ Reason: [project-rules/block-git-add-all] Use 'git add <specific-files>' instead
 Command: git add -A
 ```
 
-前缀是 `<rulebook-name>/<rule-name>`。它也是你在 `rule.json` 的 `overrides` 中用来禁用规则（`"off"`）或替换其 reason 的键。
-
-## 验证你的 rulebook
-
-创建或编辑 rulebook 后，用以下命令验证：
-
-```bash
-npx -y cc-safety-net rule verify
-```
-
-`rule verify` 会检查两个范围的 `rule.json`，按防护加载配置的方式加载每个已配置的来源，并校验当前仓库 `.cc-safety-net/rules/` 下的每个 rulebook 目录，其中包括版本 2 的 fixture。它绝不获取远程内容。
+前缀 `<rulebook-name>/<rule-name>` 也是你在 `rule.json` 的 `overrides` 中用来[关闭该规则](#turn-off-one-rule)或替换其原因的键。
 
 <span id="migrate-legacy-configuration"></span>
 
 ## 迁移旧配置
 
-旧版内联配置文件（`.safety-net.json` 和 `~/.cc-safety-net/config.json`）**不再在运行时加载**。
-
-| 旧文件状态 | 新行为 |
-| --- | --- |
-| 空的旧文件 | 运行时忽略：只有内置规则生效 |
-| 含规则的旧文件 | 在用 `rule migrate` 迁移之前，其中的规则**不会生效**；运行时静默忽略该文件 |
-| 无效的旧文件 | 同上：在修复并迁移或删除之前一直不生效 |
-
-旧规则不会在原位置生效，也不会阻止普通命令。运行时不读取旧文件，因此防护阶段没有任何提示。升级后运行 `npx -y cc-safety-net doctor`，它会把残留的旧文件报告为警告 `Legacy inline rule configs are ignored`，`rule verify` 也会报告。已迁移的配置旁边留下旧文件并无害处，因此该警告不会让 `doctor` 失败。
+CC Safety Net 不再加载旧版内联配置文件（`.safety-net.json` 和 `~/.cc-safety-net/config.json`）。其中的规则不起作用，运行时也不会给出警告。`npx -y cc-safety-net doctor` 和 `rule verify` 会把残留的文件报告为 `Legacy inline rule configs are ignored`。
 
 ```bash
 # Convert legacy inline rules into the rulebook layout
@@ -722,22 +613,9 @@ npx -y cc-safety-net rule migrate --cleanup
 npx -y cc-safety-net rule verify
 ```
 
-`rule migrate` 没有 `--global`。在[存放用户 `.cc-safety-net/` 的目录](#the-user-config-directory-is-not-a-project)下运行时，它只跳过项目范围并记录一行日志，用户范围照常迁移：
+`rule migrate` 没有 `--global`，会同时迁移两个范围。在主目录中运行时，它会跳过项目范围。参见[在用户配置目录中运行 `rule migrate`](/zh-Hans/reference/cli/rule#rule-migrate-in-the-user-config-directory)。
 
-```text
-Skipped the project scope: <home>/.cc-safety-net/rules/rule.json is the user rule config, not a project rule config
-```
-
-跳过不会导致整次运行失败，退出码只取决于用户范围的结果。
-
-**之前**，规则内嵌在单个内联配置文件中：
-
-```text
-.safety-net.json                # project rules (inline)
-~/.cc-safety-net/config.json    # user rules (inline)
-```
-
-**之后**，`rule migrate` 自动创建基于 rulebook 的布局：
+它会把内联文件转换为以下布局：
 
 ```text
 .cc-safety-net/rules/rule.json                    # project rulebook sources + overrides
@@ -748,10 +626,8 @@ Skipped the project scope: <home>/.cc-safety-net/rules/rule.json is the user rul
 
 ## 无效的自定义规则配置
 
-加载失败的自定义规则配置会被**丢弃并停止生效**，不会因此阻止命令。普通命令照常运行，其他有效的来源和所有内置保护继续生效。运行时会报告 `degraded`。
-
-被丢弃的来源会**减少**拒绝，不会增加拒绝，因此这类故障不会直接阻碍操作。请定期运行 `npx cc-safety-net status`。完整的回退矩阵、诊断字符串、报告位置和修复顺序见[配置恢复](/zh-Hans/configuration/recovery)。
+加载失败的自定义规则配置会被 CC Safety Net 丢弃，绝不会因此拒绝命令。其他有效来源和所有内置规则继续生效，运行时报告 `degraded`。被丢弃的来源意味着少了一些阻止，而且不会有任何拒绝来提醒你。编辑规则或升级后，请运行 `npx -y cc-safety-net status`。参见[配置恢复](/zh-Hans/configuration/recovery)。
 
 <Warning>
-自定义规则配置**不具备防篡改能力**。`rule.json` 和 rulebook 文件都只是尽力而为；只有 `policy.json` 属于受保护路径。如果手动添加或修改自定义规则，请务必用 `npx -y cc-safety-net rule verify` 验证。
+  自定义规则配置不具备防篡改能力。智能体可以编辑 `rule.json` 和 rulebook 文件，只有 `policy.json` 是受保护路径。手动添加或修改自定义规则后，请用 `npx -y cc-safety-net rule verify` 验证。
 </Warning>

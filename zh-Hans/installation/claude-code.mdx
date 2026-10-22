@@ -1,0 +1,115 @@
+---
+title: "在 Claude Code 中安装 CC Safety Net"
+sidebarTitle: "Claude Code"
+description: "从 cc-marketplace 在 Claude Code 中安装 CC Safety Net 插件，开启自动更新，了解 Coding CLI hook 检查什么、何时改为询问，如何卸载，以及 CLAUDE_CONFIG_DIR 把配置移到了哪里。"
+keywords:
+  - "claude code"
+  - "cc-marketplace"
+  - "插件"
+  - "CLAUDE_CONFIG_DIR"
+  - "CLAUDE_CODE_PLUGIN_CACHE_DIR"
+  - "coding-cli"
+---
+
+运行 `npx -y cc-safety-net@latest install --claude-code`。它会添加 `cc-marketplace` 市场，并在 Claude Code 中安装 `cc-safety-net@cc-marketplace` 插件。该插件在每次工具调用前运行 Coding CLI hook，即 `cc-safety-net hook --coding-cli`。然后运行 `npx cc-safety-net doctor`，确认插件已生效。
+
+## 在 Claude Code 中安装 CC Safety Net
+
+<Steps>
+  <Step title="运行安装程序">
+    ```bash
+    npx -y cc-safety-net@latest install --claude-code
+    ```
+  </Step>
+  <Step title="确认插件已生效">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+## Claude Code 安装会改动什么
+
+安装程序从 `kenryu42/cc-marketplace` 添加 `cc-marketplace` 市场，并安装 `cc-safety-net@cc-marketplace` 插件。如果已有被禁用的副本，则启用该副本。
+
+设置了 `$CLAUDE_CONFIG_DIR` 时，Claude Code 把插件写到该目录下，否则写到 `~/.claude` 下。见 [Claude Code 的配置存放位置](#where-claude-code-keeps-its-configuration)。
+
+<span id="turn-on-auto-updates-for-the-claude-code-plugin"></span>
+
+## 为 Claude Code 插件开启自动更新
+
+<Steps>
+  <Step title="打开插件管理器">
+    在 Claude Code 中运行 `/plugin`。
+  </Step>
+  <Step title="选择市场">
+    转到 **Marketplaces**，选择 **cc-marketplace**。
+  </Step>
+  <Step title="启用自动更新">
+    开启 **auto-update**，让 CC Safety Net 保持最新。
+  </Step>
+</Steps>
+
+## Claude Code hook 检查什么
+
+插件在 Claude Code 的 `PreToolUse` 事件上运行 `cc-safety-net hook --coding-cli`，即在每次工具调用之前。全部选项见 [`hook`](/zh-Hans/reference/cli/hook)。
+
+<span id="claude-code-permission-modes-and-bypass-mode"></span>
+
+## Claude Code 权限模式与 bypass 模式
+
+在 Claude Code 的 `default`、`auto` 和 `bypassPermissions` 模式下，CC Safety Net 的拒绝仍然会阻止工具调用。本项目于 2026-08-31 在 Claude Code 2.1.251 上验证了这一点，并在每次发布和每次 Claude Code 升级时重新检查。这是针对特定版本的结果，而不是长期保证。
+
+<span id="when-claude-code-asks-you-instead-of-blocking"></span>
+
+## Claude Code 何时改为询问而不是阻止
+
+Coding CLI hook 是唯一能给出允许或拒绝以外答复的 hook。在 Claude Code 的 `default`、`acceptEdits`、`plan` 和 `auto` 权限模式下，如果 `standard` 安全级别无法验证某条命令，hook 会答复 `hookSpecificOutput.permissionDecision: "ask"`，Claude Code 随即提示你批准该命令。
+
+- 在 `auto` 模式下，Claude Code 的分类器仍可能拒绝这类调用，但不会跳过提示直接批准。
+- 在其他所有权限模式下，hook 直接拒绝，而不是询问。
+- 只有两种拒绝会变成提示，而且只在 `standard` 级别下。其他拒绝始终是拒绝。在 `strict` 和 `paranoid` 级别下，hook 从不询问。
+- 审计日志仍把这次调用记录为拒绝。
+
+可以改为询问的两种拒绝：
+
+| 拒绝 | 何时仍然拒绝 |
+| --- | --- |
+| `raw-text.dangerous-command` 规则：CC Safety Net 无法解析某条命令，但其文本看起来仍具有破坏性时触发 | 在 `standard` 级别下从不 |
+| 原因为 `shell execution source cannot be verified safely. Use a literal command string or ask the user to run it manually.` | 命令的原始文本中也含有破坏性模式时，或者无法验证的来源被送入一个从 stdin 读取的裸 shell（例如 `sh -`）时 |
+
+其他智能体都不会询问。不支持对 `ask` 弹出提示的宿主会直接运行命令，因此其他所有 hook 都答复拒绝。提示文本见[消息改为询问而不是阻止时](/zh-Hans/guides/how-it-works#when-the-message-asks-instead-of-blocking)。
+
+## Claude Code 检查失败时会怎样
+
+Claude Code 的 hook 默认 fail open。hook 崩溃、超时（默认 600 秒）、无法启动或输出无效时，Claude Code 照常执行工具调用。CC Safety Net 自己捕获的错误仍会阻止调用，因为此时 hook 会输出拒绝。Claude Code v2.1.295 及更高版本可以通过 `"onFailure": "block"` 在 hook 失败时阻止调用，但 CC Safety Net 插件没有设置它。
+
+## 从 Claude Code 卸载 CC Safety Net
+
+```bash
+npx -y cc-safety-net@latest uninstall --claude-code
+```
+
+<span id="where-claude-code-keeps-its-configuration"></span>
+
+## Claude Code 的配置存放位置
+
+CC Safety Net 遵循与 Claude Code 相同的覆盖设置，因此即使你移动了配置，它也能找到。
+
+| 内容 | CC Safety Net 的读取位置 |
+| --- | --- |
+| 配置目录 | 设置了 `CLAUDE_CONFIG_DIR` 时取该值，否则为 `<home>/.claude` |
+| `settings.json` | 配置目录 |
+| 安装记录 `installed_plugins.json` | 设置了 `CLAUDE_CODE_PLUGIN_CACHE_DIR` 时取该目录，因为 Claude Code 把记录放在那里；否则为配置目录下的 `plugins` 目录 |
+
+Claude Code 和 CC Safety Net 都不会展开 `CLAUDE_CONFIG_DIR` 开头的 `~`，两者都按原样使用该值。
+
+<span id="troubleshoot-claude-code"></span>
+
+## Claude Code 故障排除
+
+如果命令没有经过检查就运行了，请在 Claude Code 中运行 `/plugin`，确认 `cc-safety-net` 在已安装插件列表中且处于启用状态。如果不在，运行 `/plugin install cc-safety-net@cc-marketplace`，再运行 `/reload-plugins`。如果 `doctor` 找不到插件，请检查 `doctor` 与 Claude Code 的 `CLAUDE_CONFIG_DIR` 和 `CLAUDE_CODE_PLUGIN_CACHE_DIR` 设置是否一致。
+
+## Cursor 与 Claude Code 插件
+
+Cursor 导入 Claude Code 插件时，也可以通过这个插件运行 CC Safety Net。这条途径读取 `<home>/.claude`，忽略 `CLAUDE_CONFIG_DIR` 和 `CLAUDE_CODE_PLUGIN_CACHE_DIR`。见[通过 Claude Code 插件保护 Cursor](/zh-Hans/installation/cursor#cursor-through-the-claude-code-plugin)。

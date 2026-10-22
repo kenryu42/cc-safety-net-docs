@@ -1,33 +1,31 @@
 ---
 title: "Contributing to CC Safety Net"
 sidebarTitle: "Contributing"
-description: "Pull request creation is restricted to invited collaborators. The rules for reporting a bug or requesting a feature, the setup with Bun 1.4.2 and Node.js 18+, what bun run check covers, local plugin testing, and the code conventions."
+description: "How to report a CC Safety Net bug or request a feature through GitHub Issues, what to include for a wrong decision, and why pull requests are limited to invited collaborators."
 ---
 
-Bug reports, feature requests, and technical analysis are welcome through [GitHub Issues](https://github.com/kenryu42/cc-safety-net/issues). Pull request creation is restricted to invited collaborators. This page gives the contribution policy, the issue-reporting rules, the development setup, and the project conventions. For the full guide, see [CONTRIBUTING.md](https://github.com/kenryu42/cc-safety-net/blob/main/CONTRIBUTING.md) in the source repository.
+Report bugs and request features through [GitHub Issues](https://github.com/kenryu42/cc-safety-net/issues). Only invited collaborators can open pull requests.
 
 ## Open an issue instead of a pull request
 
-Only invited collaborators can create a pull request. If you want something fixed or improved, describe the problem in an issue before you spend time on an implementation. Detection rules, configuration changes, documentation corrections, and small bug fixes all start with an issue, and an accepted proposal does not authorize a pull request by itself.
-
-AI-generated submissions have increased the work required to review outside contributions. A plausible patch still needs someone to verify the problem, understand the changes, check their effects on the rest of the project, and work through revisions. The maintainer implements fixes with coding agents, so a detailed issue report often resolves a problem faster than reviewing and reworking an unsolicited pull request. Reproduction steps and technical analysis help most.
+Detection rules, configuration changes, documentation corrections, and small bug fixes all start with an issue, and an accepted proposal does not authorize a pull request by itself. The maintainer implements fixes with coding agents, so a detailed issue with reproduction steps resolves a problem faster than an unsolicited patch.
 
 CC Safety Net has one focus, preventing coding agents from making accidental mistakes that cause data loss, such as `rm -rf ~/` or `git reset --hard`. It is not a general security-hardening or attack-prevention tool.
 
 ## Report a bug
 
-Most issues are written by coding agents. `AGENTS.md` in the source repository tells an agent to read `CONTRIBUTING.md` before filing an issue. Whether you are an agent or a person, follow these rules:
+Coding agents write most issues. `AGENTS.md` in the source repository tells an agent to read `CONTRIBUTING.md` before filing an issue. Whether you are an agent or a person, follow these rules:
 
-- Search existing issues first (`gh issue list --search "<keywords>" --state all`). If the problem has already been reported, add new evidence to that issue instead of opening another.
+- Search existing issues first (`gh issue list --search "<keywords>" --state all`). If someone has already reported the problem, add new evidence to that issue instead of opening another.
 - Report one problem per issue.
-- Reproduce the problem on the latest release. Only describe a reproduction you actually ran; if you could not run it, say so.
+- Reproduce the problem on the latest release. Only describe a reproduction you ran. If you could not run it, say so.
 - Lead with the problem and the evidence: what you did, what you expected, and what happened. Keep the report short.
-- Include your CC Safety Net version, operating system, coding agent or CLI and its version, and how CC Safety Net is installed. `npx cc-safety-net doctor --json` covers most of this and shows whether custom rules are in play.
+- Include your CC Safety Net version, operating system, coding agent or CLI and its version, and how you installed CC Safety Net. `npx cc-safety-net doctor --json` covers most of this and shows whether custom rules are in play.
 - Root-cause analysis is welcome. Put it after the evidence and label it as a hypothesis unless a test or a trace confirms it.
 - Do not attach a patch or diff. Describe the fix you suggest in prose.
 - Have the person you are working for review the issue before you submit it.
 
-For an incorrect command decision, a destructive command that was allowed or a safe one that was blocked, also include:
+For an incorrect command decision, such as an allowed destructive command or a blocked safe one, also include:
 
 - The full command, including the whole chain, not just the segment that matched.
 - The working directory and the safety level.
@@ -37,105 +35,12 @@ For an incorrect command decision, a destructive command that was allowed or a s
 
 A missed destructive command is a public bug, not a vulnerability. The [security policy](/security) covers the few issues that must be reported privately.
 
-Before you submit, remove credentials and tokens. Logs redact secrets but not file paths. Replace private directory names with `<project>` and `~`, keeping the path structure intact so the command still reproduces.
+Before you submit, read [Before you share a trace](/reference/explain-trace#before-you-share-a-trace). Replace private directory names with `<project>` and `~`. Keep the path structure intact so the command still reproduces.
 
 ## Request a feature
 
 Explain the problem you need to solve, the behavior you want, and a concrete example of where it would help. The rules above apply: search first, one request per issue, and no patches.
 
-## Set up the development environment
+## Develop CC Safety Net
 
-The rest of this page is for invited collaborators and for anyone running a local build.
-
-- **Bun 1.4.2** is the required build and test runtime and the only supported package manager. See the [install guide](https://bun.sh/docs/installation). The `packageManager` field in `package.json` pins this version.
-- **Node.js 18 or newer** runs the built artifacts. You do not need Bun to run the published CLI or plugins.
-- **Claude Code** or **OpenCode** is required only to load and exercise the plugin locally. You do not need either one to build the project or run the test suite.
-
-```bash
-git clone https://github.com/kenryu42/cc-safety-net.git
-cd cc-safety-net
-bun install
-bun run build
-bun run check
-```
-
-`bun run check` is the single gate. It runs Oxlint, the code-comment check, the Oxfmt format check, TypeScript typecheck, `knip` dead-code detection, `jscpd` duplicate detection, the test suite with coverage, and a coverage-threshold check, in that order. Run it once when you finish your changes. `AGENTS.md` requires it as the final check and forbids running its components separately as additional final checks. The pre-push hook and CI skip `bun run check` when a change touches only Markdown files, and you can skip it too. Run it anyway when you change `skills/cc-safety-net/SKILL.md` or `README.md`, because the build bundles the skill into `dist/` and tests read both files.
-
-Individual commands are available while iterating:
-
-```bash
-bun run lint          # Lint (Oxlint, type-aware)
-bun run lint:comments # Code-comment check
-bun run format        # Format (Oxfmt)
-bun run typecheck     # TypeScript
-bun run knip          # Dead-code detection
-bun test              # Full test suite
-bun test tests/gate                          # One directory or file
-bun test --test-name-pattern "checkout"      # Tests matching a pattern
-bun run build         # Build for distribution
-bun run gui:dev       # Dashboard that rebuilds the page on every load
-```
-
-## Test a local plugin
-
-Build, then load the local plugin so you can test real blocks:
-
-- **Claude Code**: disable any installed safety-net plugin, exit Claude Code, then run `claude --plugin-dir .` from the repo root.
-- **OpenCode**: point the `plugin[]` array in `~/.config/opencode/opencode.json` at the built `file://.../cc-safety-net/dist/index.js`, remove the npm `cc-safety-net` entry to avoid conflicts, and restart OpenCode. Run `/status` and confirm the plugin name appears as `dist`.
-
-Confirm a known block with the harmless exclusion-only pathspec: `git checkout -- ':(exclude,top)**'` must be blocked. If protection is inactive, this pathspec selects no files.
-
-## Follow the code conventions
-
-| Convention | Rule |
-| --- | --- |
-| Build / test runtime | Bun 1.4.2 |
-| Published runtime | Node.js 18+ |
-| Package manager | bun only (`bun install`, `bun run`) |
-| Formatter / linter | Oxfmt, and Oxlint in type-aware mode |
-| Types | Rely on type inference; add explicit annotations only where an export or clarity needs them. `type \| null` is preferred over `type \| undefined` |
-| File naming | `kebab-case`; files in `docs/` are lowercase kebab-case too |
-| Function / type naming | `camelCase` functions, `PascalCase` types |
-| Constants | `SCREAMING_SNAKE_CASE` (for example reason constants) |
-| Imports | Relative imports within the package |
-| Tests | Live in `tests/` mirroring `src/`, never colocated in `src/` |
-| Build output | Ignore `dist/`. The lefthook pre-commit hook rebuilds it |
-
-### Style guide
-
-- Keep code in one function unless it is genuinely composable or reusable.
-- Avoid `try`/`catch`, the `any` type, and `else` branches. Prefer early returns.
-- Prefer functional array methods (`flatMap`, `filter`, `map`) over `for` loops, and use type guards on `filter` so inference survives downstream.
-- Prefer `const` over `let`; use ternaries or early returns instead of reassignment.
-- Inline values used only once instead of naming them, and avoid unnecessary destructuring.
-
-### Scope discipline
-
-Over-engineering is this project's dominant failure mode. Implement the smallest change that satisfies the request, and name the concrete failure that any addition beyond it prevents. Every check must be falsifiable in practice. Do not build schemas, validators, registries, or harnesses ahead of their first real entry, and prefer a documented process over code that enforces the process.
-
-### Knip
-
-Never add entries to `ignoreIssues` in `knip.ts`. When knip flags an unused export, fix the root cause: delete or unexport genuinely dead code, tag test-only exports with a `/** @internal */` JSDoc comment (knip runs in `--production` mode, so test files are excluded), and drop unused names from barrel files.
-
-## Open a pull request as an invited collaborator
-
-Agree on the scope of a change with the maintainer in the related issue before you implement it.
-
-1. Create a branch from `main`.
-2. Follow `AGENTS.md` and the conventions above.
-3. For a behavior change, start with a meaningful failing test and verify that the fix makes it pass. New rules need tests, with a minimum of 90% coverage.
-4. Run focused tests during development, then `bun run check` after completing the changes. It must pass with no errors.
-5. Verify the affected behavior in each host CLI the change applies to.
-6. Leave `README.md` untouched unless a supported CLI, headline feature, or Quick start command changed (see `AGENTS.md`), and do not change the version in `package.json`.
-7. Use a conventional commit message.
-8. Open a pull request linking the issue. Explain the problem, the change, and how you verified it.
-
-Version bumping and releases are handled by maintainers only. Never modify the version in `package.json` or `plugin.json` directly.
-
-## Get development help
-
-- `bunx cc-safety-net doctor` verifies your setup.
-- `bunx cc-safety-net explain "<command>"` shows step-by-step how a command is analyzed.
-- Check `CLAUDE.md` or `AGENTS.md` in the source repo for architecture and conventions, and read `REVIEW.md` before reviewing code.
-- Review existing implementations in `src/gate/analyzer/` for code patterns, and `tests/helpers.ts` for test utilities.
-- Report a bug or request a feature in a [GitHub issue](https://github.com/kenryu42/cc-safety-net/issues), following the rules above.
+Development setup, the `bun run check` gate, local plugin testing, code conventions, and the pull request process for invited collaborators are in [CONTRIBUTING.md](https://github.com/kenryu42/cc-safety-net/blob/main/CONTRIBUTING.md) in the source repository.

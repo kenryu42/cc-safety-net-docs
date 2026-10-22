@@ -1,0 +1,282 @@
+---
+title: "rule コマンド"
+sidebarTitle: "rule"
+description: "cc-safety-net rule とそのサブコマンド init、add、remove、update、sync、list、wrapper、tool、verify、migrate、doc のリファレンスです。オプション、スコープの規則、出力、エラーを説明します。"
+keywords:
+  - "rule"
+  - "ルールブック"
+  - "rule add"
+  - "rule tool"
+  - "透過ラッパー"
+  - "rule migrate"
+  - "rule verify"
+---
+
+`rule` はカスタムルールを管理します。サブコマンドで、ルール設定の編集、ルールブックの設定元の追加と削除、解析対象とする透過ラッパーとコミュニティ製のシェルツールの登録を行います。ほとんどのサブコマンドは、`--global` を付けないかぎりプロジェクトスコープに書き込みます。
+
+```bash
+npx -y cc-safety-net rule <subcommand>
+```
+
+サブコマンドなしで `rule` を実行すると、ヘルプを出力して `1` で終了します。ルールブックのスキーマとルールの適用のされ方は、[カスタムルール](/ja/configuration/custom-rules)を参照してください。
+
+## rule のオプション
+
+| フラグ | 説明 | 有効な対象 |
+| --- | --- | --- |
+| `-g`, `--global` | プロジェクトスコープではなくユーザースコープのルール設定を使う | `list`、`migrate`、`tool` 以外のすべてのサブコマンド |
+| `--project` | ユーザースコープではなくプロジェクトスコープのルール設定を使う | `tool add` と `tool remove` のみ |
+| `--cleanup` | `rule migrate` の検証後にレガシーファイルを削除する | `migrate` のみ |
+| `--delete-source` | 削除時に、余計なファイルのないローカルの設定元ディレクトリも削除する | `remove` のみ |
+| `--example` | 非アクティブなサンプルルールブックを作成する | `init` のみ |
+| `--ref <ref>` | ブランチ、タグ、コミットを指定する | `add` のみ |
+| `--only <rulebook...>` | リポジトリ内の指定したルールブックだけを追加する | `add` のみ |
+| `--cwd-arg <name>` | 作業ディレクトリを渡す引数の名前を指定する | `tool add` のみ |
+| `-h`, `--help` | ヘルプを表示する | すべて |
+
+ドライランはありません。ルール設定をオフラインで検証するには、[`rule verify`](#rule-verify) を使います。
+
+## rule のスコープ：プロジェクトとユーザー
+
+ほとんどのサブコマンドは、既定ではプロジェクトスコープのルール設定に書き込み、`-g` または `--global` を付けるとユーザースコープの設定に書き込みます。`rule list` と `rule migrate` は、1 回の実行で両方のスコープを扱います。
+
+[`rule tool`](#rule-tool) は例外です。既定でユーザースコープに書き込み、`--global` ではなく `--project` を受け取ります。
+
+<span id="rule-in-the-user-config-directory"></span>
+
+## ユーザー設定ディレクトリでの rule
+
+ユーザーの `.cc-safety-net/` があるディレクトリでは、プロジェクトのルール設定がユーザーのルール設定そのものになります。[ユーザー設定ディレクトリはプロジェクトではない](/ja/configuration/policy#the-user-config-directory-is-not-a-project)を参照してください。このディレクトリでは、プロジェクトスコープに書き込むサブコマンドは、何も書き込まずにエラーを 1 行出力して `1` で終了します。
+
+```text
+<cwd>/.cc-safety-net/rules/rule.json is the user rule config, not a project rule config; use --global for the user scope, or run from a project directory
+```
+
+`rule tool add` と `rule tool remove` が実行を拒否するのは `--project` を付けた場合だけで、エラーの末尾は `drop --project for the user scope, or run from a project directory` になります。読み取りだけのサブコマンドと、`--global` を付けたサブコマンドは、このディレクトリでも動作します。
+
+## `rule init`
+
+`rule init` は、現在のスコープにルール設定を作成します。ファイルがすでにある場合は、ルール、オーバーライド、ラッパー、コマンド用ツールを残したまま、正規形式に書き換えます。
+
+```bash
+npx -y cc-safety-net rule init
+npx -y cc-safety-net rule init --global
+```
+
+`rule init` だけを実行すると、ルールを含まず何も適用しない設定を書き込みます。`--example` を付けると、`example-rules` という開始用のルールブックも書き込みます。ただし、`example-rules/rulebook.json` がすでにある場合は書き込みません。
+
+```bash
+npx -y cc-safety-net rule init --example
+```
+
+サンプルルールブックは、`rule add example-rules` を実行するまで非アクティブです。`rule init` は `Rule config initialized.` を出力して `0` で終了するか、読み込みエラーを出力して `1` で終了します。
+
+## `rule add`
+
+`rule add [source] [--ref <ref>] [--only <rulebook...>]` は、ルール設定にルールブックの設定元を追加します。設定元は次の 3 つの形式で指定します。
+
+- `project-rules` のような名前だけのローカルの設定元
+- `acme/safety-rules` のようなリポジトリ全体
+- 正規形式 `owner/repo#ref/<rulebook-name>` で指定する 1 つのルールブック
+
+```bash
+cc-safety-net rule add project-rules
+cc-safety-net rule add acme/safety-rules
+cc-safety-net rule add acme/safety-rules --only aws gcloud
+cc-safety-net rule add acme/safety-rules --ref v2 --only aws
+cc-safety-net rule add --only terraform aws
+```
+
+### 設定元を指定しない `rule add`
+
+設定元を指定せずに `--ref` または `--only` を渡すと、`rule add` は公式カタログの `cc-safety-net/rulebooks` を設定元にします。設定元もこの 2 つのフラグもない場合、`rule add` は `1` で終了します。
+
+```text
+rule add requires a source (pass --only <rulebook...> to select from cc-safety-net/rulebooks)
+```
+
+公式ルールブックをすべて追加するには、`rule add cc-safety-net/rulebooks` を実行します。
+
+### リポジトリからの `rule add`
+
+リポジトリを設定元にした場合、`rule add` は、指定した ref の時点（`--ref` がなければ既定ブランチ）でリポジトリにある `.cc-safety-net/rules/<name>/rulebook.json` をすべて探します。
+
+- `--only` がなければ、見つかったルールブックを名前順にすべて追加します。
+- `--only` を付けると、指定したルールブックだけを指定した順に追加します。指定した名前のルールブックがリポジトリにない場合、追加は失敗します。
+
+`rule.json` には、解決したコミットではなく、指定した ref を含む正規形式 `owner/repo#ref/<rulebook-name>` が保存されます。ref には `--ref feature/rulebook-v2` のように `/` を含められます。`--ref` と `--only` は `owner/repo` 形式の設定元でだけ使えます。
+
+<span id="rule-add-output"></span>
+
+### `rule add` の出力
+
+追加に成功すると、出力は `Scope: project (<config dir>)`（`--global` では `Scope: user (<config dir>)`）で始まります。これにより、誤ったディレクトリで実行したことに気づけます。失敗した追加は何も書き込みません。
+
+リポジトリを追加した場合は、続けて追加したルールブックと設定済みだったルールブックを一覧表示し、新しいファイルごとに `Vendored <spec> (<version>)` を出力します。変更されたファイルについては `Updated <spec> (<before> -> <after>)` を出力し、追加、削除、変更されたルールをそれぞれ `+`、`-`、`~` の行で示します。出力の最後は `Rule config updated.` と `Active rulebooks (<n>):` の要約です。ローカルの設定元や単一のルールブックの場合は、代わりに `Added rulebook source: <source>` で終わります。
+
+## `rule remove`
+
+`rule remove` は、ルールブックの設定元を削除します。ローカルの設定元ディレクトリの中身が `rulebook.json` だけの場合に、そのディレクトリも削除するには `--delete-source` を付けます。
+
+```bash
+npx -y cc-safety-net rule remove project-rules
+npx -y cc-safety-net rule remove project-rules --delete-source
+```
+
+ディレクトリにほかのファイルがある場合、`rule remove` はディレクトリの削除を拒否し、設定元も設定に残します。
+
+```text
+Local rulebook source directory contains extra files: <dir>. delete manually if you really want to remove the directory.
+```
+
+## `rule update`
+
+`rule update` は、リモートのルールブックを再取得し、新しいコピーを設定ディレクトリに書き込みます。対象は、設定済みのすべての設定元か、指定した 1 つの設定元です。
+
+```bash
+npx -y cc-safety-net rule update
+npx -y cc-safety-net rule update project-rules
+```
+
+ブランチや移動するタグを指している設定元は、その時点のコミットを取り込みます。ローカルの設定元には取得するものがありません。レポートには [`rule add`](#rule-add-output) と同じ変更行が使われます。
+
+### `rule update` の失敗
+
+各設定元は個別に更新されます。取得または検証に失敗した設定元は現在のコピーを保持し、レポートに `Failed to update <spec>: <message>` と表示されます。1 つでも失敗した設定元があれば `1`、なければ `0` で終了します。
+
+実行中に GitHub からの取得の上限を超えた場合は、`Rule synchronization exceeds CC Safety Net's safe resource limits.` を出力して停止し、その実行に含まれるすべての設定元が失敗します。
+
+## `rule sync`
+
+<Warning>
+  `rule sync` は非推奨です。ルールブックはライブファイルなので、同期するものはありません。
+</Warning>
+
+```bash
+npx -y cc-safety-net rule sync
+```
+
+実行するのは、`doctor` が [`config.v2-leftovers`](/ja/reference/cli/doctor#config-v2-leftovers) を報告した場合だけです。ネットワークは使いません。以前のバージョンが書き込んだ `rule.lock` ファイルと `cache` ディレクトリから各ルールブックを現在の配置へ移し、その後どちらも削除します。復元できない設定元については、それを再取得する `rule update` コマンドを出力します。
+
+残っているファイルがない場合は、`No v2 lock or cache leftovers found in <dir>; nothing to migrate.` を出力して `0` で終了します。残っているファイルがあるのに `rule.json` がないか読み取れない場合は、移行を拒否して `1` で終了します。`rule.json` を復元してから、もう一度実行してください。
+
+## `rule list`
+
+`rule list` は、ユーザースコープとプロジェクトスコープの両方について、有効なルールブックとルールを一覧表示します。`1` で終了するのは、ポリシーのエラーがある場合だけです。
+
+```bash
+npx -y cc-safety-net rule list
+```
+
+各ルールについて、スコープと ID、一致するコマンド、ルールが反応する引数、理由を出力します。
+
+```text
+Active rules (1):
+  - [project] infra/block-terraform-destroy
+      Command: terraform apply
+      Any args: -destroy, --destroy
+      Exclude args: --dry-run
+      Reason: Review a destroy plan first.
+```
+
+バージョン 1 のルールでは、`Any args:` と `Exclude args:` の代わりに `Block args:` が表示されます。
+
+## `rule wrapper`
+
+`rule wrapper` は[透過ラッパー](/ja/configuration/custom-rules#transparent-wrappers)を管理します。ラッパーは引数を別のコマンドに渡すため、CC Safety Net はラッパーではなく内側のコマンドを解析します。
+
+```bash
+npx -y cc-safety-net rule wrapper list
+npx -y cc-safety-net rule wrapper add rtk
+npx -y cc-safety-net rule wrapper remove rtk
+```
+
+`add` と `remove` は、それぞれ 1 つのコマンド名を受け取ります。ラッパー名は英字で始まり、英字、数字、`_`、`-` だけを使えます。予約済みのコマンドはラッパーとして登録できません。登録したラッパーは、[explain トレース](/ja/reference/explain-trace)に `transparent-wrapper` のステップとして表示されます。
+
+## `rule tool`
+
+`rule tool` は、エージェントのプラグインが追加するシェルツール、つまり[コミュニティ製のシェルツール](/ja/configuration/custom-rules#community-shell-tools)を宣言し、そのコマンドを CC Safety Net に解析させます。宣言していないプラグインのツールは、CC Safety Net の解析対象になりません。
+
+```bash
+npx -y cc-safety-net rule tool list
+npx -y cc-safety-net rule tool add ops_bash ops_run_background
+npx -y cc-safety-net rule tool add ops_run_background --cwd-arg dir
+npx -y cc-safety-net rule tool remove ops_bash --project
+```
+
+- 既定はユーザースコープなので、宣言したツールはすべてのプロジェクトで解析されます。`--project` を付けると、代わりにプロジェクトの設定に書き込みます。
+- `add` と `remove` は 1 つ以上の名前を受け取ります。`--cwd-arg` は、その呼び出しで指定したすべての名前に適用されます。
+- 宣言済みの名前を追加すると、そのエントリが置き換わります。`--cwd-arg` を変更したり外したりするには、この方法を使います。
+
+`add` と `remove` は、名前ごとに 1 行を出力し、最後に書き込んだファイルを出力します。
+
+```text
+Added command tool: ops_bash
+Added command tool: ops_run_background (cwd argument: dir)
+Scope: user (/Users/you/.cc-safety-net/rules/rule.json)
+```
+
+`tool list` は、両方のスコープで宣言されたツールをすべて出力します。何もなければ `Command tools: (none)` を出力します。`rule.json` をパースできない場合、`rule tool` は `Invalid JSON` のエラーを出力し、何も書き込まずに `1` で終了します。
+
+<span id="rule-tool-add-name-errors"></span>
+
+### `rule tool add` の名前のエラー
+
+`add` は、空の名前、256 文字を超える名前、空白文字や制御文字を含む名前を拒否します。`bash` や `Write` のようなエージェントの組み込みのシェルツールやファイルツールも、CC Safety Net がすでに解析しているため拒否します。照合では大文字と小文字、および区切りの `-`、`_`、空白を無視します。そのため `add` は、`Run-Shell-Command` を Gemini CLI の `run_shell_command` と一致するものとして拒否します。
+
+`add` は、すべて成功するか何もしないかのどちらかです。不正な名前が 1 つでもあると `Error: <message>` を出力し、何も書き込まずに `1` で終了します。手作業で `rule.json` に追加された組み込みの名前は、`rule tool remove bash` で削除できます。
+
+## `rule verify`
+
+`rule verify` は、レガシーのパスも含め、両方のスコープのルール設定ファイルを検証します。設定を手で編集した後に実行します。
+
+```bash
+npx -y cc-safety-net rule verify
+```
+
+すべて有効なら `0`、そうでなければ `0` 以外で終了します。組み込みのシェルツールやファイルツールを指す `command_tools` のエントリはエラーになります。
+
+### `rule verify` による rule.json の書き換え
+
+有効な `rule.json` に `$schema` キーがない場合、`rule verify` はそれを最初のキーとして追加し、ファイルを 2 スペースのインデントで書き直して、`Added $schema to user config.` または `Added $schema to project config.` を出力します。この動作を無効にするフラグはありません。CI では追跡対象のファイルが変更されたまま残ることがあるため、`rule verify` に何も変更させたくない場合は `$schema` キーをコミットしておいてください。
+
+```json
+"$schema": "https://raw.githubusercontent.com/kenryu42/cc-safety-net/main/assets/cc-safety-net.schema.json"
+```
+
+## `rule migrate`
+
+`rule migrate` は、レガシーのインライン設定ファイルをルールブック配置に変換します。対象は、プロジェクトの `.safety-net.json` とユーザーの `~/.cc-safety-net/config.json` です。両方のスコープを扱うため、`--global` は受け取りません。
+
+```bash
+npx -y cc-safety-net rule migrate
+npx -y cc-safety-net rule migrate --cleanup
+```
+
+`--cleanup` は、移行したルールが検証に通った後でレガシーファイルを削除します。移行していないレガシーファイルは、`doctor` が [`config.legacy-ignored`](/ja/reference/cli/doctor#config-legacy-ignored) として報告します。
+
+<span id="rule-migrate-in-the-user-config-directory"></span>
+
+### ユーザー設定ディレクトリでの `rule migrate`
+
+ユーザーの `.cc-safety-net/` があるディレクトリでは、`rule migrate` はプロジェクトスコープをスキップしてユーザースコープを移行し、`Skipped the project scope: <cwd>/.cc-safety-net/rules/rule.json is the user rule config, not a project rule config` を出力します。終了コードはユーザースコープの結果で決まります。
+
+## `rule doc`
+
+`rule doc` は、ルールブックの作成ガイドを標準出力に出力します。エージェントにルールブックの作成や検証を任せたいときは、このガイドをパイプで渡します。
+
+```bash
+npx -y cc-safety-net rule doc
+```
+
+<span id="rule-doc-update-notice"></span>
+
+### `rule doc` の更新通知
+
+npm に新しいバージョンがある場合、`rule doc` はガイドの後に標準エラー出力へ 1 行を書き出します。そのため、パイプで渡るのはガイドだけです。
+
+```text
+UPDATE_AVAILABLE: cc-safety-net v<latest> is available (running v<current>). Ask the user once whether to run `npx -y cc-safety-net@latest update`; continue the current task either way and do not raise this again.
+```
+
+確認は 1 日に 1 回までです。確認を無効にするには [`CC_SAFETY_NET_NO_UPDATE_CHECK`](/ja/configuration/environment#update-check-opt-out) を設定します。どちらの場合も、終了コードは `0` のままです。

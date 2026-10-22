@@ -1,0 +1,282 @@
+---
+title: "rule 命令"
+sidebarTitle: "rule"
+description: "cc-safety-net rule 及其子命令 init、add、remove、update、sync、list、wrapper、tool、verify、migrate、doc 的参考，包括选项、范围规则、输出和报错。"
+keywords:
+  - "rule"
+  - "rulebook"
+  - "rule add"
+  - "rule tool"
+  - "透明包装器"
+  - "rule migrate"
+  - "rule verify"
+---
+
+`rule` 管理自定义规则。它的子命令用于编辑规则配置、添加和移除 rulebook 来源，以及注册交由分析的透明命令包装器和社区 shell 工具。大多数子命令默认写入项目范围，传入 `--global` 时改写用户范围。
+
+```bash
+npx -y cc-safety-net rule <subcommand>
+```
+
+不带子命令运行 `rule` 会打印帮助并退出 `1`。rulebook 的 schema 和规则的生效方式见[自定义规则](/zh-Hans/configuration/custom-rules)。
+
+## rule 选项
+
+| 选项 | 描述 | 适用于 |
+| --- | --- | --- |
+| `-g`, `--global` | 使用用户范围而不是项目范围的规则配置 | 除 `list`、`migrate` 和 `tool` 之外的所有子命令 |
+| `--project` | 使用项目范围而不是用户范围的规则配置 | 仅 `tool add` 和 `tool remove` |
+| `--cleanup` | 在 `rule migrate` 校验通过后删除旧版文件 | 仅 `migrate` |
+| `--delete-source` | 移除来源时，若本地来源目录是干净的，则一并删除 | 仅 `remove` |
+| `--example` | 创建一个未启用的示例 rulebook | 仅 `init` |
+| `--ref <ref>` | 指定分支、标签或提交 | 仅 `add` |
+| `--only <rulebook...>` | 只添加仓库中的这些 rulebook | 仅 `add` |
+| `--cwd-arg <name>` | 指出由哪个参数承载工作目录 | 仅 `tool add` |
+| `-h`, `--help` | 显示帮助 | 任意子命令 |
+
+没有试运行模式。要离线校验规则配置，请使用 [`rule verify`](#rule-verify)。
+
+## rule 的范围：项目和用户
+
+大多数子命令默认写入项目范围的规则配置，带 `-g` 或 `--global` 时写入用户范围。`rule list` 和 `rule migrate` 一次运行就覆盖两个范围。
+
+[`rule tool`](#rule-tool) 是例外：它默认写入用户范围，用 `--project` 而不是 `--global`。
+
+<span id="rule-in-the-user-config-directory"></span>
+
+## 在用户配置目录中运行 rule
+
+在存放用户 `.cc-safety-net/` 的目录下，项目规则配置就是你的用户规则配置。参见[用户配置目录不是项目](/zh-Hans/configuration/policy#the-user-config-directory-is-not-a-project)。在那里，写入项目范围的子命令会在写入任何内容之前打印一条错误并退出 `1`：
+
+```text
+<cwd>/.cc-safety-net/rules/rule.json is the user rule config, not a project rule config; use --global for the user scope, or run from a project directory
+```
+
+`rule tool add` 和 `rule tool remove` 只在你传了 `--project` 时才拒绝执行，报错结尾为 `drop --project for the user scope, or run from a project directory`。只读的子命令，以及带 `--global` 的所有子命令，在那里照常可用。
+
+## `rule init`
+
+`rule init` 为当前范围创建规则配置。如果文件已存在，它会把文件重写为规范格式，并保留你的规则、覆盖、包装器和命令工具。
+
+```bash
+npx -y cc-safety-net rule init
+npx -y cc-safety-net rule init --global
+```
+
+单独运行 `rule init` 写入的配置不含任何规则，也不执行任何保护。加上 `--example` 还会写入一个名为 `example-rules` 的入门 rulebook，前提是 `example-rules/rulebook.json` 尚不存在：
+
+```bash
+npx -y cc-safety-net rule init --example
+```
+
+在运行 `rule add example-rules` 之前，示例 rulebook 都不生效。`rule init` 成功时打印 `Rule config initialized.` 并退出 `0`，否则打印加载错误并退出 `1`。
+
+## `rule add`
+
+`rule add [source] [--ref <ref>] [--only <rulebook...>]` 向规则配置添加一个 rulebook 来源。来源有三种形式：
+
+- 纯本地名称，例如 `project-rules`
+- 整个仓库，例如 `acme/safety-rules`
+- 规范形式 `owner/repo#ref/<rulebook-name>` 指定的单个 rulebook
+
+```bash
+cc-safety-net rule add project-rules
+cc-safety-net rule add acme/safety-rules
+cc-safety-net rule add acme/safety-rules --only aws gcloud
+cc-safety-net rule add acme/safety-rules --ref v2 --only aws
+cc-safety-net rule add --only terraform aws
+```
+
+### 不带来源的 `rule add`
+
+只传 `--ref` 或 `--only` 而不给来源时，`rule add` 使用官方目录 `cc-safety-net/rulebooks`。既没有来源也没有这两个选项时，`rule add` 退出 `1`：
+
+```text
+rule add requires a source (pass --only <rulebook...> to select from cc-safety-net/rulebooks)
+```
+
+要添加官方的全部 rulebook，运行 `rule add cc-safety-net/rulebooks`。
+
+### 从仓库执行 `rule add`
+
+来源是仓库时，`rule add` 会在指定 ref 下（不带 `--ref` 时为默认分支）查找仓库中所有的 `.cc-safety-net/rules/<name>/rulebook.json`。
+
+- 不带 `--only` 时，按名称顺序全部添加。
+- 带 `--only` 时，按你列出的顺序添加指定的 rulebook。列出的名称在仓库中找不到对应 rulebook 时，本次添加失败。
+
+`rule.json` 中保存的是带你所给 ref 的规范形式 `owner/repo#ref/<rulebook-name>`，而不是解析出的提交。ref 可以包含 `/`，例如 `--ref feature/rulebook-v2`。`--ref` 和 `--only` 只能用于 `owner/repo` 形式的来源。
+
+<span id="rule-add-output"></span>
+
+### `rule add` 输出
+
+添加成功时，第一行是 `Scope: project (<config dir>)`，带 `--global` 时为 `Scope: user (<config dir>)`，在错误的目录下运行一眼就能看出来。添加失败时不写入任何内容。
+
+从仓库添加时，接着会列出新添加的 rulebook 和已经配置过的 rulebook，并为每个新文件打印 `Vendored <spec> (<version>)`。文件有改动时打印 `Updated <spec> (<before> -> <after>)`，随后用 `+`、`-`、`~` 行分别列出新增、删除和改动的规则。输出以 `Rule config updated.` 和 `Active rulebooks (<n>):` 汇总结尾。本地来源或单个 rulebook 来源则以 `Added rulebook source: <source>` 结尾。
+
+## `rule remove`
+
+`rule remove` 移除一个 rulebook 来源。加上 `--delete-source`，在本地来源目录只含 `rulebook.json` 时把该目录一并删除：
+
+```bash
+npx -y cc-safety-net rule remove project-rules
+npx -y cc-safety-net rule remove project-rules --delete-source
+```
+
+目录里还有其他文件时，`rule remove` 拒绝删除，并保留该来源的配置：
+
+```text
+Local rulebook source directory contains extra files: <dir>. delete manually if you really want to remove the directory.
+```
+
+## `rule update`
+
+`rule update` 重新获取远程 rulebook，并把新副本写入配置目录。不带参数时处理所有已配置的来源，给出来源名时只处理该来源：
+
+```bash
+npx -y cc-safety-net rule update
+npx -y cc-safety-net rule update project-rules
+```
+
+固定在某个分支或会移动的标签上的来源会取到当前提交。本地来源没有要获取的内容。报告中的变更行与 [`rule add`](#rule-add-output) 相同。
+
+### `rule update` 失败
+
+各个来源独立更新。获取或校验失败的来源保留当前副本，报告中显示 `Failed to update <spec>: <message>`。只要有来源失败，本次运行就退出 `1`，否则退出 `0`。
+
+运行超出 GitHub 获取上限时，会以 `Rule synchronization exceeds CC Safety Net's safe resource limits.` 停止，本次运行中的所有来源都算失败。
+
+## `rule sync`
+
+<Warning>
+  `rule sync` 已弃用。rulebook 是实时文件，没有需要同步的内容。
+</Warning>
+
+```bash
+npx -y cc-safety-net rule sync
+```
+
+只在 `doctor` 报告 [`config.v2-leftovers`](/zh-Hans/reference/cli/doctor#config-v2-leftovers) 时运行它。它离线工作，把旧版本写下的 `rule.lock` 文件和 `cache` 目录中的每个 rulebook 迁移到当前布局，然后删除这两者。无法恢复的来源会打印用于重新获取它的 `rule update` 命令。
+
+没有残留时，它打印 `No v2 lock or cache leftovers found in <dir>; nothing to migrate.` 并退出 `0`。残留仍在而 `rule.json` 缺失或无法读取时，它拒绝迁移并退出 `1`。请先恢复 `rule.json`，再重新运行。
+
+## `rule list`
+
+`rule list` 列出用户范围和项目范围内生效的 rulebook 和规则。它只在策略出错时退出 `1`。
+
+```bash
+npx -y cc-safety-net rule list
+```
+
+每条规则都会打印其范围和 ID、匹配的命令、触发它的参数，以及理由：
+
+```text
+Active rules (1):
+  - [project] infra/block-terraform-destroy
+      Command: terraform apply
+      Any args: -destroy, --destroy
+      Exclude args: --dry-run
+      Reason: Review a destroy plan first.
+```
+
+版本 1 的规则显示 `Block args:`，而不是 `Any args:` 和 `Exclude args:`。
+
+## `rule wrapper`
+
+`rule wrapper` 管理[透明包装器](/zh-Hans/configuration/custom-rules#transparent-wrappers)。包装器会把参数原样传给另一个命令，因此 CC Safety Net 分析的是里面的子命令，而不是包装器本身。
+
+```bash
+npx -y cc-safety-net rule wrapper list
+npx -y cc-safety-net rule wrapper add rtk
+npx -y cc-safety-net rule wrapper remove rtk
+```
+
+`add` 和 `remove` 各接受一个命令名。包装器名称必须以字母开头，且只能包含字母、数字、`_` 和 `-`。保留命令不能注册为包装器。已注册的包装器会在 [Explain 跟踪](/zh-Hans/reference/explain-trace)中显示为 `transparent-wrapper` 步骤。
+
+## `rule tool`
+
+`rule tool` 声明[社区 shell 工具](/zh-Hans/configuration/custom-rules#community-shell-tools)，即智能体插件添加的 shell 工具，使 CC Safety Net 分析它们的命令。未声明的插件工具，CC Safety Net 不做分析。
+
+```bash
+npx -y cc-safety-net rule tool list
+npx -y cc-safety-net rule tool add ops_bash ops_run_background
+npx -y cc-safety-net rule tool add ops_run_background --cwd-arg dir
+npx -y cc-safety-net rule tool remove ops_bash --project
+```
+
+- 默认作用于用户范围，因此你声明的工具在每个项目中都会被分析。`--project` 改为写入项目配置。
+- `add` 和 `remove` 接受一个或多个名称。`--cwd-arg` 对本次调用中的每个名称都生效。
+- 添加已声明的名称会替换它的条目，修改或去掉 `--cwd-arg` 就用这种方式。
+
+`add` 和 `remove` 为每个名称打印一行，最后打印写入的文件：
+
+```text
+Added command tool: ops_bash
+Added command tool: ops_run_background (cwd argument: dir)
+Scope: user (/Users/you/.cc-safety-net/rules/rule.json)
+```
+
+`tool list` 打印两个范围内所有已声明的工具，没有时打印 `Command tools: (none)`。`rule.json` 无法解析时，`rule tool` 打印 `Invalid JSON` 错误，不写入任何内容，并退出 `1`。
+
+<span id="rule-tool-add-name-errors"></span>
+
+### `rule tool add` 名称错误
+
+名称为空、超过 256 个字符，或含空白字符或控制字符时，`add` 会拒绝。智能体的内置 shell 工具或文件工具（例如 `bash` 或 `Write`）也会被拒绝，因为 CC Safety Net 已经在分析它们。匹配忽略大小写以及 `-`、`_` 和空格这几种分隔符，因此 `add` 会把 `Run-Shell-Command` 视为 Gemini CLI 的 `run_shell_command` 而拒绝。
+
+`add` 要么全部成功，要么什么都不做。只要有一个名称不合法，就打印 `Error: <message>`，不写入任何内容，并退出 `1`。手工加进 `rule.json` 的内置名称，仍可用 `rule tool remove bash` 清除。
+
+## `rule verify`
+
+`rule verify` 校验两个范围内的规则配置文件，包括旧版路径。手动编辑配置后运行它：
+
+```bash
+npx -y cc-safety-net rule verify
+```
+
+一切有效时退出 `0`，否则退出非零。`command_tools` 中的条目指向内置 shell 工具或文件工具时，算作错误。
+
+### `rule verify` 可能重写 rule.json
+
+有效的 `rule.json` 缺少 `$schema` 键时，`rule verify` 会把它作为第一个键插入，以两空格缩进重写文件，并打印 `Added $schema to user config.` 或 `Added $schema to project config.`。没有任何选项能关闭这一行为。在 CI 中，它可能留下被修改的已跟踪文件；需要 `rule verify` 不做任何改动时，请先提交 `$schema` 键：
+
+```json
+"$schema": "https://raw.githubusercontent.com/kenryu42/cc-safety-net/main/assets/cc-safety-net.schema.json"
+```
+
+## `rule migrate`
+
+`rule migrate` 把旧版内联配置文件转换为 rulebook 布局。这些文件是项目的 `.safety-net.json` 和用户的 `~/.cc-safety-net/config.json`。它覆盖两个范围，不接受 `--global`。
+
+```bash
+npx -y cc-safety-net rule migrate
+npx -y cc-safety-net rule migrate --cleanup
+```
+
+`--cleanup` 会在迁移后的规则通过校验后删除旧版文件。尚未迁移的旧版文件，`doctor` 会报告为 [`config.legacy-ignored`](/zh-Hans/reference/cli/doctor#config-legacy-ignored)。
+
+<span id="rule-migrate-in-the-user-config-directory"></span>
+
+### 在用户配置目录中运行 `rule migrate`
+
+在存放用户 `.cc-safety-net/` 的目录下，`rule migrate` 跳过项目范围，只迁移用户范围，并打印 `Skipped the project scope: <cwd>/.cc-safety-net/rules/rule.json is the user rule config, not a project rule config`。退出码取决于用户范围的结果。
+
+## `rule doc`
+
+`rule doc` 把 rulebook 编写指南打印到 stdout。需要智能体编写或校验 rulebook 时，把指南通过管道交给它：
+
+```bash
+npx -y cc-safety-net rule doc
+```
+
+<span id="rule-doc-update-notice"></span>
+
+### `rule doc` 更新提示
+
+npm 上有新版本时，`rule doc` 会在指南之后向 stderr 写入一行，管道中因此只有指南本身：
+
+```text
+UPDATE_AVAILABLE: cc-safety-net v<latest> is available (running v<current>). Ask the user once whether to run `npx -y cc-safety-net@latest update`; continue the current task either way and do not raise this again.
+```
+
+它每天最多检查一次。设置 [`CC_SAFETY_NET_NO_UPDATE_CHECK`](/zh-Hans/configuration/environment#update-check-opt-out) 可关闭检查。无论哪种情况，退出码都是 `0`。

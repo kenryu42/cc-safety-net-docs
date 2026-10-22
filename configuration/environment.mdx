@@ -1,12 +1,31 @@
 ---
 title: "Environment variables"
 sidebarTitle: "Environment"
-description: "Complete reference for every CC Safety Net environment variable: safety level, capability toggles, the project-policy tighten-only switch, audit scope, debug output, config-directory override, update-check opt-out, and the policy-versus-environment precedence rules."
+description: "Every CC Safety Net environment variable, where each configuration file and the audit log live, what CC_SAFETY_NET_HOME moves, and how environment variables combine with policy.json."
 ---
 
-CC Safety Net reads its configuration from `policy.json` and environment variables. Mode toggles use the `CC_SAFETY_NET_*` prefix. Older `SAFETY_NET_*` names without the `CC_` prefix remain as legacy aliases where noted. Set variables in your shell or your agent's launch environment before you start the agent.
+CC Safety Net reads its settings from `policy.json`, `rule.json`, and the `CC_SAFETY_NET_*` environment variables on this page. Set a variable in your shell or your agent's launch environment before you start the agent. An environment variable can raise your safety level but never lower it.
 
-This page is the reference for the variables themselves and for how they combine with `policy.json`. For what each level blocks, see [Modes](/configuration/modes); for the full policy file contract, see [Policy](/configuration/policy).
+Older `SAFETY_NET_*` names without the `CC_` prefix still work where the tables list them. For what each level blocks, see [Modes](/configuration/modes). For the policy file, see [Policy](/configuration/policy).
+
+## Where configuration lives
+
+| File | User scope | Project scope | With `CC_SAFETY_NET_HOME=<path>` |
+| --- | --- | --- | --- |
+| Policy | `~/.cc-safety-net/policy.json` | `.cc-safety-net/policy.json` | `<path>/policy.json` |
+| Rule config | `~/.cc-safety-net/rules/rule.json` | `.cc-safety-net/rules/rule.json` | `<path>/rules/rule.json` |
+| Rulebooks | `~/.cc-safety-net/rules/<name>/rulebook.json` | `.cc-safety-net/rules/<name>/rulebook.json` | `<path>/rules/<name>/rulebook.json` |
+| Audit log | `~/.cc-safety-net/logs/` | None. The user log keeps one folder per project | Not moved |
+
+Project paths are relative to the directory the agent session runs in. See [config working directory](/configuration/policy#what-the-config-working-directory-is).
+
+| Variable | Legacy alias | Effect |
+| --- | --- | --- |
+| `CC_SAFETY_NET_HOME=<path>` | none | Use `<path>` instead of `~/.cc-safety-net` for the user-scope files in the table above |
+
+`CC_SAFETY_NET_HOME` helps when an agent runs with a different home directory than your shell, as in a sandbox. It moves the user scope only. Project files always resolve from the project. It does not move the audit log. [Audit log](/reference/audit-log#log-layout) explains how to move that.
+
+CC Safety Net protects only `policy.json` from the agent. `rule.json` and rulebooks are ordinary files an agent can edit.
 
 ## Safety level
 
@@ -14,45 +33,43 @@ This page is the reference for the variables themselves and for how they combine
 | --- | --- | --- |
 | `CC_SAFETY_NET_LEVEL=standard\|strict\|paranoid` | none | Select a safety preset. Raises the level configured by `safety.level` in `policy.json`, and never lowers it. |
 
-The three presets expand into the same capabilities: `fail_closed`, `paranoid_rm`, and `paranoid_interpreters`. See [Modes](/configuration/modes) for what each preset blocks and what each capability changes.
+Each preset turns on a set of three capabilities: `fail_closed`, `paranoid_rm`, and `paranoid_interpreters`. See [Modes](/configuration/modes) for what each one blocks.
 
-CC Safety Net ignores any value other than `standard`, `strict`, or `paranoid` and uses the level from `policy.json` unchanged. It always reports the rejected value on stderr. This warning does not require a debug flag:
+CC Safety Net ignores any other value, keeps the level from `policy.json`, and always prints this warning on stderr:
 
 ```
 CC Safety Net: ignored invalid CC_SAFETY_NET_LEVEL="<value>". Use standard, strict, paranoid.
 ```
 
-The reported value is truncated to its first 40 characters. An empty value is treated as unset and produces no warning.
+An empty value counts as unset and prints no warning.
 
 ## Capability toggles
 
-These are the legacy per-capability flags. Each one **only raises** its capability. A falsy value does not turn a capability off. Use `safety.overrides` in [policy.json](/configuration/policy) when you need to turn a capability off below its preset.
+These older per-capability flags only raise their capability. A falsy value does not turn a capability off. To turn a capability off below its preset, use `safety.overrides` in [policy.json](/configuration/policy#safety-level-and-capability-overrides).
 
 | Variable | Legacy alias | Effect |
 | --- | --- | --- |
 | `CC_SAFETY_NET_STRICT=1` | `SAFETY_NET_STRICT` | Force the `fail_closed` capability on. Equivalent to `safety.overrides.fail_closed: true`. |
-| `CC_SAFETY_NET_PARANOID=1` | `SAFETY_NET_PARANOID` | Force both `paranoid_rm` and `paranoid_interpreters` on. It does **not** set `fail_closed`. |
-| `CC_SAFETY_NET_PARANOID_RM=1` | `SAFETY_NET_PARANOID_RM` | Force `paranoid_rm` on: block non-temp `rm -r`, `rm -rf`, and `find -delete` even when the target is inside the cwd. |
-| `CC_SAFETY_NET_PARANOID_INTERPRETERS=1` | `SAFETY_NET_PARANOID_INTERPRETERS` | Force `paranoid_interpreters` on: block every interpreter one-liner regardless of content. |
-| `CC_SAFETY_NET_WORKTREE=1` | `SAFETY_NET_WORKTREE` | Relax local-discard git rules inside a confirmed linked worktree. Combined with `workflow.worktree_mode` as a logical OR. |
+| `CC_SAFETY_NET_PARANOID=1` | `SAFETY_NET_PARANOID` | Force both `paranoid_rm` and `paranoid_interpreters` on. It does not set `fail_closed`. |
+| `CC_SAFETY_NET_PARANOID_RM=1` | `SAFETY_NET_PARANOID_RM` | Force `paranoid_rm` on, which blocks non-temp `rm -r`, `rm -rf`, and `find -delete` even when the target is inside the working directory. |
+| `CC_SAFETY_NET_PARANOID_INTERPRETERS=1` | `SAFETY_NET_PARANOID_INTERPRETERS` | Force `paranoid_interpreters` on, which blocks every interpreter one-liner whatever its content. |
+| `CC_SAFETY_NET_WORKTREE=1` | `SAFETY_NET_WORKTREE` | Relax local-discard git rules inside a confirmed linked worktree. Either this or `workflow.worktree_mode` turns worktree mode on. |
 
-Every other flag in this table can only tighten protection. `CC_SAFETY_NET_WORKTREE` is the one exception: it turns on worktree mode, which *relaxes* local-discard git rules inside a confirmed linked worktree.
-
-Boolean flags are truthy when set to `1` or `true` (case-insensitive). When a `CC_SAFETY_NET_*` name is set it wins; the `SAFETY_NET_*` alias is only consulted when the prefixed name is absent.
+A flag is on when set to `1` or `true`, in any case. When a `CC_SAFETY_NET_*` name is set, it wins, and CC Safety Net reads the `SAFETY_NET_*` alias only when the prefixed name is absent.
 
 ## Precedence
 
-Policy and environment are combined in a fixed order:
+CC Safety Net combines policy and environment in a fixed order:
 
 1. **Preset.** `safety.level` in `policy.json` supplies the inherited capability defaults. When the field is absent, the preset is `standard`.
 2. **`CC_SAFETY_NET_LEVEL`.** The effective base level is the higher of the policy level and the environment level. The environment can raise the level but never lower it.
 3. **`safety.overrides.*`.** Explicit capability overrides in `policy.json` can then set `fail_closed`, `paranoid_rm`, or `paranoid_interpreters` to `true` or `false`.
-4. **Capability toggles.** CC Safety Net applies the `CC_SAFETY_NET_STRICT`, `CC_SAFETY_NET_PARANOID`, `CC_SAFETY_NET_PARANOID_RM`, and `CC_SAFETY_NET_PARANOID_INTERPRETERS` flags last. These flags are **monotonic**. Each one forces its capability to `true`, and none can turn a capability off.
+4. **Capability toggles.** CC Safety Net applies the `CC_SAFETY_NET_STRICT`, `CC_SAFETY_NET_PARANOID`, `CC_SAFETY_NET_PARANOID_RM`, and `CC_SAFETY_NET_PARANOID_INTERPRETERS` flags last. These flags are monotonic. Each one forces its capability to `true`, and none can turn a capability off.
 5. **Worktree mode** is the logical OR of `workflow.worktree_mode` and `CC_SAFETY_NET_WORKTREE`.
 
-CC Safety Net derives the reported **effective level** from the resulting capability values. It reports a combination that matches no preset as `custom`, for example `paranoid_rm` on with `fail_closed` off.
+CC Safety Net derives the reported effective level from the resulting capability values. It reports a combination that matches no preset as `custom`, for example `paranoid_rm` on with `fail_closed` off.
 
-Per-rule entries in `destructive_command_protection.overrides` are applied on top of the capability-derived state. Catastrophic rules are always enforced and cannot be disabled by any of the above.
+CC Safety Net applies per-rule entries in `destructive_command_protection.overrides` on top of the state the capabilities set. Catastrophic rules always apply, and none of the above can disable them.
 
 ## Project policy weakenings
 
@@ -60,62 +77,32 @@ Per-rule entries in `destructive_command_protection.overrides` are applied on to
 | --- | --- | --- |
 | `CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY=1` | none | Ignore the fields of a project `.cc-safety-net/policy.json` that weaken the user policy. The project file's tightenings still apply. Off by default. |
 
-`status` and `doctor` still list each ignored weakening, under `Project policy (ignored)` and `Project policy deltas (ignored):`. See [Ignore project weakenings](/configuration/policy#ignore-project-weakenings) for the fields it drops and what each one is measured against.
-
-Without the switch, a project `safety.overrides` entry can turn off a capability that `CC_SAFETY_NET_LEVEL` enables, because overrides apply after the level (step 3 above). The capability toggles apply last, so a project file never turns them off.
+Without the switch, a project `safety.overrides` entry can turn off a capability that `CC_SAFETY_NET_LEVEL` enables, because overrides apply after the level (step 3 above). The capability toggles apply last, so a project file never turns them off. See [Ignore project weakenings](/configuration/policy#ignore-project-weakenings) for the fields the switch drops.
 
 ## Audit scope
 
 | Variable | Legacy alias | Effect |
 | --- | --- | --- |
-| `CC_SAFETY_NET_AUDIT_SCOPE=all\|blocked` | none | Which command decisions reach the audit log. Defaults to `all`. |
+| `CC_SAFETY_NET_AUDIT_SCOPE=all\|blocked` | none | Which command decisions reach the audit log. Defaults to `all`. `blocked` records denials only. |
 
-- `all` (the default, and the behavior when the variable is unset) records both allowed and blocked command decisions.
-- `blocked` is the privacy-minimizing setting: only denials are recorded.
-- Denials are **never** suppressed by this setting.
-- Any other value falls back to denials-only recording, and `doctor` reports it as the warning finding `environment.audit-scope-invalid`.
-
-Allowed decisions are recorded only when the tool call routed to a command; allowed non-command tool calls produce no record.
+The audit log always records denials. See [Audit scope](/reference/audit-log#what-is-recorded-audit-scope) for what an invalid value does.
 
 ## Debug output
 
 | Variable | Legacy alias | Effect |
 | --- | --- | --- |
-| `CC_SAFETY_NET_DEBUG=1` | none | Print diagnostic messages to stderr, such as the reason an analysis exception occurred or a failure to read the Claude settings file for the status line. It does not control the invalid-`CC_SAFETY_NET_LEVEL` warning. That warning is always printed. |
+| `CC_SAFETY_NET_DEBUG=1` | none | Print diagnostic messages to stderr, such as the reason an analysis exception occurred. |
 
-`CC_SAFETY_NET_DEBUG` does not change which decisions are recorded. `CC_SAFETY_NET_AUDIT_SCOPE` controls that behavior. Use the debug flag when you investigate why a command was allowed or when you file a bug report. The `doctor` command reports whether it is set.
-
-## Configuration directory override
-
-| Variable | Legacy alias | Effect |
-| --- | --- | --- |
-| `CC_SAFETY_NET_HOME=<path>` | none | Use `<path>` as the CC Safety Net home directory instead of `~/.cc-safety-net`. |
-
-When set, `policy.json` is read from `<path>/policy.json`, user-scope rulebook config from `<path>/rules/rule.json`, and each user-scope rulebook from `<path>/rules/<rulebook-name>/rulebook.json`. This is useful in sandboxed or non-standard `HOME` setups, for example when an agent runs with a different home directory than your shell.
-
-The override covers the user scope only. The project policy file and project rulebook config resolve from the project directory and are unaffected.
-
-<Note>
-  `CC_SAFETY_NET_HOME` does not relocate the audit log. The audit root resolves independently. See [Audit log](/reference/audit-log#log-layout) for how CC Safety Net derives it.
-</Note>
+Use it when you investigate why a command was allowed or when you file a bug report. It does not change what the audit log records.
 
 ## Update-check opt-out
 
 | Variable | Legacy alias | Effect |
 | --- | --- | --- |
-| `CC_SAFETY_NET_NO_UPDATE_CHECK=1` | none | Disable the update check that runs during `rule doc`. Any non-empty value counts. CC Safety Net does not parse this variable as a boolean, so even `0` disables the check. |
+| `CC_SAFETY_NET_NO_UPDATE_CHECK=1` | none | Skip the update check that `rule doc` runs. Any non-empty value counts, even `0`. |
 
-`rule doc` normally checks for a newer release at most once every 24 hours: it polls `https://registry.npmjs.org/cc-safety-net/latest`, caches the result in `$HOME/.cc-safety-net/update-check.json`, and prints an `UPDATE_AVAILABLE:` line on stderr when a newer version exists. That poll is the only outbound network request the CLI makes during `rule doc`.
-
-When `CC_SAFETY_NET_NO_UPDATE_CHECK` is set, the check is skipped entirely: no registry poll, no cache write, and no `UPDATE_AVAILABLE:` line. It does not affect the separate update check that `doctor` and the dashboard run.
+It does not affect the update check that `doctor` and the dashboard run. See [`rule doc` update notice](/reference/cli/rule#rule-doc-update-notice) for the notice it prints.
 
 ## Check your active configuration
 
-Run `status` for a quick check, or run `doctor` for the full report:
-
-```bash
-npx cc-safety-net status
-npx cc-safety-net doctor
-```
-
-The Environment section of the `doctor` report lists each variable, its value, its default behavior, and any legacy `SAFETY_NET_*` name that is in use. See [CLI commands](/reference/cli-commands) for the full syntax and output of both commands, and [Status line](/configuration/status-line) for the at-a-glance indicator in Claude Code.
+[`status`](/reference/cli/status) shows the effective level and any problems. The Environment section of [`doctor`](/reference/cli/doctor) lists each variable, its value, and any legacy `SAFETY_NET_*` name in use.

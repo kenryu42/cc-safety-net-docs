@@ -1,0 +1,104 @@
+---
+title: "install コマンド"
+sidebarTitle: "install"
+description: "cc-safety-net install のリファレンスです。16 個のターゲットフラグ、npx キャッシュの消去、対話型のターゲットセレクターとそのキー操作、インストールの失敗を説明します。"
+keywords:
+  - "install"
+  - "ターゲットフラグ"
+  - "npx キャッシュ"
+  - "対話型ピッカー"
+  - "連携"
+  - "セレクター"
+---
+
+`install` は、コーディングエージェント CLI に CC Safety Net を設定します。フラグなしで実行するとリストからエージェントを選べます。スクリプトでインストールする場合は、ターゲットフラグを 1 つだけ指定します。失敗したターゲットは、原因のヒントを表示して `1` で終了します。
+
+```bash
+npx -y cc-safety-net install
+npx -y cc-safety-net install --claude-code
+```
+
+エージェントごとの手順と、インストールで変更される内容は、[インストール](/ja/installation)を参照してください。
+
+<span id="install-target-flags"></span>
+
+## install のターゲットフラグ
+
+`install` は 16 個のターゲットを受け付けます。インストールで何を書き込み、何を実行するかは、各エージェントのページに記載しています。
+
+| フラグ | エージェント |
+| --- | --- |
+| `--amp` | [Amp Code](/ja/installation/amp-code) |
+| `--agy-cli` | [Antigravity CLI](/ja/installation/antigravity-cli) |
+| `--claude-code` | [Claude Code](/ja/installation/claude-code) |
+| `--codex` | [Codex](/ja/installation/codex) |
+| `--cursor` | [Cursor](/ja/installation/cursor) |
+| `--deepseek-harness` | [DeepSeek Harness](/ja/installation/deepseek-harness) |
+| `--devin` | [Devin CLI](/ja/installation/devin-cli) |
+| `--droid` | [Factory Droid](/ja/installation/factory-droid) |
+| `--gemini-cli` | [Gemini CLI](/ja/installation/gemini-cli) |
+| `--copilot-cli` | [GitHub Copilot CLI](/ja/installation/github-copilot-cli) |
+| `--grok-build` | [Grok Build](/ja/installation/grok-build) |
+| `--hermes-agent` | [Hermes Agent](/ja/installation/hermes-agent) |
+| `--kimi-code` | [Kimi Code](/ja/installation/kimi-code) |
+| `--openclaw` | [OpenClaw](/ja/installation/openclaw) |
+| `--opencode` | [OpenCode](/ja/installation/opencode) |
+| `--pi` | [Pi](/ja/installation/pi) |
+
+指定できるフラグは 1 つまでです。複数指定すると、`install` は `Choose exactly one install|uninstall target:` に続けてフラグの一覧を出力し、`1` で終了します。不明なオプションや余分な引数もエラーになります。
+
+<span id="npx-cache-clearing"></span>
+
+## npx キャッシュの消去
+
+Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build、Hermes Agent、Kimi Code は、`npx` でフックを実行します。`install` はこれらを設定する前に、npm キャッシュの `_npx` フォルダーからキャッシュ済みの `cc-safety-net` を削除します。これにより、新しいフックは最新のリリースを実行します。npm キャッシュの場所は次のとおりです。
+
+- `$npm_config_cache`（この変数が設定されている場合）
+- macOS と Linux では `~/.npm`
+- Windows では `%LOCALAPPDATA%\npm-cache`
+
+`uninstall` はキャッシュに触れません。`update` は 1 回の実行につき 1 回キャッシュを消去します。
+
+<span id="selecting-a-target"></span>
+
+## ターゲットの選択
+
+対話型のターミナルでフラグなしで実行すると、`install` はエージェントを一覧表示し、各行にラベルを付けます。
+
+| ラベル | 意味 |
+| --- | --- |
+| `CLI not installed` | エージェントがインストールされていない |
+| `already installed` | そのエージェントには CC Safety Net が設定済み |
+| `not installed` | そのエージェントは未設定（uninstall 時に表示される） |
+
+Cursor は、`cursor --version` と `cursor-agent --version` のどちらかが成功すればインストール済みとみなされます。
+
+<span id="target-selector-keys"></span>
+
+## ターゲットセレクターのキー
+
+| キー | 動作 |
+| --- | --- |
+| `Space` | 強調表示したターゲットの選択を切り替える |
+| `Enter` | 選択を確定する |
+| `Up`/`Down`, `k`/`j` | 選択できる行の間を移動する |
+| `u`, `U` | セレクターを終了して [`update`](/ja/reference/cli/update) のフローを実行する。install 時のみ |
+| `q`, `Esc` | キャンセルする |
+
+## ターゲットセレクターのキャンセル
+
+`q` または `Esc` を押すと、`Cancelled: nothing was installed.` または `Cancelled: nothing was uninstalled.` を出力して `0` で終了します。
+
+## 選択したターゲットの実行
+
+インストールによっては、エージェント自身の CLI を実行します。そのコマンドが 120 秒経っても終わらない場合、`install` はコマンドを停止し、そのターゲットを失敗として報告します。
+
+<span id="install-failures-and-exit-code"></span>
+
+## install の失敗と終了コード
+
+インストールに失敗すると `1` で終了します。次のエラーについては、`install` がヒントを出力します。
+
+- 権限の問題
+- パスが存在しない
+- パスの途中にディレクトリではない要素がある

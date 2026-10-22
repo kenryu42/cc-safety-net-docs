@@ -1,0 +1,64 @@
+---
+title: "Antigravity CLI に CC Safety Net をインストールする"
+sidebarTitle: "Antigravity CLI"
+description: "~/.gemini/config/hooks.json の PreToolUse フックとして、Antigravity CLI に CC Safety Net をインストールします。チェック対象の run_command と manage_task の呼び出し、削除方法、doctor での表示も説明します。"
+keywords:
+  - "antigravity"
+  - "agy-cli"
+  - "hooks.json"
+  - "PreToolUse"
+  - "run_command"
+  - "manage_task"
+---
+
+`npx -y cc-safety-net@latest install --agy-cli` を実行します。`~/.gemini/config/hooks.json` に管理対象の `PreToolUse` フックが追加され、ツール呼び出しのたびに `npx -y cc-safety-net hook --agy-cli` が実行されます。このフックは、`run_command` のシェルコマンドと、`manage_task` で実行中のタスクに送られる入力をチェックします。その後、`npx cc-safety-net doctor` を実行してフックが有効か確認してください。
+
+## Antigravity CLI に CC Safety Net をインストールする
+
+<Steps>
+  <Step title="インストーラーを実行する">
+    ```bash
+    npx -y cc-safety-net@latest install --agy-cli
+    ```
+  </Step>
+  <Step title="フックが有効か確認する">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+フックが設定されていれば、`doctor` の出力で Antigravity CLI の行は `Detected` と `Configured` になります。フックの定義に `enabled: false` がある場合は、`Detected` と `Not configured` になります。
+
+Antigravity CLI で `/cc-safety-net` スキルを使うには、別途追加してください。[/cc-safety-net スキル](/ja/guides/skill#how-you-invoke-it)を参照してください。
+
+## Antigravity CLI のインストールで変わること
+
+Antigravity は `.gemini` ディレクトリを共有しているため、インストーラーは `~/.gemini/config/hooks.json` に書き込みます。管理対象のエントリ名は `cc-safety-net` です。このエントリは、`npx -y cc-safety-net hook --agy-cli` をタイムアウト 30 秒で実行する `PreToolUse` コマンドフックを登録します。ファイルがなければ作成し、管理対象のエントリが無効になっていれば有効に戻します。
+
+<span id="what-the-antigravity-cli-hook-checks"></span>
+
+## Antigravity CLI のフックがチェックする内容
+
+- `run_command` の呼び出しは、シェルコマンドとして解析します。
+- `Action` が `send_input` で、`Input` が空でない文字列の `manage_task` 呼び出しも解析します。このテキストはすでに実行中のタスクに送られるため、`Input` をシェルコマンドとして解析し、シェルの方言も判別します。
+- それ以外の `manage_task` のアクションは、コマンドを実行しないツール呼び出しとして扱います。
+
+## Antigravity CLI でチェックが失敗したときの動作
+
+フックが失敗すると、Antigravity CLI はツール呼び出しをブロックします。クラッシュや 0 以外の終了コード、タイムアウト（30 秒）、`npx` が見つからない場合、有効な JSON でない出力のいずれでも、呼び出しは止まります。これは 2026 年 10 月に macOS 上の Antigravity CLI 1.4.5 でプロジェクトが確認した動作で、Antigravity が仕様として公開しているものではありません。
+
+## Antigravity CLI から CC Safety Net をアンインストールする
+
+```bash
+npx -y cc-safety-net@latest uninstall --agy-cli
+```
+
+アンインストールで削除するのは、コマンドが管理対象の文字列と一致するエントリだけです。`~/.gemini/config/hooks.json` のそれ以外の部分はそのまま残ります。
+
+<span id="troubleshoot-antigravity-cli"></span>
+
+## Antigravity CLI のトラブルシューティング
+
+- **`doctor` が `Error (Antigravity CLI): Failed to parse Antigravity hooks config <path>: <reason>` を報告する。** `~/.gemini/config/hooks.json` が有効な JSON ではありません。そのため `doctor` は Antigravity CLI を未設定として数え、終了コード `1` で終了します。JSON を修正してから、インストールを再実行してください。[フック設定のパースエラー](/ja/reference/cli/doctor#hook-config-parse-errors)を参照してください。
+- **管理対象のエントリを手で編集した。** `doctor` は Antigravity CLI について[設定ずれの検査](/ja/reference/cli/doctor#managed-hook-drift)を行わないため、エントリが変わっても警告しません。インストールも、有効な管理対象エントリには手を加えません。既定のエントリに戻すには、`uninstall --agy-cli` を実行してから、インストールを再実行してください。

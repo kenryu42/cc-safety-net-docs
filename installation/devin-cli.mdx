@@ -1,0 +1,114 @@
+---
+title: "Install CC Safety Net in Devin CLI"
+sidebarTitle: "Devin CLI"
+description: "Install CC Safety Net in Devin CLI with one PreToolUse hook in config.json, see how the hook checks exec and write_to_process calls, remove it, and read the doctor messages for a broken config."
+keywords:
+  - "devin"
+  - "devin cli"
+  - "config.json"
+  - "PreToolUse"
+  - "write_to_process"
+  - "XDG_CONFIG_HOME"
+---
+
+Run `npx -y cc-safety-net@latest install --devin`. It adds one `PreToolUse` hook to Devin CLI's `config.json`, so every tool call reaches CC Safety Net first. Then run `npx cc-safety-net doctor` to confirm the hook is active. Devin CLI hooks fail open, which means a hook that times out or dies before it answers lets the call proceed.
+
+## Install CC Safety Net in Devin CLI
+
+<Steps>
+  <Step title="Run the installer">
+    ```bash
+    npx -y cc-safety-net@latest install --devin
+    ```
+  </Step>
+  <Step title="Confirm the hook is active">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+## What the Devin CLI install changes
+
+The installer writes this managed entry into `hooks.PreToolUse` in Devin CLI's `config.json`:
+
+```json
+{ "hooks": [{ "type": "command", "command": "npx -y cc-safety-net hook --devin", "timeout": 30 }] }
+```
+
+The file is `$XDG_CONFIG_HOME/devin/config.json`, which defaults to `~/.config/devin/config.json`. On Windows it is `%APPDATA%\devin\config.json`. See [Where Devin CLI keeps its configuration](#where-devin-cli-keeps-its-configuration) for the exact rules.
+
+- The entry has no matcher, so every tool call reaches the hook, not only `exec`.
+- Install keeps every other key, hook event, and `PreToolUse` entry in the file. When `config.json` does not exist, install creates it with that one `hooks` key.
+- Devin CLI accepts comments and trailing commas in `config.json`. Install and uninstall write the file back as plain JSON, so your comments are lost.
+
+## What the Devin CLI hook checks
+
+- `exec` is the only command tool. The hook detects its shell dialect.
+- The hook analyzes the text that `write_to_process` calls type into a running process. See [How the Devin CLI hook checks typed input](#how-the-devin-cli-hook-checks-typed-input).
+- For other tools, the hook inspects the tool input for protected paths.
+
+For an allowed call, the hook writes nothing, so Devin CLI's own permission prompt still applies.
+
+### Which directory the Devin CLI hook analyzes commands in
+
+Devin CLI does not tell the hook the session's working directory, so the hook uses the directory it runs in. An `exec` call can name another directory in `workdir`, and the hook then analyzes the command there.
+
+- A relative `workdir` resolves against the session directory.
+- The `workdir` does not have to be inside the session directory.
+- The hook denies a `workdir` that is blank or not a string.
+- The hook denies a `workdir` that is not an existing directory, and the denial names that directory.
+
+### How the Devin CLI hook checks typed input
+
+A `write_to_process` call types into a process that is already running. The hook analyzes the typed text from `text_input` or `bytes_input` as a shell command. A `text_input` of `y` with a `bytes_input` of `<CR>` analyzes `y`.
+
+The hook denies the call when it cannot know the line the receiving program runs:
+
+- Text arrives together with `<ESC>`, `<BS>`, an arrow key, or a `<C-…>` key.
+- `bytes_input` carries a `<Name>` key that Devin CLI does not document.
+- Both `text_input` and `bytes_input` carry text.
+
+Keys sent on their own, such as `<UP><CR>` or `<C-c>`, are not commands, and the hook does not analyze them.
+
+## What happens when the Devin CLI check fails
+
+Devin CLI hooks fail open. Only exit code 2 or a `block` decision blocks a tool call. A timeout, a missing `npx`, or a hook process that dies before it answers lets the call proceed. An error the hook catches itself still blocks, because the hook answers `block` for it.
+
+## Devin CLI coverage limits
+
+- **Project hooks.** CC Safety Net supports only the user-level `config.json` that install writes. Hooks in a project `.devin/hooks.v1.json` run with the repository root as their working directory, and Devin CLI gives the hook no way to correct for that.
+- **Split input.** The hook analyzes each `write_to_process` call on its own, so it does not check a command typed across several writes as one command.
+- **Devin Cloud.** CC Safety Net does not cover Devin Cloud sessions.
+- **Claude Code hooks.** Devin loads Claude Code hook files by default, so a CC Safety Net hook installed for Claude Code can also run in a Devin session. That only duplicates denials.
+
+## Uninstall CC Safety Net from Devin CLI
+
+```bash
+npx -y cc-safety-net@latest uninstall --devin
+```
+
+Uninstall removes only the managed handler and writes the file back. It never deletes `config.json`, even when `hooks.PreToolUse` ends up empty. When the file holds no managed handler, uninstall writes nothing and reports the hook as not installed.
+
+## Where Devin CLI keeps its configuration
+
+Devin CLI lets you move its configuration directory. CC Safety Net follows the same override, so it still finds a relocated config:
+
+- `$XDG_CONFIG_HOME/devin` when `XDG_CONFIG_HOME` is set and not empty.
+- Otherwise `<home>/.config/devin`.
+- On Windows, `%APPDATA%\devin`, or `<home>\AppData\Roaming\devin` when `APPDATA` is unset or empty.
+
+The file is `config.json` in that directory. CC Safety Net uses the variable's value as written, with no `~` expansion.
+
+## Troubleshoot Devin CLI
+
+When `config.json` has a problem, install stops and writes nothing. `doctor` prints the same message as `Error (Devin CLI): <message>`, counts Devin CLI as not configured, and exits `1`. Fix the file, then run the install again.
+
+| Problem | Message |
+| --- | --- |
+| The file does not parse | `Failed to parse Devin CLI config <path>: <reason>` |
+| The root is not a JSON object | `Devin CLI config <path> must be a JSON object` |
+| `hooks` is not an object | `Devin CLI config <path> "hooks" must be an object` |
+| `hooks.PreToolUse` is not an array | `Devin CLI config <path> "hooks.PreToolUse" must be an array` |
+
+If `doctor` warns about a changed hook entry, run the install again. [Managed hook drift](/reference/cli/doctor#managed-hook-drift) lists the warnings.

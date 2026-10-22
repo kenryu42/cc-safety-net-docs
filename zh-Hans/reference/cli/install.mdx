@@ -1,0 +1,104 @@
+---
+title: "install 命令"
+sidebarTitle: "install"
+description: "cc-safety-net install 参考：十六个目标选项、npx 缓存清除、交互式目标选择器及其按键，以及安装失败。"
+keywords:
+  - "install"
+  - "目标选项"
+  - "npx 缓存"
+  - "交互式选择器"
+  - "集成"
+  - "选择器"
+---
+
+`install` 把 CC Safety Net 装进编码智能体 CLI。不带选项运行时从列表中选择智能体；脚本化安装时传入正好一个目标选项。目标安装失败时退出 `1`，并给出原因提示。
+
+```bash
+npx -y cc-safety-net install
+npx -y cc-safety-net install --claude-code
+```
+
+各智能体的安装步骤和安装会改动的内容见[安装](/zh-Hans/installation)。
+
+<span id="install-target-flags"></span>
+
+## install 目标选项
+
+`install` 接受十六个目标。各智能体的页面说明了它的安装会写入或运行什么。
+
+| 选项 | 智能体 |
+| --- | --- |
+| `--amp` | [Amp Code](/zh-Hans/installation/amp-code) |
+| `--agy-cli` | [Antigravity CLI](/zh-Hans/installation/antigravity-cli) |
+| `--claude-code` | [Claude Code](/zh-Hans/installation/claude-code) |
+| `--codex` | [Codex](/zh-Hans/installation/codex) |
+| `--cursor` | [Cursor](/zh-Hans/installation/cursor) |
+| `--deepseek-harness` | [DeepSeek Harness](/zh-Hans/installation/deepseek-harness) |
+| `--devin` | [Devin CLI](/zh-Hans/installation/devin-cli) |
+| `--droid` | [Factory Droid](/zh-Hans/installation/factory-droid) |
+| `--gemini-cli` | [Gemini CLI](/zh-Hans/installation/gemini-cli) |
+| `--copilot-cli` | [GitHub Copilot CLI](/zh-Hans/installation/github-copilot-cli) |
+| `--grok-build` | [Grok Build](/zh-Hans/installation/grok-build) |
+| `--hermes-agent` | [Hermes Agent](/zh-Hans/installation/hermes-agent) |
+| `--kimi-code` | [Kimi Code](/zh-Hans/installation/kimi-code) |
+| `--openclaw` | [OpenClaw](/zh-Hans/installation/openclaw) |
+| `--opencode` | [OpenCode](/zh-Hans/installation/opencode) |
+| `--pi` | [Pi](/zh-Hans/installation/pi) |
+
+最多传入一个选项。传入多个时，`install` 打印 `Choose exactly one install|uninstall target:` 和选项列表，并退出 `1`。未知选项或多余的参数同样是错误。
+
+<span id="npx-cache-clearing"></span>
+
+## npx 缓存清除
+
+Antigravity CLI、Cursor、Devin CLI、Factory Droid、Grok Build、Hermes Agent 和 Kimi Code 都通过 `npx` 运行 hook。安装其中任何一个之前，`install` 会从 npm 缓存的 `_npx` 目录中删除缓存的 `cc-safety-net` 副本，让新的 hook 运行最新版本。npm 缓存的位置：
+
+- 设置了 `$npm_config_cache` 时为该路径
+- macOS 和 Linux 上为 `~/.npm`
+- Windows 上为 `%LOCALAPPDATA%\npm-cache`
+
+`uninstall` 不触及缓存。`update` 每次运行清除一次。
+
+<span id="selecting-a-target"></span>
+
+## 选择目标
+
+在交互式终端中不带选项运行时，`install` 列出各个智能体，并为每一行加上标签：
+
+| 标签 | 含义 |
+| --- | --- |
+| `CLI not installed` | 该智能体未安装 |
+| `already installed` | 已为该智能体设置好 CC Safety Net |
+| `not installed` | 该智能体未配置（卸载时显示） |
+
+只要 `cursor --version` 或 `cursor-agent --version` 有一个成功，Cursor 就视为已安装。
+
+<span id="target-selector-keys"></span>
+
+## 目标选择器按键
+
+| 按键 | 操作 |
+| --- | --- |
+| `Space` | 切换高亮的目标 |
+| `Enter` | 确认选择 |
+| `Up`/`Down`、`k`/`j` | 在可选行之间移动 |
+| `u`、`U` | 离开选择器，转而运行 [`update`](/zh-Hans/reference/cli/update) 流程。仅安装时可用 |
+| `q`、`Esc` | 取消 |
+
+## 取消目标选择器
+
+按 `q` 或 `Esc` 会打印 `Cancelled: nothing was installed.` 或 `Cancelled: nothing was uninstalled.`，并退出 `0`。
+
+## install 如何运行选中的目标
+
+部分安装会运行智能体自己的 CLI。该命令 120 秒后仍未结束时，`install` 会终止它，并把该目标报告为失败。
+
+<span id="install-failures-and-exit-code"></span>
+
+## install 失败与退出码
+
+安装失败时退出 `1`。遇到以下错误时，`install` 会打印提示：
+
+- 权限问题
+- 路径缺失
+- 路径中某一段不是目录

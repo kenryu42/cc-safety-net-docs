@@ -1,0 +1,63 @@
+---
+title: "explain 命令"
+sidebarTitle: "explain"
+description: "cc-safety-net explain 参考：跟踪命令为何被阻止或允许、JSON 与工作目录选项、双短横线如何结束选项解析、退出码，以及拒绝分析的命令。"
+keywords:
+  - "explain"
+  - "跟踪"
+  - "为何被阻止"
+  - "分析"
+  - "--cwd"
+  - "json"
+---
+
+`explain` 逐步展示 CC Safety Net 如何分析一条命令。用它弄清命令为何被阻止或允许，或者某条自定义规则是怎样生效的。
+
+```bash
+npx cc-safety-net explain "git reset --hard"
+bunx cc-safety-net explain "git reset --hard"
+```
+
+## explain 选项
+
+| 选项 | 描述 |
+| --- | --- |
+| `--json` | 以 JSON 格式输出完整的分析结果 |
+| `--cwd <path>` | 按从该工作目录运行的情形分析 |
+| `-h`, `--help` | 显示帮助 |
+
+```bash
+npx cc-safety-net explain "rm -rf /"
+npx cc-safety-net explain --json "git checkout -- file.txt"
+npx cc-safety-net explain --cwd /tmp "git status"
+```
+
+`--json` 的 schema、`ExplainResult` 字段和每个 `TraceStep` 变体见 [Explain 跟踪参考](/zh-Hans/reference/explain-trace)。
+
+## 解释以短横线开头的命令
+
+`--` 结束选项解析，其后的所有内容都属于命令。因此 `explain -- --help` 解释的是字面命令 `--help`，而不是打印帮助。把命令加引号作为一个参数传入，`|`、`&&` 这类 shell 操作符才会保留在命令中。
+
+## explain 退出码
+
+无论结果是阻止还是允许，`explain` 都退出 `0`，因此请读取 `result` 字段，而不是看退出码。遇到选项错误（例如未知选项，或 `--cwd` 指向不存在的路径），以及遇到拒绝分析的命令时，它退出 `1`。
+
+## explain 拒绝分析的命令
+
+命令超出 CC Safety Net 的分析上限，或语法被解析器拒绝（例如 `echo ${`）时，`explain` 拒绝分析，打印一行错误并退出 `1`。加上 `--json` 时，stdout 中只有一个错误对象：
+
+```bash
+npx cc-safety-net explain --json 'echo ${'
+```
+
+```json
+{"error":"Command could not be safely analyzed (strict mode). Simplify the command and retry, or ask the user to verify."}
+```
+
+智能体运行这类命令时，CC Safety Net 会以[固定拒绝 ID](/zh-Hans/reference/blocked-commands#fixed-denial-ids) 阻止它。
+
+## 分享 explain 输出
+
+<Warning>
+  Explain 输出可能包含你的命令、命令的 token，以及包括主目录在内的绝对路径。分享前请先阅读[分享跟踪之前](/zh-Hans/reference/explain-trace#before-you-share-a-trace)。
+</Warning>

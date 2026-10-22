@@ -1,7 +1,7 @@
 ---
 title: "库 API 参考"
 sidebarTitle: "库 API"
-description: "cc-safety-net/api 子路径导出：checkCommand 函数、CheckCommandInput 和 CheckCommandResult 类型、它抛出的 TypeError 消息，以及一次调用检查和不检查的内容。"
+description: "从 cc-safety-net/api 调用 checkCommand，在你自己的 Node.js 智能体或工具链中检查 shell 命令：何时用它代替已安装的 hook、类型与错误、一次调用读取哪份策略、哪些行为跨版本保持稳定，以及一个插件宿主示例。"
 keywords:
   - "库 API"
   - "checkCommand"
@@ -13,9 +13,20 @@ keywords:
   - "程序化检查"
 ---
 
-Node.js 主机若要在自己进程内得到允许或拒绝的决策，可以调用 `checkCommand`，而不必安装智能体集成。该函数按当前策略检查一条 shell 命令并返回决策，不会执行这条命令。
+自己执行命令的 Node.js 宿主，例如智能体、任务运行器、CI 工具链或带 shell 工具的插件宿主，可以调用 `checkCommand`，而不必安装智能体集成。该函数按当前策略检查一条 shell 命令，返回允许或拒绝，从不执行这条命令。
 
-这只是一个函数，不是插件框架。它可以替代哪些集成，请参阅[集成架构](/zh-Hans/guides/integration-architecture)。
+## 库 API 还是已安装的集成
+
+两者运行的是同一个分析引擎，区别在于由谁负责发起调用。
+
+| | 已安装的集成 | 进程内的 `checkCommand` |
+| --- | --- | --- |
+| 由谁接入 | `cc-safety-net install <target>`，每台机器执行一次 | 你自己的代码，在每一处执行命令的位置 |
+| 决策在哪里发生 | hook 子进程，或智能体加载的插件 | 你的进程内，同步完成 |
+| 审计记录 | 记录每次决策，可用 `logs` 和仪表板查看 | 没有。需要记录什么由宿主决定 |
+| 适用对象 | 受支持的十六个智能体 | 任意 Node.js 宿主 |
+
+如果你的用户运行的是受支持的智能体，就把安装命令给他们，见[集成模型](/zh-Hans/guides/how-it-works#integration-models)。如果命令由你的程序执行，就调用这个函数。
 
 ## 安装与导入
 
@@ -27,13 +38,7 @@ npm install cc-safety-net
 import { checkCommand } from 'cc-safety-net/api';
 ```
 
-该包在根导出之外还导出 `cc-safety-net/api` 子路径：
-
-```json
-"./api": { "types": "./dist/api.d.ts", "import": "./dist/api.js" }
-```
-
-该包需要 Node.js 18 或更高版本以及 ESM。它声明为 `"type": "module"`，没有 CommonJS 构建，因此 `require()` 无法解析该子路径。
+需要 Node.js 18 或更高版本以及 ESM。没有 CommonJS 构建，因此 `require()` 无法加载它。请从 `cc-safety-net/api` 导入，因为包的根导出是 OpenCode 插件，而不是 `checkCommand`。
 
 ## `checkCommand`
 
@@ -55,9 +60,9 @@ type CheckCommandInput = Readonly<{
 | 字段 | 类型 | 描述 |
 | --- | --- | --- |
 | `command` | `string` | 待检查的 shell 命令文本，不能为空 |
-| `cwd` | `string` | 绝对目录路径，作为命令中相对目标的解析基准，并决定使用哪个项目的规则配置 |
+| `cwd` | `string` | 绝对目录路径。命令中的相对目标按它解析，项目的规则配置也由它选定 |
 
-`cwd` 必填，没有默认值。API 不会回退到 `process.cwd()`，因此由主机决定命令属于哪个项目。
+`cwd` 必填，没有默认值。API 从不回退到 `process.cwd()`，因此命令属于哪个项目由宿主决定。
 
 ### 结果
 
@@ -70,16 +75,16 @@ type CheckCommandResult =
 | 字段 | 何时出现 | 描述 |
 | --- | --- | --- |
 | `kind` | 始终 | `'allow'` 或 `'deny'` |
-| `reason` | 仅拒绝 | 向用户展示的阻止原因 |
-| `ruleId` | 仅拒绝 | 产生该阻止的规则或固定拒绝的 ID |
+| `reason` | 仅 deny | 向用户展示的阻止消息 |
+| `ruleId` | 仅 deny | 产生该阻止的规则或固定拒绝的 ID |
 
-决策以 `kind` 为准。`deny` 表示主机不得执行这条命令。`reason` 是展示文本。不要解析或比较它。
+决策以 `kind` 为准。`deny` 表示宿主不得执行这条命令。`reason` 是展示文本，不要解析或比较它。
 
-每个拒绝都带有 `ruleId`。它可能是内置规则 ID（如 `git.reset-hard`）、机密规则 ID、以 `custom.` 开头的规则 ID，或某个[固定拒绝 ID](/zh-Hans/reference/destructive-rules#fixed-denial-ids)（如 `cwd.requested-unusable`）。如需对某类拒绝区别处理，可以按 `ruleId` 分支，例如提示用户修正工作目录。但无论 ID 是什么，被拒绝的命令都不得执行。后续版本也可能新增 ID，因此遇到不认识的 ID 时，按普通拒绝处理。拒绝可能对应哪些情况，请参阅[被阻止的命令](/zh-Hans/reference/blocked-commands)。
+每个 deny 都带有 `ruleId`。它可能是 `git.reset-hard` 这样的内置规则 ID、机密规则 ID、以 `custom.` 开头的规则 ID，或 `cwd.requested-unusable` 这类[固定拒绝 ID](/zh-Hans/reference/blocked-commands#fixed-denial-ids)。可以按它分支，对某类 deny 区别处理，例如提示用户修正工作目录。但无论 ID 是什么，deny 都会阻止命令。后续版本可能新增 ID，因此遇到不认识的 ID 时，按普通 deny 处理。所有可能的 deny 见[被阻止的命令](/zh-Hans/reference/blocked-commands)。
 
 ### 错误
 
-没有类型约束的调用方可能传入 TypeScript 会拒绝的值，因此该函数会重新校验输入。`checkCommand` 抛出的 `TypeError` 带有以下消息之一：
+`checkCommand` 会在运行时校验输入，并抛出带有以下消息之一的 `TypeError`：
 
 | 消息 | 条件 |
 | --- | --- |
@@ -87,7 +92,7 @@ type CheckCommandResult =
 | `command must be a non-empty string` | `command` 不是字符串，或只有空白字符 |
 | `cwd must be an absolute directory path` | `cwd` 不是字符串、只有空白字符，或不是绝对路径 |
 
-`checkCommand` 会捕获已知的防护失败，转而返回它的 fail-closed 拒绝，以免该失败变成主机侧的 fail-open 失误。其余异常都会抛给调用方。
+已知的防护失败会返回 fail-closed 的 deny，而不是抛出异常。其他错误都会抛给调用方。
 
 <Warning>
   如果 `checkCommand` 抛出异常，不要执行这条命令。抛出异常不等于允许。
@@ -95,52 +100,77 @@ type CheckCommandResult =
 
 ### 不可用的工作目录
 
-`cwd` 先用 `resolve()` 归一化，再做检查。该路径的 stat 结果必须是目录，且可读、可搜索。这里刻意没有 `realpath` 步骤，因此 OpenCode 插件和本函数对同一个目录给出一致的决策。
-
-该检查失败时，调用返回 `ruleId` 为 `cwd.requested-unusable` 的拒绝，而不是去分析错误的项目。原因如下：
+`cwd` 必须是一个已存在、可读且可搜索的目录。否则调用会返回 `ruleId` 为 `cwd.requested-unusable` 的 deny，而不是去分析错误的项目。原因如下：
 
 ```
 CC Safety Net could not use the requested working directory because it does not exist, is inaccessible, is not a directory, or uses an unsupported path form. Use an existing accessible working directory. If the requested directory is missing, create it from an accessible location before retrying the command.
 ```
 
-## 示例
+## 一次调用读取哪份策略
+
+一次调用读取的用户文件和项目文件与 hook 相同。项目文件严格取自 `<cwd>/.cc-safety-net/`，不会向上搜索父目录，因此请把仓库根目录作为 `cwd` 传入，否则提交到仓库的项目策略不会加载。两个范围如何合并，见[策略](/zh-Hans/configuration/policy#project-policy)。
+
+由于 `cwd` 决定项目，同时管理多个检出的宿主只要传入各自的目录，就能为每个检出拿到正确的策略。要预先了解宿主会如何判定，请在作为 `cwd` 传入的目录中运行 `status`、`doctor` 或 `explain`。
+
+## 跨版本的稳定性
+
+以下几点在小版本之间保持不变：
+
+- 输入形状 `{ command, cwd }`，以及两种结果：`allow`，和带 `reason` 与 `ruleId` 的 `deny`。
+- `deny` 或抛出异常都表示不要执行该命令。
+- 命令中的相对目标和项目配置按你传入的 `cwd` 解析，从不使用 `process.cwd()`。
+- 一次调用不写审计记录，也不发起网络请求。见[一次调用检查什么](#what-one-call-checks)。
+
+规则目录在任何小版本中都可能变化。新版本可能拒绝旧版本允许的命令，`reason` 的措辞也会改变。请按 `kind` 分支，把 `reason` 留给人和日志，并在 lockfile 中锁定版本。
+
+## 示例：插件宿主
+
+带插件系统的宿主通常有一个执行前 hook，可以否决工具调用。插件把宿主的事件映射为 `{ command, cwd }`，调用 `checkCommand`，再把 deny 转换成宿主的否决：
 
 ```ts
 import { checkCommand } from 'cc-safety-net/api';
 
-function canRun(command: string, cwd: string): boolean {
-  try {
-    const result = checkCommand({ command, cwd });
-    if (result.kind === 'allow') return true;
-    console.error(result.reason);
-    return false;
-  } catch (error) {
-    console.error('CC Safety Net could not check the command', error);
-    return false;
-  }
-}
+export function registerSafetyNet(host: PluginHost) {
+  host.beforeToolCall((call, ctx) => {
+    if (call.toolName !== 'shell') return undefined;
 
-canRun('git status', process.cwd());
+    if (typeof call.input.command !== 'string' || call.input.command.trim() === '') {
+      return { block: true, reason: 'Malformed shell tool call.' };
+    }
+
+    try {
+      const result = checkCommand({ command: call.input.command, cwd: ctx.projectRoot });
+      if (result.kind === 'deny') return { block: true, reason: result.reason };
+      return undefined;
+    } catch (error) {
+      console.error('CC Safety Net could not check the command', error);
+      return { block: true, reason: 'Command check failed. The command was not executed.' };
+    }
+  });
+}
 ```
 
-## 一次调用会做什么
+- 插件只把 shell 工具调用交给 `checkCommand`。它检查的是 shell 命令文本，不检查宿主的读取、写入或搜索工具。
+- `cwd` 是项目根目录的绝对路径。它决定使用哪份项目策略，`checkCommand` 也按它解析命令中 `.env` 之类的相对路径。
+- 抛出异常就阻止这次调用。如果处理函数让错误继续流向执行，检查失败就会变成放行。
+- 事件格式不正确时也阻止，因为没有可供分析的内容。
 
-该函数构造一个名为 `library-api` 的命令工具调用，shell 设为 `auto`，配置工作目录和执行工作目录都设为归一化后的 `cwd`，然后直接交给防护评估。因为它调用的是防护而不是智能体集成，所以既不会执行命令，也不会写入审计记录、修改配置或发起网络请求。
+如果宿主的否决方式是抛出异常，就抛出拒绝消息，而不是返回它。
 
-命令会被完整检查，包括命令对机密文件的访问。主机自己的非 shell 文件工具，例如读取、写入、编辑和搜索，不在本函数的检查范围内。
+<span id="what-one-call-checks"></span>
+
+## 一次调用检查什么
+
+调用会自动识别 shell 方言，并把 `cwd` 同时用作项目目录和执行目录。命令会被完整检查，包括命令对机密文件的访问。宿主自己的非 shell 文件工具，例如读取、写入、编辑和搜索，不在检查范围内。
+
+一次调用从不执行命令、修改配置或发起网络请求。它不写审计记录，因此 `logs` 命令和仪表板都不会显示它。如果宿主不记录拒绝，就没有任何地方会留下记录。
 
 ## 环境变量
 
-每次调用都从进程环境读取 `CC_SAFETY_NET_*` 设置，因此修改这些设置会改变后续决策。无效的 `CC_SAFETY_NET_LEVEL` 会被忽略，并在 stderr 上报告：
+每次调用都从进程环境读取 `CC_SAFETY_NET_*` 设置，因此修改这些设置会改变后续的决策。无效的 `CC_SAFETY_NET_LEVEL` 会被忽略，并在 stderr 上报告：
 
 ```
 CC Safety Net: ignored invalid CC_SAFETY_NET_LEVEL="<value>". Use standard, strict, paranoid.
 ```
 
-报告的值以 JSON 字符串形式加引号，并截断到前 40 个字符。完整列表请参阅[环境变量](/zh-Hans/configuration/environment)。
-
-## 相关页面
-
-- [环境变量](/zh-Hans/configuration/environment)：一次调用会读取的全部设置。
-- [被阻止的命令](/zh-Hans/reference/blocked-commands)：拒绝可能对应哪些情况。
-- [集成架构](/zh-Hans/guides/integration-architecture)：各智能体集成的说明；对自行执行命令的主机来说，本函数可以替代它们。
+消息中的值以 JSON 字符串形式加引号，并截断到前 40 个字符。完整列表见[环境变量](/zh-Hans/configuration/environment)。

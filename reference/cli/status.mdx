@@ -1,0 +1,62 @@
+---
+title: "status command"
+sidebarTitle: "status"
+description: "Reference for cc-safety-net status: the ready and degraded verdicts, every row it prints, the Not active list, and why it always exits 0."
+keywords:
+  - "status"
+  - "ready"
+  - "degraded"
+  - "not active"
+---
+
+`status` shows what CC Safety Net is enforcing right now. Run it to confirm protection is live. It always exits `0`, so use [`doctor`](/reference/cli/doctor) when a script needs a failing exit code.
+
+```bash
+npx cc-safety-net status
+```
+
+## status verdicts: ready and degraded
+
+The first line is one of two verdicts:
+
+| Verdict | Meaning |
+| --- | --- |
+| `ready` | The policy snapshot loaded cleanly, with no loader errors, no warnings, and no policy fallback |
+| `degraded` | The snapshot loaded, but with a loader error, a warning, or a fallback policy. `status` lists the reasons under `Not active` |
+
+To repair a `degraded` configuration, see [Configuration recovery](/configuration/recovery).
+
+## status output rows
+
+After the verdict, `status` prints these rows:
+
+| Row | Value |
+| --- | --- |
+| `Protection` | `destructive` and `secrets`, each shown as `ok` or `OFF` |
+| `Level` | The effective level: `standard`, `strict`, `paranoid`, or `custom`. `status` adds a ` (customised)` suffix when an effective destructive-command rule differs from what the level would inherit |
+| `Rules` | `none active`, or `<n> active` for the number of active custom rules |
+| `Policy` | The path to your user policy file, shortened with `~` |
+| `Project` | The path to the project policy file. `status` prints it only when the current directory has a `.cc-safety-net/policy.json` that is not your user policy file |
+| `Worktree` | `relaxations active`. `status` prints it only when worktree mode is on |
+
+Each row is one line. `status` cuts a long value with `…` instead of wrapping it.
+
+When the project policy weakens the user policy, a `Project policy` block follows the rows, with one line per weakened field. When `CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY` is set, `status` titles the block `Project policy (ignored)`. See [Reported weakenings](/configuration/policy#reported-weakenings).
+
+The report ends in one of two ways. Either it prints `Everything configured is active.`, or it prints a `Not active` section with one bullet per issue, followed by `Full report: cc-safety-net doctor`.
+
+When `NO_COLOR` is set or stdout is not a TTY, `status` prints plain ASCII without glyphs.
+
+## status when the Claude Code plugin is disabled
+
+A disabled Claude Code plugin does not change the verdict. `status` lists it as the first bullet under `Not active`. It affects only Claude Code:
+
+```text
+plugin cc-safety-net@cc-marketplace is disabled in Claude Code; nothing is enforced in Claude Code until it is re-enabled. Other integrations are not affected.
+```
+
+`status` reads `enabledPlugins` from your Claude Code settings file. A missing or unreadable file counts as disabled. To re-enable the plugin, see [Claude Code](/installation/claude-code).
+
+## status in your home directory
+
+In your home directory, `status` prints no `Project` row, because the user config directory is not a project. See [The user config directory is not a project](/configuration/policy#the-user-config-directory-is-not-a-project).

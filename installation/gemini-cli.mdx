@@ -1,0 +1,53 @@
+---
+title: "Install CC Safety Net in Gemini CLI"
+sidebarTitle: "Gemini CLI"
+description: "Install CC Safety Net in Gemini CLI through the gemini-safety-net extension, restart Gemini CLI to load it, see what the hook checks and what happens when it fails, and remove the extension."
+keywords:
+  - "gemini"
+  - "gemini cli"
+  - "gemini-safety-net"
+  - "extension"
+  - "BeforeTool"
+---
+
+Run `npx -y cc-safety-net@latest install --gemini-cli`. It installs the Gemini Safety Net extension, `gemini-safety-net`, from its own repository. Then restart Gemini CLI so it loads the extension.
+
+## Install CC Safety Net in Gemini CLI
+
+<Steps>
+  <Step title="Run the installer">
+    ```bash
+    npx -y cc-safety-net@latest install --gemini-cli
+    ```
+  </Step>
+  <Step title="Restart Gemini CLI">
+    Restart Gemini CLI, or start a new session, to load the extension and its hook.
+  </Step>
+  <Step title="Confirm the extension is active">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+## What the Gemini CLI install changes
+
+The installer installs the Gemini Safety Net extension from `https://github.com/kenryu42/gemini-safety-net`. If a disabled copy is already present, it enables that copy instead.
+
+## What the Gemini CLI hook checks
+
+The extension's hook runs on Gemini CLI's `BeforeTool` event. It analyzes `run_shell_command` calls as shell commands and inspects the inputs of other tools for protected paths.
+
+## What happens when the Gemini CLI check fails
+
+Gemini CLI hooks mostly fail open. If the hook crashes, times out after the default 60 seconds, or prints invalid output, Gemini CLI runs the tool call anyway. If `npx` or `node` is missing, the shell exits with code 127 and Gemini CLI blocks the call. Errors CC Safety Net catches itself always block, because the hook prints a deny.
+
+## Uninstall CC Safety Net from Gemini CLI
+
+```bash
+npx -y cc-safety-net@latest uninstall --gemini-cli
+```
+
+## Troubleshoot Gemini CLI
+
+If commands run without a check, run `gemini extensions list` and confirm that `gemini-safety-net` is installed and enabled. Gemini CLI can enable or disable an extension for the user and for the workspace, and the workspace setting takes precedence. When the extension is disabled, `doctor` prints `gemini-safety-net is disabled in Gemini CLI`. Run `install --gemini-cli` again, which enables a disabled copy, then start a new Gemini CLI session.

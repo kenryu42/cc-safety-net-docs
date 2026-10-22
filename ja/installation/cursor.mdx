@@ -1,0 +1,106 @@
+---
+title: "Cursor に CC Safety Net をインストールする"
+sidebarTitle: "Cursor"
+description: "グローバルな preToolUse フック 1 つで、Cursor IDE と Cursor CLI に CC Safety Net をインストールします。保護範囲の確認、削除方法、Claude Code プラグインやネイティブ Cursor プラグインによる二重チェックの解消方法も説明します。"
+keywords:
+  - "cursor"
+  - "cursor-agent"
+  - "hooks.json"
+  - "preToolUse"
+---
+
+`npx -y cc-safety-net@latest install --cursor` を実行します。グローバルな Cursor のフック設定 `~/.cursor/hooks.json` に `preToolUse` フックが 1 つ追加され、すべてのプロジェクトの Cursor IDE と Cursor CLI のセッションが保護されます。その後、`npx cc-safety-net doctor` を実行してフックが有効か確認してください。このフックはフェイルクローズです。つまり、フックが判定を出せなかったツール呼び出しを Cursor は拒否します。
+
+## Cursor に CC Safety Net をインストールする
+
+<Steps>
+  <Step title="インストーラーを実行する">
+    ```bash
+    npx -y cc-safety-net@latest install --cursor
+    ```
+  </Step>
+  <Step title="フックが有効か確認する">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+フックが設定されていれば、`doctor` の出力で Cursor の行は `Detected`、`Configured`、`Verified` になります。
+
+## Cursor のインストールで変わること
+
+インストーラーは、`~/.cursor/hooks.json` の `"version": 1` ドキュメント内の `hooks.preToolUse` に、次のエントリを書き込みます。
+
+```json
+{ "command": "npx -y cc-safety-net hook --cursor", "timeout": 30, "failClosed": true }
+```
+
+ファイルのバージョンや構造を認識できない場合、インストールはファイルを書き換えず、エラーで失敗します。インストールを再実行すると重複が削除され、管理対象のエントリは 1 つだけ残ります。
+
+<span id="what-the-cursor-hook-checks"></span>
+
+## Cursor のフックがチェックする内容
+
+フックは Cursor の `Shell` ツール呼び出しをチェックし、各コマンドを実行前に解析します。Cursor の `working_directory` は、ワークスペースのルート内になければなりません。このフィールドが宣言されているのに値がない場合や、ルートの外を指している場合、フックは呼び出しを拒否します。
+
+## Cursor でチェックが失敗したときの動作
+
+エントリに `failClosed: true` が設定されているため、フックが判定を出せなかったツール呼び出しを Cursor は拒否します。フックの `timeout` は 30 秒です。
+
+<span id="uninstall-cc-safety-net-from-cursor"></span>
+
+## Cursor から CC Safety Net をアンインストールする
+
+```bash
+npx -y cc-safety-net@latest uninstall --cursor
+```
+
+アンインストールで削除するのは管理対象のフックエントリだけで、`~/.cursor/hooks.json` のそれ以外の部分はそのまま残ります。
+
+[ネイティブ Cursor プラグイン](#cursor-through-a-native-cursor-plugin)がディスク上にある場合は、それも削除します。`cursor-agent plugin marketplace remove cc-safety-net` を実行し、`~/.cursor/plugins/` 以下のプラグインのファイルを削除したうえで、レポートに次の内容を追加します。
+
+```text
+Removed the cc-safety-net marketplace from your Cursor account.
+If /plugins in cursor-agent still lists CC Safety Net as installed, uninstall it there.
+```
+
+## Cursor で CC Safety Net を実行するほかの経路
+
+Cursor が CC Safety Net を実行する経路は、ほかに 2 つあります。`install --cursor` はどちらも設定しません。フックが設定されている状態でどちらかの経路も動くと、Cursor はツール呼び出しを毎回 2 回チェックします。`doctor` はどちらの経路も報告しますが、Cursor が実際にそれを実行しているかどうかは判別できません。
+
+<span id="cursor-through-the-claude-code-plugin"></span>
+
+### Claude Code プラグイン経由の Cursor
+
+[Claude Code プラグイン](/ja/installation/claude-code)には、同じ `failClosed` フックを持つ Cursor 用プラグインも含まれています。Cursor は Claude Code のプラグインを取り込むときにこれを実行します。取り込み元は `<home>/.claude` だけなので、この経路では `CLAUDE_CONFIG_DIR` と `CLAUDE_CODE_PLUGIN_CACHE_DIR` が無視されます。
+
+`install --cursor` のフックも設定されている場合、`doctor` は次のように表示します。
+
+```text
+Warning (Cursor): The Claude Code plugin also runs this check in Cursor, so every tool call is checked twice. Cursor runs the Claude Code plugin only while it imports Claude Code plugins, which doctor cannot check. If Cursor runs it, run `cc-safety-net uninstall --cursor` to remove this hook.
+```
+
+経路がこのプラグインだけの場合、`doctor` は Cursor を `Configured` として数え、Cursor がこのプラグインを実行するのは Claude Code のプラグインを取り込んでいる間だけだと警告します。Cursor が取り込みをやめたら、`install --cursor` を実行してください。この場合、[`update`](/ja/reference/cli/update) は `npx` フックを追加せず、インストールのセレクターには Cursor が `already installed` と表示されます。
+
+<span id="cursor-through-a-native-cursor-plugin"></span>
+
+### ネイティブ Cursor プラグイン経由の Cursor
+
+CC Safety Net は、`cursor-agent` を使ってネイティブ Cursor プラグインとして Cursor に追加することもできます。この場合、プラグインは個人マーケットプレイスとして Cursor アカウントに登録されます。Cursor はマーケットプレイスのプラグインを追加時のコミットに固定するため、`cc-safety-net update` で新しいリリースに移すことはできません。`npx` フックなら、呼び出しのたびに最新のリリースを解決します。
+
+`doctor` は、ダウンロードされたプラグインのファイルが `~/.cursor/plugins/cache/cc-safety-net` 以下にあれば、このプラグインを数えます。ただし Cursor はプラグインをアンインストールした後もこれらのファイルを残すため、ファイルがあってもプラグインが動いている証拠にはなりません。`install --cursor` のフックも設定されている場合、`doctor` は次のように表示します。
+
+```text
+Warning (Cursor): The Cursor plugin also runs this check, so every tool call is checked twice. Cursor records enabled plugins on your Cursor account, which doctor cannot check, and keeps a plugin's files after it is uninstalled. Cursor pins marketplace plugins to the commit they were added at, so `cc-safety-net update` cannot update this plugin, while the npx hook (`cc-safety-net install --cursor`) stays current. If the plugin is installed, run `cc-safety-net uninstall --cursor`, uninstall CC Safety Net from /plugins in cursor-agent, then run `cc-safety-net install --cursor`.
+```
+
+経路がこのプラグインだけの場合も、`doctor` は Cursor を `Configured` として数えます。そのうえで、プラグインが有効かどうかを確認できないこと、`update` ではプラグインを更新できないことを警告します。`cursor-agent` の `/plugins` で CC Safety Net がインストール済みと表示されない場合は、`install --cursor` を実行してください。この場合、`update` は `npx` フックを追加しません。
+
+<span id="troubleshoot-the-cursor-hook"></span>
+
+## Cursor のフックのトラブルシューティング
+
+- **`doctor` がフックエントリの変更を警告する。** 自分またはほかのツールが、管理対象エントリの `timeout` や `failClosed` などを編集しています。`install --cursor` を再実行すると書き直されます。警告の一覧は[管理対象フックの設定ずれ](/ja/reference/cli/doctor#managed-hook-drift)にあります。
+- **`doctor` が `Failed to parse Cursor hooks config` を報告する。** `~/.cursor/hooks.json` が有効な JSON ではありません。ファイルを修正してから、インストールを再実行してください。[フック設定のパースエラー](/ja/reference/cli/doctor#hook-config-parse-errors)を参照してください。
+- **セレクターで Cursor が `CLI not installed` と表示される。** セレクターは `cursor --version` を実行し、失敗すると `cursor-agent --version` を実行します。どちらかを `PATH` に追加してください。

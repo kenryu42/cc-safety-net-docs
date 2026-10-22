@@ -1,0 +1,91 @@
+---
+title: "logs 命令"
+sidebarTitle: "logs"
+description: "cc-safety-net logs 参考：读取审计日志、过滤选项、查找疑似误报、JSON 输出、选项冲突，以及删除旧版日志文件。"
+keywords:
+  - "logs"
+  - "审计日志"
+  - "拒绝记录"
+  - "suspect"
+  - "prune-legacy"
+  - "误报"
+---
+
+`logs` 显示[审计日志](/zh-Hans/reference/audit-log)中的条目：CC Safety Net 每允许或阻止一条命令，就记录一条。不带任何选项时，它打印所有项目在过去 30 天内最近的 20 条拒绝记录。传入 `--all` 可一并包含允许的决策。
+
+```bash
+npx cc-safety-net logs
+npx cc-safety-net logs --suspect --since 7
+npx cc-safety-net logs --id 3fa9c2d1a70e8b42
+```
+
+## logs 过滤器和选项
+
+| 选项 | 参数 | 描述 |
+| --- | --- | --- |
+| `--id` | `<id>` | 按 16 个字符的小写十六进制 ID，从保留的历史记录中显示单个条目 |
+| `--limit` | `<n>` | 最多打印这么多条。默认为 `20` |
+| `--since` | `<days>` | 只显示比此天数更新的条目。默认为 `30`。上限是你配置的审计保留期，而不是固定值 |
+| `--agent` | `<name>` | 只显示记录的智能体 ID 完全匹配的条目，例如 `claude-code` |
+| `--rule` | `<ruleId>` | 只显示记录的规则 ID 完全匹配的条目 |
+| `--session` | `<id>` | 只显示记录的会话 ID 匹配的条目 |
+| `--project` | `<path>` | 只显示来自该项目目录或其下任意目录的条目 |
+| `--suspect` | | 只显示看起来像误报的拒绝记录 |
+| `--all` | | 除拒绝记录外，也包含 `allow` 条目 |
+| `--prune-legacy` | | 永久删除根层级的旧版日志文件 |
+| `--dry-run` | | 与 `--prune-legacy` 搭配时，只报告会删除什么，不实际删除 |
+| `--json` | | 以 JSON 格式输出条目 |
+| `-h`, `--help` | | 显示帮助 |
+
+## 用 `--suspect` 查找疑似误报
+
+`--suspect` 只显示值得再看一眼的拒绝记录。满足以下任一条件的拒绝都会列出：
+
+- 带有 `failureStage`，即分析失败，CC Safety Net 在没有证明命令危险的情况下阻止了它。
+- 同一条命令在同一会话中被拒绝了两次或更多次。
+
+## logs 选项冲突与报错
+
+`--id` 只能与 `--all` 和 `--json` 组合。`--prune-legacy` 只能与 `--json` 和 `--dry-run` 组合，而 `--dry-run` 必须搭配 `--prune-legacy`。其他任何组合或未知选项都会打印一条指明问题的错误，并退出 `1`。
+
+`logs` 无法读取某个审计日志文件，或遇到格式有误的记录时，会向 stderr 打印一条警告。stdout 上的条目和退出码都不变：
+
+```text
+warning: <n> audit log sources could not be read; these results are incomplete
+```
+
+## logs 输出
+
+不带 `--json` 时，`logs` 每个条目打印一行，显示 ID、时间戳、决策、智能体、规则 ID，以及截断到 50 个字符的命令。`↳` 标记出与完整命令不同的片段。
+
+带 `--id` 时，`logs` 改为打印带标签的详情块，列出该记录的每个字段。
+
+<span id="logs-json-output"></span>
+
+## logs JSON 输出
+
+| 调用 | JSON 形状 |
+| --- | --- |
+| `logs --json` | 原始审计条目的数组，2 空格缩进，已完成过滤、按最新优先排序并应用 `--limit` |
+| `logs --id <id> --json` | 包含零个或一个条目的数组 |
+| `logs --json` 且没有审计日志目录 | `[]` |
+| `logs --prune-legacy --json` | 单个紧凑对象：`{"removedFiles":n,"removedBytes":n,"failedFiles":n}` |
+| `logs --prune-legacy --dry-run --json` | 单个紧凑对象：`{"dryRun":true,"files":n,"bytes":n}` |
+
+<span id="delete-legacy-log-files"></span>
+
+## 删除旧版日志文件
+
+`logs --prune-legacy` 删除审计根目录下直接存放的所有 `*.jsonl` 文件，不论新旧和内容。这些文件采用旧版布局。
+
+<Warning>
+  删除立即生效且不可撤销。没有确认提示，也没有 `--yes`。请先加上 `--dry-run` 看看会删掉什么。
+</Warning>
+
+`--prune-legacy` 绝不会触及子目录中按项目存放的审计日志。全部删除成功时退出 `0`，只要有文件无法删除就退出 `1`。
+
+旧版布局与当前布局的区别见[审计日志](/zh-Hans/reference/audit-log#log-layout)。
+
+### 用 `--dry-run` 预览删除
+
+带 `--dry-run` 时，命令不删除任何内容并退出 `0`。它打印 `Would remove <n> legacy audit log files (<size>).` 或 `No legacy audit log files found.`。加上 `--json` 时，改为打印 [logs JSON 输出](#logs-json-output)中列出的对象。

@@ -1,123 +1,116 @@
 ---
 title: "环境变量"
 sidebarTitle: "环境"
-description: "所有 CC Safety Net 环境变量的完整参考：安全级别、能力开关、忽略项目策略削弱的开关、审计范围、调试输出、配置目录覆盖、更新检查退出选项，以及策略与环境的优先级规则。"
+description: "CC Safety Net 的全部环境变量，各配置文件和审计日志的存放位置，CC_SAFETY_NET_HOME 会移动哪些文件，以及环境变量如何与 policy.json 组合。"
 ---
 
-CC Safety Net 从 `policy.json` 和环境变量读取配置。模式开关使用 `CC_SAFETY_NET_*` 前缀；在注明之处，不带 `CC_` 前缀的旧 `SAFETY_NET_*` 名称仍作为旧别名保留。请在启动智能体之前，在 shell 或智能体的启动环境中设置这些变量。
+CC Safety Net 从 `policy.json`、`rule.json` 以及本页列出的 `CC_SAFETY_NET_*` 环境变量读取设置。请在启动智能体之前，在 shell 或智能体的启动环境中设置这些变量。环境变量可以提高安全级别，但绝不会降低它。
 
-本页列出各变量，并说明它们如何与 `policy.json` 组合。各级别阻止的内容见[模式](/zh-Hans/configuration/modes)，策略文件的完整约定见[策略](/zh-Hans/configuration/policy)。
+在表格注明之处，不带 `CC_` 前缀的旧 `SAFETY_NET_*` 名称仍然可用。各级别阻止的内容见[模式](/zh-Hans/configuration/modes)，策略文件见[策略](/zh-Hans/configuration/policy)。
+
+<span id="where-configuration-lives"></span>
+
+## 配置存放位置
+
+| 文件 | 用户范围 | 项目范围 | 设置 `CC_SAFETY_NET_HOME=<path>` 时 |
+| --- | --- | --- | --- |
+| 策略 | `~/.cc-safety-net/policy.json` | `.cc-safety-net/policy.json` | `<path>/policy.json` |
+| 规则配置 | `~/.cc-safety-net/rules/rule.json` | `.cc-safety-net/rules/rule.json` | `<path>/rules/rule.json` |
+| Rulebook | `~/.cc-safety-net/rules/<name>/rulebook.json` | `.cc-safety-net/rules/<name>/rulebook.json` | `<path>/rules/<name>/rulebook.json` |
+| 审计日志 | `~/.cc-safety-net/logs/` | 无，用户日志为每个项目保留一个目录 | 不移动 |
+
+项目路径相对于智能体会话运行所在的目录，参见[配置工作目录](/zh-Hans/configuration/policy#what-the-config-working-directory-is)。
+
+| 变量 | 旧别名 | 效果 |
+| --- | --- | --- |
+| `CC_SAFETY_NET_HOME=<path>` | 无 | 上表中的用户范围文件改用 `<path>`，而不是 `~/.cc-safety-net` |
+
+当智能体运行时使用的主目录与你的 shell 不同时（例如在沙箱中），`CC_SAFETY_NET_HOME` 就派上用场。它只移动用户范围，项目文件始终按项目解析。它也不移动审计日志，审计日志的移动方法见[审计日志](/zh-Hans/reference/audit-log#log-layout)。
+
+CC Safety Net 只保护 `policy.json` 不被智能体修改。`rule.json` 和 rulebook 是普通文件，智能体可以编辑。
 
 ## 安全级别
 
-|变量|旧别名 |效果|
+| 变量 | 旧别名 | 效果 |
 | --- | --- | --- |
-| `CC_SAFETY_NET_LEVEL=standard\|strict\|paranoid` | 无 | 选择安全预设。它只会提高 `policy.json` 中 `safety.level` 所配置的级别，绝不会降低。 |
+| `CC_SAFETY_NET_LEVEL=standard\|strict\|paranoid` | 无 | 选择安全预设。只会提高 `policy.json` 中 `safety.level` 配置的级别，绝不会降低。 |
 
-这三个预设展开为同样的三项能力：`fail_closed`、`paranoid_rm` 和 `paranoid_interpreters`。每个预设阻止什么、每项能力改变什么，见[模式](/zh-Hans/configuration/modes)。
+每个预设开启三项能力中的若干项：`fail_closed`、`paranoid_rm` 和 `paranoid_interpreters`。各项能力阻止什么，见[模式](/zh-Hans/configuration/modes)。
 
-除 `standard`、`strict`、`paranoid` 以外的任何值都会被忽略，`policy.json` 中配置的级别保持不变。被拒绝的值始终会输出到 stderr，无需任何调试标志：
+其他任何值都会被忽略，级别沿用 `policy.json` 中的设置，并且 stderr 上始终会打印以下警告：
 
 ```
 CC Safety Net: ignored invalid CC_SAFETY_NET_LEVEL="<value>". Use standard, strict, paranoid.
 ```
 
-报告出来的值会截断为前 40 个字符。空值视为未设置，不会产生警告。
+空值视为未设置，不打印警告。
 
 ## 能力开关
 
-这些是旧版的单项能力标志。每个标志都**只能开启**对应能力，假值不会将其关闭。如需关闭预设已启用的能力，请在 [policy.json](/zh-Hans/configuration/policy) 中使用 `safety.overrides`。
+这些旧版单项能力开关只能开启对应能力，假值不会关闭它。如需把能力关到预设以下，请在 [policy.json](/zh-Hans/configuration/policy#safety-level-and-capability-overrides) 中使用 `safety.overrides`。
 
-|变量|旧别名 |效果|
+| 变量 | 旧别名 | 效果 |
 | --- | --- | --- |
-| `CC_SAFETY_NET_STRICT=1` | `SAFETY_NET_STRICT` | 强制启用 `fail_closed` 能力。等同于 `safety.overrides.fail_closed: true`。 |
-| `CC_SAFETY_NET_PARANOID=1` | `SAFETY_NET_PARANOID` | 同时强制启用 `paranoid_rm` 和 `paranoid_interpreters`。它**不会**设置 `fail_closed`。 |
-| `CC_SAFETY_NET_PARANOID_RM=1` | `SAFETY_NET_PARANOID_RM` | 强制启用 `paranoid_rm`：即使目标位于 cwd 内部，也会阻止针对非临时路径的 `rm -r`、`rm -rf` 和 `find -delete`。 |
-| `CC_SAFETY_NET_PARANOID_INTERPRETERS=1` | `SAFETY_NET_PARANOID_INTERPRETERS` | 强制启用 `paranoid_interpreters`：无论内容如何，一律阻止解释器单行命令。 |
-| `CC_SAFETY_NET_WORKTREE=1` | `SAFETY_NET_WORKTREE` | 在已确认的 linked worktree 内放宽本地丢弃类的 Git 规则。与 `workflow.worktree_mode` 按逻辑 OR 组合。 |
+| `CC_SAFETY_NET_STRICT=1` | `SAFETY_NET_STRICT` | 强制开启 `fail_closed` 能力，等同于 `safety.overrides.fail_closed: true`。 |
+| `CC_SAFETY_NET_PARANOID=1` | `SAFETY_NET_PARANOID` | 同时强制开启 `paranoid_rm` 和 `paranoid_interpreters`，不设置 `fail_closed`。 |
+| `CC_SAFETY_NET_PARANOID_RM=1` | `SAFETY_NET_PARANOID_RM` | 强制开启 `paranoid_rm`：即使目标在工作目录内，也阻止针对非临时路径的 `rm -r`、`rm -rf` 和 `find -delete`。 |
+| `CC_SAFETY_NET_PARANOID_INTERPRETERS=1` | `SAFETY_NET_PARANOID_INTERPRETERS` | 强制开启 `paranoid_interpreters`：不论内容如何，阻止所有解释器单行命令。 |
+| `CC_SAFETY_NET_WORKTREE=1` | `SAFETY_NET_WORKTREE` | 在已确认的 linked worktree 内放宽本地丢弃类 git 规则。它和 `workflow.worktree_mode` 任一项都会开启 worktree 模式。 |
 
-本表中的其他标志都只能收紧保护，只有 `CC_SAFETY_NET_WORKTREE` 例外：它启用 worktree 模式，在已确认的 linked worktree 内*放宽*本地丢弃类的 Git 规则。
+开关设为 `1` 或 `true`（不区分大小写）即为开启。设置了 `CC_SAFETY_NET_*` 名称时以它为准；只有带前缀的名称不存在时，CC Safety Net 才读取 `SAFETY_NET_*` 别名。
 
-布尔标志设为 `1` 或 `true`（不区分大小写）时视为真。设置了 `CC_SAFETY_NET_*` 名称时以它为准；只有在带前缀的名称不存在时，才会读取 `SAFETY_NET_*` 别名。
+<span id="precedence"></span>
 
 ## 优先级
 
-策略和环境按固定顺序组合：
+CC Safety Net 按固定顺序组合策略和环境：
 
-1. **预设。** `policy.json` 中的 `safety.level` 提供继承而来的能力默认值。该字段不存在时，预设为 `standard`。
+1. **预设。** `policy.json` 中的 `safety.level` 提供继承的能力默认值。该字段不存在时，预设为 `standard`。
 2. **`CC_SAFETY_NET_LEVEL`。** 生效基础级别取策略级别与环境级别中较高的一个。环境可以提高级别，但绝不会降低。
-3. **`safety.overrides.*`。** 接着，`policy.json` 中显式的能力覆盖会开启或关闭 `fail_closed`、`paranoid_rm` 或 `paranoid_interpreters`。
-4. **能力开关。** `CC_SAFETY_NET_STRICT`、`CC_SAFETY_NET_PARANOID`、`CC_SAFETY_NET_PARANOID_RM` 和 `CC_SAFETY_NET_PARANOID_INTERPRETERS` 这几个标志最后应用，而且是**单调的**：每个标志只会把对应能力强制为 `true`，没有一个能关闭能力。
-5. **worktree 模式**是 `workflow.worktree_mode` 与 `CC_SAFETY_NET_WORKTREE` 的逻辑 OR。
+3. **`safety.overrides.*`。** 接着，`policy.json` 中显式的能力覆盖可以把 `fail_closed`、`paranoid_rm` 或 `paranoid_interpreters` 设为 `true` 或 `false`。
+4. **能力开关。** CC Safety Net 最后应用 `CC_SAFETY_NET_STRICT`、`CC_SAFETY_NET_PARANOID`、`CC_SAFETY_NET_PARANOID_RM` 和 `CC_SAFETY_NET_PARANOID_INTERPRETERS`。这些开关是单调的：每个都只会把对应能力强制设为 `true`，没有一个能关闭能力。
+5. **Worktree 模式**是 `workflow.worktree_mode` 与 `CC_SAFETY_NET_WORKTREE` 的逻辑 OR。
 
-最终的三项能力组合决定报告中的**生效级别**。不匹配任何预设的组合，例如开启 `paranoid_rm` 而关闭 `fail_closed`，会报告为 `custom`。
+报告的生效级别由最终的能力值推导而来。不匹配任何预设的组合报告为 `custom`，例如开启 `paranoid_rm` 而关闭 `fail_closed`。
 
-`destructive_command_protection.overrides` 中的单条规则条目会叠加在能力推导出的状态之上。灾难性规则始终强制执行，上述任何设置都无法将其禁用。
+`destructive_command_protection.overrides` 中的单条规则条目叠加在能力设定的状态之上。灾难性规则始终生效，上述任何设置都无法关闭它们。
 
 <span id="project-policy-weakenings"></span>
 
 ## 项目策略的削弱
 
-|变量|旧别名 |效果|
+| 变量 | 旧别名 | 效果 |
 | --- | --- | --- |
-| `CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY=1` |无 |忽略项目 `.cc-safety-net/policy.json` 中削弱用户策略的字段，项目文件中收紧保护的设置仍然生效。默认关闭。 |
+| `CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY=1` | 无 | 忽略项目 `.cc-safety-net/policy.json` 中削弱用户策略的字段，项目文件中收紧保护的设置仍然生效。默认关闭。 |
 
-被忽略的削弱仍会在 `status` 和 `doctor` 中列出，标题分别为 `Project policy (ignored)` 和 `Project policy deltas (ignored):`。该开关丢弃哪些字段、各自以什么为基准判定，见[忽略项目策略的削弱](/zh-Hans/configuration/policy#ignore-project-weakenings)。
-
-不设置该开关时，项目的 `safety.overrides` 条目可以关闭 `CC_SAFETY_NET_LEVEL` 开启的能力，因为覆盖在级别之后应用（上面的第 3 步）。能力开关最后应用，因此项目文件无法关闭它们。
+不设置该开关时，项目的 `safety.overrides` 条目可以关闭 `CC_SAFETY_NET_LEVEL` 开启的能力，因为覆盖在级别之后应用（上面的第 3 步）。能力开关最后应用，因此项目文件无法关闭它们。该开关丢弃哪些字段，见[忽略项目策略的削弱](/zh-Hans/configuration/policy#ignore-project-weakenings)。
 
 ## 审计范围
 
-|变量|旧别名 |效果|
+| 变量 | 旧别名 | 效果 |
 | --- | --- | --- |
-| `CC_SAFETY_NET_AUDIT_SCOPE=all\|blocked` |无 |哪些命令决策会进入审计日志。默认为 `all`。 |
+| `CC_SAFETY_NET_AUDIT_SCOPE=all\|blocked` | 无 | 哪些命令决策会进入审计日志。默认为 `all`。`blocked` 只记录拒绝。 |
 
-- `all`（默认值，也是未设置该变量时的行为）会同时记录允许和阻止的命令决策。
-- `blocked` 只记录拒绝，可减少日志中保留的数据。
-- 此设置**永远**不会抑制拒绝记录。
-- 其他任何值都会回退为只记录拒绝，`doctor` 会将其报告为警告项 `environment.audit-scope-invalid`。
-
-只有当工具调用最终落到某条命令上时，才会记录允许的决策；被允许的非命令工具调用不会产生记录。
+审计日志始终记录拒绝。无效值的行为见[审计范围](/zh-Hans/reference/audit-log#what-is-recorded-audit-scope)。
 
 ## 调试输出
 
-|变量|旧别名 |效果|
+| 变量 | 旧别名 | 效果 |
 | --- | --- | --- |
-| `CC_SAFETY_NET_DEBUG=1` | 无 | 把诊断消息打印到 stderr，例如某次分析异常的原因，或读取状态行所需的 Claude 设置文件失败。它不控制无效 `CC_SAFETY_NET_LEVEL` 的警告，该警告始终会打印。 |
+| `CC_SAFETY_NET_DEBUG=1` | 无 | 把诊断消息打印到 stderr，例如分析异常的原因。 |
 
-`CC_SAFETY_NET_DEBUG` 不会改变记录哪些决策。记录范围由 `CC_SAFETY_NET_AUDIT_SCOPE` 决定。在排查某条命令为何被允许或提交缺陷报告时，可以使用它。`doctor` 命令会报告它是否已设置。
+排查某条命令为何被允许，或提交缺陷报告时可以使用它。它不会改变审计日志记录的内容。
 
-## 配置目录覆盖
+<span id="update-check-opt-out"></span>
 
-|变量|旧别名 |效果|
+## 关闭更新检查
+
+| 变量 | 旧别名 | 效果 |
 | --- | --- | --- |
-| `CC_SAFETY_NET_HOME=<path>` |无 |使用 `<path>` 作为 CC Safety Net 主目录，而不是 `~/.cc-safety-net`。 |
+| `CC_SAFETY_NET_NO_UPDATE_CHECK=1` | 无 | 跳过 `rule doc` 运行的更新检查。任何非空值都有效，连 `0` 也算。 |
 
-设置后，`policy.json` 从 `<path>/policy.json` 读取，用户范围的 rulebook 配置从 `<path>/rules/rule.json` 读取，用户范围的每个 rulebook 从 `<path>/rules/<rulebook-name>/rulebook.json` 读取。它适用于沙箱或非标准 `HOME`，例如智能体运行时使用的主目录与你的 shell 不同。
-
-该覆盖只影响用户范围。项目策略文件和项目 rulebook 配置按项目目录解析，不受影响。
-
-<Note>
-`CC_SAFETY_NET_HOME` 不会改变审计日志的位置。审计根目录单独解析，推导方式见[审计日志的布局](/zh-Hans/reference/audit-log#log-layout)。
-</Note>
-
-## 更新检查选择退出
-
-|变量|旧别名 |效果|
-| --- | --- | --- |
-| `CC_SAFETY_NET_NO_UPDATE_CHECK=1` | 无 | 禁用 `rule doc` 期间运行的更新检查。任何非空值都有效。这个变量不按布尔值解析，因此连 `0` 也会禁用检查。 |
-
-`rule doc` 通常最多每 24 小时检查一次是否有新版本：它轮询 `https://registry.npmjs.org/cc-safety-net/latest`，把结果缓存到 `$HOME/.cc-safety-net/update-check.json`，并在存在更新版本时向 stderr 打印一行 `UPDATE_AVAILABLE:`。这次轮询是 CLI 在 `rule doc` 期间发出的唯一一个出站网络请求。
-
-设置了 `CC_SAFETY_NET_NO_UPDATE_CHECK` 时，该检查会被完全跳过：不轮询 registry，不写缓存，也不会有 `UPDATE_AVAILABLE:` 行。它不影响 `doctor` 和仪表板运行的那个独立更新检查。
+它不影响 `doctor` 和仪表板运行的更新检查。打印的提示见 [`rule doc` 更新提示](/zh-Hans/reference/cli/rule#rule-doc-update-notice)。
 
 ## 检查当前生效的配置
 
-快速查看用 `status`，完整报告用 `doctor`：
-
-```bash
-npx cc-safety-net status
-npx cc-safety-net doctor
-```
-
-`doctor` 报告的 Environment 部分会列出每个变量、当前值、默认行为，以及正在使用的旧 `SAFETY_NET_*` 名称。两个命令的完整语法和输出见 [CLI 命令](/zh-Hans/reference/cli-commands)。Claude Code 的概览指示器见[状态行](/zh-Hans/configuration/status-line)。
+[`status`](/zh-Hans/reference/cli/status) 显示生效级别和存在的问题。[`doctor`](/zh-Hans/reference/cli/doctor) 的 Environment 部分列出每个变量、它的值，以及正在使用的旧 `SAFETY_NET_*` 名称。

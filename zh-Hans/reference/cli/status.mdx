@@ -1,0 +1,62 @@
+---
+title: "status 命令"
+sidebarTitle: "status"
+description: "cc-safety-net status 参考：ready 与 degraded 两种判定、打印的每一行、Not active 列表，以及它为何始终退出 0。"
+keywords:
+  - "status"
+  - "ready"
+  - "degraded"
+  - "not active"
+---
+
+`status` 显示 CC Safety Net 当前正在执行的保护，用来确认保护已经生效。它始终退出 `0`；脚本需要在出问题时得到失败的退出码，请改用 [`doctor`](/zh-Hans/reference/cli/doctor)。
+
+```bash
+npx cc-safety-net status
+```
+
+## status 判定：ready 和 degraded
+
+第一行是以下两种判定之一：
+
+| 判定 | 含义 |
+| --- | --- |
+| `ready` | 策略快照加载正常，没有加载器错误、没有警告，也没有策略回退 |
+| `degraded` | 快照已加载，但出现了加载器错误、警告或回退策略。`status` 会把原因列在 `Not active` 下 |
+
+修复 `degraded` 配置的方法见[配置恢复](/zh-Hans/configuration/recovery)。
+
+## status 输出的各行
+
+判定之后，`status` 打印以下各行：
+
+| 行 | 值 |
+| --- | --- |
+| `Protection` | `destructive` 和 `secrets`，分别显示为 `ok` 或 `OFF` |
+| `Level` | 生效级别：`standard`、`strict`、`paranoid` 或 `custom`。某条生效的破坏性命令规则与该级别本应继承的规则不同时，`status` 会加上 ` (customised)` 后缀 |
+| `Rules` | `none active`，或用 `<n> active` 给出生效的自定义规则数量 |
+| `Policy` | 用户策略文件的路径，用 `~` 缩短 |
+| `Project` | 项目策略文件的路径。只有当前目录下有 `.cc-safety-net/policy.json`，且它不是你的用户策略文件时，`status` 才打印这一行 |
+| `Worktree` | `relaxations active`。只有启用 worktree 模式时，`status` 才打印这一行 |
+
+每行只占一行。值过长时，`status` 用 `…` 截断，不会折行。
+
+项目策略削弱了用户策略时，各行之后会跟一个 `Project policy` 区块，每个被削弱的字段占一行。设置了 `CC_SAFETY_NET_PROJECT_TIGHTEN_ONLY` 时，区块标题为 `Project policy (ignored)`。参见[报告的削弱](/zh-Hans/configuration/policy#reported-weakenings)。
+
+报告的结尾有两种：打印 `Everything configured is active.`，或者打印一个 `Not active` 小节，每个问题一条，最后跟上 `Full report: cc-safety-net doctor`。
+
+设置了 `NO_COLOR` 或 stdout 不是 TTY 时，`status` 输出不带字形的纯 ASCII。
+
+## Claude Code 插件被禁用时的 status
+
+已禁用的 Claude Code 插件不会改变判定。`status` 把它列为 `Not active` 下的第一条，且只影响 Claude Code：
+
+```text
+plugin cc-safety-net@cc-marketplace is disabled in Claude Code; nothing is enforced in Claude Code until it is re-enabled. Other integrations are not affected.
+```
+
+`status` 从 Claude Code 设置文件中读取 `enabledPlugins`。文件缺失或无法读取时视为已禁用。重新启用插件的方法见 [Claude Code](/zh-Hans/installation/claude-code)。
+
+## 在主目录中运行 status
+
+在主目录中运行时，`status` 不打印 `Project` 行，因为用户配置目录不是项目。参见[用户配置目录不是项目](/zh-Hans/configuration/policy#the-user-config-directory-is-not-a-project)。

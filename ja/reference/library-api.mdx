@@ -1,7 +1,7 @@
 ---
 title: "ライブラリ API リファレンス"
 sidebarTitle: "ライブラリ API"
-description: "cc-safety-net/api サブパスエクスポートのリファレンスです。checkCommand 関数、CheckCommandInput と CheckCommandResult の型、投げられる TypeError のメッセージ、1 回の呼び出しが検査する範囲を示します。"
+description: "cc-safety-net/api の checkCommand を呼び出して、自作の Node.js エージェントやハーネスでシェルコマンドを検査する方法です。インストール済みのフックの代わりに使う場面、型とエラー、呼び出しが読むポリシー、バージョン間で変わらない点、プラグインホストの実装例を説明します。"
 keywords:
   - "ライブラリ API"
   - "checkCommand"
@@ -13,9 +13,20 @@ keywords:
   - "プログラムからの検査"
 ---
 
-自身のプロセス内で許可または拒否の判定が必要な Node.js のホストは、エージェント連携をインストールする代わりに `checkCommand` を呼び出せます。この関数は、シェルコマンド 1 つを現在のポリシーと照らして検査し、判定を返します。コマンドを実行することはありません。
+エージェント、タスクランナー、CI のハーネス、シェルツールを持つプラグインホストなど、自分でコマンドを実行する Node.js のホストは、エージェント連携をインストールする代わりに `checkCommand` を呼び出せます。この関数は、シェルコマンド 1 つを現在のポリシーに照らして検査し、許可か拒否かを返します。コマンドを実行することはありません。
 
-これは 1 つの関数であり、プラグインフレームワークではありません。この関数が代わりとなる連携については、[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
+## ライブラリ API とインストール済みの連携の使い分け
+
+どちらも同じ解析エンジンを使います。違うのは、呼び出しを誰が担うかです。
+
+| | インストール済みの連携 | プロセス内の `checkCommand` |
+| --- | --- | --- |
+| 組み込む人 | `cc-safety-net install <target>` をマシンごとに 1 回実行 | 自分のコードが、コマンドを実行するすべての箇所で呼ぶ |
+| 判定が行われる場所 | フックのサブプロセス、またはエージェントが読み込むプラグイン | 自分のプロセス内で同期的に |
+| 監査記録 | すべての判定が記録され、`logs` とダッシュボードで読める | なし。必要なものはホストが記録する |
+| 対象 | 対応している 16 のエージェント | 任意の Node.js のホスト |
+
+ユーザーが対応エージェントのいずれかを使っているなら、インストールコマンドを案内してください。[連携方式](/ja/guides/how-it-works#integration-models)を参照してください。自分のプログラムがコマンドを実行するなら、この関数を呼び出します。
 
 ## インストールとインポート
 
@@ -27,13 +38,7 @@ npm install cc-safety-net
 import { checkCommand } from 'cc-safety-net/api';
 ```
 
-パッケージは、ルートのエクスポートに加えて `cc-safety-net/api` サブパスをエクスポートします。
-
-```json
-"./api": { "types": "./dist/api.d.ts", "import": "./dist/api.js" }
-```
-
-Node.js 18 以降と ESM が必要です。パッケージは `"type": "module"` で、CommonJS ビルドはありません。そのため `require()` ではこのサブパスを解決できません。
+Node.js 18 以降と ESM が必要です。CommonJS のビルドはないため、`require()` では読み込めません。パッケージのルートのエクスポートは `checkCommand` ではなく OpenCode のプラグインなので、`cc-safety-net/api` からインポートしてください。
 
 ## `checkCommand`
 
@@ -55,7 +60,7 @@ type CheckCommandInput = Readonly<{
 | フィールド | 型 | 説明 |
 | --- | --- | --- |
 | `command` | `string` | 検査するシェルコマンドのテキスト。空にはできない |
-| `cwd` | `string` | 絶対パスのディレクトリ。相対パスの対象を解決する基準になり、プロジェクトのルール設定を選択する |
+| `cwd` | `string` | 絶対パスのディレクトリ。コマンド内の相対パスの対象はこれを基準に解決され、プロジェクトのルール設定もこれで選ばれる |
 
 `cwd` は必須で、既定値はありません。API が `process.cwd()` にフォールバックすることはないため、コマンドがどのプロジェクトに属するかはホストが決めます。
 
@@ -69,78 +74,103 @@ type CheckCommandResult =
 
 | フィールド | 有無 | 説明 |
 | --- | --- | --- |
-| `kind` | 常に | `'allow'` または `'deny'` |
-| `reason` | 拒否のみ | ユーザーに表示されるブロック理由 |
-| `ruleId` | 拒否のみ | ブロックを生成したルールまたは固定の拒否の ID |
+| `kind` | 常にある | `'allow'` または `'deny'` |
+| `reason` | 拒否時のみ | ユーザーに表示するブロックメッセージ |
+| `ruleId` | 拒否時のみ | ブロックしたルールまたは固定の拒否の ID |
 
-判定は `kind` で読み取ります。`deny` は、ホストがそのコマンドを実行してはならないことを意味します。`reason` は表示用のテキストです。解析や比較には使わないでください。
+判定は `kind` で読み取ります。`deny` は、ホストがそのコマンドを実行してはならないことを意味します。`reason` は表示用のテキストなので、解析や比較には使わないでください。
 
-すべての拒否には `ruleId` が付きます。値は `git.reset-hard` のような組み込みルールの ID、シークレットルールの ID、`custom.` で始まるルールの ID、または `cwd.requested-unusable` のような[固定の拒否 ID](/ja/reference/destructive-rules#fixed-denial-ids) のいずれかです。拒否の種類ごとに扱いを変えたい場合は、`ruleId` で分岐できます。たとえば、作業ディレクトリを直すようユーザーに伝える場合です。ただし、ID が何であっても、拒否であればコマンドはブロックされます。今後のバージョンで ID が増える可能性もあるため、知らない ID は通常の拒否として扱ってください。どのような場合に拒否になるかは、[ブロックされるコマンド](/ja/reference/blocked-commands)を参照してください。
+すべての拒否に `ruleId` が付きます。値は、`git.reset-hard` のような組み込みルールの ID、シークレットルールの ID、`custom.` で始まるルールの ID、または `cwd.requested-unusable` のような[固定の拒否 ID](/ja/reference/blocked-commands#fixed-denial-ids) のいずれかです。この値で分岐すれば、特定の種類の拒否だけ扱いを変えられます。たとえば、作業ディレクトリを直すようユーザーに伝える場合です。ただし、ID が何であれ、拒否されたコマンドはブロックされます。今後のバージョンで ID が増える可能性があるため、知らない ID は通常の拒否として扱ってください。拒否の種類については[ブロックされるコマンド](/ja/reference/blocked-commands)を参照してください。
 
 ### エラー
 
-型のない呼び出し元は TypeScript が拒否する値も渡せるため、この関数は入力を再検証します。`checkCommand` は、次のいずれかのメッセージを持つ `TypeError` を投げます。
+`checkCommand` は実行時に入力を検証し、次のいずれかのメッセージを持つ `TypeError` を投げます。
 
 | メッセージ | 条件 |
 | --- | --- |
-| `checkCommand requires an input object with command and cwd` | `input` がオブジェクトでない、または `null` |
+| `checkCommand requires an input object with command and cwd` | `input` が null 以外のオブジェクトではない |
 | `command must be a non-empty string` | `command` が文字列でない、または空白のみ |
 | `cwd must be an absolute directory path` | `cwd` が文字列でない、空白のみ、または絶対パスでない |
 
-`checkCommand` は既知のガードの失敗を捕捉し、例外を投げる代わりに、そのフェイルクローズの拒否を返します。その失敗が、ホスト側のフェイルオープンのミスに変わらないようにするためです。それ以外の例外は、すべて呼び出し元に伝わります。
+既知のガードの失敗は、例外を投げずにフェイルクローズの拒否として返します。それ以外のエラーは、そのまま呼び出し元に投げます。
 
 <Warning>
-  `checkCommand` が例外を投げた場合は、そのコマンドを実行しないでください。例外は許可を意味しません。
+  `checkCommand` が例外を投げた場合は、そのコマンドを実行しないでください。例外は許可ではありません。
 </Warning>
 
 ### 使用できない作業ディレクトリ
 
-`cwd` は `resolve()` で正規化してから確認します。パスはディレクトリとして stat でき、読み取りと検索ができる必要があります。`realpath` の手順は意図的に設けていません。これにより、OpenCode プラグインとこの関数は、同じディレクトリに対して同じ判定になります。
-
-この確認に失敗した場合は、誤ったプロジェクトを解析する代わりに、`ruleId` が `cwd.requested-unusable` の拒否を返します。理由は次のとおりです。
+`cwd` は、読み取りと検索ができる既存のディレクトリでなければなりません。そうでない場合、呼び出しは誤ったプロジェクトを解析する代わりに、`ruleId` が `cwd.requested-unusable` の拒否を返します。理由は次のとおりです。
 
 ```
 CC Safety Net could not use the requested working directory because it does not exist, is inaccessible, is not a directory, or uses an unsupported path form. Use an existing accessible working directory. If the requested directory is missing, create it from an accessible location before retrying the command.
 ```
 
-## 例
+## 呼び出しが読むポリシー
+
+呼び出しは、フックと同じユーザーファイルとプロジェクトファイルを読みます。プロジェクトファイルは、ちょうど `<cwd>/.cc-safety-net/` から読み込みます。親ディレクトリはさかのぼらないため、`cwd` にはリポジトリのルートを渡してください。そうしないと、コミットされたプロジェクトポリシーが読み込まれません。2 つのスコープのマージ方法は[ポリシー](/ja/configuration/policy#project-policy)を参照してください。
+
+プロジェクトは `cwd` で選ばれるため、複数のチェックアウトを扱うホストも、それぞれのディレクトリを渡すだけで正しいポリシーを得られます。ホストがどう判定するかを確認するには、`cwd` として渡すディレクトリで `status`、`doctor`、`explain` を実行します。
+
+## バージョン間の互換性
+
+次の点はマイナーバージョンをまたいで変わりません。
+
+- 入力の形 `{ command, cwd }` と、2 種類の結果。`allow` と、`reason` と `ruleId` を持つ `deny` です。
+- `deny` と例外は、どちらもコマンドを実行してはならないことを意味します。
+- コマンド内の相対パスの対象とプロジェクトの設定は、渡した `cwd` を基準に解決され、`process.cwd()` は使われません。
+- 呼び出しは監査レコードを書き込まず、ネットワークリクエストも行いません。[1 回の呼び出しが検査するもの](#what-one-call-checks)を参照してください。
+
+ルールカタログは、どのマイナーバージョンでも変わる可能性があります。新しいリリースで、以前は許可されていたコマンドが拒否されることもあり、`reason` の文言も変わります。分岐は `kind` で行い、`reason` は人とログのために残し、バージョンはロックファイルで固定してください。
+
+## 実装例：プラグインホスト
+
+プラグイン機構を持つホストには、たいていツール呼び出しを拒否できる実行前のフックがあります。プラグインはホストのイベントを `{ command, cwd }` に対応付けて `checkCommand` を呼び出し、拒否をホスト側の拒否に変換します。
 
 ```ts
 import { checkCommand } from 'cc-safety-net/api';
 
-function canRun(command: string, cwd: string): boolean {
-  try {
-    const result = checkCommand({ command, cwd });
-    if (result.kind === 'allow') return true;
-    console.error(result.reason);
-    return false;
-  } catch (error) {
-    console.error('CC Safety Net could not check the command', error);
-    return false;
-  }
-}
+export function registerSafetyNet(host: PluginHost) {
+  host.beforeToolCall((call, ctx) => {
+    if (call.toolName !== 'shell') return undefined;
 
-canRun('git status', process.cwd());
+    if (typeof call.input.command !== 'string' || call.input.command.trim() === '') {
+      return { block: true, reason: 'Malformed shell tool call.' };
+    }
+
+    try {
+      const result = checkCommand({ command: call.input.command, cwd: ctx.projectRoot });
+      if (result.kind === 'deny') return { block: true, reason: result.reason };
+      return undefined;
+    } catch (error) {
+      console.error('CC Safety Net could not check the command', error);
+      return { block: true, reason: 'Command check failed. The command was not executed.' };
+    }
+  });
+}
 ```
 
-## 1 回の呼び出しで行われること
+- プラグインが `checkCommand` に渡すのはシェルツールの呼び出しだけです。検査するのはシェルコマンドのテキストであり、ホストの読み取り、書き込み、検索のツールは対象外です。
+- `cwd` はプロジェクトルートの絶対パスです。これでプロジェクトポリシーが選ばれ、`checkCommand` はコマンド内の `.env` のような相対パスをこれを基準に解決します。
+- 例外が発生したら呼び出しをブロックします。ハンドラーがエラーを無視して実行に進むと、壊れた検査が許可に変わってしまいます。
+- 解析する対象がないため、不正なイベントもブロックします。
 
-この関数は、`library-api` という名前のコマンド種別のツール呼び出しを構築します。シェルは `auto`、設定用と実行用の作業ディレクトリはどちらも解決後の `cwd` です。そのうえで、ガードをそのまま評価します。エージェント連携ではなくガードを直接呼び出すため、コマンドの実行、監査レコードの書き込み、設定の変更、ネットワーク通信は、いずれも行いません。
+ホストが例外で拒否を表す場合は、拒否メッセージを返す代わりに投げてください。
 
-検査はコマンド全体に及びます。コマンド経由のシークレットファイルへのアクセスも対象です。読み取り、書き込み、編集、検索といった、ホストが持つシェル以外のファイル操作ツールは、この関数の検査対象ではありません。
+<span id="what-one-call-checks"></span>
+
+## 1 回の呼び出しが検査するもの
+
+呼び出しはシェルの方言を自動で判別し、`cwd` をプロジェクトのディレクトリとしても実行ディレクトリとしても使います。コマンド全体を検査し、コマンドによるシークレットファイルへのアクセスも対象に含みます。読み取り、書き込み、編集、検索など、ホスト自身が持つシェル以外のファイル操作ツールは検査しません。
+
+呼び出しがコマンドを実行したり、設定を変更したり、ネットワークリクエストを行ったりすることはありません。監査レコードも書き込まないため、`logs` コマンドやダッシュボードには表示されません。ホストが拒否を記録しなければ、どこにも残りません。
 
 ## 環境設定
 
-呼び出しのたびに、プロセスの環境から `CC_SAFETY_NET_*` の設定を読み取ります。そのため、これらの設定を変更すると、以降の判定も変わります。無効な `CC_SAFETY_NET_LEVEL` は無視し、標準エラー出力に報告します。
+呼び出しのたびにプロセスの環境から `CC_SAFETY_NET_*` の設定を読み取るため、これらを変更すると以降の判定も変わります。無効な `CC_SAFETY_NET_LEVEL` は無視し、標準エラー出力に報告します。
 
 ```
 CC Safety Net: ignored invalid CC_SAFETY_NET_LEVEL="<value>". Use standard, strict, paranoid.
 ```
 
-報告される値は JSON 文字列として引用され、先頭 40 文字に切り詰められます。すべての変数については[環境変数](/ja/configuration/environment)を参照してください。
-
-## 関連ページ
-
-- [環境変数](/ja/configuration/environment)：呼び出しが読み取る設定の一覧。
-- [ブロックされるコマンド](/ja/reference/blocked-commands)：拒否になりうる内容。
-- [連携アーキテクチャ](/ja/guides/integration-architecture)：自分でコマンドを実行するホストにとって、この関数が代わりとなるエージェント連携。
+メッセージ内の値は JSON 形式で引用され、先頭の 40 文字に切り詰められます。すべての変数については[環境変数](/ja/configuration/environment)を参照してください。

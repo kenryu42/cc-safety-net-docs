@@ -1,0 +1,94 @@
+---
+title: "install command"
+sidebarTitle: "install"
+description: "Reference for cc-safety-net install: the sixteen target flags, npx cache clearing, the interactive target selector and its keys, and install failures."
+keywords:
+  - "install"
+  - "target flag"
+  - "npx cache"
+  - "interactive picker"
+  - "integration"
+  - "selector"
+---
+
+`install` sets up CC Safety Net in a coding agent CLI. Run it with no flag to pick agents from a list, or pass exactly one target flag for a scripted install. A failed target exits `1` with a hint about the cause.
+
+```bash
+npx -y cc-safety-net install
+npx -y cc-safety-net install --claude-code
+```
+
+See [Installation](/installation) for per-agent steps and what each install changes.
+
+## install target flags
+
+`install` accepts sixteen targets. Each agent's page says what its install writes or runs.
+
+| Flag | Agent |
+| --- | --- |
+| `--amp` | [Amp Code](/installation/amp-code) |
+| `--agy-cli` | [Antigravity CLI](/installation/antigravity-cli) |
+| `--claude-code` | [Claude Code](/installation/claude-code) |
+| `--codex` | [Codex](/installation/codex) |
+| `--cursor` | [Cursor](/installation/cursor) |
+| `--deepseek-harness` | [DeepSeek Harness](/installation/deepseek-harness) |
+| `--devin` | [Devin CLI](/installation/devin-cli) |
+| `--droid` | [Factory Droid](/installation/factory-droid) |
+| `--gemini-cli` | [Gemini CLI](/installation/gemini-cli) |
+| `--copilot-cli` | [GitHub Copilot CLI](/installation/github-copilot-cli) |
+| `--grok-build` | [Grok Build](/installation/grok-build) |
+| `--hermes-agent` | [Hermes Agent](/installation/hermes-agent) |
+| `--kimi-code` | [Kimi Code](/installation/kimi-code) |
+| `--openclaw` | [OpenClaw](/installation/openclaw) |
+| `--opencode` | [OpenCode](/installation/opencode) |
+| `--pi` | [Pi](/installation/pi) |
+
+Pass at most one flag. With more than one, `install` prints `Choose exactly one install|uninstall target:` followed by the flag list, and exits `1`. An unknown option or an extra argument is also an error.
+
+## npx cache clearing
+
+Antigravity CLI, Cursor, Devin CLI, Factory Droid, Grok Build, Hermes Agent, and Kimi Code run their hook through `npx`. Before `install` sets up one of these, it deletes the cached `cc-safety-net` copies from the `_npx` folder of your npm cache, so the new hook runs the latest release. The npm cache is at:
+
+- `$npm_config_cache`, when that variable is set
+- `~/.npm` on macOS and Linux
+- `%LOCALAPPDATA%\npm-cache` on Windows
+
+`uninstall` does not touch the cache. `update` clears it once per run.
+
+## Selecting a target
+
+With no flag in an interactive terminal, `install` lists the agents and labels each row:
+
+| Label | Meaning |
+| --- | --- |
+| `CLI not installed` | The agent is not installed |
+| `already installed` | CC Safety Net is already set up for the agent |
+| `not installed` | The agent is not configured (shown during uninstall) |
+
+Cursor counts as installed when either `cursor --version` or `cursor-agent --version` succeeds.
+
+## Target selector keys
+
+| Key | Action |
+| --- | --- |
+| `Space` | Toggle the highlighted target |
+| `Enter` | Confirm the selection |
+| `Up`/`Down`, `k`/`j` | Move between selectable rows |
+| `u`, `U` | Leave the selector and run the [`update`](/reference/cli/update) flow. Install only |
+| `q`, `Esc` | Cancel |
+
+## Cancelling the target selector
+
+`q` or `Esc` prints `Cancelled: nothing was installed.` or `Cancelled: nothing was uninstalled.` and exits `0`.
+
+## How install runs the selected targets
+
+Some installs run the agent's own CLI. If that command has not finished after 120 seconds, `install` stops it and reports the target as failed.
+
+## install failures and exit code
+
+A failed install exits `1`. `install` prints a hint for these errors:
+
+- a permissions problem
+- a missing path
+- a path component that is not a directory

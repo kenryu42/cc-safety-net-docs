@@ -4,89 +4,58 @@ sidebarTitle: "モード"
 description: "CC Safety Net の standard、strict、paranoid の各安全レベルとワークツリーモードが何をブロックするかを説明します。policy.json または環境変数でレベルを設定し、ワークフローに合わせて動作を調整できます。"
 ---
 
+<span id="which-safety-level-should-i-use"></span>
+
 ## どの安全レベルを使えばよいですか？
 
-コマンドの出どころによって変わります。人が見ているセッションでは、既定の `standard` レベルを使います。認識できる破壊的なコマンドとシークレットへのアクセスをブロックしますが、敵対的な入力や動的な入力に対してはベストエフォートです。プロンプトインジェクションなど信頼できない文脈からコマンドが来る可能性があるなら、`strict` を使います。解析も検証もできないコマンドまでブロックするためです。プロジェクト内の `rm -rf` と、すべての `python -c` や `node -e` のワンライナーも止めたいなら、`paranoid` を選びます。リンクされたワークツリーでは、ワークツリーモードを有効にすると `git reset --hard` などのローカル破棄を許可できます。信頼できないコードの実行やネットワークの制御には、サンドボックスを追加してください。
+コマンドの出どころによって決まります。人が見ているセッションでは、既定の `standard` レベルを使います。認識できる破壊的なコマンドとシークレットへのアクセスをブロックしますが、敵対的な入力や動的な入力を確実に防げるわけではありません。プロンプトインジェクションなど信頼できない文脈からコマンドが来る可能性があるなら、`strict` を使います。解析も検証もできないコマンドまでブロックするためです。プロジェクト内の `rm -rf` と、すべての `python -c` や `node -e` のワンライナーも止めたいなら `paranoid` を選びます。Git のリンクされたワークツリーでは、ワークツリーモードを有効にすると `git reset --hard` などのローカル破棄を許可できます。信頼できないコードの実行やネットワークの制御には、サンドボックスを併用してください。
 
-CC Safety Net には、`standard`、`strict`、`paranoid` という 3 つの**安全レベル**があります。各レベルは、同じ 3 つの機能に展開されるプリセットです。独立した処理経路ではなく、機能の組み合わせに付けた名前です。
+各レベルは、3 つの機能の組み合わせを表すプリセットです。
 
-| レベル | `fail_closed` | `paranoid_rm` | `paranoid_interpreters` |
-| --- | --- | --- | --- |
-| `standard`（既定） | off | off | off |
-| `strict` | **on** | off | off |
-| `paranoid` | **on** | **on** | **on** |
+| レベル | `fail_closed` | `paranoid_rm` | `paranoid_interpreters` | 追加される内容 |
+| --- | --- | --- | --- | --- |
+| `standard`（既定） | off | off | off | 認識できる破壊的なコマンドとシークレットへのアクセスをブロック |
+| `strict` | **on** | off | off | 解析できないコマンド、未対応の heredoc、検証できない削除対象、シークレットファイルのメタデータの確認もブロック |
+| `paranoid` | **on** | **on** | **on** | 作業ディレクトリ内での一時パス以外への `rm -r` と、すべてのインタープリターのワンライナーもブロック |
 
-レベルは、`policy.json` の `safety.level` または環境変数 `CC_SAFETY_NET_LEVEL` で設定します。実際に適用される基本レベルは、この 2 つのうち高い方です。このページで説明する個別のトグルは、その基本レベルの上に機能を 1 つだけ追加します。3 つのプリセットのいずれとも完全には一致しない組み合わせは、有効なレベルが `custom` として報告されます。
+レベルは、`policy.json` の `safety.level` または環境変数 `CC_SAFETY_NET_LEVEL` で設定します。2 つのうち高い方が適用されます。このページで紹介する各トグルは、そのレベルの上に機能を 1 つずつ追加します。どのプリセットにも一致しない組み合わせは、有効なレベルが `custom` として報告されます。ワークツリーモードはレベルとは独立しています。
 
-<Note>
-  モードとデバッグのフラグには、環境変数 `CC_SAFETY_NET_*` を使用します。strict、paranoid、paranoid-rm、paranoid-interpreters、ワークツリーのトグルについては、以前の `SAFETY_NET_*` という名前（`CC_` プレフィックスなし）も引き続き使用できます。変数の全一覧と、ポリシーと環境変数の正確な優先順位は[環境変数](/ja/configuration/environment)を、`safety.level` と `safety.overrides` は[ポリシー](/ja/configuration/policy)を参照してください。
-</Note>
+変数の一覧とポリシー・環境変数の優先順位は[環境変数](/ja/configuration/environment)を、`safety.overrides` は[ポリシー](/ja/configuration/policy#safety-level-and-capability-overrides)を参照してください。影響を受けるコマンドは[各安全レベルで追加されるブロック](/ja/reference/blocked-commands#what-each-safety-level-adds)に一覧があります。
 
 <span id="default-mode"></span>
 
 ## 既定モード
 
-既定モードは `standard` 安全レベルです。環境変数を設定しなくても、組み込みの破壊的な Git 操作とファイルシステム操作をブロックします。まずはこのレベルを使ってください。
+既定モードは `standard` 安全レベルです。環境変数を設定しなくても、組み込みの破壊的な Git 操作とファイルシステム操作、およびシークレットファイルへのアクセスをブロックします。以下の厳しいチェックが必要でなければ、まずはこのレベルを使ってください。
 
-次の失敗は、どのレベルでも同じように扱います。
+standard を含むどのレベルでも、不正なフック入力、アナライザーのエラー、解析できないほど大きいコマンドや入れ子が深すぎるコマンドはブロックします。[フェイルクローズによる強制](/ja/guides/security-model#what-happens-when-analysis-fails)を参照してください。
 
-- **フックの入力 JSON が不正な場合**は、どのモードでも**常にブロック**します（フェイルクローズ）。
-- アナライザー自体が予期しないエラーを投げた場合は、どのモードでも「failed closed」という理由を付けてコマンドを**常にブロック**します（フェイルクローズ）。
-- パーサーの**再帰上限または構造検証の上限**を超えるコマンドは、どのモードでも**常にブロック**します。このリソース枯渇を防ぐための上限は、standard レベルでも緩和されません。
+standard と strict の違いは、解析や検証ができない入力の扱いです。
 
-standard が他と異なるのは、解析できない入力と検証できない入力の扱いです。
+- 引用符が閉じていないなどの理由でコマンドをトークンに分割できない場合、CC Safety Net はテキストをスキャンして既知の危険なパターンを探します。`echo 'unterminated` は実行されます。`git reset --hard 'unterminated` は standard でブロックされ、Claude Code ではブロックの代わりに承認を求めます。[standard がコマンドを検証できない場合](#when-standard-cannot-verify-a-command)を参照してください。
+- `rm -rf "$target"` のように削除対象が動的な再帰削除は許可されます。strict ではブロックされます。
 
-- シェルのパーサーがコマンドをトークンに分割できない場合（引用符が閉じていない場合など）、CC Safety Net は既知の危険なパターンをフォールバックのテキストスキャンで探します。一致しなかったテキストはそのまま**通す**ため、`echo 'unterminated` は実行されます。一致したテキスト（`git reset --hard 'unterminated` など）はブロックします。Claude Code では、フックがブロックせずに承認を求めます。[standard がコマンドを検証できない場合](#when-standard-cannot-verify-a-command)を参照してください。
-- **standard では、動的な再帰削除の対象を一律にはブロックしません。** `rm -rf "$target"` はここでは許可され、フェイルクローズ機能を有効にして初めてブロックされます。
+standard はこのほか、動的な実行ファイル、コマンド置換で組み立てたコマンド、`eval "$(ssh-agent -s)"` のようにリテラルなローカルの生成コマンド 1 つに対する `eval` や `source` も許可します。standard は、敵対的な入力や動的な入力を確実に防げるわけではありません。プロンプトインジェクションからコマンドが来る可能性があるなら、strict か paranoid を使ってください。
 
-standard はこのほかにも、次のものを意図的に許可します。動的な実行ファイル、コマンド置換で組み立てられたコマンド構造、検証できないその他の再帰削除対象、組み込みの機密パスに対するメタデータのみのチェック、そして `eval "$(ssh-agent -s)"` のように完全にリテラルなローカルの生成コマンド 1 つに対する `eval`／`source` です。これらは意図的なトレードオフです。standard は、**敵対的な入力や動的な入力に対してはベストエフォート**という位置づけです。コマンドがプロンプトインジェクションなど敵対的な文脈から渡される可能性がある場合は、strict または paranoid を使ってください。
-
-一方で standard でも、緩和されないものがあります。機密情報の**内容**へのアクセス、ユーザーが設定した拒否パスとその配下、そして致命的な操作に対する保護（root とホームディレクトリの再帰削除、Git メタデータ、正規の `policy.json`）です。
-
-<span id="sensitive-path-relaxations-in-standard"></span>
-
-### standard における機密パスの緩和
-
-standard では、組み込みの機密パスに対してメタデータだけを見るチェックを許可します。対象となるのは `ls`、`stat`、`test -e` と `test -f`、`[ -e ... ]` と `[ -f ... ]`、`git check-ignore`、`-delete`、`-exec`、`-execdir`、`-ok`、`-okdir`、`-files0-from`、`-fls`、`-fprint`、`-fprint0`、`-fprintf` のいずれも含まない `find`、件数を数えるだけの `wc`、そして出力をファイル名、件数、終了ステータスだけに絞った `grep` または `rg`（`-l`、`-c`、`-q`、`grep -L`）です。このチェックは単独でも、複合コマンドの 1 セグメントとしても許可されるため、`test -f .env && echo present` も `if [ -f ~/.aws/credentials ]; then echo yes; fi` も通ります。別のセグメントに読み取りがあれば引き続きブロックするため、`test -f .env && cat .env` は拒否されます。`wc`、`grep`、`rg` の出力が後ろのパイプ、キャプチャー、コプロセスに届きうる場合は読み取りとして検査するため、`grep -l KEY .env | xargs cat` は拒否されます。
-
-組み込みのファイル名ルールについては、standard は次の形も、読み取りではなく単なる言及として扱います。
-
-- 機密ファイル名が既存の**ディレクトリ**を指す場合。`ls credentials` はディレクトリの一覧表示なので許可されます。
-- 空白を含む語で、パスらしい文字（`~`、`.`、`/`、Windows のドライブレター）で始まらず、ディスク上にも存在しないもの。`for c in 'cat ~/.aws/credentials'; do echo "$c"; done` の引用符で囲まれた文字列がこれにあたります。
-- 存在しない機密ファイル名を出力リダイレクトで**新規作成**する場合。`.env` のないディレクトリでの `printf 'KEY=1\n' > .env` などです。
-- `mkdir` または `touch` のオペランド。`touch fx/.env` などです。
-- `tailscale cert` の `--cert-file` または `--key-file` の値と、`openssl x509 -in` の入力ファイル。
-
-空白を含む語とリダイレクトの形が適用されるのは、語に `$` が含まれない場合だけです。これらの形はいずれも `secret.home.*` と `secret.cli.*` のルールを緩和しないため、`du -sh ~/.aws` はブロックされたままです。
-
-standard は、`for` のリストにある語も、ループ変数がほかの検査対象の語に届かなければ検査しません。`for t in .env.local; do grep -c -- "$t" notes.md; done` などです。ファイルシステム操作、コマンド実行、eval の痕跡がある Python と JavaScript のコードでは、文字列リテラルを位置によって判定します。コレクションの要素、辞書の項目、比較のオペランドにあたるリテラルはデータとして扱い、コードが新しく作るファイルの名前を指すだけのリテラルも同様です。上記の各形の正確な条件は、[standard モードが読み取りと見なさないもの](/ja/reference/secret-protection#what-standard-mode-does-not-count-as-a-read)と [standard モードでのインタープリターのリテラル](/ja/reference/secret-protection#interpreter-literals-in-standard-mode)にあります。
-
-設定した拒否パスはどのモードでも緩和されず、[strict と paranoid](#strict-mode) ではここに挙げた形をすべてブロックします。
+standard は、`test -f .env` や `ls ~/.ssh` のように、中身を読まずにシークレットファイルの存在を確かめる操作を許可します。strict と paranoid はこれをブロックします。該当する形はすべて[standard モードが読み取りと見なさないもの](/ja/reference/secret-protection#what-standard-mode-does-not-count-as-a-read)に一覧があります。シークレットファイルの内容の読み取り、設定した拒否パス、[致命的なルール](/ja/reference/blocked-commands#catastrophic-rules)は、どのレベルでも緩和されません。
 
 <span id="when-standard-cannot-verify-a-command"></span>
 
 ### standard がコマンドを検証できない場合
 
-standard には、許可と拒否に加えて 3 つ目の結果があります。次の 2 つの拒否は、危険と判断されたものではなく、検証できなかったものとして扱われます。
+standard レベルの拒否のうち 2 つは、「危険」ではなく「検証できなかった」ことを意味します。1 つはパースできないテキストが破壊的なパターンに一致した場合、もう 1 つは `bash -c "$CMD"` のように、CC Safety Net がシェルコマンドの実行元を解決できない場合です。Claude Code では、ほとんどの権限モードで、この 2 つはブロックせずに承認を求めます。他のホスト、および strict と paranoid では拒否のままです。[Claude Code がブロックせずに確認を求める場合](/ja/installation/claude-code#when-claude-code-asks-you-instead-of-blocking)を参照してください。
 
-- パースできないテキストのうち、フォールバックスキャンが破壊的パターンに一致したもの（ルール `raw-text.dangerous-command`）。
-- シェルの実行元を解決できず、その実行元が標準入力からプログラムを読むシェルでもなく、コマンドテキストにも破壊的パターンが現れない場合。`bash -c "$CMD"` はこれにあたります。`cat install.sh | sh -` は、`sh -` が標準入力からプログラムを読むシェルなのであたりません。
-
-Claude Code では、フックがこの 2 つに `permissionDecision: "ask"` を返すため、拒否ではなく権限確認のプロンプトが表示されます。メッセージの見出しは `CC Safety Net could not verify this command` で、末尾は `Approve only if you expected this command.` です。承認すると、そのコマンドはそれ以上解析されずに実行されます。
-
-この確認が出るのは、permission mode が `default`、`acceptEdits`、`plan`、`auto` のときだけです。`auto` では、Claude Code の分類器がその呼び出しを拒否することはありますが、プロンプトを経ずに承認することはできません。`bypassPermissions`、`dontAsk`、および permission mode を指定しないペイロードでは、人に問いかける手段がないため拒否のままです。strict と paranoid はどの permission mode でも拒否します。他のホストも同様で、`ask` がフェイルオープンになるか、人を介さずに応答されうるためです。各ホストの出力は[連携アーキテクチャ](/ja/guides/integration-architecture)を参照してください。
-
-<span id="strict-mode"></span>
+<span id="strict-mode-cc_safety_net_strict=1"></span>
 
 ## Strict モード（`CC_SAFETY_NET_STRICT=1`）
 
-strict モードは `fail_closed` 機能を有効にします。厳しくなるのは解析できないコマンドだけではありません。次の 5 点が変わります。
+strict は `fail_closed` 機能を有効にします。敵対的な文脈や信頼できない文脈からコマンドが来る可能性がある場合や、珍しい構文でときどき誤検知が出ても構わない場合に使います。次のものをブロックします。
 
-- **解析できないコマンドをブロックします。** フォールバックのテキストスキャンで危険なパターンが見つからなかった場合でも、パーサーがトークンに分割できないコマンドは「Command could not be safely analyzed (strict mode)」として拒否します。`echo 'unterminated` は standard では許可されますが、ここではブロックされます。
-- **heredoc をフェイルクローズで扱います。** 次の条件をすべて満たす場合を除き、heredoc を含むコマンドを拒否します。標準入力を対象とする展開されない heredoc が 1 つだけで、他に入力リダイレクトがなく、読み取り側が `cat`、`tee`、`git apply`、`git commit`、`gh pr create`、`gh issue create` のいずれかとしてリテラルに書かれていることが必要です。展開されない heredoc とは、デリミタが引用符で囲まれているもの（`<<'EOF'`）か、引用符がなくても本文に `$`、バッククォート、バックスラッシュが含まれないものを指します。そのため `python3 - <<'PY'` や、本文に `$HOME` を含む `cat <<EOF` は拒否され、`git commit -F - <<'EOF'` と、本文がプレーンテキストだけの `cat <<EOF` は許可されます。正確な条件は [heredoc の解析](/ja/guides/analysis-engine#heredoc-analysis)を参照してください。
-- 下に挙げる 5 つのルールによって、**検証できない破壊的対象をブロックします**。
-- **メタデータのみで機密パスを探る操作をブロックします。** `test -f ~/.ssh/id_rsa` と `find ~/.ssh -type f` は standard では許可され、strict では拒否されます。単独で書かれていても、複合コマンドの 1 セグメントであっても同じです。[standard における機密パスの緩和](#sensitive-path-relaxations-in-standard)に挙げたほかの形も、strict では拒否されます。
-- **standard 限定のインラインデータ緩和が無効になります。** standard では、インタープリターのインラインコードに機密パスのリテラルが含まれていても、コード全体にファイルシステム操作、コマンド実行、eval のいずれの痕跡もなければ、実行されないデータとして扱います。痕跡がある場合でも、Python と JavaScript のリテラルがコレクションの要素や比較のオペランドなどデータの位置にあれば、standard はデータとして扱います。また、standard がリテラルをシェルとしてたどるのは、実行呼び出しがそのリテラルを受け取れるときだけです。呼び出しの第 1 引数が名前であるか名前を含む場合はすべてのリテラルが対象になり、そうでない場合は呼び出しの括弧の中にあるリテラルと、括弧なしの `system`、`exec`、`spawn`、`popen` の直後にあるリテラルだけが対象になります。この緩和の対象は POSIX シェル以外のすべてのコードインタープリターです。POSIX シェルのインラインコードは、代わりにシェルとしてたどります。strict ではこれらの緩和がなくなり、リテラルの中身もスキャンします。[standard モードでのインタープリターのリテラル](/ja/reference/secret-protection#interpreter-literals-in-standard-mode)を参照してください。
+- **解析できないコマンド。** テキストスキャンで危険なものが見つからなくてもブロックします。理由は「Command could not be safely analyzed (strict mode)」です。`echo 'unterminated` は standard では許可され、strict ではブロックされます。
+- **一部の対応形式を除く heredoc。** `git commit -F - <<'EOF'` と単純な `cat <<'EOF'` は通りますが、`python3 - <<'PY'` は拒否します。[heredoc](/ja/reference/blocked-commands#heredocs) を参照してください。
+- **検証できない破壊的な対象。** 下の 5 つのルールでブロックします。
+- **シークレットファイルの存在確認。** `test -f ~/.ssh/id_rsa` や `find ~/.ssh -type f` などです。
+- **インタープリターのコード内にあるシークレットのパス。** `python -c "x = '.env'"` のように、standard ではデータとして扱うものです。
 
 次の 5 つのルールは、`fail_closed` が有効なときにだけ動作します。
 
@@ -98,81 +67,70 @@ strict モードは `fail_closed` 機能を有効にします。厳しくなる�
 | `shell.dynamic-executable` | `$(printf r)m -rf /` |
 | `shell.dynamic-structure` | `git reset $(printf --hard)` |
 
-フックの入力 JSON が不正な場合、アナライザーの例外、パーサーのリソース上限による失敗は、どのモードでもすでに **フェイルクローズ** です。strict が新たに追加する動作ではありません。
-
-### strict 安全レベルを有効にする
+strict は、レベルで有効にするか、同じ機能を有効にする以前からのトグルで有効にします。
 
 ```bash
 export CC_SAFETY_NET_LEVEL=strict
-```
-
-以前からのトグル `CC_SAFETY_NET_STRICT=1` も同じ機能を有効にするもので、引き続き使用できます。
-
-```bash
+# or
 export CC_SAFETY_NET_STRICT=1
 ```
 
-### strict 安全レベルを使用する場合
-
-コマンドが敵対的な文脈や信頼できない経路から渡される可能性がある場合は、strict モードを有効にしてください。保護を最大限に高めたい場合や、珍しいコマンド構文でときどき誤検知が出ても許容できる場合にも適しています。
-
 <Note>
-  [policy.json](/ja/configuration/policy) の `destructive_command_protection.overrides` を使うと、strict 相当のルールを個別に無効にできます。逆に `"on"` の override を指定すれば、standard でも任意の strict 相当ルールを強制的に有効にできます。ただし、パーサーのフェイルクローズや機密パスに関する判定など、登録済みの破壊的コマンドのルール ID を持たないフェイルクローズの結果については、strict は引き続き strict のまま動作します。
+  上の 5 つのルールは、[policy.json](/ja/configuration/policy#destructive-command-protection) の `destructive_command_protection.overrides` で個別に無効にできます。`"on"` を指定すれば、standard でも個別に有効にできます。解析できないコマンド、未対応の heredoc、シークレットファイルの確認には無効にできるルールがないため、strict が有効なあいだはブロックされたままです。
 </Note>
 
-<span id="paranoid-mode"></span>
+<span id="paranoid-mode-cc_safety_net_paranoid=1"></span>
 
 ## Paranoid モード（`CC_SAFETY_NET_PARANOID=1`）
 
-`paranoid` レベルは、strict に `paranoid_rm` と `paranoid_interpreters` の 2 つの機能を加えたものです。これらのチェックは通常のワークフローを妨げることがあるため、明示的に有効にしたときだけ動作します。レベル全体を選ぶことも、個別の機能だけを有効にすることもできます。片方しか有効になっていない場合、有効なレベルは `custom` として報告されます。
+`paranoid` レベルは、strict に `paranoid_rm` と `paranoid_interpreters` の 2 つの機能を加えたものです。通常のワークフローを妨げることがあるため、明示的に有効にしたときだけ動作します。レベル全体を選ぶことも、機能を 1 つだけ有効にすることもできます。片方だけを有効にした場合、レベルは `custom` と報告されます。
 
-<span id="paranoid-rm-check"></span>
+<span id="rm-check-cc_safety_net_paranoid_rm=1"></span>
 
 ### rm チェック（`CC_SAFETY_NET_PARANOID_RM=1`）
 
-既定では、カレントディレクトリ配下の `rm -rf` と `find -delete` は許可されます。自分のプロジェクトルート内のファイルを削除するのは意図的な操作だ、という前提に立っているためです。paranoid の rm チェックを有効にすると、**カレントディレクトリ配下であっても**、一時パス以外への再帰的な削除をブロックします。`rm -rf ./cache` と `rm -r ./cache` は `rm.recursive-force-paranoid` に一致し、`find ./cache -delete` は `find.delete` としてブロックされます。PowerShell の同等コマンドである `Remove-Item ./cache -Recurse -Force` は `powershell.remove-item-recursive-force-paranoid` に一致します。
+既定では、カレントディレクトリ配下の `rm -rf` と `find -delete` は許可されます。プロジェクトルート内での削除は意図的な操作だと見なすためです。paranoid の rm チェックを有効にすると、カレントディレクトリ配下であっても、一時パス以外への再帰削除をブロックします。`rm -rf ./cache` と `rm -r ./cache` は `rm.recursive-force-paranoid` に、`find ./cache -delete` は `find.delete` に一致します。PowerShell の `Remove-Item ./cache -Recurse -Force` は `powershell.remove-item-recursive-force-paranoid` に一致します。
 
 このチェックを有効にしても、一時パスと `destructive_command_protection.allow_paths` に指定したディレクトリは許可されたままです。
 
 <span id="paranoid-interpreters"></span>
 
-### インタープリターの 1 行コード（`CC_SAFETY_NET_PARANOID_INTERPRETERS=1`）
+<span id="interpreter-one-liners-cc_safety_net_paranoid_interpreters=1"></span>
 
-インタープリターの 1 行コードは、静的には検査しにくい文字列の中に破壊的なコマンドを隠せてしまいます。paranoid 未満のレベルでは、本体に危険なコマンドを含む 1 行コードだけをブロックします（ルール `interpreter.dangerous-command`）。このチェックを有効にすると、内容にかかわらず**すべて**の 1 行コードを `interpreter.one-liner-paranoid` でブロックします。
+### インタープリターのワンライナー（`CC_SAFETY_NET_PARANOID_INTERPRETERS=1`）
+
+インタープリターのワンライナーは、静的には検査しにくい文字列の中に破壊的なコマンドを隠せます。paranoid 未満のレベルでは、本体に危険なコマンドを含むワンライナーだけをルール `interpreter.dangerous-command` でブロックします。このチェックを有効にすると、内容にかかわらずすべてのワンライナーを `interpreter.one-liner-paranoid` でブロックします。
 
 - `python -c '...'`（`python3` と `python2` も含む）
 - `node -e '...'`
 - `ruby -e '...'`
 - `perl -e '...'`
 
-したがって、`python -c "print(1)"` は standard と strict で許可され、ここではブロックされます。
+つまり `python -c "print(1)"` は、standard と strict では許可され、このチェックではブロックされます。
 
-### paranoid 安全レベルを有効にする
+### paranoid チェックを有効にする
 
 ```bash
+# The full paranoid level, including strict
 export CC_SAFETY_NET_LEVEL=paranoid
-```
 
-### フェイルクローズ動作なしで両方の paranoid チェックを有効にする
-
-```bash
+# Both paranoid checks without strict (effective level: custom)
 export CC_SAFETY_NET_PARANOID=1
-```
 
-### 個別の paranoid チェックを有効にする
-
-```bash
+# One check at a time
 export CC_SAFETY_NET_PARANOID_RM=1
 export CC_SAFETY_NET_PARANOID_INTERPRETERS=1
 ```
 
-`CC_SAFETY_NET_PARANOID=1` を設定することは、`CC_SAFETY_NET_PARANOID_RM=1` と `CC_SAFETY_NET_PARANOID_INTERPRETERS=1` の両方を有効にするのと同じです。ただし `fail_closed` は有効に**なりません**。そのため、既定の standard レベルに重ねた場合、有効なレベルは `paranoid` ではなく `custom` になります。プリセット全体を適用したい場合は、`CC_SAFETY_NET_LEVEL=paranoid`（または `safety.level: "paranoid"`）を使ってください。
+`CC_SAFETY_NET_PARANOID=1` では `fail_closed` は有効になりません。プリセット全体を適用するには、`CC_SAFETY_NET_LEVEL=paranoid` か `safety.level: "paranoid"` を使ってください。
 
 <span id="worktree-mode"></span>
 
+<span id="worktree-mode-cc_safety_net_worktree=1"></span>
+
 ## ワークツリーモード（`CC_SAFETY_NET_WORKTREE=1`）
 
-Git のリンクされたワークツリーは、独立した作業環境として使えます。ワークツリーモードは、カレントディレクトリがリンクされたワークツリーの中にあると CC Safety Net が確認できた場合にかぎり、一部のローカル破棄ルールを緩和します。
+Git のリンクされたワークツリーは独立した作業環境なので、ワークツリーモードではそこでの一部のローカル破棄ルールを緩和します。適用されるのは、カレントディレクトリがリンクされたワークツリーの中にあると CC Safety Net が確認できた場合だけです。
 
 ### ワークツリーモードを有効にする
 
@@ -180,52 +138,39 @@ Git のリンクされたワークツリーは、独立した作業環境とし�
 export CC_SAFETY_NET_WORKTREE=1
 ```
 
-[policy.json](/ja/configuration/policy) で `workflow.worktree_mode: true` を設定することもできます。この 2 つは論理 OR として扱われ、どちらか一方でも設定されていればワークツリーモードが有効になります。
+[policy.json](/ja/configuration/policy) で `workflow.worktree_mode: true` を設定することもできます。どちらか一方を設定すればワークツリーモードが有効になります。
 
-### リンクされたワークツリー内で許可するコマンド
+### リンクされたワークツリーで許可されるコマンド
 
-ワークツリーモードが有効で、カレントディレクトリがリンクされたワークツリーだと確認できた場合、次のコマンドを許可します。
+ワークツリーモードが有効で、作業ディレクトリがリンクされたワークツリーだと確認できた場合、次のコマンドを許可します。
 
 - `git restore <file>` と `git restore --worktree <file>`
-- `git checkout -- <file>`、`git checkout <path>`、`git checkout <ref> -- <file>`、`git checkout --force`、および位置引数が複数あって判別しにくい checkout の形式
+- `git checkout -- <file>`、`git checkout <path>`、`git checkout <ref> -- <file>`、`git checkout --force`、および位置引数が複数あって判別できない `git checkout` の形式
 - `git reset --hard` と `git reset --merge`
-- `git clean -f`（`-fd` など、組み合わせた short flag を含む）
+- `git clean -f`（`-fd` のように組み合わせた短いフラグも含む）
 - `git switch --discard-changes` と `git switch -f / --force`
 
-### リンクされたワークツリー内でもブロックするコマンド
+### リンクされたワークツリーでもブロックされるコマンド
 
-次のコマンドは共有された ref や他のワークツリーに影響するため、**ワークツリーモードでは緩和されません**。
+次のコマンドは共有された ref や他のワークツリーに影響するため、ワークツリーモードでも緩和されません。
 
 - `git push --force`：リモートに影響する
 - `git branch -D`：ワークツリー間で共有されるブランチを強制削除する
-- `git stash drop` / `git stash clear`：stash はワークツリー間で共有される
+- `git stash drop` / `git stash clear`：ワークツリー間で共有されるスタッシュを変更する
 - `git worktree remove --force`：別のワークツリーを削除しかねない
 
-これとは別に、[一時ルートの緩和](/ja/guides/analysis-engine#temp-root-relaxation)があります。信頼された一時ルート配下にある使い捨てのワークツリーディレクトリを指定した `git worktree remove --force` は、この緩和で許可されることがあります。この緩和はワークツリーモードの一部ではなく、`CC_SAFETY_NET_WORKTREE=1` も必要ありません。
+これとは別の[一時ルートの緩和](/ja/reference/blocked-commands#git-commands-in-a-temp-repository)により、信頼された一時ルート配下にある使い捨てのワークツリーディレクトリを対象とする `git worktree remove --force` が許可されることがあります。この緩和はワークツリーモードの一部ではなく、`CC_SAFETY_NET_WORKTREE=1` も必要ありません。
 
-### リンクされたワークツリーの検出
+### ワークツリーモードが適用されない場合
 
-ワークツリーの検出は **フェイルクローズ** です。カレントディレクトリをリンクされたワークツリーと確実に特定できない場合は、より厳しい既定のルールを適用します。条件は次のとおりです。
+作業ディレクトリがリンクされたワークツリーだと確認できない場合は、既定のルールがそのまま適用されます。メインワークツリーとサブモジュールは、ワークツリーモードでも緩和されません。次の場合も無効になります。
 
-- リンクされたワークツリーは、解決後の Git ディレクトリに `commondir` ファイルを持つ `.git` *ファイル*（ディレクトリではない）によって識別します。メインのワークツリーと submodule は緩和の対象外です。
-- カレントディレクトリからの探索には `realpath` を使うため、シンボリックリンクを含むパスも正しく解決されます。
-- `git -C <path>` の指定は考慮します。対象を解決できない場合、そのコマンドはブロックされたままです。
-- `--git-dir` / `--work-tree` を渡した場合や、環境変数に `GIT_DIR` / `GIT_WORK_TREE` / `GIT_COMMON_DIR` / `GIT_INDEX_FILE` が設定されている場合は、緩和を無効にします。
-- 確認済みのワークツリー内でも、次のローカル破棄は緩和されません。`$`、`*`、`?`、`[` を含む動的な引数を持つコマンド、ブランチの強制リセット（`git checkout -B`/`-Bf`、または `-f` や `--discard-changes` を伴う `git switch -C`/`-Cf`）、`-f` を複数指定した `git clean`、`--recurse-submodules`（または submodule を再帰的に扱う設定）を使うコマンドです。
-
-## 安全レベルのまとめ
-
-| レベル | 追加される内容 |
-| --- | --- |
-| `standard` | 追加機能なし。認識できる破壊的コマンドに対するベストエフォートの保護 |
-| `strict` | `fail_closed`：解析できないコマンド、未対応の heredoc、検証できない破壊的対象、メタデータのみによる機密パスの探索 |
-| `paranoid` | strict に加えて `paranoid_rm`（カレントディレクトリ配下でも一時パス以外の `rm -r` と `rm -rf` をブロック）と `paranoid_interpreters`（内容にかかわらずすべての 1 行コードをブロック） |
-| `custom` | どのプリセットにも一致しない機能の組み合わせ |
-
-ワークツリーモードはレベルとは独立しており、確認済みのリンクされたワークツリー内でローカル破棄ルールを緩和します。
-
-レベルを選択する変数や機能を強制する変数の一覧、以前の `SAFETY_NET_*` エイリアス、`policy.json` と環境変数の詳しい優先順位については、[環境変数](/ja/configuration/environment)を参照してください。
+- コマンドに `--git-dir` または `--work-tree` が渡されている場合や、環境変数に `GIT_DIR`、`GIT_WORK_TREE`、`GIT_COMMON_DIR`、`GIT_INDEX_FILE` のいずれかが設定されている場合
+- `git -C <path>` の対象を解決できない場合
+- 引数に `$`、`*`、`?`、`[` を含む動的な値がある場合
+- コマンドが `--recurse-submodules` またはサブモジュールを再帰的に扱う設定を使う場合
+- ブランチを強制リセットするコマンド（`-f` または `--discard-changes` を伴う `git checkout -B` や `git switch -C`）の場合や、`-f` を複数指定した `git clean` の場合
 
 <Tip>
-  現在有効なレベルは、`npx cc-safety-net status`（詳細なレポートが必要なら `npx cc-safety-net doctor`）を実行するか、Claude Code のステータスラインで確認できます。設定方法は[ステータスライン](/ja/configuration/status-line)を参照してください。
+  現在有効なレベルは、`npx cc-safety-net status` を実行するか、Claude Code の[ステータスライン](/ja/reference/cli/statusline)で確認できます。
 </Tip>

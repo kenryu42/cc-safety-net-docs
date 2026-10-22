@@ -1,0 +1,63 @@
+---
+title: "explain コマンド"
+sidebarTitle: "explain"
+description: "cc-safety-net explain のリファレンスです。コマンドがブロックまたは許可される理由のトレース、JSON と作業ディレクトリのオプション、ダブルダッシュでのフラグ解析の終了、終了コード、解析を拒否されるコマンドを説明します。"
+keywords:
+  - "explain"
+  - "トレース"
+  - "ブロックされた理由"
+  - "解析"
+  - "--cwd"
+  - "json"
+---
+
+`explain` は、CC Safety Net がコマンドを解析する過程を手順ごとに表示します。コマンドがブロックまたは許可される理由や、カスタムルールの適用のされ方を確かめるときに使います。
+
+```bash
+npx cc-safety-net explain "git reset --hard"
+bunx cc-safety-net explain "git reset --hard"
+```
+
+## explain のオプション
+
+| フラグ | 説明 |
+| --- | --- |
+| `--json` | 解析結果の全体を JSON として出力する |
+| `--cwd <path>` | この作業ディレクトリから実行したものとして解析する |
+| `-h`, `--help` | ヘルプを表示する |
+
+```bash
+npx cc-safety-net explain "rm -rf /"
+npx cc-safety-net explain --json "git checkout -- file.txt"
+npx cc-safety-net explain --cwd /tmp "git status"
+```
+
+`--json` のスキーマ、`ExplainResult` のフィールド、`TraceStep` の全種類は、[explain トレースリファレンス](/ja/reference/explain-trace)を参照してください。
+
+## ダッシュで始まるコマンドを explain する
+
+`--` でオプションの解析が終わり、その後ろはすべてコマンドとして扱われます。そのため `explain -- --help` はヘルプを出力せず、リテラルのコマンド `--help` を解析します。`|` や `&&` などのシェル演算子をコマンドに残すには、コマンド全体を 1 つの引数として引用符で囲みます。
+
+## explain の終了コード
+
+`explain` は、結果がブロックでも許可でも `0` で終了します。終了コードではなく `result` フィールドを読んでください。`1` で終了するのは、不明なオプションや存在しない `--cwd` パスなどのオプションエラーの場合と、解析を拒否したコマンドの場合です。
+
+## explain が解析を拒否するコマンド
+
+CC Safety Net の解析上限を超えるコマンドや、`echo ${` のようにパーサーが構文を受け付けないコマンドは、`explain` が解析を拒否します。このとき 1 行のエラーを出力して `1` で終了します。`--json` を付けると、標準出力にはエラーオブジェクトだけが出力されます。
+
+```bash
+npx cc-safety-net explain --json 'echo ${'
+```
+
+```json
+{"error":"Command could not be safely analyzed (strict mode). Simplify the command and retry, or ask the user to verify."}
+```
+
+エージェントがこのようなコマンドを実行すると、CC Safety Net は[固定の拒否 ID](/ja/reference/blocked-commands#fixed-denial-ids) でブロックします。
+
+## explain の出力を共有する
+
+<Warning>
+  explain の出力には、入力したコマンド、そのトークン、ホームディレクトリを含む絶対パスが含まれることがあります。共有する前に、[トレースを共有する前に](/ja/reference/explain-trace#before-you-share-a-trace)を確認してください。
+</Warning>

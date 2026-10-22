@@ -1,44 +1,42 @@
 ---
 title: "CC Safety Net 快速入门"
 sidebarTitle: "快速入门"
-description: "安装 CC Safety Net、检查状态、运行 doctor，并查看它阻止一条真实命令。每个受支持的编码智能体都使用相同的首次运行流程。"
+description: "安装 CC Safety Net、检查状态、运行 doctor，并看它阻止一条真实命令。所有受支持的编码智能体都使用相同的首次运行流程。"
 ---
 
-按本指南安装 CC Safety Net，并确认它能阻止一条测试命令。所有受支持的智能体都使用相同步骤。
+安装 CC Safety Net，确认它已生效，再看它阻止一条无害的命令。所有受支持的智能体都使用相同的步骤。
 
 <Steps>
   <Step title="为你的智能体安装 CC Safety Net">
-    不同智能体分别通过插件市场、扩展、配置文件或软件包安装。请按照**[安装](/zh-Hans/installation)**页面中与你的智能体对应的部分操作，然后返回本页。
+    不同智能体分别通过插件市场、扩展、配置文件或软件包安装。在[为单个智能体安装](/zh-Hans/installation#install-for-one-agent)中运行对应智能体的安装命令，然后回到本页。
   </Step>
   <Step title="检查状态">
-    查看当前启用的保护：
+    用一屏摘要查看哪些保护已生效：
 
     ```bash
     npx cc-safety-net status
     ```
 
-    配置正常加载时，判定行显示 `ready`。`degraded` 表示配置中有内容无法应用，当前正在使用回退配置。请参阅[配置恢复](/zh-Hans/configuration/recovery)，了解哪些保护仍然有效以及如何修复。判定结果只有这两种。如果你使用 Claude Code 且插件已禁用，它会作为 `Not active` 下的第一项出现，而不会更改判定。
-
-    `status` 只提供信息，始终以退出码 `0` 退出。有关它输出的全部内容，请参阅 [status 命令参考](/zh-Hans/reference/cli-commands#status)。
+    配置正常加载时，判定行显示 `ready`。`degraded` 表示 CC Safety Net 无法应用部分配置，当前正在使用回退配置。修复方法见[配置恢复](/zh-Hans/configuration/recovery)。`status` 输出的全部内容见 [status 命令参考](/zh-Hans/reference/cli/status)。
   </Step>
   <Step title="运行 doctor">
-    `status` 汇总配置。`doctor` 则会验证整条链路：
+    `status` 汇总配置，`doctor` 则端到端地测试每个智能体的集成：
 
     ```bash
     npx cc-safety-net doctor
     ```
 
-    它会检查所有受支持的智能体，无需指定你使用哪一个。它还会运行自检，确认阻止功能正常。检查通过时，每一项旁边都会显示绿色对勾。失败项会说明问题和修复方法。完整列表见 [doctor 命令参考](/zh-Hans/reference/cli-commands#doctor)。
+    它会一次检查所有受支持的智能体，无需告诉它你用的是哪一个。它还会运行自检，确认阻止功能正常。检查全部通过时，每一项旁边都会显示绿色对勾。对每个失败项，`doctor` 会说明出了什么问题以及如何修复。完整的检查列表见 [doctor 命令参考](/zh-Hans/reference/cli/doctor)。
   </Step>
   <Step title="查看一次真实的阻止">
     启用 CC Safety Net 后，让智能体运行这条无害的探测命令：
 
     ```bash
-    # 该 pathspec 只包含排除项，不会选中任何文件
+    # This exclusion-only pathspec selects no files
     git checkout -- ':(exclude,top)**'
     ```
 
-    该命令根本不会到达 shell，智能体收到的是一条阻止消息。如果保护未生效，这个只含排除项的 Git pathspec 也不会选中任何文件，因此不会改动任何已跟踪的文件。
+    该命令根本不会到达 shell，智能体收到的是一条阻止消息。保护未生效时，这个只含排除项的 Git pathspec 不会选中任何文件，因此 Git 不会改动任何已跟踪的文件。
 
     <pre className="cc-block-message-output"><code>{`BLOCKED by CC Safety Net
 
@@ -48,19 +46,19 @@ Command: git checkout -- ':(exclude,top)**'
 
 If this operation is truly needed, ask the user for explicit permission and have them run the command manually.`}</code></pre>
 
-    消息会说明阻止原因，并给出更安全的后续操作。消息结构和判定流程见[工作原理](/zh-Hans/guides/how-it-works#what-a-block-looks-like)。
+    消息会说明阻止原因，并给智能体一个更安全的后续操作。消息结构以及决策流程的其余环节见[工作原理](/zh-Hans/guides/how-it-works#what-a-block-looks-like)。
   </Step>
   <Step title="只问原因，不运行任何命令">
-    如果某个判定出乎你的预期，`explain` 会通过同一引擎评估命令字符串，但不会执行命令：
+    如果某个决策出乎你的预期，`explain` 会用同一个引擎评估命令字符串，但不会执行它：
 
     ```bash
     npx cc-safety-net explain "git checkout -- ':(exclude,top)**'"
     ```
 
-    它会输出判定、匹配到的规则以及生效的配置。试用时，请使用不含敏感信息的示例命令。
+    它会输出判定、匹配到的规则以及生效的配置。
 
     <Warning>
-      explain 跟踪会回显你传入的命令、解析后的 token，以及包括主目录在内的绝对路径。凭证形式的值会被脱敏，但路径、主机名和项目名称不会。把输出粘贴到 issue 或聊天中之前，请先检查内容。有关完整跟踪及其分享注意事项，请参阅 [explain 跟踪参考](/zh-Hans/reference/explain-trace)。
+      输出可能包含你的路径、主机名和项目名称。粘贴到任何地方之前，请先阅读[分享跟踪之前](/zh-Hans/reference/explain-trace#before-you-share-a-trace)。
     </Warning>
   </Step>
 </Steps>
@@ -69,15 +67,15 @@ If this operation is truly needed, ask the user for explicit permission and have
 
 <CardGroup cols={2}>
   <Card title="工作原理" icon="workflow" href="/zh-Hans/guides/how-it-works">
-    查看工具调用如何被拦截、检查、允许或阻止，以及如何写入审计日志。
+    跟随一次工具调用，依次查看拦截、按顺序执行的检查、允许或阻止，以及审计记录。
   </Card>
 
   <Card title="被阻止的命令" icon="ban" href="/zh-Hans/reference/blocked-commands">
-    查看 CC Safety Net 默认阻止的内容以及每项阻止背后的原因。
+    浏览 CC Safety Net 默认阻止的内容，以及每一项背后的理由。
   </Card>
 
   <Card title="模式" icon="toggle-right" href="/zh-Hans/configuration/modes">
-    比较 `standard`、`strict`、`paranoid` 安全级别和 worktree 模式，选择适合你的设置。
+    比较 `standard`、`strict`、`paranoid` 三个安全级别以及 worktree 模式。
   </Card>
 
   <Card title="自定义规则" icon="sliders-horizontal" href="/zh-Hans/configuration/custom-rules">

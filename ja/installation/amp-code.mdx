@@ -1,0 +1,97 @@
+---
+title: "Amp Code に CC Safety Net をインストールする"
+sidebarTitle: "Amp Code"
+description: "amp CLI で公開する Personal Plugins のプラグインとして、Amp Code に CC Safety Net をインストールします。ポリシーのスナップショット、ローカルコピーや旧コピーからの移行、アンインストール、インストール時に起こりうるエラーも説明します。"
+keywords:
+  - "amp"
+  - "amp code"
+  - "Personal Plugins"
+  - "Amp Orbs"
+  - "plugins: reload"
+  - "amp login"
+---
+
+`npx -y cc-safety-net@latest install --amp` を実行します。CC Safety Net は、Amp がアカウントごとにホストする Amp Personal Plugins リポジトリにプラグインとして公開されます。以降は、Amp Orbs 上のスレッドも含め、そのアカウントのすべての Amp セッションがこのプラグインを読み込みます。アカウントにサインイン済みの `amp` CLI が必要です。インストール後は、Amp を再起動するか `plugins: reload` を実行してください。
+
+## Amp Code に CC Safety Net をインストールする
+
+<Steps>
+  <Step title="amp CLI にサインインする">
+    `amp` CLI をインストールし、`amp login` でサインインします。どちらかが欠けているとインストールは停止し、`amp login` を案内します。
+  </Step>
+  <Step title="インストーラーを実行する">
+    ```bash
+    npx -y cc-safety-net@latest install --amp
+    ```
+  </Step>
+  <Step title="Amp を再読み込みする">
+    Amp を再起動するか `plugins: reload` を実行して、プラグインを読み込みます。
+  </Step>
+  <Step title="プラグインが有効か確認する">
+    ```bash
+    npx cc-safety-net doctor
+    ```
+  </Step>
+</Steps>
+
+公開済みのプラグインをその場で更新するには、インストールを再実行するか [`update`](/ja/reference/cli/update) を実行します。`amp plugins list` にはプラグインのバージョンが表示されないため、`doctor` が Amp Code のバージョンのずれを報告することはありません。
+
+<span id="what-the-amp-code-install-changes"></span>
+
+## Amp Code のインストールで変わること
+
+インストールは `cc-safety-net/index.ts` を Personal Plugins リポジトリにコミットしてプッシュします。Amp はこのファイルをプラグインとして読み込みます。
+
+ローカルのコピーがあると Personal Plugins のプラグインが隠れてしまうため、以前のリリースが残した管理対象のコピーもインストール時に削除します。
+
+- Personal Plugins リポジトリのルートにある `cc-safety-net.ts`
+- `~/.config/amp/plugins/cc-safety-net.ts`
+- `~/.config/amp/plugins/cc-safety-net/`（管理対象の `index.ts` だけを含む場合）
+
+<span id="amp-code-policy-snapshot"></span>
+
+### Amp Code のポリシースナップショット
+
+インストール時には、ユーザーのポリシーファイルのスナップショットを、公開するプラグインに埋め込みます。ポリシーを編集したら、`install --amp` か `update` を再実行して変更を公開してください。
+
+- スナップショットが適用されるのは、Orb の空のホームディレクトリのように、ポリシーファイルがないマシンだけです。
+- マシン上にポリシーファイルがあれば、内容が不正であっても、常にスナップショットより優先されます。
+- ポリシーファイルが存在しない、またはパースできない場合は、スナップショットなしでプラグインを公開します。
+- スナップショットには、監査ログの保持期間、ユーザーのルールブック、プロジェクトスコープのポリシーは含まれません。
+
+## Amp Code でチェックが失敗したときの動作
+
+呼び出しのチェック中に CC Safety Net でエラーが起きた場合、その呼び出しは拒否されます。プラグインがクラッシュしたり、応答しなくなったり、読み込みに失敗したりしたときに Amp がどう動作するかは、Amp のドキュメントに記載がありません。プラグインが読み込まれなかったセッションは保護されていないものとみなし、`amp plugins list` で確認してください。
+
+<span id="amp-code-coverage-limits"></span>
+
+## Amp Code での保護範囲の制限
+
+同じ `tool.call` イベントを購読する複数のプラグインがどの順番で動くかを、Amp は定めていません。CC Safety Net がチェックするのは、受け取った時点の入力です。CC Safety Net が許可した後で別のプラグインが入力を書き換えた場合、書き換え後の入力はチェックできません。
+
+## Amp Code から CC Safety Net をアンインストールする
+
+```bash
+npx -y cc-safety-net@latest uninstall --amp
+```
+
+アンインストールでは、Personal Plugins リポジトリから `cc-safety-net/index.ts` を削除し、[Amp Code のインストールで変わること](#what-the-amp-code-install-changes)に挙げた管理対象のコピーも削除します。`cc-safety-net` ディレクトリ内のそれ以外のファイルや、CC Safety Net が管理していないコピーは残ります。アンインストール後は、Amp を再起動するか `plugins: reload` を実行してください。
+
+<span id="troubleshoot-amp-code"></span>
+
+## Amp Code のトラブルシューティング
+
+`amp plugins list` を実行し、`cc-safety-net (User Plugins)` の行の状態が `active` になっているか確認します。それ以外の状態の場合、`doctor` は次のように表示します。
+
+```text
+Amp personal plugin cc-safety-net is <status>; run "plugins: reload" in Amp or reinstall with install --amp
+```
+
+Amp で `plugins: reload` を実行するか、`install --amp` を再実行してください。Amp はプラグインを起動時に読み込むため、変更のたびに Amp を再起動するか再読み込みが必要です。
+
+| 問題 | 対処 |
+| --- | --- |
+| `Local Amp plugin <path> is not a managed copy and masks the personal plugin. Remove it and rerun install --amp.` | `<path>` にあるローカルのファイルまたはディレクトリを削除してから、`install --amp` を再実行します。 |
+| Personal Plugins リポジトリのルートに、管理対象外の `cc-safety-net.ts` がある | インストールは失敗します。リポジトリからそのファイルを削除してから、インストールを再実行します。 |
+| リポジトリの `cc-safety-net` エントリがシンボリックリンクかディレクトリ以外である。または、その中の `index.ts` がシンボリックリンクである、通常ファイルでない、CC Safety Net の管理用ヘッダーがない | インストールもアンインストールも、そのエントリには手を触れません。リポジトリからそのエントリを削除してから、コマンドを再実行します。 |
+| リポジトリが `cc-safety-net/index.ts` を gitignore している | インストールは停止します。無視ルールを削除してから、インストールを再実行します。 |
