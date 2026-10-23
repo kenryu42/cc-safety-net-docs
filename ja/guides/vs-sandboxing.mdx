@@ -4,13 +4,19 @@ sidebarTitle: "保護レイヤー"
 description: "CC Safety Net を、OS レベルのサンドボックス、権限の拒否ルール、許可プロンプトと自動承認の分類器、コンテナ・VM・チェックポイントと並べて位置づけます。どのレイヤーにも、ほかのレイヤーが拾う見落としがあります。"
 ---
 
+<span id="do-i-still-need-cc-safety-net-if-i-run-my-agent-in-a-sandbox-or-container"></span>
+
 ## エージェントをサンドボックスやコンテナで動かしていても、CC Safety Net は必要ですか？
 
 未コミットの作業を守りたいなら、おそらく必要です。Claude Code や Codex のサンドボックスは、書き込みをプロジェクトディレクトリに限定し、ネットワークアクセスを制限します。しかし `git reset --hard` と `rm -rf .` が書き込むのはそのディレクトリの中で、`git push --force` の送り先は許可済みのリモートです。そのため、サンドボックスは 3 つとも通します。CC Safety Net はこれらをブロックしますが、プロセスの封じ込めやネットワークの制御はしません。主な懸念がプロンプトインジェクション、悪意のある依存関係、信頼できないコード、ネットワーク経由のデータ流出なら、サンドボックスのほうが適しています。両方を使ってください。
 
+<span id="do-i-need-cc-safety-net-if-my-agent-has-permission-deny-rules"></span>
+
 ## エージェントに権限の拒否ルールがあれば、CC Safety Net は不要ですか？
 
 場合によります。2026 年 10 月時点で、Claude Code の拒否ルールは決定的で、`bypassPermissions` モードでも適用されます。1 つの CLI でいくつかの決まったコマンドを止めるだけなら、それで足りるかもしれません。ただし拒否ルールはコマンド文字列をワイルドカードのパターンと照合するため、フラグの順序の入れ替え（`rm -r -f`）、シェルラッパー（`sh -c "..."`）、インタープリターを使うとすり抜けられます。CC Safety Net はコマンドが何をするかを解析するため、こうした変形も捕捉します。さらに、16 の CLI に 1 つのポリシーと 1 つの監査ログを適用します。両方を使う構成も多くあります。
+
+<span id="what-each-layer-covers-and-misses"></span>
 
 ## 各レイヤーが守る範囲と守れない範囲
 
@@ -25,6 +31,8 @@ description: "CC Safety Net を、OS レベルのサンドボックス、権限�
 | CC Safety Net | 対応するツール呼び出しが何をするかを、実行前に静的解析する | 対象がどこであっても破壊的な git 操作とファイルシステム操作、Git メタデータ、認識できる資格情報ファイルの読み取り | ネットワークへの送信、認識しないファイル内の資格情報、バイナリ内部の動作、インストール済みの連携を経由しないコマンド。拒否はファイルシステムの権限強制ではない |
 
 CC Safety Net が守れないものと、それぞれを受け持つレイヤーは、[既知の制限](/ja/guides/known-limitations#out-of-scope-protections)にまとめています。
+
+<span id="why-a-sandbox-allows-destructive-git-commands"></span>
 
 ## サンドボックスが破壊的な git コマンドを許可する理由
 
@@ -45,6 +53,8 @@ CC Safety Net が守れないものと、それぞれを受け持つレイヤー
 
 サンドボックスの読み取りは、既定で広く許可されています。2026 年 10 月時点で、Claude Code のサンドボックスのドキュメントは既定の読み取り動作について「There is no built-in credential deny list」と述べ、今も読み取りを許可するファイルとして `~/.aws/credentials` と `~/.ssh/` を挙げています。CC Safety Net は、設定なしでこれらのパスの内容へのアクセスをブロックします。
 
+<span id="when-sandboxing-is-the-better-choice"></span>
+
 ## サンドボックスのほうが適している場面
 
 主な懸念が次のいずれかなら、サンドボックスを使ってください。
@@ -54,6 +64,8 @@ CC Safety Net が守れないものと、それぞれを受け持つレイヤー
 - **信頼できないコード**：OS レベルの封じ込めは、コマンド文字列の解析より強い。
 - **ネットワークの制御**：CC Safety Net にはネットワークのレイヤーがない。
 
+<span id="permission-prompts-and-approval-classifiers"></span>
+
 ## 許可プロンプトと自動承認の分類器
 
 このレイヤーは、操作の前にユーザーか分類器モデルに確認します。2026 年 10 月時点で、Claude Code の[権限モードのドキュメント](https://code.claude.com/docs/en/permission-modes)によれば、Manual モードではほとんどの編集とシェルコマンドの前に止まって確認を求めます。auto モードでは「a second model, the classifier, reviews actions instead of you」とされ、分類器は `git reset --hard` や `git stash clear` などの破壊的な git コマンドを既定でブロックします。
@@ -62,11 +74,15 @@ CC Safety Net が守れないものと、それぞれを受け持つレイヤー
 
 CC Safety Net の拒否は、`bypassPermissions` を含むすべての権限モードで有効です。検証に使ったバージョンは [Claude Code の権限モードとバイパスモード](/ja/installation/claude-code#claude-code-permission-modes-and-bypass-mode)を参照してください。
 
+<span id="containers-vms-and-checkpoints"></span>
+
 ## コンテナ・VM・チェックポイント
 
 使い捨てのマシンは本物の封じ込めで、Claude Code も `bypassPermissions` を「Isolated containers and VMs only」向けとしています。ただし、マシンの中の作業は守れません。クラウドセッションはリポジトリをクローンし、コミットし、実在のリモートにプッシュします。そのため `git reset --hard` はそこでも同じように未コミットの作業を失わせ、`git push --force` はチームメイトがプルするブランチを書き換えます。作業ツリーをマウントするローカルのコンテナも同じです。マウントは書き込み可能だからです。資格情報の面は[クラウド環境](/ja/guides/cloud-environments)で扱っています。
 
 チェックポイントは、この隙間の一部を埋めます。2026 年 10 月時点で、Claude Code の[チェックポイントのドキュメント](https://code.claude.com/docs/en/checkpointing)には「Checkpointing does not track files modified by bash commands.」とあります。破壊的な git コマンドは bash コマンドとして実行されるため、それが捨てた作業は巻き戻しでは戻りません。
+
+<span id="use-sandboxing-with-cc-safety-net"></span>
 
 ## サンドボックスと CC Safety Net を併用する
 
