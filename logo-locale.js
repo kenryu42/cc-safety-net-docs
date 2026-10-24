@@ -11,11 +11,12 @@
 
   function fixLogoLinks() {
     var target = localeHome();
-    var links = document.querySelectorAll('a[data-slot="context-menu-trigger"]');
-    for (var i = 0; i < links.length; i++) {
-      var href = links[i].getAttribute("href");
+    var logos = document.querySelectorAll("img.nav-logo");
+    for (var i = 0; i < logos.length; i++) {
+      var link = logos[i].closest("a");
+      var href = link && link.getAttribute("href");
       if (href && href.indexOf(HOME) === 0 && href !== target) {
-        links[i].setAttribute("href", target);
+        link.setAttribute("href", target);
       }
     }
   }
