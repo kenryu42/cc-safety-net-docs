@@ -1,11 +1,12 @@
 ---
 title: "在 DeepSeek Harness 中安装 CC Safety Net"
 sidebarTitle: "DeepSeek Harness"
-description: "以 profile 插件 bundle 的形式为 DeepSeek Harness 的 web 和 Desktop profile 安装 CC Safety Net，把它添加到其他 profile，了解其工具 guard 检查什么、如何卸载，以及如何解决桌面应用和启用相关的错误。"
+description: "以 profile 插件 bundle 的形式为 DeepSeek Harness 的 web 和 Desktop profile 安装 CC Safety Net，把它添加到其他 profile，了解其工具 guard 检查什么、遇到未声明的插件 shell 工具时会提示什么、如何卸载，以及如何解决桌面应用和启用相关的错误。"
 keywords:
   - "deepseek harness"
   - "dsh"
   - "profile 插件"
+  - "ops_bash"
   - "DSH_HOME"
   - "desktop profile"
   - "web profile"
@@ -38,15 +39,6 @@ keywords:
 只有 `desktop` profile 已存在时，安装才会覆盖它，所以要先打开一次桌面应用。之所以要退出，是因为桌面应用的插件只能在应用关闭时改动。DeepSeek Harness 需要 `PATH` 上有 `pnpm` 才能添加 bundle。
 
 安装成功会报告 `Added cc-safety-net to the DeepSeek Harness Desktop and web profiles.`。只覆盖 web profile 时，消息中的 `the Desktop and web profiles` 会换成 `the web profile`。
-
-某个 profile 的 `package.json` 列出了其他插件时，安装和 `update` 会列出这些插件，并用英文和中文打印声明插件 shell 工具的命令：
-
-```text
-Other plugins in the DeepSeek Harness web profile: <plugin names>.
-CC Safety Net does not check commands a plugin's own shell tool runs until you declare it: npx -y cc-safety-net rule tool add <tool-name>
-```
-
-每次更新都会重复显示这条消息。要声明 `ops_bash` 这类工具，见[社区 shell 工具](/zh-Hans/configuration/custom-rules#community-shell-tools)。
 
 ## DeepSeek Harness 安装会改动什么
 
@@ -81,6 +73,23 @@ DeepSeek Harness 在其他所有 `tools/pre-execute` 监听器（包括审批和
 - `bash` 调用交给 POSIX 分析器。
 - `pwsh` 调用交给 PowerShell 分析器。
 - 文件类和搜索类工具调用由路径保护和机密保护检查。
+
+只有在你声明某个插件自带的工具之后，guard 才会读取它的 `command`。见[插件 shell 工具未被检查时](#when-a-plugin-shell-tool-goes-unchecked)。
+
+<span id="when-a-plugin-shell-tool-goes-unchecked"></span>
+
+## 插件 shell 工具未被检查时
+
+插件可以给智能体添加自带的 shell 工具，例如 `dsh-ops` 插件的 `ops_bash`。在你声明它之前，CC Safety Net 从不读取它的 `command`，因此 `ops_bash` 执行 `git reset --hard` 不会产生任何决策。声明办法见[社区 shell 工具](/zh-Hans/configuration/custom-rules#community-shell-tools)。
+
+未声明的工具第一次执行非空 `command` 时，无论宿主接受还是阻止了这次调用，CC Safety Net 都会在 DeepSeek Harness 返回给智能体的结果中附上一条提示。提示要求智能体：
+
+- 根据工具描述，或 profile 目录中 `<profile>/node_modules` 下的插件源码，查明该工具在哪里执行命令
+- 仅当它在本机执行命令时，才用 `npx -y cc-safety-net rule tool add <tool-name>` 声明它；它的工作目录参数不是 `workdir`、`cwd` 或 `working_directory` 时，还要加上 `--cwd-arg <name>`
+- 用 `npx -y cc-safety-net rule tool list` 确认声明已生效，而不是执行破坏性命令来验证
+- 无论结果如何，都把查明的情况告诉你
+
+这条提示不改变任何决策，而且它所报告的那次调用已经执行过了。每个工具名在一个会话中只提示一次，内置的 `bash` 和 `pwsh` 以及文件类和搜索类工具不会触发提示。CC Safety Net 从会话的工作目录读取你的声明，会话没有工作目录时则从启动 DeepSeek Harness 的目录读取。读取失败时，它不发出提示，直接返回宿主自己的结果。
 
 ## DeepSeek Harness 检查失败时会怎样
 

@@ -1,13 +1,14 @@
 ---
 title: "explain 命令"
 sidebarTitle: "explain"
-description: "cc-safety-net explain 参考：跟踪命令为何被阻止或允许、JSON 与工作目录选项、双短横线如何结束选项解析、退出码，以及拒绝分析的命令。"
+description: "cc-safety-net explain 参考：跟踪命令为何被阻止或允许、JSON、工作目录与 shell 方言选项、双短横线如何结束选项解析、退出码，以及拒绝分析的命令。"
 keywords:
   - "explain"
   - "跟踪"
   - "为何被阻止"
   - "分析"
   - "--cwd"
+  - "--shell"
   - "json"
 ---
 
@@ -24,15 +25,38 @@ bunx cc-safety-net explain "git reset --hard"
 | --- | --- |
 | `--json` | 以 JSON 格式输出完整的分析结果 |
 | `--cwd <path>` | 按从该工作目录运行的情形分析 |
+| `--shell <auto\|posix\|powershell>` | 按这种 shell 读取命令。默认为 `auto` |
 | `-h`, `--help` | 显示帮助 |
 
 ```bash
 npx cc-safety-net explain "rm -rf /"
 npx cc-safety-net explain --json "git checkout -- file.txt"
 npx cc-safety-net explain --cwd /tmp "git status"
+npx cc-safety-net explain --shell posix 'rmdir /s /q d:\'
 ```
 
 `--json` 的 schema、`ExplainResult` 字段和每个 `TraceStep` 变体见 [Explain 跟踪参考](/zh-Hans/reference/explain-trace)。
+
+## 按工具实际运行的 shell 读取命令
+
+`explain` 默认用 `auto` shell 模式，看起来像 PowerShell 的命令就按 PowerShell 读取。而智能体的工具可能运行另一种 shell。Claude Code 的 `Bash` 工具运行 POSIX，所以保持 `auto` 时，`explain` 可能报出 hook 从未给过的判定：
+
+| 命令 | 结果 | 规则 ID |
+| --- | --- | --- |
+| `explain 'rmdir /s /q d:\'` | 阻止 | `powershell.remove-item-root-or-home` |
+| `explain --shell powershell 'rmdir /s /q d:\'` | 阻止 | `powershell.remove-item-root-or-home` |
+| `explain --shell posix 'rmdir /s /q d:\'` | 允许 | |
+
+bash 的 `rmdir` 只删除空目录，因此 hook 允许从 `Bash` 工具发来的这条调用，加上 `--shell posix` 就能复现这次允许。这个选项同时改变 `explain` 解析命令的方式和生效的 shell 规则，所以要指定你想复现其决策的那个工具所用的方言。
+
+用 `--shell powershell` 时，分成多个参数传入的命令会按 PowerShell 的引号规则重新拼接，其中的单引号会写成两个，而不是按 POSIX 方式转义。其他方言仍按 POSIX 转义。
+
+传入 `auto`、`posix`、`powershell` 以外的值时，打印错误和用法行并退出 `1`：
+
+```text
+Error: --shell must be auto, posix, or powershell, got: bash
+Usage: cc-safety-net explain [--json] [--cwd <path>] [--shell <auto|posix|powershell>] <command>
+```
 
 ## 解释以短横线开头的命令
 
@@ -40,7 +64,7 @@ npx cc-safety-net explain --cwd /tmp "git status"
 
 ## explain 退出码
 
-无论结果是阻止还是允许，`explain` 都退出 `0`，因此请读取 `result` 字段，而不是看退出码。遇到选项错误（例如未知选项，或 `--cwd` 指向不存在的路径），以及遇到拒绝分析的命令时，它退出 `1`。
+无论结果是阻止还是允许，`explain` 都退出 `0`，因此请读取 `result` 字段，而不是看退出码。遇到选项错误（例如未知选项、`--cwd` 指向不存在的路径，或无法识别的 `--shell` 值），以及遇到拒绝分析的命令时，它退出 `1`。
 
 ## explain 拒绝分析的命令
 

@@ -47,7 +47,7 @@ CC Safety Net 自身无法完成分析时，每个集成都会阻止该调用。
 
 ### 插件的 shell 工具在声明之前不被分析
 
-CC Safety Net 认识每个受支持智能体自身的 shell 工具，但不认识社区插件添加的那些。它从不解析这类工具的 `command`，因此 `dsh-ops` 插件的 `ops_bash` 执行 `git reset --hard` 会被放行。也没有任何提示告诉你某个 shell 工具未被分析。请把它声明为[社区 shell 工具](/zh-Hans/configuration/custom-rules#community-shell-tools)。
+CC Safety Net 认识每个受支持智能体自身的 shell 工具，但不认识社区插件添加的那些。它从不解析这类工具的 `command`，因此 `dsh-ops` 插件的 `ops_bash` 执行 `git reset --hard` 会被放行。只有 DeepSeek Harness 会报告这一点，做法是[在每个会话中提示智能体一次](/zh-Hans/installation/deepseek-harness#when-a-plugin-shell-tool-goes-unchecked)。在其他宿主上，没有任何提示告诉你某个 shell 工具未被分析。请把它声明为[社区 shell 工具](/zh-Hans/configuration/custom-rules#community-shell-tools)。
 
 ### eval 和动态执行
 
@@ -60,11 +60,15 @@ bash -c "$(cat destructive.sh)"
 
 CC Safety Net 会扫描 `bash -c` 和解释器的代码参数，但从远程来源获取或由变量拼接而成的 payload 依然不可见。各级别分别阻止什么，见[生成命令的 eval 与 source](/zh-Hans/reference/blocked-commands#eval-and-source-of-a-generated-command)。
 
+<span id="interpreter-one-liners-have-parsing-gaps"></span>
+
 ### 解释器单行命令存在解析缺口
 
 CC Safety Net 会扫描传给 `python`、`node`、`ruby` 和 `perl` 的 `-c` 或 `-e` 的代码。长格式 `--eval`、`--execute`、`--print`、`--require`，以及 `--eval='code'` 这种写法，可能不会被扫描。想一律阻止解释器单行命令（无论使用什么选项），请开启 [paranoid interpreters](/zh-Hans/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1)。
 
 在 standard 模式下，除 Python 外的所有解释器中，注释里的引号都可能让字符串字面量的起始位置发生偏移。CC Safety Net 会跳过 Python 的 `#` 注释，因此其中的引号和括号不影响扫描。[strict 模式](/zh-Hans/configuration/modes#strict-mode-cc_safety_net_strict=1)不受影响。
+
+[解释器自己执行的根目录或主目录递归删除](/zh-Hans/reference/blocked-commands#recursive-deletes-an-interpreter-runs-itself)按代码文本匹配，因此即使这段调用根本不会执行，例如 `python3 -c "print(\"shutil.rmtree('/')\")"`，也一样会被阻止。
 
 ### PowerShell 只按子集读取
 

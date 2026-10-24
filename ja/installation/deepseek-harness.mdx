@@ -1,11 +1,12 @@
 ---
 title: "DeepSeek Harness に CC Safety Net をインストールする"
 sidebarTitle: "DeepSeek Harness"
-description: "web プロファイルと desktop プロファイルのプラグインバンドルとして、DeepSeek Harness に CC Safety Net をインストールします。ほかのプロファイルへの追加、ツールガードがチェックする内容、削除方法、デスクトップアプリと有効化に関するエラーの解決方法も説明します。"
+description: "web プロファイルと desktop プロファイルのプラグインバンドルとして、DeepSeek Harness に CC Safety Net をインストールします。ほかのプロファイルへの追加、ツールガードがチェックする内容、未宣言のプラグインのシェルツールについて通知する内容、削除方法、デスクトップアプリと有効化に関するエラーの解決方法も説明します。"
 keywords:
   - "deepseek harness"
   - "dsh"
   - "プロファイルプラグイン"
+  - "ops_bash"
   - "DSH_HOME"
   - "desktop プロファイル"
   - "web プロファイル"
@@ -38,15 +39,6 @@ DeepSeek Harness のデスクトップアプリを終了してから、`npx -y c
 インストールが `desktop` プロファイルを対象にするのは、そのプロファイルがすでに存在する場合だけです。そのため、先にデスクトップアプリを一度起動しておきます。終了しておくのは、デスクトップアプリのプラグインはアプリを閉じている間しか変更できないためです。DeepSeek Harness がバンドルを追加するには、`PATH` 上に `pnpm` が必要です。
 
 インストールが成功すると、`Added cc-safety-net to the DeepSeek Harness Desktop and web profiles.` と報告されます。web プロファイルだけを処理した場合は、`the Desktop and web profiles` の部分が `the web profile` になります。
-
-プロファイルの `package.json` にほかのプラグインがある場合、インストールと `update` はその名前を挙げ、プラグインのシェルツールを宣言するコマンドを英語と中国語で表示します。
-
-```text
-Other plugins in the DeepSeek Harness web profile: <plugin names>.
-CC Safety Net does not check commands a plugin's own shell tool runs until you declare it: npx -y cc-safety-net rule tool add <tool-name>
-```
-
-このメッセージは更新のたびに表示されます。`ops_bash` のようなツールを宣言する方法は[コミュニティ製のシェルツール](/ja/configuration/custom-rules#community-shell-tools)を参照してください。
 
 ## DeepSeek Harness のインストールで変わること
 
@@ -81,6 +73,23 @@ DeepSeek Harness はこのガードを、承認や Auto review を含むほか�
 - `bash` の呼び出しは POSIX アナライザーに渡します。
 - `pwsh` の呼び出しは PowerShell アナライザーに渡します。
 - ファイル系と検索系のツール呼び出しは、パスとシークレットの保護でチェックします。
+
+プラグイン独自のツールの `command` を読み取るのは、そのツールを宣言したあとだけです。[プラグインのシェルツールがチェックされない場合](#when-a-plugin-shell-tool-goes-unchecked)を参照してください。
+
+<span id="when-a-plugin-shell-tool-goes-unchecked"></span>
+
+## プラグインのシェルツールがチェックされない場合
+
+プラグインは、エージェントに独自のシェルツールを追加できます。たとえば `dsh-ops` プラグインの `ops_bash` です。宣言するまで CC Safety Net はその `command` を読まないため、`ops_bash` で `git reset --hard` を実行しても判定は出ません。宣言の手順は[コミュニティ製のシェルツール](/ja/configuration/custom-rules#community-shell-tools)にあります。
+
+未宣言のツールが空でない `command` を初めて実行すると、CC Safety Net は、DeepSeek Harness がその呼び出しについてエージェントに返す内容に通知を追加します。ホストがその呼び出しを承認した場合でもブロックした場合でも追加します。通知はエージェントに次のことを指示します。
+
+- ツールの説明、またはプロファイルディレクトリの `<profile>/node_modules` にあるプラグインのソースから、そのツールがどこでコマンドを実行するのかを調べる
+- このマシンで実行する場合にかぎり、`npx -y cc-safety-net rule tool add <tool-name>` で宣言する。作業ディレクトリを渡す引数が `workdir`、`cwd`、`working_directory` のいずれでもない場合は `--cwd-arg <name>` を付ける
+- 宣言できたかどうかは、破壊的なコマンドを実行して確かめるのではなく、`npx -y cc-safety-net rule tool list` で確認する
+- いずれの場合も、分かったことをユーザーに伝える
+
+通知は判定を変えるものではなく、対象となった呼び出しはすでに実行されています。通知はツール名ごとにセッション中 1 回だけ表示され、組み込みの `bash` と `pwsh`、およびファイル系と検索系のツールでは表示されません。宣言の読み取り先は、セッションの作業ディレクトリです。セッションに作業ディレクトリがない場合は、DeepSeek Harness を起動したディレクトリから読み取ります。読み取りに失敗した場合は通知を出さず、ホスト自身の結果をそのまま返します。
 
 ## DeepSeek Harness でチェックが失敗したときの動作
 

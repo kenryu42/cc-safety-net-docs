@@ -354,6 +354,26 @@ CC Safety Net は、`bash -c`、`sh -c`、`sudo`、`env` などのラッパー�
 
 この方法で検査するインタープリターは、`python`、`python2`、`python3`、`node`、`ruby`、`perl` です。`python -c "print(1)"` も含めてインタープリターのワンライナーをすべてブロックするには、[paranoid のインタープリターチェック](/ja/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1)を有効にします。そのブロックには `interpreter.one-liner-paranoid` が付きます。
 
+<span id="recursive-deletes-an-interpreter-runs-itself"></span>
+
+### インタープリター自身が実行する再帰削除
+
+インタープリターのコードは、シェルコマンドを一切含まなくても、自身の標準ライブラリでルートディレクトリやホームディレクトリを削除できます。CC Safety Net はこうした呼び出しを、インラインのコード、heredoc、標準入力から読み込んだコードのいずれでも、すべてのレベルでブロックします。
+
+| コマンド | 結果 | ルール ID |
+| --- | --- | --- |
+| `python3 -c "import shutil; shutil.rmtree('/')"` | ブロック | `interpreter.dangerous-command` |
+| `perl -e 'use File::Path; rmtree($ENV{HOME})'` | ブロック | `interpreter.dangerous-command` |
+| `ruby -e "require 'fileutils'; FileUtils.rm_rf(Dir.home)"` | ブロック | `interpreter.dangerous-command` |
+| `node -e "require('fs').rmSync(require('os').homedir(), {recursive: true})"` | ブロック | `interpreter.dangerous-command` |
+| `python3 -c "import shutil; shutil.rmtree('dist')"` | 許可 | |
+| `python3 -c "import shutil,os; shutil.rmtree(os.path.join(os.path.expanduser('~'), 'build'))"` | 許可 | |
+| `node -e "require('fs').rmSync(require('os').homedir())"` | 許可 | |
+
+読み取る削除の呼び出しは、Python の `shutil.rmtree`、Perl の `rmtree` と `remove_tree`、Ruby の `FileUtils.rm_rf`、`rm_r`、`remove_dir`、`remove_entry`、`remove_entry_secure`、そして `recursive: true` を付けた Node の `rm`、`rmSync`、`rmdir`、`rmdirSync` です。第 1 引数は、リテラルのルートまたはホームのパスか、ホームを表す次の式のいずれかでなければなりません。`os.path.expanduser('~')`、`Path.home()`、`os.environ['HOME']`、`os.getenv('HOME')`、`$ENV{HOME}`、`os.homedir()`、`process.env.HOME`、`Dir.home`、`ENV['HOME']` です。
+
+ホームの下のサブディレクトリを連結した場合のように、コードが実行時に組み立てる対象は許可されたままです。リテラルの `~` も同じで、ここに挙げた API はどれも展開しません。`recursive: true` を付けない Node の削除も許可されます。CC Safety Net はコードのテキストから呼び出しを見つけるため、文字列の中を含め、どこに書かれていてもブロックします。[インタープリターのワンライナーにはパースの隙間がある](/ja/guides/known-limitations#interpreter-one-liners-have-parsing-gaps)を参照してください。
+
 ### コマンドプロンプトの本体
 
 CC Safety Net は、どのシェルモードでも `cmd /c` と `cmd /k` の本体を読み取ります。`/s` を付けた `rmdir`、`rd`、`del`、`erase` を検査し、本体のそれ以外の部分は通常のコマンドとして検査します。そのため `cmd /c git reset --hard` は `git.reset-hard` でブロックされます。

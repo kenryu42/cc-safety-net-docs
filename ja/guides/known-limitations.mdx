@@ -47,7 +47,7 @@ CC Safety Net 自身が解析を完了できない場合、どの連携も呼び
 
 ### プラグインのシェルツールは、宣言するまで解析されない
 
-CC Safety Net は、対応する各エージェント自身のシェルツールは把握していますが、コミュニティ製プラグインが追加するツールは知りません。そうしたツールの `command` はパースされないため、`dsh-ops` プラグインの `ops_bash` で実行する `git reset --hard` は許可されます。シェルツールが解析されていないことを知らせる仕組みはありません。[コミュニティ製のシェルツール](/ja/configuration/custom-rules#community-shell-tools)として宣言してください。
+CC Safety Net は、対応する各エージェント自身のシェルツールは把握していますが、コミュニティ製プラグインが追加するツールは知りません。そうしたツールの `command` はパースされないため、`dsh-ops` プラグインの `ops_bash` で実行する `git reset --hard` は許可されます。これを報告するのは DeepSeek Harness だけで、[セッション中 1 回だけエージェントに通知します](/ja/installation/deepseek-harness#when-a-plugin-shell-tool-goes-unchecked)。ほかのホストでは、シェルツールが解析されていないことを知らせる仕組みはありません。[コミュニティ製のシェルツール](/ja/configuration/custom-rules#community-shell-tools)として宣言してください。
 
 ### eval と動的実行
 
@@ -60,11 +60,15 @@ bash -c "$(cat destructive.sh)"
 
 CC Safety Net は `bash -c` やインタープリターのコード引数をスキャンしますが、リモートから取得したペイロードや変数から組み立てたペイロードは見えないままです。各レベルが何をブロックするかは、[生成されたコマンドの eval と source](/ja/reference/blocked-commands#eval-and-source-of-a-generated-command)を参照してください。
 
+<span id="interpreter-one-liners-have-parsing-gaps"></span>
+
 ### インタープリターのワンライナーにはパースの隙間がある
 
 CC Safety Net は、`python`、`node`、`ruby`、`perl` の `-c` や `-e` に渡されたコードをスキャンします。長形式の `--eval`、`--execute`、`--print`、`--require` や、`--eval='code'` の形はスキャンされないことがあります。フラグにかかわらずインタープリターのワンライナーをすべてブロックするには、[paranoid のインタープリターチェック](/ja/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1)を有効にしてください。
 
 standard モードでは、Python 以外のインタープリターで、コメント内の引用符によって文字列リテラルの開始位置がずれることがあります。CC Safety Net は Python の `#` コメントを読み飛ばすため、その中の引用符や括弧は結果に影響しません。[strict モード](/ja/configuration/modes#strict-mode-cc_safety_net_strict=1)は影響を受けません。
+
+[インタープリター自身が実行するルートやホームの再帰削除](/ja/reference/blocked-commands#recursive-deletes-an-interpreter-runs-itself)は、コードのテキストで一致を判定します。そのため `python3 -c "print(\"shutil.rmtree('/')\")"` のように、その呼び出しが何も実行しない場所にあってもブロックされます。
 
 ### PowerShell は一部の構文だけを読み取る
 

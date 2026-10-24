@@ -332,6 +332,24 @@ CC Safety Net checks the command inside `bash -c`, `sh -c`, `sudo`, `env`, and o
 
 The interpreters checked this way are `python`, `python2`, `python3`, `node`, `ruby`, and `perl`. To block every interpreter one-liner, including `python -c "print(1)"`, turn on the [paranoid interpreters check](/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1). Those blocks use `interpreter.one-liner-paranoid`.
 
+### Recursive deletes an interpreter runs itself
+
+Interpreter code can delete the root or home directory through its own standard library, with no shell command in it. CC Safety Net blocks those calls at every safety level, in inline code, in a heredoc, and in code read from stdin.
+
+| Command | Result | Rule id |
+| --- | --- | --- |
+| `python3 -c "import shutil; shutil.rmtree('/')"` | Blocked | `interpreter.dangerous-command` |
+| `perl -e 'use File::Path; rmtree($ENV{HOME})'` | Blocked | `interpreter.dangerous-command` |
+| `ruby -e "require 'fileutils'; FileUtils.rm_rf(Dir.home)"` | Blocked | `interpreter.dangerous-command` |
+| `node -e "require('fs').rmSync(require('os').homedir(), {recursive: true})"` | Blocked | `interpreter.dangerous-command` |
+| `python3 -c "import shutil; shutil.rmtree('dist')"` | Allowed | |
+| `python3 -c "import shutil,os; shutil.rmtree(os.path.join(os.path.expanduser('~'), 'build'))"` | Allowed | |
+| `node -e "require('fs').rmSync(require('os').homedir())"` | Allowed | |
+
+The calls it reads are Python `shutil.rmtree`, Perl `rmtree` and `remove_tree`, Ruby `FileUtils.rm_rf`, `rm_r`, `remove_dir`, `remove_entry`, and `remove_entry_secure`, and Node `rm`, `rmSync`, `rmdir`, and `rmdirSync` with `recursive: true`. The first argument has to be a literal root or home path, or one of these home expressions: `os.path.expanduser('~')`, `Path.home()`, `os.environ['HOME']`, `os.getenv('HOME')`, `$ENV{HOME}`, `os.homedir()`, `process.env.HOME`, `Dir.home`, and `ENV['HOME']`.
+
+A target the code builds at run time, such as a subdirectory joined onto home, stays allowed. So does a literal `~`, which none of these APIs expand, and a Node delete without `recursive: true`. CC Safety Net matches the call in the code text, so it blocks the call wherever it appears, including inside a string. See [Interpreter one-liners have parsing gaps](/guides/known-limitations#interpreter-one-liners-have-parsing-gaps).
+
 ### Command Prompt bodies
 
 CC Safety Net reads the body of `cmd /c` and `cmd /k` in every shell mode. It checks `rmdir`, `rd`, `del`, and `erase` with `/s`, and checks every other part of the body as an ordinary command, so `cmd /c git reset --hard` blocks on `git.reset-hard`.

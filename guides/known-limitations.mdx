@@ -45,7 +45,7 @@ CC Safety Net analyzes a tool that runs a command for you, such as `rtk git rese
 
 ### A plugin's shell tool is unanalyzed until you declare it
 
-CC Safety Net knows each supported agent's own shell tools, but not the ones a community plugin adds. It never parses such a tool's `command`, so the `dsh-ops` plugin's `ops_bash` running `git reset --hard` is allowed. Nothing tells you a shell tool is going unanalyzed. Declare it as a [community shell tool](/configuration/custom-rules#community-shell-tools).
+CC Safety Net knows each supported agent's own shell tools, but not the ones a community plugin adds. It never parses such a tool's `command`, so the `dsh-ops` plugin's `ops_bash` running `git reset --hard` is allowed. Only DeepSeek Harness reports it, by [telling the agent once per session](/installation/deepseek-harness#when-a-plugin-shell-tool-goes-unchecked). On every other host, nothing tells you a shell tool is going unanalyzed. Declare it as a [community shell tool](/configuration/custom-rules#community-shell-tools).
 
 ### eval and dynamic execution
 
@@ -63,6 +63,8 @@ CC Safety Net scans `bash -c` and interpreter code arguments, but a payload fetc
 CC Safety Net scans the code passed to `-c` or `-e` for `python`, `node`, `ruby`, and `perl`. The long forms `--eval`, `--execute`, `--print`, and `--require`, and the `--eval='code'` form, may not be scanned. To block every interpreter one-liner whatever its flags, turn on [paranoid interpreters](/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1).
 
 In standard mode, a quote inside a comment can shift where string literals start, in every interpreter except Python. CC Safety Net skips a Python `#` comment, so quotes and brackets in it change nothing. [Strict mode](/configuration/modes#strict-mode-cc_safety_net_strict=1) is not affected.
+
+A [native recursive delete of root or home](/reference/blocked-commands#recursive-deletes-an-interpreter-runs-itself) matches on the code text, so it blocks even where the call runs nothing, as in `python3 -c "print(\"shutil.rmtree('/')\")"`.
 
 ### PowerShell is read as a subset
 

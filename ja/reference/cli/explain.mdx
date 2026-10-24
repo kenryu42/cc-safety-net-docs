@@ -1,13 +1,14 @@
 ---
 title: "explain コマンド"
 sidebarTitle: "explain"
-description: "cc-safety-net explain のリファレンスです。コマンドがブロックまたは許可される理由のトレース、JSON と作業ディレクトリのオプション、ダブルダッシュでのフラグ解析の終了、終了コード、解析を拒否されるコマンドを説明します。"
+description: "cc-safety-net explain のリファレンスです。コマンドがブロックまたは許可される理由のトレース、JSON・作業ディレクトリ・シェルの方言のオプション、ダブルダッシュでのフラグ解析の終了、終了コード、解析を拒否されるコマンドを説明します。"
 keywords:
   - "explain"
   - "トレース"
   - "ブロックされた理由"
   - "解析"
   - "--cwd"
+  - "--shell"
   - "json"
 ---
 
@@ -24,15 +25,38 @@ bunx cc-safety-net explain "git reset --hard"
 | --- | --- |
 | `--json` | 解析結果の全体を JSON として出力する |
 | `--cwd <path>` | この作業ディレクトリから実行したものとして解析する |
+| `--shell <auto\|posix\|powershell>` | このシェルとしてコマンドを読み取る。既定値は `auto` |
 | `-h`, `--help` | ヘルプを表示する |
 
 ```bash
 npx cc-safety-net explain "rm -rf /"
 npx cc-safety-net explain --json "git checkout -- file.txt"
 npx cc-safety-net explain --cwd /tmp "git status"
+npx cc-safety-net explain --shell posix 'rmdir /s /q d:\'
 ```
 
 `--json` のスキーマ、`ExplainResult` のフィールド、`TraceStep` の全種類は、[explain トレースリファレンス](/ja/reference/explain-trace)を参照してください。
+
+## ツールが実行するシェルとしてコマンドを読み取る
+
+`explain` の既定のシェルモードは `auto` で、PowerShell に見えるコマンドは PowerShell として読み取ります。ただし、エージェントのツールは別のシェルを実行していることがあります。Claude Code の `Bash` ツールは POSIX を実行するため、`auto` のままだとフックが出していない判定を報告することがあります。
+
+| コマンド | 結果 | ルール ID |
+| --- | --- | --- |
+| `explain 'rmdir /s /q d:\'` | ブロック | `powershell.remove-item-root-or-home` |
+| `explain --shell powershell 'rmdir /s /q d:\'` | ブロック | `powershell.remove-item-root-or-home` |
+| `explain --shell posix 'rmdir /s /q d:\'` | 許可 | |
+
+bash の `rmdir` は空のディレクトリしか削除しないため、`Bash` ツールからのこの呼び出しはフックでは許可されます。`--shell posix` を付ければ、その許可を再現できます。このフラグはコマンドの解析方法と適用されるシェルのルールの両方を切り替えるので、判定を再現したいツールの方言を指定してください。
+
+`--shell powershell` では、引数を分けて渡したコマンドを PowerShell の引用規則で連結するため、その中のアポストロフィは POSIX のエスケープではなく二重化されます。それ以外の方言では POSIX のエスケープのままです。
+
+`auto`、`posix`、`powershell` 以外の値を渡すと、エラーと使用方法の行を出力して `1` で終了します。
+
+```text
+Error: --shell must be auto, posix, or powershell, got: bash
+Usage: cc-safety-net explain [--json] [--cwd <path>] [--shell <auto|posix|powershell>] <command>
+```
 
 ## ダッシュで始まるコマンドを explain する
 
@@ -40,7 +64,7 @@ npx cc-safety-net explain --cwd /tmp "git status"
 
 ## explain の終了コード
 
-`explain` は、結果がブロックでも許可でも `0` で終了します。終了コードではなく `result` フィールドを読んでください。`1` で終了するのは、不明なオプションや存在しない `--cwd` パスなどのオプションエラーの場合と、解析を拒否したコマンドの場合です。
+`explain` は、結果がブロックでも許可でも `0` で終了します。終了コードではなく `result` フィールドを読んでください。`1` で終了するのは、不明なオプション、存在しない `--cwd` パス、不明な `--shell` の値といったオプションエラーの場合と、解析を拒否したコマンドの場合です。
 
 ## explain が解析を拒否するコマンド
 

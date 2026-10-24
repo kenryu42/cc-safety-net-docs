@@ -1,11 +1,12 @@
 ---
 title: "Install CC Safety Net in DeepSeek Harness"
 sidebarTitle: "DeepSeek Harness"
-description: "Install CC Safety Net in DeepSeek Harness as a profile plugin bundle for the web and Desktop profiles, add it to other profiles, see what its tool guard checks, remove it, and resolve the Desktop and enable errors."
+description: "Install CC Safety Net in DeepSeek Harness as a profile plugin bundle for the web and Desktop profiles, add it to other profiles, see what its tool guard checks and what it reports about an undeclared plugin shell tool, remove it, and resolve the Desktop and enable errors."
 keywords:
   - "deepseek harness"
   - "dsh"
   - "profile plugin"
+  - "ops_bash"
   - "DSH_HOME"
   - "desktop profile"
   - "web profile"
@@ -39,15 +40,6 @@ Install covers the `desktop` profile only when that profile already exists, whic
 
 A successful install reports `Added cc-safety-net to the DeepSeek Harness Desktop and web profiles.` A web-only run says `the web profile` in place of `the Desktop and web profiles`.
 
-When a profile's `package.json` lists other plugins, install and `update` name them and print the command that declares a plugin's shell tool, in English and Chinese:
-
-```text
-Other plugins in the DeepSeek Harness web profile: <plugin names>.
-CC Safety Net does not check commands a plugin's own shell tool runs until you declare it: npx -y cc-safety-net rule tool add <tool-name>
-```
-
-The message repeats on every update. See [Community shell tools](/configuration/custom-rules#community-shell-tools) to declare a tool such as `ops_bash`.
-
 ## What the DeepSeek Harness install changes
 
 DeepSeek Harness loads CC Safety Net as a profile plugin bundle, not as a hook process, so there is no `hook` flag for it. Install adds `cc-safety-net` to each profile at the same version as the installer you ran. Each profile's `package.json` then lists the `cc-safety-net` dependency and enables its bundle.
@@ -79,6 +71,21 @@ DeepSeek Harness runs the guard after every other `tools/pre-execute` listener, 
 - The guard sends `bash` calls to the POSIX analyzer.
 - It sends `pwsh` calls to the PowerShell analyzer.
 - It checks file and search tool calls with path and secret protection.
+
+The guard reads the `command` of a plugin's own tool only after you declare that tool. See [When a plugin shell tool goes unchecked](#when-a-plugin-shell-tool-goes-unchecked).
+
+## When a plugin shell tool goes unchecked
+
+A plugin can give the agent its own shell tool, such as `ops_bash` from the `dsh-ops` plugin. Until you declare it, CC Safety Net never reads its `command`, so `ops_bash` can run `git reset --hard` with no decision. [Community shell tools](/configuration/custom-rules#community-shell-tools) covers how to declare one.
+
+The first time an undeclared tool runs a non-empty `command`, CC Safety Net adds a notice to what DeepSeek Harness reports back to the agent for that call, whether the host accepted or blocked it. The notice tells the agent to:
+
+- find out where the tool runs its commands, either from the tool description or from the plugin's source under `<profile>/node_modules` in the profiles directory
+- declare it with `npx -y cc-safety-net rule tool add <tool-name>`, but only when it runs them on this machine, and add `--cwd-arg <name>` when its working-directory argument is not `workdir`, `cwd`, or `working_directory`
+- confirm the declaration with `npx -y cc-safety-net rule tool list` rather than by running a destructive command
+- tell you what it found either way
+
+The notice changes no decision, and the call it reports has already run. It appears once per session for each tool name, and never for the built-in `bash` and `pwsh` tools or for file and search tools. CC Safety Net reads your declarations from the session's working directory, or from the directory DeepSeek Harness was launched in when the session has none. If reading them fails, it drops the notice and passes the host's own result through.
 
 ## What happens when the DeepSeek Harness check fails
 

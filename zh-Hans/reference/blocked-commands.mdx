@@ -354,6 +354,26 @@ CC Safety Net 会检查 `bash -c`、`sh -c`、`sudo`、`env` 等包装器内的�
 
 按这种方式检查的解释器有 `python`、`python2`、`python3`、`node`、`ruby` 和 `perl`。要阻止所有解释器单行命令（包括 `python -c "print(1)"`），请开启 [paranoid 解释器检查](/zh-Hans/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1)。这类阻止使用 `interpreter.one-liner-paranoid`。
 
+<span id="recursive-deletes-an-interpreter-runs-itself"></span>
+
+### 解释器自己执行的递归删除
+
+解释器代码即使不含任何 shell 命令，也能通过解释器自身的标准库删除根目录或主目录。无论这类调用出现在内联代码、heredoc 还是从 stdin 读入的代码中，CC Safety Net 在所有级别都会阻止。
+
+| 命令 | 结果 | 规则 ID |
+| --- | --- | --- |
+| `python3 -c "import shutil; shutil.rmtree('/')"` | 阻止 | `interpreter.dangerous-command` |
+| `perl -e 'use File::Path; rmtree($ENV{HOME})'` | 阻止 | `interpreter.dangerous-command` |
+| `ruby -e "require 'fileutils'; FileUtils.rm_rf(Dir.home)"` | 阻止 | `interpreter.dangerous-command` |
+| `node -e "require('fs').rmSync(require('os').homedir(), {recursive: true})"` | 阻止 | `interpreter.dangerous-command` |
+| `python3 -c "import shutil; shutil.rmtree('dist')"` | 允许 | |
+| `python3 -c "import shutil,os; shutil.rmtree(os.path.join(os.path.expanduser('~'), 'build'))"` | 允许 | |
+| `node -e "require('fs').rmSync(require('os').homedir())"` | 允许 | |
+
+它读取的删除调用有 Python 的 `shutil.rmtree`；Perl 的 `rmtree` 和 `remove_tree`；Ruby 的 `FileUtils.rm_rf`、`rm_r`、`remove_dir`、`remove_entry`、`remove_entry_secure`；以及带 `recursive: true` 的 Node `rm`、`rmSync`、`rmdir`、`rmdirSync`。第一个参数必须是字面的根目录或主目录路径，或者下列表示主目录的表达式之一：`os.path.expanduser('~')`、`Path.home()`、`os.environ['HOME']`、`os.getenv('HOME')`、`$ENV{HOME}`、`os.homedir()`、`process.env.HOME`、`Dir.home`、`ENV['HOME']`。
+
+代码在运行时拼出的目标仍然允许，例如把子目录拼接到主目录之后。字面的 `~` 也允许，这些 API 都不会展开它；不带 `recursive: true` 的 Node 删除同样允许。CC Safety Net 按代码文本匹配这类调用，因此调用写在哪里都会被阻止，包括写在字符串里。见[解释器单行命令存在解析缺口](/zh-Hans/guides/known-limitations#interpreter-one-liners-have-parsing-gaps)。
+
 ### 命令提示符正文
 
 CC Safety Net 在任何 shell 模式下都会读取 `cmd /c` 和 `cmd /k` 的正文。其中带 `/s` 的 `rmdir`、`rd`、`del` 和 `erase` 按删除规则检查，正文其余部分按普通命令检查，因此 `cmd /c git reset --hard` 以 `git.reset-hard` 阻止。

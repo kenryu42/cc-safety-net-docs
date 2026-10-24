@@ -1,13 +1,14 @@
 ---
 title: "explain command"
 sidebarTitle: "explain"
-description: "Reference for cc-safety-net explain: tracing why a command is blocked or allowed, the JSON and working-directory options, how a double dash ends flag parsing, exit codes, and refused commands."
+description: "Reference for cc-safety-net explain: tracing why a command is blocked or allowed, the JSON, working-directory and shell-dialect options, how a double dash ends flag parsing, exit codes, and refused commands."
 keywords:
   - "explain"
   - "trace"
   - "why blocked"
   - "analysis"
   - "--cwd"
+  - "--shell"
   - "json"
 ---
 
@@ -24,15 +25,38 @@ bunx cc-safety-net explain "git reset --hard"
 | --- | --- |
 | `--json` | Output the full analysis result as JSON |
 | `--cwd <path>` | Analyze as if run from this working directory |
+| `--shell <auto\|posix\|powershell>` | Read the command as this shell (default: `auto`) |
 | `-h`, `--help` | Show help |
 
 ```bash
 npx cc-safety-net explain "rm -rf /"
 npx cc-safety-net explain --json "git checkout -- file.txt"
 npx cc-safety-net explain --cwd /tmp "git status"
+npx cc-safety-net explain --shell posix 'rmdir /s /q d:\'
 ```
 
 See the [Explain trace reference](/reference/explain-trace) for the `--json` schema, the `ExplainResult` fields, and every `TraceStep` variant.
+
+## Read the command as the shell your tool runs
+
+`explain` defaults to the `auto` shell mode, which reads a command as PowerShell when it looks like PowerShell. Your agent's tool may run a different shell. Claude Code's `Bash` tool runs POSIX, so `auto` can report a verdict the hook never gave:
+
+| Command | Result | Rule id |
+| --- | --- | --- |
+| `explain 'rmdir /s /q d:\'` | Blocked | `powershell.remove-item-root-or-home` |
+| `explain --shell powershell 'rmdir /s /q d:\'` | Blocked | `powershell.remove-item-root-or-home` |
+| `explain --shell posix 'rmdir /s /q d:\'` | Allowed | |
+
+In bash, `rmdir` removes only empty directories, so the hook allows that call from the `Bash` tool. `--shell posix` reproduces the allow. The flag changes both how `explain` parses the command and which shell's rules apply to it, so pass the dialect of the tool whose decision you want to reproduce.
+
+With `--shell powershell`, a command given as separate arguments is rejoined with PowerShell quoting, so an apostrophe in it is doubled instead of escaped the POSIX way. Every other dialect keeps POSIX escaping.
+
+A value other than `auto`, `posix`, or `powershell` exits `1` with the error and the usage line:
+
+```text
+Error: --shell must be auto, posix, or powershell, got: bash
+Usage: cc-safety-net explain [--json] [--cwd <path>] [--shell <auto|posix|powershell>] <command>
+```
 
 ## Explain a command that starts with a dash
 
@@ -40,7 +64,7 @@ See the [Explain trace reference](/reference/explain-trace) for the `--json` sch
 
 ## explain exit code
 
-`explain` exits `0` for both blocked and allowed results, so read the `result` field instead of the exit code. It exits `1` on an option error, such as an unknown option or a `--cwd` path that does not exist, and on a command it refuses to analyze.
+`explain` exits `0` for both blocked and allowed results, so read the `result` field instead of the exit code. It exits `1` on an option error, such as an unknown option, a `--cwd` path that does not exist, or an unknown `--shell` value, and on a command it refuses to analyze.
 
 ## Commands explain refuses to analyze
 
