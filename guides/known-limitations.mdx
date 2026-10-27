@@ -1,12 +1,12 @@
 ---
 title: "Known limitations and pitfalls"
 sidebarTitle: "Known limitations"
-description: "What CC Safety Net cannot catch: which agents fail open and what each one leaves uncovered, opaque command proxies, eval, parser gaps, the PowerShell and cmd readers, sensitive-path coverage, filesystem containment, network, symlink swaps, and rule files an agent can edit."
+description: "What CC Safety Net cannot catch: which agents fail open and what each one leaves uncovered, opaque command proxies, eval, script files, parser gaps, the PowerShell and cmd readers, sensitive-path coverage, filesystem containment, network, symlink swaps, and rule files an agent can edit."
 ---
 
 ## What can't CC Safety Net protect against?
 
-CC Safety Net checks supported tool calls before they run. It does not contain processes and has no network layer, so it cannot stop data leaving over the network. It protects the credential files it recognizes plus the deny paths you add. It cannot see what a binary does internally, and a command that bypasses an installed integration is never checked. For exfiltration, untrusted code, or complete containment, run it alongside a [sandbox](/guides/vs-sandboxing) or operating-system permissions.
+CC Safety Net checks supported tool calls before they run. It does not contain processes and has no network layer, so it recognizes an upload only from the command text and cannot stop data leaving over the network. It protects the credential files it recognizes plus the deny paths you add. It cannot see what a binary does internally, and a command that bypasses an installed integration is never checked. For exfiltration, untrusted code, or complete containment, run it alongside a [sandbox](/guides/vs-sandboxing) or operating-system permissions.
 
 Standard mode is best-effort for adversarial or dynamic input. Several limits below are relaxations that [strict or paranoid mode](/configuration/modes) closes, and this page says where.
 
@@ -58,6 +58,17 @@ bash -c "$(cat destructive.sh)"
 
 CC Safety Net scans `bash -c` and interpreter code arguments, but a payload fetched from a remote source or built from variables stays invisible. See [eval and source of a generated command](/reference/blocked-commands#eval-and-source-of-a-generated-command) for what each level blocks.
 
+### Script files are read best effort
+
+CC Safety Net reads the shell script behind `sh x.sh`, `source x.sh`, and `./x.sh`, and blocks on a concrete rule match inside it. The read is best effort. Analysis ends at the script's first result, so an early line CC Safety Net cannot verify, such as an `eval`, hides whatever comes after it.
+
+The outer command also keeps its verdict when:
+
+- The file is unreadable, larger than 256 KB, or not a regular file, or the command has already read 64 scripts.
+- An earlier part of the same command may have written the path. CC Safety Net skips the read when it cannot pin down a `cp` destination.
+
+Interpreter files are never read, so `python3 tool.py` is allowed whatever the file does. A file can also change between the check and the run. [Scripts run from a file](/reference/blocked-commands#scripts-run-from-a-file) covers the rules in full. For this threat, use a [sandbox](/guides/vs-sandboxing) or operating-system permissions.
+
 ### Interpreter one-liners have parsing gaps
 
 CC Safety Net scans the code passed to `-c` or `-e` for `python`, `node`, `ruby`, and `perl`. The long forms `--eval`, `--execute`, `--print`, and `--require`, and the `--eval='code'` form, may not be scanned. To block every interpreter one-liner whatever its flags, turn on [paranoid interpreters](/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1).
@@ -99,7 +110,7 @@ The disk rules match named commands. CC Safety Net does not analyze `fdisk`, `sf
 
 ### No network layer
 
-CC Safety Net makes no network requests while it checks a call and does not filter traffic. Data exfiltration, domain allowlists, prompt-injection-driven exfiltration, and container boundaries are outside it. A sandbox's network restrictions cover them.
+CC Safety Net makes no network requests while it checks a call and does not filter traffic. Two rules read the destination out of the command text and block the command. One covers a `curl` or `wget` upload to a host that is not loopback, the other a request to a cloud metadata endpoint. See [Network commands](/reference/blocked-commands#network-commands). They match the options and hosts they name, not the connection. A client that is not on the list, a decimal or hex spelling of the same address, a DNS name that resolves to it, and a redirect to it are all uncovered. Domain allowlists, prompt-injection-driven exfiltration, and container boundaries stay outside CC Safety Net. A sandbox's network restrictions cover them.
 
 ### Symlink TOCTOU risk
 

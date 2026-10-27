@@ -72,7 +72,8 @@ CC Safety Net 通过四种集成模型支持十六种智能体。每种模型运
 - **包装器和解释器。** 分析器会展开 `sh -c`、`bash -c`、`sudo`、`env` 以及 `python -c`、`node -e` 单行命令，分析其中的内层命令，最多 10 层。更深的嵌套会被阻止。见 [Shell 包装器和解释器单行命令](/zh-Hans/reference/blocked-commands#shell-wrappers-and-interpreter-one-liners)。
 - **同一命令内的 `cd`。** 分析器在 `dir` 中判断 `cd dir && rm -rf x`。如果 `cd` 无法解析，其后的目标就无法验证。见[文件系统命令](/zh-Hans/reference/blocked-commands#filesystem-commands)。
 - **Shell 函数。** 分析器在函数被调用的位置检查函数体，所以 `cleanup() { rm -rf ../outside; }; cleanup` 会被阻止。只定义、从未调用的函数会被允许。见[文件系统命令](/zh-Hans/reference/blocked-commands#filesystem-commands)。
-- **Heredoc。** `cat > note.md <<'EOF'` 只是写入数据，无论 body 写了什么都会被允许。如果 heredoc 写出的脚本在同一条命令中随即运行，例如 `cat > x.sh <<'EOF' … EOF && bash x.sh`，则按脚本分析。见 [strict 和 paranoid 中的 heredoc](/zh-Hans/reference/blocked-commands#heredocs)。
+- **Heredoc。** `cat > note.md <<'EOF'` 只是写入数据，无论 body 写了什么都会被允许。如果 shell 把 heredoc 当作自己的程序来执行，例如 `bash <<'EOF'`，则逐条命令分析。见 [strict 和 paranoid 中的 heredoc](/zh-Hans/reference/blocked-commands#heredocs)。
+- **Shell 脚本。** 对于 `sh x.sh`、`source x.sh` 和 `./x.sh`，分析器会读取其背后的脚本，无论它是同一条命令中的 heredoc 刚写出的，还是原本就在磁盘上；阻止理由中会指明文件和行号。`python3 tool.py` 这类解释器文件不会被读取。见[从文件运行的脚本](/zh-Hans/reference/blocked-commands#scripts-run-from-a-file)。
 - **复合命令。** `if`、`while`、`until` 和 `{ …; }` 主体中的命令与顶层命令一样接受检查，所以 `if true; then rm -rf ~; fi` 会被阻止。
 - **动态目标。** 由变量或替换构造的目标（如 `rm -rf "$target"`）在运行前无法验证。standard 允许这类命令，[strict](/zh-Hans/configuration/modes#strict-mode-cc_safety_net_strict=1) 和 paranoid 会阻止。见[文件系统命令](/zh-Hans/reference/blocked-commands#filesystem-commands)。
 

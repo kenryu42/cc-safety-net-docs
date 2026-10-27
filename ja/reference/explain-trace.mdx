@@ -97,6 +97,7 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 | `busybox` | `subcommand` | busybox 形式のディスパッチをサブコマンドに解決した |
 | `transparent-wrapper` | `wrapper`, `output` | 登録済みの透過ラッパーの中を確認した。下記を参照 |
 | `recurse` | `reason`, `innerCommand`, `depth` | 再帰的な再解析を始めた |
+| `script-file` | `path`, `bytes` | ディスクからシェルスクリプトを読み込んだ。下記を参照 |
 | `rule-check` | `rule`, `matched`, `reason?` | 組み込みルールを評価した |
 | `worktree-relaxation` | `originalReason`, `gitCwd` | 対象がリンクされたワークツリーなので、Git の破棄コマンドを緩和した |
 | `temp-root-relaxation` | `originalReason`, `gitCwd` | 信頼された一時ルート配下の使い捨てリポジトリで git を実行するため、Git のルールを緩和した |
@@ -117,6 +118,10 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 
 `heredoc-file` は、同じコマンド内で先に heredoc が書き出したスクリプトを、コマンドが実行したことを示します。[アナライザーが見抜く書き方](/ja/guides/how-it-works#what-the-analyzer-sees-through)を参照してください。
 
+### `script-file` ステップ
+
+`script-file` ステップは、`sh deploy.sh` や `./deploy.sh` のように、アナライザーがディスクからシェルスクリプトを読み込んだときに現れます。`path` はコマンドに書かれたとおりのパス、`bytes` はファイルのサイズです。スクリプト内のコマンドについてはステップが追加されず、スクリプトのテキストを含むフィールドもありません。ツール呼び出しがそのテキストを渡していないためです。[ファイルから実行するスクリプト](/ja/reference/blocked-commands#scripts-run-from-a-file)を参照してください。同じコマンド内の heredoc が書き出したスクリプトの場合は、代わりに理由が `heredoc-file` の `recurse` ステップを記録し、そちらには本文も含まれます。
+
 ### `transparent-wrapper` ステップ
 
 `transparent-wrapper` ステップは、[`rule wrapper add`](/ja/reference/cli/rule#rule-wrapper) で登録したコマンドの中を解析が確認したときに現れます。`wrapper` はラッパーの名前、`output` はラップされたコマンドのトークンのリストです。このステップは、ラップされたコマンドの解析の直前に、候補ごとに 1 つずつ記録されます。
@@ -132,7 +137,7 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 ## トレースを共有する前に
 
 <Warning>
-  explain のトレースは、そのまま安全に共有できるものではありません。`parse` ステップは、生のコマンド文字列とパースしたすべてのトークンを記録します。ほかにも生のテキストを含むフィールドがあります。`fallback-scan.tokensScanned`、`dangerous-text.token`、`shell-wrapper.innerCommand`、`interpreter.codeArg`、`recurse.innerCommand`、`strict-unparseable.rawCommand`、`transparent-wrapper.output`、`worktree-relaxation.gitCwd`、`temp-root-relaxation.gitCwd`、`cwd-change.segment` です。`configSource` は絶対パスで、通常はホームディレクトリ内を指します。
+  explain のトレースは、そのまま安全に共有できるものではありません。`parse` ステップは、生のコマンド文字列とパースしたすべてのトークンを記録します。ほかにも生のテキストを含むフィールドがあります。`fallback-scan.tokensScanned`、`dangerous-text.token`、`shell-wrapper.innerCommand`、`interpreter.codeArg`、`recurse.innerCommand`、`script-file.path`、`strict-unparseable.rawCommand`、`transparent-wrapper.output`、`worktree-relaxation.gitCwd`、`temp-root-relaxation.gitCwd`、`cwd-change.segment` です。`configSource` は絶対パスで、通常はホームディレクトリ内を指します。
 
   マスク処理が取り除くのは、認識できた資格情報の形式だけです。使うのは[監査ログ](/ja/reference/audit-log#secret-redaction)と同じ、範囲を限定したパターンのリストです。ファイルパス、ホスト名、IP アドレス、ユーザー名、プロジェクト名やクライアント名、認識できない形式のシークレットは対象外です。
 

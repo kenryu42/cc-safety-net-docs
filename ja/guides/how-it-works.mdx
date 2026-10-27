@@ -72,7 +72,8 @@ CC Safety Net は 4 つの連携方式で 16 のエージェントに対応し�
 - **ラッパーとインタープリター。** `sh -c`、`bash -c`、`sudo`、`env`、`python -c` や `node -e` のワンライナーを展開し、中のコマンドを最大 10 階層まで解析します。それより深いネストはブロックします。[シェルラッパーとインタープリターのワンライナー](/ja/reference/blocked-commands#shell-wrappers-and-interpreter-one-liners)を参照してください。
 - **1 つのコマンド内の `cd`。** `cd dir && rm -rf x` は `dir` を基準に判定します。解決できない `cd` があると、それ以降の対象は検証できなくなります。[ファイルシステムコマンド](/ja/reference/blocked-commands#filesystem-commands)を参照してください。
 - **シェル関数。** 関数の本体は呼び出し位置で検査するため、`cleanup() { rm -rf ../outside; }; cleanup` はブロックされます。定義だけで呼び出さない場合は許可されます。[ファイルシステムコマンド](/ja/reference/blocked-commands#filesystem-commands)を参照してください。
-- **heredoc。** `cat > note.md <<'EOF'` はデータを書き込むだけなので、本文の内容にかかわらず許可されます。`cat > x.sh <<'EOF' … EOF && bash x.sh` のように、heredoc で書いたスクリプトを同じコマンド内で実行する場合は、スクリプトとして解析します。[strict と paranoid での heredoc](/ja/reference/blocked-commands#heredocs) を参照してください。
+- **heredoc。** `cat > note.md <<'EOF'` はデータを書き込むだけなので、本文の内容にかかわらず許可されます。`bash <<'EOF'` のように、シェルが heredoc をプログラムとして実行する場合は、本文のコマンドを 1 つずつ解析します。[strict と paranoid での heredoc](/ja/reference/blocked-commands#heredocs) を参照してください。
+- **シェルスクリプト。** `sh x.sh`、`source x.sh`、`./x.sh` が実行するスクリプトは、同じコマンド内の heredoc が書いたものでも、すでにディスク上にあるものでも、中身を読んで解析します。ブロックの理由には、ファイルと行番号を示します。`python3 tool.py` のようなインタープリター向けのファイルは読みません。[ファイルから実行するスクリプト](/ja/reference/blocked-commands#scripts-run-from-a-file)を参照してください。
 - **複合コマンド。** `if`、`while`、`until`、`{ …; }` の本体にあるコマンドも、トップレベルのコマンドと同じように検査します。そのため `if true; then rm -rf ~; fi` はブロックされます。
 - **動的な対象。** `rm -rf "$target"` のように変数や置換で組み立てた対象は、実行前に検証できません。standard では許可し、[strict](/ja/configuration/modes#strict-mode-cc_safety_net_strict=1) と paranoid ではブロックします。[ファイルシステムコマンド](/ja/reference/blocked-commands#filesystem-commands)を参照してください。
 

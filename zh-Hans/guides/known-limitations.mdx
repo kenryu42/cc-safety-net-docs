@@ -1,12 +1,12 @@
 ---
 title: "已知限制和易错点"
 sidebarTitle: "已知限制"
-description: "CC Safety Net 无法捕获的内容：哪些智能体会 fail-open、各自留下哪些覆盖缺口，不透明的命令代理、eval、解析器缺口、PowerShell 与 cmd 的读取方式、敏感路径的覆盖范围、文件系统隔离、网络、符号链接替换，以及智能体可以编辑的规则文件。"
+description: "CC Safety Net 无法捕获的内容：哪些智能体会 fail-open、各自留下哪些覆盖缺口，不透明的命令代理、eval、脚本文件、解析器缺口、PowerShell 与 cmd 的读取方式、敏感路径的覆盖范围、文件系统隔离、网络、符号链接替换，以及智能体可以编辑的规则文件。"
 ---
 
 ## CC Safety Net 无法防护哪些情况？
 
-CC Safety Net 在受支持的工具调用运行前检查它们。它不隔离进程，也没有网络层，因此无法阻止数据经网络外泄。它保护的是它能识别的凭证文件，以及你添加的拒绝路径。它看不到二进制文件内部的行为，绕过已安装集成的命令也完全不会被检查。如果要应对数据外泄、不可信代码或需要完整隔离，请同时使用[沙箱](/zh-Hans/guides/vs-sandboxing)或操作系统权限。
+CC Safety Net 在受支持的工具调用运行前检查它们。它不隔离进程，也没有网络层，只能从命令文本识别出上传动作，无法阻止数据经网络外泄。它保护的是它能识别的凭证文件，以及你添加的拒绝路径。它看不到二进制文件内部的行为，绕过已安装集成的命令也完全不会被检查。如果要应对数据外泄、不可信代码或需要完整隔离，请同时使用[沙箱](/zh-Hans/guides/vs-sandboxing)或操作系统权限。
 
 面对对抗性或动态输入，standard 模式只提供尽力保护。下文有几项属于放宽，[strict 或 paranoid 模式](/zh-Hans/configuration/modes)会将其关闭，本页会在相应位置说明。
 
@@ -60,6 +60,19 @@ bash -c "$(cat destructive.sh)"
 
 CC Safety Net 会扫描 `bash -c` 和解释器的代码参数，但从远程来源获取或由变量拼接而成的 payload 依然不可见。各级别分别阻止什么，见[生成命令的 eval 与 source](/zh-Hans/reference/blocked-commands#eval-and-source-of-a-generated-command)。
 
+<span id="script-files-are-read-best-effort"></span>
+
+### 脚本文件只做尽力读取
+
+CC Safety Net 会读取 `sh x.sh`、`source x.sh` 和 `./x.sh` 背后的 shell 脚本，并在脚本内部命中具体规则时阻止命令。这种读取是尽力而为的。分析在脚本的第一个结果处结束，所以脚本中靠前的一行只要是 CC Safety Net 无法验证的（例如 `eval`），就会隐藏它后面的全部内容。
+
+以下情况下外层命令的决策同样保持不变：
+
+- 文件不可读、大于 256 KB、不是普通文件，或者该命令已经读满 64 个脚本。
+- 同一命令中前面的部分可能写过这个路径。无法确定 `cp` 的目标时，CC Safety Net 就跳过这次读取。
+
+解释器文件从不读取，所以无论文件里做了什么，`python3 tool.py` 都会被允许。文件也可能在检查和运行之间发生变化。完整规则见[从文件运行的脚本](/zh-Hans/reference/blocked-commands#scripts-run-from-a-file)。这类威胁请改用[沙箱](/zh-Hans/guides/vs-sandboxing)或操作系统权限。
+
 <span id="interpreter-one-liners-have-parsing-gaps"></span>
 
 ### 解释器单行命令存在解析缺口
@@ -111,7 +124,7 @@ CC Safety Net 用文本检查读取 `cmd /c` 或 `cmd /k` 的命令体，而不�
 
 ### 没有网络层
 
-CC Safety Net 检查调用时不发出任何网络请求，也不过滤流量。数据外泄、域名允许列表、由提示注入引发的外泄以及容器边界都不在它的范围内。沙箱的网络限制可以覆盖这些。
+CC Safety Net 检查调用时不发出任何网络请求，也不过滤流量。有两条规则会从命令文本中读出目标地址并阻止命令：一条针对 `curl` 或 `wget` 向非环回主机的上传，另一条针对发往云元数据端点的请求。见[网络命令](/zh-Hans/reference/blocked-commands#network-commands)。它们匹配的是自己列出的选项和主机，而不是实际连接。不在列表内的客户端、同一地址的十进制或十六进制写法、解析到该地址的 DNS 名称，以及指向它的重定向，都不在覆盖范围内。域名允许列表、由提示注入引发的外泄以及容器边界仍不属于 CC Safety Net 的范围。沙箱的网络限制可以覆盖这些。
 
 ### 符号链接 TOCTOU 风险
 
