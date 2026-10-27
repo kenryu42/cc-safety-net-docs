@@ -4,9 +4,9 @@ sidebarTitle: "Dashboard"
 description: "Launch the local CC Safety Net dashboard with cc-safety-net gui. Use Overview, Activity, Protections, Custom rules, Agents, and Settings to inspect decisions, edit policy, and manage agent hooks, in English, Japanese, or Simplified Chinese."
 ---
 
-The dashboard is a local web page for seeing what CC Safety Net blocked on this machine, why, and what you can change. Run `cc-safety-net gui` to open it. From it you can review decisions, edit your policy without writing JSON, draft a project policy, and install the hook for each coding agent.
+The dashboard is a local web page that shows what CC Safety Net blocked on this machine and why, and lets you change it. Run `cc-safety-net gui` to open it. You can review decisions, edit your policy without writing JSON, draft a project policy, and install the hook for each coding agent.
 
-The underlying formats live elsewhere. The `policy.json` fields are on [Policy](/configuration/policy), rulebook authoring is on [Custom rules](/configuration/custom-rules), and the record format is on [Audit log](/reference/audit-log).
+For the underlying formats, see [Policy](/configuration/policy), [Custom rules](/configuration/custom-rules), and [Audit log](/reference/audit-log).
 
 ## Launch the dashboard
 
@@ -20,25 +20,19 @@ The command prints the dashboard URL and opens it in your default browser:
 CC Safety Net policy GUI: http://127.0.0.1:52341/?token=...
 ```
 
-Pass `--no-open` to get the URL without opening a browser, for example over SSH or in a container:
-
-```bash
-cc-safety-net gui --no-open
-```
-
-The server runs in the foreground until you stop it with `Ctrl-C`. See [`gui`](/reference/cli/gui) for the flags, argument errors, and what happens when the browser cannot open.
+Pass `--no-open` to get the URL without opening a browser, for example over SSH or in a container. The server runs in the foreground until you stop it with `Ctrl-C`. See [`gui`](/reference/cli/gui) for the flags and errors.
 
 ### Local loopback scope
 
-The dashboard is not a hosted service. The server listens only on `127.0.0.1`, so nothing on your network can reach it. Each launch creates a new token in the URL, and the server rejects requests without it. A URL bookmarked from an earlier launch stops working, so run `cc-safety-net gui` again to get a fresh one.
+The server listens only on `127.0.0.1`, so nothing on your network can reach it. Each launch puts a new token in the URL, and the server rejects requests without it. A URL bookmarked from an earlier launch stops working, so run `cc-safety-net gui` again.
 
-`gui` prints the token on stdout, so whoever launched the command can read it. An agent that ran `cc-safety-net gui` itself therefore holds the token and can use the dashboard, including the project-policy apply. CC Safety Net still denies an agent that edits `policy.json` directly or runs `cc-safety-net policy apply`.
+`gui` prints the token on stdout. An agent that ran `cc-safety-net gui` itself therefore holds the token and can use the dashboard, including the project-policy apply. CC Safety Net still denies an agent that edits `policy.json` directly or runs `cc-safety-net policy apply`.
 
-Everything the page shows comes from your local policy file and audit logs. Overview makes two outbound requests when it opens. One checks the npm registry for updates, and the other reads the repository's public star count from GitHub. Neither sends a credential. `Star on GitHub` uses your `gh` login only when you click it.
+The page reads only your local policy file and audit logs. When Overview opens, it makes two outbound requests without credentials: an update check against the npm registry and the repository's public star count on GitHub. `Star on GitHub` uses your `gh` login only when you click it.
 
 ## The six views
 
-The sidebar has six views. Each view has its own address, so you can bookmark one within a session. The address also keeps the filters on Activity and Protections, so a reload or Back restores them.
+Each view has its own address, which also keeps the filters on Activity and Protections, so a reload or Back restores them.
 
 | View | What it answers |
 | --- | --- |
@@ -49,19 +43,19 @@ The sidebar has six views. Each view has its own address, so you can bookmark on
 | **Agents** | Which coding agents on this machine have the hook installed? |
 | **Settings** | How long are logs kept, where do files live, and how do I reset? |
 
-A banner above every view appears when a protection is off or when a configuration error makes the runtime enforce a fallback. It shows one line per condition:
+A banner above every view shows one line for each of these conditions in the saved policy:
 
 - `Command protection is off: built-in destructive command rules are not enforced. Catastrophic and custom rules still apply.`
 - `Secret protection is off: sensitive files and deny paths are not blocked.`
 - `A fallback configuration is being enforced: <reason>`
 
-The banner reflects the saved policy, not unsaved edits. See [Recovery](/configuration/recovery#configuration-states) for what a fallback configuration means and how to get out of it.
+See [Recovery](/configuration/recovery#configuration-states) for what a fallback configuration means and how to get out of it.
 
 ## Overview
 
 Overview summarizes the last 7 days, or your whole retention window when retention is shorter.
 
-**Status card.** The card at the top shows one headline:
+**Status card.** The card at the top shows one headline, based on the saved policy:
 
 | Headline | When it appears |
 | --- | --- |
@@ -71,98 +65,91 @@ Overview summarizes the last 7 days, or your whole retention window when retenti
 | `Partly protected` | Command protection or secret protection is off |
 | `Protected` | None of the above |
 
-Below the headline, the card names your preset, adds `, customized` when you changed it, and lists the agents with an active hook. It links to Agents when no agent has a hook, and to Protections otherwise. It reflects the saved policy only.
+**Needs attention.** This list appears only when something needs action. Each item links to where you act on it:
 
-**Needs attention.** This list appears only when something needs action, and each item links to where you act on it:
+| Item | Opens |
+| --- | --- |
+| `<Agent> is detected but its hook is disabled.` | Agents |
+| `N blocks in the last N days look like a false positive.` | Activity, filtered to likely false positives |
+| `N guard errors in the last N days: commands blocked because evaluation failed, not by policy.` | Activity, filtered to errors |
+| `Version <version> is available.` | The release notes on GitHub |
 
-- `<Agent> is detected but its hook is disabled.` opens Agents.
-- `N blocks in the last N days look like a false positive.` opens Activity filtered to likely false positives.
-- `N guard errors in the last N days: commands blocked because evaluation failed, not by policy.` opens Activity filtered to errors. CC Safety Net could not finish checking these commands, so it blocked them. See [Troubleshooting](/guides/troubleshooting) if they recur.
-- `Version <version> is available.` opens the release notes on GitHub.
-
-**Tiles, Recent blocks, and Most-triggered rules.** `Blocked` and `Commands checked` show a count and a per-day chart. Recent blocks lists the eight latest blocked commands, and Most-triggered rules lists the five rule IDs with the most blocks. Select a row to open the rule on Custom rules, or to open Activity searched for that rule ID.
+A guard error means CC Safety Net could not finish checking a command, so it blocked it. See [Troubleshooting](/guides/troubleshooting) if guard errors recur.
 
 ## Activity
 
-Activity lists the commands your agents ran, newest first, under day headings. Secret redaction recognizes only known credential shapes, so entries can still contain paths, hostnames, and names. Read [Secret redaction](/reference/audit-log#secret-redaction) before you share anything from this view.
+Activity lists the commands your agents ran, newest first. It opens on the last 7 days and can look back as far as your audit [retention](/reference/audit-log#retention).
 
-The window selector offers windows up to your audit retention, and Activity opens on the last 7 days. See [Retention](/reference/audit-log#retention) to keep more history.
+Secret redaction recognizes only known credential shapes, so entries can still contain paths, hostnames, and names. Read [Secret redaction](/reference/audit-log#secret-redaction) before you share anything from this view.
 
 ### Filters
 
-- **Decision.** `Blocked` (the default, which includes guard errors), `Allowed`, and `All`, each with its count. `Errors` appears when the window has guard errors. `Likely false positive` appears when CC Safety Net finds a block that records a failure stage, or the same command blocked twice or more in one session.
-- **Search.** `Search commands or rule IDs` matches rule IDs and command text, ignoring case.
-- **Agent.** `All agents` plus one option per agent. It appears when the window has two or more agents.
-- **Window.** How many days back to look.
+The decision filter defaults to `Blocked`, which includes guard errors. `Likely false positive` appears when a block records a failure stage, or when the same command was blocked twice or more in one session. `Search commands or rule IDs` matches rule IDs and command text, ignoring case.
 
-With the default filters and nothing blocked, the list reads `Nothing was blocked in the last N days.` and offers `Show all activity`. The refresh icon beside the title reloads both Activity and Overview.
-
-The footer reads `Showing X of Y entries from the last N days.` The list loads at most the newest 500 entries of each decision, but the counts and tiles always cover the whole window. Narrow the window to see older entries. When Activity cannot read some log files, the footer says so, and both the list and the counts are incomplete.
+The list loads at most the newest 500 entries of each decision, but the counts and tiles always cover the whole window. Narrow the window to see older entries. When Activity cannot read some log files, the footer says so, and both the list and the counts are incomplete.
 
 ### Per-entry actions
 
-Each row shows the time, a decision badge (`Blocked`, `Allowed`, or `Error`), the agent, the command, and the rule ID. Select a row to see the full command, reason, rule, and folder. A rule ID links to that rule on Protections or Custom rules.
+Select a row to see the full command, reason, rule, and folder.
 
-- Blocked entries offer **Report false positive**. See the next section.
-- Allowed entries offer **Block this in future**. It opens Custom rules with the command filled into the `What should be blocked?` box. It does not create a rule by itself.
-- Every entry offers **Copy log entry**, which copies the raw audit record as JSON. See [Record schema](/reference/audit-log#record-schema) for its fields.
+| Action | Offered on | What it does |
+| --- | --- | --- |
+| **Report false positive** | Blocked entries | Prepares a GitHub issue. See the next section |
+| **Block this in future** | Allowed entries | Opens Custom rules with the command filled into `What should be blocked?`. It does not create a rule by itself |
+| **Copy log entry** | Every entry | Copies the raw audit record as JSON. See [Record schema](/reference/audit-log#record-schema) |
 
 ### Report a false positive
 
-**Report false positive** opens a dialog that prepares a public GitHub issue from the project's false-positive form. You can edit every field: an optional reason, the title, the blocked command, and the audit entry as JSON.
+**Report false positive** prepares a public GitHub issue from the project's false-positive form. You can edit every field first.
 
-The dialog replaces your project path with `<project>` and your home directory with `~`. Other paths and names stay, so edit out anything you would rather not publish. `Open GitHub form` opens the filled-in form in a new tab. Nothing reaches GitHub until you submit the form there. When the report is too long for the link, the dialog copies a field to your clipboard and names where to paste it.
+The dialog replaces your project path with `<project>` and your home directory with `~`. Other paths and names stay, so edit out anything you would rather not publish. Nothing reaches GitHub until you submit the form there.
 
 ## Protections
 
-Protections is where you choose what CC Safety Net blocks. Everything here is a built-in protection: the safety preset, the destructive-command rules, and the secret-protection rules. Your own rulebooks are on Custom rules. `My policy` and `Project policy` at the top choose which policy you edit.
+Protections is where you choose what CC Safety Net blocks with its built-in protections: the safety preset, the destructive-command rules, and the secret-protection rules. Your own rulebooks are on Custom rules. `My policy` and `Project policy` at the top choose which policy you edit.
+
+Press `/` to search rules by name, ID, description, or protected path. `Changed from default` lists only the rules you or an environment variable changed.
 
 ### Saved versus unsaved
 
-Edits collect in a draft until you save. A save bar shows `N unsaved changes` with **Discard** and **Save**, and the sidebar marks Protections `Unsaved`. The draft survives a reload in the same browser session, and the page asks before you leave it. **Discard** asks for confirmation. **Save** writes your user policy file and reports its path.
+Edits collect in a draft until you select **Save**, which writes your user policy file. The draft survives a reload in the same browser session.
 
-While the saved policy has errors, the dashboard opens Protections, shows built-in defaults in the form, and disables **Save** so those defaults cannot overwrite your file. Use [Repair](#repair) first.
+While the saved policy has errors, the form shows built-in defaults and **Save** is disabled, so those defaults cannot overwrite your file. Use [Repair](#repair) first.
 
 ### Draft a project policy
 
-`Project policy` switches Protections into a draft of the project's `policy.json`, which everyone working in that folder gets on top of their own policy. The draft targets the folder you launched the dashboard from, and `Change folder…` picks another. If you have unsaved changes to your own policy, the dashboard asks to discard them first. `My policy` takes you back.
+`Project policy` switches Protections to a draft of the project's `policy.json`, which everyone working in that folder gets on top of their own policy. The draft targets the folder you launched the dashboard from, and `Change folder…` picks another.
 
-Every control gets a tag:
-
-- `Inherited` means the project file leaves this setting out, and each person keeps their own value.
-- `Project` means the project file sets it. Click the tag to stop setting that field.
+| Tag | Meaning |
+| --- | --- |
+| `Inherited` | The project file leaves this setting out, and each person keeps their own value |
+| `Project` | The project file sets it. Click the tag to stop setting that field |
 
 Editing a control marks it `Project`. A marked path list starts empty, so the draft does not write your personal paths into the repository.
 
-**Save** becomes **Review and apply**, which opens `Apply this project policy?`. The dialog shows the target path, a `Setting` / `Now` / `After` table of the effective policy, and a warning for each setting the draft makes weaker than your own policy. [Reported weakenings](/configuration/policy#reported-weakenings) lists the warnings. The dashboard writes nothing until you select `Apply project policy`. In a draft, **Discard** returns to what the project file already has, after a confirmation.
+**Save** becomes **Review and apply**. The dialog shows the target path, a `Setting` / `Now` / `After` table of the effective policy, and a warning for each setting the draft makes weaker than your own policy. [Reported weakenings](/configuration/policy#reported-weakenings) lists the warnings. Nothing is written until you select `Apply project policy`.
 
-The draft refuses to start with `Repair your policy first` while your own policy file has errors. It also cannot write to the folder that holds your user `.cc-safety-net/`. Use `Change folder…` to pick a project, and see [The user config directory is not a project](/configuration/policy#the-user-config-directory-is-not-a-project).
+The draft refuses to start with `Repair your policy first` while your own policy file has errors. It also cannot write to the folder that holds your user `.cc-safety-net/`. See [The user config directory is not a project](/configuration/policy#the-user-config-directory-is-not-a-project).
 
-See [Project policy](/configuration/policy#project-policy) for how the two policies merge. The draft makes the same checks as `cc-safety-net policy apply`.
+The draft makes the same checks as `cc-safety-net policy apply`. See [Project policy](/configuration/policy#project-policy) for how the two policies merge.
 
 ### Test a command
 
-`Test a command` opens a dialog. Enter a shell command and select `Test` to see whether it would be blocked. Nothing runs. The test uses your unsaved edits and your custom rulebooks, so you can check a change before you save it. In a project draft, it tests your policy with the draft applied on top.
+`Test a command` shows whether a shell command would be blocked, without running it. The test uses your unsaved edits and your custom rulebooks, so you can check a change before you save it. In a project draft, it tests your policy with the draft applied on top.
 
-The result reads `Blocked` with the rule ID, reason, and the blocked part of a compound command. Otherwise it reads `Allowed. No rule blocks this command.` with a `Create a rule to block it` link to Custom rules. Use [`explain`](/reference/cli/explain) for the same check in the terminal.
+A block shows the rule ID, the reason, and the blocked part of a compound command. Use [`explain`](/reference/cli/explain) for the same check in the terminal.
 
 ### Safety preset
 
-Three cards choose the preset: **Standard**, **Strict**, and **Paranoid**. Each includes everything in the one before it. `<Preset>, customized` appears when your overrides differ from the preset. [Modes](/configuration/modes) describes what each preset changes.
+Choose **Standard**, **Strict**, or **Paranoid**. Each includes everything in the one before it. [Modes](/configuration/modes) describes what each preset changes.
 
 When an environment variable raises protection, the view lists it after `An environment variable raises protection beyond these settings:`. CC Safety Net can then block more than the preset shown.
 
-The collapsed **Advanced settings** card turns single capabilities on or off without changing the preset: `Fail closed`, `Paranoid rm -rf checks`, and `Paranoid interpreters`. Each offers `From preset`, `Always on`, or `Always off`. The same card holds `Allow discarding local changes in linked git worktrees`.
-
-### Search protections
-
-The search box (`Type / to search by name, path or rule ID`) matches rule names, IDs, descriptions, and the paths a secret rule protects. Press `/` to focus it. `Changed from default` lists only the rules you or an environment variable changed.
+The collapsed **Advanced settings** card sets `Fail closed`, `Paranoid rm -rf checks`, and `Paranoid interpreters` to `From preset`, `Always on`, or `Always off` without changing the preset. It also holds `Allow discarding local changes in linked git worktrees`.
 
 ### Command protection
 
-The **Command protection** panel holds the built-in destructive-command rules. Its header has a master switch, a `Reset all` button, and a summary such as `N on · N off · N always on`.
-
-The `Always on` group comes first. It holds the catastrophic rules, which show a lock instead of a switch because you cannot turn them off. One group per category follows, such as `Git` and `Filesystem`. Each rule row shows a switch, the rule name and ID, and a description. A `Strict` or `Paranoid` badge marks a rule that needs that preset, and an info button shows an example command the rule blocks.
+The **Command protection** panel holds the built-in destructive-command rules, grouped by category. The `Always on` group holds the catastrophic rules, which you cannot turn off. A `Strict` or `Paranoid` badge marks a rule that needs that preset.
 
 A note explains a value that does not come from the preset:
 
@@ -173,17 +160,13 @@ A note explains a value that does not come from the preset:
 | `Set by environment: <variable>` | An environment variable turned the rule on |
 | `Needs the Strict preset` or `Needs the Paranoid preset` | The rule is off because the current preset does not include it |
 
-`Reset all` returns every rule in the panel to its preset value after a confirmation. To allow one blocked command, turn off its rule here rather than the whole panel. See [Allow a blocked command](/reference/blocked-commands#allow-a-blocked-command).
-
-Turning the master switch off asks for confirmation. Afterward the summary reads `Off. Built-in rules are not enforced; catastrophic and custom rules still apply. Your rule settings are kept.`
+To allow one blocked command, turn off its rule here rather than the whole panel. See [Allow a blocked command](/reference/blocked-commands#allow-a-blocked-command). `Reset all` returns every rule in the panel to its preset value.
 
 ### Secret protection
 
-The **Secret protection** panel works the same way: a master switch, `Reset all`, and a summary such as `N on · N off`. It groups its rules by category, such as `Sensitive file names`, `Sensitive file extensions`, and `Coding agent credentials`. A rule that protects specific file paths has an info button listing those paths.
+The **Secret protection** panel works the same way, with rules grouped by category, such as `Sensitive file names` and `Coding agent credentials`. The info button on a rule that protects specific paths lists those paths.
 
 The `Coding agent settings` rules ship off and show `Off by default`. Turn them on one at a time. See [Coding CLI config tier](/reference/secret-protection#coding-cli-config-tier-off-by-default) for why. To allow one blocked file, see [Allow a blocked file](/reference/secret-protection#allow-a-blocked-file).
-
-Turning the master switch off asks for confirmation. Afterward the summary reads `Off. Sensitive files and deny paths are not blocked. Your rule settings and paths are kept.`
 
 <Warning>
   Turning off command protection or secret protection disables every configurable rule in that layer until you turn it back on. Only the `Always on` command rules keep blocking. Prefer a single rule override or a lower preset over the master switch.
@@ -199,35 +182,29 @@ The **Exceptions and extra paths** panel holds three path lists. Entries can be 
 | `Always block access to` | `secret_protection.deny_paths` | CC Safety Net blocks these paths and everything inside them while secret protection is on |
 | `Paths exempt from secret patterns` | `secret_protection.allow_paths` | Files, folders, or a file name under a folder, such as `~/code/**/.env.local`, are exempt from the built-in file rules. Deny paths and coding agent credentials still apply |
 
-A rejected entry shows `Not added: <paths>. <reason>`, and a duplicate shows `Already listed: <paths>`. See [Allow paths](/configuration/policy#allow-paths), [Deny paths](/configuration/policy#deny-paths), and [Secret allow paths](/configuration/policy#secret-allow-paths) for what each list relaxes and which entries it accepts.
+See [Allow paths](/configuration/policy#allow-paths), [Deny paths](/configuration/policy#deny-paths), and [Secret allow paths](/configuration/policy#secret-allow-paths) for which entries each list accepts.
 
 ### Policy JSON
 
-The collapsed **Policy JSON** card at the bottom is a read-only copy of the policy with a `Copy` button. It shows the policy the form would save, the file as it is on disk while it has errors, or, in a project draft, the exact file the apply would write.
+The collapsed **Policy JSON** card is a read-only copy of the policy the form would save. While the file has errors, it shows the file as it is on disk. In a project draft, it shows the exact file the apply would write.
 
 ### Repair
 
-When the policy file has errors, Protections shows `Your policy file needs repair` with the errors and a `Repair` button. Repair asks for confirmation, then keeps every valid setting and drops the invalid ones. If the file is not readable JSON, it restores the defaults.
+When the policy file has errors, Protections lists them with a `Repair` button. Repair keeps every valid setting and drops the invalid ones. If the file is not readable JSON, it restores the defaults.
 
 <Warning>
-  Repair drops invalid settings, and restores defaults when the file is not readable JSON. If the file holds hand-written configuration you care about, copy it somewhere safe first.
+  If the file holds hand-written configuration you care about, copy it somewhere safe before you repair.
 </Warning>
 
 To reset the policy completely, use **Reset policy** in [Settings](#settings).
 
 ## Custom rules
 
-Custom rules shows the rulebooks you wrote, as they are enforced now. These rules are separate from the built-in protections. See [Custom rules](/configuration/custom-rules) for the rulebook format.
-
-<Warning>
-  The Custom rules view is not a rulebook editor. CC Safety Net never writes a rulebook from the dashboard. This view shows rules read-only as they are enforced, and composes prompt text for you to copy into a coding agent that does the authoring.
-</Warning>
+Custom rules shows the rulebooks you wrote, read-only, as they are enforced now. CC Safety Net never writes a rulebook from the dashboard. Instead, it composes a prompt for you to copy into a coding agent that writes the rule. See [Custom rules](/configuration/custom-rules) for the rulebook format.
 
 ### Rulebooks (read-only)
 
-Each rulebook shows its name, version, scope (`All projects` or `This project`), and rule count. Each rule shows the command it matches, its `custom.<name>` ID, its reason, and the arguments that trigger it. The view does not list a rule that an override turns off. The refresh icon reads the files again.
-
-With no rulebooks, the view reads `No custom rules yet.` and points you to `Create a rule` or `npx -y cc-safety-net rule init`.
+Each rule shows the command it matches, its `custom.<name>` ID, its reason, and the arguments that trigger it. The view does not list a rule that an override turns off. With no rulebooks, it points you to `Create a rule` or `npx -y cc-safety-net rule init`.
 
 ### Problems
 
@@ -235,20 +212,15 @@ The **Problems** section appears only when there is something to report. An erro
 
 ### Create a rule (copy only)
 
-**Create a rule** builds a prompt for your coding agent to write the rule. Its only action is **Copy prompt**.
+**Create a rule** builds a prompt for your coding agent to write the rule. Choose `This project` or `All projects`, describe the rules in `What should be blocked?`, and select **Copy prompt**.
 
-- **Applies to.** `This project` or `All projects`.
-- **Project folder.** Shown for `This project`, starting at the folder you launched the dashboard from.
-- **What should be blocked?** Describe the rules you want. Rules match a command, its subcommands, and exact arguments. They do not match file paths. To block a file or folder, add it to `Always block access to` in [Exceptions and extra paths](#exceptions-and-extra-paths).
-- **Try.** Starter prompts `Suggest rules`, `Block a command`, and `Verify rules`.
+Rules match a command, its subcommands, and exact arguments. They do not match file paths. To block a file or folder, add it to `Always block access to` in [Exceptions and extra paths](#exceptions-and-extra-paths).
 
-The prompt tells your agent to use the `cc-safety-net` skill, or `npx -y cc-safety-net rule doc` when the skill is missing. It includes your existing rulebook names so the agent picks an unused one. After copying, the page reports `Prompt copied`.
+The prompt tells your agent to use the `cc-safety-net` skill, or `npx -y cc-safety-net rule doc` when the skill is missing.
 
 ## Agents
 
 Agents installs or removes the CC Safety Net hook for each coding agent on this machine. See [Installation](/installation) for each agent's setup outside the dashboard.
-
-Each row shows the agent, its version or `Not detected`, a status, and an action:
 
 | Status | Meaning | Action offered |
 | --- | --- | --- |
@@ -258,21 +230,21 @@ Each row shows the agent, its version or `Not detected`, a status, and an action
 | No status | The agent is installed with no hook | `Install` |
 | `Not detected` in the version column | CC Safety Net did not find the agent on this machine | None |
 
-The command output appears under the row after an action. A failure reports `Install failed` or `Uninstall failed`. Select the refresh icon (`Refresh agents`) after you install an agent or edit its config by hand.
+A failed action reports `Install failed` or `Uninstall failed` with the command output under the row. Select `Refresh agents` after you install an agent or edit its config by hand.
 
 ## Settings
 
-**Appearance.** `Theme` offers `Auto`, `Light`, and `Dark`. The dashboard saves it together with your [language](#dashboard-language), not in your policy.
+**Appearance.** The dashboard saves `Theme` together with your [language](#dashboard-language), not in your policy.
 
-**Audit log.** `Keep logs for` sets how many days of audit records to keep, from 1 to 365. Unlike Protections, it saves as soon as you change it. It refuses with `Retention unchanged` while the policy needs repair, a project draft is open, or Protections has unsaved changes. `Log folder` shows the audit log directory with a `Copy` button. See [Retention](/reference/audit-log#retention).
+**Audit log.** `Keep logs for` sets how many days of audit records to keep, from 1 to 365. It saves as soon as you change it. It refuses with `Retention unchanged` while the policy needs repair, a project draft is open, or Protections has unsaved changes. See [Retention](/reference/audit-log#retention).
 
 <Warning>
-  Shortening retention cannot be undone. The next cleanup deletes entries older than the new window. The dashboard asks you to confirm and names the folder it will prune. Copy any entries you need first with `Copy log entry` on Activity.
+  Shortening retention cannot be undone. The next cleanup deletes entries older than the new window. Copy any entries you need first with `Copy log entry` on Activity.
 </Warning>
 
-**Files.** Read-only rows show the user policy path, with `(not created yet)` when the file does not exist, and the project policy path when one is in force. When the project policy weakens your settings, a notice lists each change under `The project policy changes these settings:`. To refuse those changes, see [Ignore project weakenings](/configuration/policy#ignore-project-weakenings).
+**Files.** This section shows the user policy path and, when one is in force, the project policy path. When the project policy weakens your settings, a notice lists each change. To refuse those changes, see [Ignore project weakenings](/configuration/policy#ignore-project-weakenings).
 
-**Danger zone.** **Reset policy** replaces your policy file with the defaults after a confirmation. It is unavailable while a project draft is open.
+**Danger zone.** **Reset policy** replaces your policy file with the defaults. It is unavailable while a project draft is open.
 
 <Warning>
   Reset discards your saved configuration. Every preset choice, rule override, allow path, and deny path returns to defaults, with no undo. Reset affects only the policy file. It does not touch custom rulebooks.
@@ -280,6 +252,6 @@ The command output appears under the row after an action. A failure reports `Ins
 
 ## Dashboard language
 
-The language menu at the bottom of the sidebar, or of the page on a narrow screen, switches the dashboard between English, Japanese (日本語), and Simplified Chinese (简体中文). Until you pick one, the dashboard follows your browser's language and falls back to English. Block reasons, rule ids, and server errors stay in English.
+The language menu at the bottom of the sidebar switches the dashboard between English, Japanese (日本語), and Simplified Chinese (简体中文). Until you pick one, the dashboard follows your browser's language and falls back to English. Block reasons, rule ids, and server errors stay in English.
 
-The dashboard saves your language and theme to `gui.json` in `~/.cc-safety-net/`, or in `$CC_SAFETY_NET_HOME` when that variable is set. Both choices survive a relaunch, even though each launch uses a new port. They are not part of your policy.
+The dashboard saves your language and theme to `gui.json` in `~/.cc-safety-net/`, or in `$CC_SAFETY_NET_HOME` when that variable is set. Both survive a relaunch and are not part of your policy.

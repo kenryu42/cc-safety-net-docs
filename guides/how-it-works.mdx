@@ -8,7 +8,7 @@ CC Safety Net is a pre-execution hook. It receives each shell command and file o
 
 ## Does CC Safety Net use an LLM?
 
-No. A local, rule-based parser makes every decision. It parses the command into its executable, subcommand, flags, and arguments, then applies fixed rules to that structure. The same command, working directory, and configuration always get the same decision. Nothing is sent to a model or over the network, and no wording in a prompt can turn a block into an allow.
+No. A local, rule-based parser makes every decision. It parses the command into its executable, subcommand, flags, and arguments, then applies fixed rules. The same command, working directory, and configuration always get the same decision. Nothing is sent to a model or over the network, and no prompt wording can turn a block into an allow.
 
 ## The lifecycle of one tool call
 
@@ -20,7 +20,7 @@ No. A local, rule-based parser makes every decision. It parses the command into 
     CC Safety Net's integration for that agent receives the call before the tool executes. How it receives the call depends on the agent. See [Integration models](#integration-models).
   </Step>
   <Step title="CC Safety Net checks the operation">
-    CC Safety Net parses the input once and runs the checks in [What gets checked, in order](#what-gets-checked-in-order). The order is the same for every agent.
+    CC Safety Net parses the input once and runs the checks in [What gets checked, in order](#what-gets-checked-in-order).
   </Step>
   <Step title="An allow or a block comes back">
     An allowed call executes normally. A blocked call never runs, and the agent receives the [block message](#what-a-block-looks-like) as the tool result.
@@ -80,7 +80,7 @@ CC Safety Net decides on what a command does. Two commands with the same first w
 
 Both begin with `git checkout`, so a prefix rule cannot tell them apart without repeating Git's option logic. Parsing the command also catches reordered flags (`rm -r -f /`), shell wrappers (`sh -c "rm -rf /"`), and interpreter one-liners (`python -c 'import os; os.system("rm -rf /")'`).
 
-This page does not list rules. [Blocked and allowed commands](/reference/blocked-commands) lists what is stopped and what is not.
+[Blocked and allowed commands](/reference/blocked-commands) lists what is stopped and what is not.
 
 ## What a block looks like
 
@@ -98,7 +98,16 @@ Command: git checkout -- src/main.py
 Do not retry the blocked form. Continue the task using the safer alternative described above.
 ```
 
-The `Rule:` line gives the id of the rule or [fixed denial](/reference/blocked-commands#fixed-denial-ids) that blocked the call. Only a hook call whose input is missing or is not valid JSON is blocked without one. When they apply, the message also carries the `Tool:` name, the `Segment:` that triggered the block, and a `Config warning:` when a fallback configuration is in force. It adds a `Working directory:` line when CC Safety Net refused the call over the directory it would have run in. CC Safety Net shortens command and segment text and redacts secrets from the whole message.
+The `Rule:` line gives the id of the rule or [fixed denial](/reference/blocked-commands#fixed-denial-ids) that blocked the call. Only a hook call whose input is missing or is not valid JSON is blocked without one. CC Safety Net shortens command and segment text and redacts secrets from the whole message.
+
+These lines appear only when they apply:
+
+| Line | What it shows |
+| --- | --- |
+| `Tool:` | The name of the tool the agent called |
+| `Segment:` | The part of the command that triggered the block |
+| `Config warning:` | The fallback configuration in force |
+| `Working directory:` | The directory that made CC Safety Net refuse the call |
 
 A block does not end the agent session. The rule's intent selects the closing instruction, which sends the agent back to its task instead of retrying variants:
 
@@ -110,7 +119,7 @@ A block does not end the agent session. The rule's intent selects the closing in
 | `manual_only` | Ask the user for explicit permission and have them run it manually |
 | `stop_and_explain` | Do not brute-force variants; simplify or restructure the command, or report the block |
 
-The instruction tells the agent what to do next. The block itself does not depend on the agent following it, because the command never runs.
+The block itself does not depend on the agent following the instruction, because the command never runs.
 
 ### When the message asks instead of blocking
 
@@ -128,7 +137,7 @@ Segment: eval $CMD
 Approve only if you expected this command.
 ```
 
-The closing line replaces the intent instruction, because you decide this one rather than the agent. Approving runs the command and declining does not. The audit log records the call as a denial either way. [When Claude Code asks you instead of blocking](/installation/claude-code#when-claude-code-asks-you-instead-of-blocking) lists which denials can ask and in which permission modes.
+The closing line replaces the intent instruction, because you decide this one rather than the agent. The audit log records the call as a denial either way. [When Claude Code asks you instead of blocking](/installation/claude-code#when-claude-code-asks-you-instead-of-blocking) lists which denials can ask and in which permission modes.
 
 ## The audit record
 

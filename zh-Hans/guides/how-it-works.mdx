@@ -10,7 +10,7 @@ CC Safety Net 是一个执行前 hook。编码智能体每次要运行 shell 命
 
 ## CC Safety Net 是否使用 LLM？
 
-不使用。所有决策都由本地基于规则的解析器做出。它把命令解析为可执行文件、子命令、选项和参数，再对这个结构套用固定规则。相同的命令、工作目录和配置，决策结果总是相同。不会向任何模型或网络发送内容，提示词怎么写都无法把阻止变成允许。
+不使用。所有决策都由本地基于规则的解析器做出。它把命令解析为可执行文件、子命令、选项和参数，再套用固定规则。相同的命令、工作目录和配置，决策结果总是相同。不会向任何模型或网络发送内容，提示词怎么写都无法把阻止变成允许。
 
 ## 一次工具调用的生命周期
 
@@ -22,7 +22,7 @@ CC Safety Net 是一个执行前 hook。编码智能体每次要运行 shell 命
     该智能体对应的 CC Safety Net 集成会在工具执行前收到这次调用。接收方式因智能体而异，见[集成模型](#integration-models)。
   </Step>
   <Step title="CC Safety Net 检查操作">
-    CC Safety Net 只解析一次输入，然后按[按顺序检查的内容](#what-gets-checked-in-order)运行各项检查。这个顺序对所有智能体都一样。
+    CC Safety Net 只解析一次输入，然后按[按顺序检查的内容](#what-gets-checked-in-order)运行各项检查。
   </Step>
   <Step title="返回允许或阻止">
     允许的调用正常执行。被阻止的调用不会运行，智能体会以工具结果的形式收到[阻止消息](#what-a-block-looks-like)。
@@ -88,7 +88,7 @@ CC Safety Net 按命令实际做什么来做出决策。开头相同的两条命
 
 两者都以 `git checkout` 开头。如果不重复实现 Git 的选项逻辑，前缀规则无法区分它们。解析命令还能识别调换顺序的选项（`rm -r -f /`）、shell 包装器（`sh -c "rm -rf /"`）和解释器单行命令（`python -c 'import os; os.system("rm -rf /")'`）。
 
-本页不列出规则。哪些命令会被阻止、哪些不会，见[被阻止和允许的命令](/zh-Hans/reference/blocked-commands)。
+哪些命令会被阻止、哪些不会，见[被阻止和允许的命令](/zh-Hans/reference/blocked-commands)。
 
 <span id="what-a-block-looks-like"></span>
 
@@ -108,7 +108,16 @@ Command: git checkout -- src/main.py
 Do not retry the blocked form. Continue the task using the safer alternative described above.
 ```
 
-`Rule:` 行给出阻止该调用的规则或[固定拒绝](/zh-Hans/reference/blocked-commands#fixed-denial-ids)的 ID。只有 hook 输入缺失或不是有效 JSON 时，消息中才没有这一行。适用时，消息还会包含 `Tool:` 名称、触发阻止的 `Segment:`，以及回退配置生效时的 `Config warning:`。如果 CC Safety Net 因调用将要运行的目录而拒绝，还会加上 `Working directory:` 行。命令和命令段文本会被截短，整条消息中的机密都会被脱敏。
+`Rule:` 行给出阻止该调用的规则或[固定拒绝](/zh-Hans/reference/blocked-commands#fixed-denial-ids)的 ID。只有 hook 输入缺失或不是有效 JSON 时，消息中才没有这一行。命令和命令段文本会被截短，整条消息中的机密都会被脱敏。
+
+以下各行只在适用时出现：
+
+| 行 | 内容 |
+| --- | --- |
+| `Tool:` | 智能体调用的工具名称 |
+| `Segment:` | 触发阻止的命令段 |
+| `Config warning:` | 当前生效的回退配置 |
+| `Working directory:` | 导致 CC Safety Net 拒绝调用的运行目录 |
 
 阻止不会结束智能体会话。结尾指令由规则的 intent 决定，引导智能体回到任务上，而不是反复尝试变体：
 
@@ -120,7 +129,7 @@ Do not retry the blocked form. Continue the task using the safer alternative des
 | `manual_only` | 向用户请求明确许可，并由用户手动运行 |
 | `stop_and_explain` | 不要暴力尝试各种变体；简化或重组命令，或报告阻止 |
 
-这条指令告诉智能体下一步该做什么。阻止本身并不依赖智能体是否照做，因为命令根本不会运行。
+阻止本身并不依赖智能体是否照这条指令去做，因为命令根本不会运行。
 
 <span id="when-the-message-asks-instead-of-blocking"></span>
 
@@ -140,7 +149,7 @@ Segment: eval $CMD
 Approve only if you expected this command.
 ```
 
-末行取代了 intent 指令，因为这次由你而不是智能体来决定。批准则命令执行，拒绝则不执行。无论哪种结果，审计日志都把这次调用记为拒绝。哪些拒绝会变成询问、在哪些权限模式下生效，见 [Claude Code 何时改为询问而不是阻止](/zh-Hans/installation/claude-code#when-claude-code-asks-you-instead-of-blocking)。
+末行取代了 intent 指令，因为这次由你而不是智能体来决定。无论哪种结果，审计日志都把这次调用记为拒绝。哪些拒绝会变成询问、在哪些权限模式下生效，见 [Claude Code 何时改为询问而不是阻止](/zh-Hans/installation/claude-code#when-claude-code-asks-you-instead-of-blocking)。
 
 <span id="the-audit-record"></span>
 

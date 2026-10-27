@@ -6,7 +6,9 @@ description: "CC Safety Net 无法捕获的内容：哪些智能体会 fail-open
 
 ## CC Safety Net 无法防护哪些情况？
 
-CC Safety Net 在受支持的工具调用运行前检查它们。它不隔离进程，也没有网络层，只能从命令文本识别出上传动作，无法阻止数据经网络外泄。它保护的是它能识别的凭证文件，以及你添加的拒绝路径。它看不到二进制文件内部的行为，绕过已安装集成的命令也完全不会被检查。如果要应对数据外泄、不可信代码或需要完整隔离，请同时使用[沙箱](/zh-Hans/guides/vs-sandboxing)或操作系统权限。
+CC Safety Net 在受支持的工具调用运行前检查它们。它不隔离进程，不过滤网络流量，也看不到二进制文件内部的行为。它只保护能识别的凭证文件和你添加的拒绝路径，绕过已安装集成的命令完全不会被检查。
+
+如果要应对数据外泄、不可信代码或需要完整隔离，请同时使用[沙箱](/zh-Hans/guides/vs-sandboxing)或操作系统权限。
 
 面对对抗性或动态输入，standard 模式只提供尽力保护。下文有几项属于放宽，[strict 或 paranoid 模式](/zh-Hans/configuration/modes)会将其关闭，本页会在相应位置说明。
 
@@ -14,7 +16,7 @@ CC Safety Net 在受支持的工具调用运行前检查它们。它不隔离进
 
 ## 各智能体的限制
 
-CC Safety Net 自身无法完成分析时，每个集成都会阻止该调用。但 hook 进程崩溃、超时或无法启动，或者插件加载失败时会怎样，由智能体决定。下表根据各智能体的文档或源码，列出截至 2026 年 10 月的行为。“放行该调用”意味着 hook 坏掉后什么也保护不了。
+CC Safety Net 自身无法完成分析时，每个集成都会阻止该调用。但 hook 进程崩溃、超时或无法启动，或者插件加载失败时会怎样，由智能体决定。“放行该调用”意味着 hook 坏掉后什么也保护不了。下表依据各智能体截至 2026 年 10 月的文档或源码整理。
 
 | 智能体 | hook 崩溃或超时时 | 未覆盖的范围 |
 | --- | --- | --- |
@@ -47,7 +49,9 @@ CC Safety Net 自身无法完成分析时，每个集成都会阻止该调用。
 
 ### 插件的 shell 工具在声明之前不被分析
 
-CC Safety Net 认识每个受支持智能体自身的 shell 工具，但不认识社区插件添加的那些。它从不解析这类工具的 `command`，因此 `dsh-ops` 插件的 `ops_bash` 执行 `git reset --hard` 会被放行。只有 DeepSeek Harness 会报告这一点，做法是[在每个会话中提示智能体一次](/zh-Hans/installation/deepseek-harness#when-a-plugin-shell-tool-goes-unchecked)。在其他宿主上，没有任何提示告诉你某个 shell 工具未被分析。请把它声明为[社区 shell 工具](/zh-Hans/configuration/custom-rules#community-shell-tools)。
+CC Safety Net 认识每个受支持智能体自身的 shell 工具，但不认识社区插件添加的那些。它从不解析这类工具的 `command`，因此 `dsh-ops` 插件的 `ops_bash` 执行 `git reset --hard` 会被放行。请把这个工具声明为[社区 shell 工具](/zh-Hans/configuration/custom-rules#community-shell-tools)。
+
+只有 DeepSeek Harness 会对此发出警告，做法是[在每个会话中提示智能体一次](/zh-Hans/installation/deepseek-harness#when-a-plugin-shell-tool-goes-unchecked)。其他宿主不会有任何提示。
 
 ### eval 和动态执行
 
@@ -64,14 +68,16 @@ CC Safety Net 会扫描 `bash -c` 和解释器的代码参数，但从远程来�
 
 ### 脚本文件只做尽力读取
 
-CC Safety Net 会读取 `sh x.sh`、`source x.sh` 和 `./x.sh` 背后的 shell 脚本，并在脚本内部命中具体规则时阻止命令。这种读取是尽力而为的。分析在脚本的第一个结果处结束，所以脚本中靠前的一行只要是 CC Safety Net 无法验证的（例如 `eval`），就会隐藏它后面的全部内容。
-
-以下情况下外层命令的决策同样保持不变：
-
-- 文件不可读、大于 256 KB、不是普通文件，或者该命令已经读满 64 个脚本。
-- 同一命令中前面的部分可能写过这个路径。无法确定 `cp` 的目标时，CC Safety Net 就跳过这次读取。
+CC Safety Net 会读取 `sh x.sh`、`source x.sh` 和 `./x.sh` 背后的 shell 脚本，并在脚本内部命中具体规则时阻止命令。分析在脚本的第一个结果处结束，所以脚本中靠前的一行只要是 CC Safety Net 无法验证的（例如 `eval`），就会隐藏它后面的全部内容。
 
 解释器文件从不读取，所以无论文件里做了什么，`python3 tool.py` 都会被允许。文件也可能在检查和运行之间发生变化。完整规则见[从文件运行的脚本](/zh-Hans/reference/blocked-commands#scripts-run-from-a-file)。这类威胁请改用[沙箱](/zh-Hans/guides/vs-sandboxing)或操作系统权限。
+
+<Accordion title="不读取脚本的情形">
+  以下情况下，外层命令的决策保持不变：
+
+  - 文件不可读、大于 256 KB、不是普通文件，或者该命令已经读满 64 个脚本。
+  - 同一命令中前面的部分可能写过这个路径。无法确定 `cp` 的目标时，CC Safety Net 就跳过这次读取。
+</Accordion>
 
 <span id="interpreter-one-liners-have-parsing-gaps"></span>
 
@@ -79,9 +85,11 @@ CC Safety Net 会读取 `sh x.sh`、`source x.sh` 和 `./x.sh` 背后的 shell �
 
 CC Safety Net 会扫描传给 `python`、`node`、`ruby` 和 `perl` 的 `-c` 或 `-e` 的代码。长格式 `--eval`、`--execute`、`--print`、`--require`，以及 `--eval='code'` 这种写法，可能不会被扫描。想一律阻止解释器单行命令（无论使用什么选项），请开启 [paranoid interpreters](/zh-Hans/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1)。
 
-在 standard 模式下，除 Python 外的所有解释器中，注释里的引号都可能让字符串字面量的起始位置发生偏移。CC Safety Net 会跳过 Python 的 `#` 注释，因此其中的引号和括号不影响扫描。[strict 模式](/zh-Hans/configuration/modes#strict-mode-cc_safety_net_strict=1)不受影响。
+<Accordion title="注释中的引号与只做打印的代码">
+  在 standard 模式下，除 Python 外的所有解释器中，注释里的引号都可能让字符串字面量的起始位置发生偏移。CC Safety Net 会跳过 Python 的 `#` 注释，因此其中的引号和括号不影响扫描。[strict 模式](/zh-Hans/configuration/modes#strict-mode-cc_safety_net_strict=1)不受影响。
 
-[解释器自己执行的根目录或主目录递归删除](/zh-Hans/reference/blocked-commands#recursive-deletes-an-interpreter-runs-itself)按代码文本匹配，因此即使这段调用根本不会执行，例如 `python3 -c "print(\"shutil.rmtree('/')\")"`，也一样会被阻止。
+  [解释器自己执行的根目录或主目录递归删除](/zh-Hans/reference/blocked-commands#recursive-deletes-an-interpreter-runs-itself)按代码文本匹配，因此即使这段调用根本不会执行，例如 `python3 -c "print(\"shutil.rmtree('/')\")"`，也一样会被阻止。
+</Accordion>
 
 ### PowerShell 只按子集读取
 
@@ -106,7 +114,7 @@ CC Safety Net 用文本检查读取 `cmd /c` 或 `cmd /k` 的命令体，而不�
 [机密保护](/zh-Hans/reference/secret-protection)阻止读取一组固定的凭证文件，以及你添加的拒绝路径。它不是通用的读取边界：
 
 - 文件名和扩展名都不在列表中的文件，CC Safety Net 识别不出其中的凭证。
-- standard 模式允许 `test -f .env` 这类只查元数据的检查，以及一些它视为“提及”而非读取的形式。见 [standard 模式不算作读取的情形](/zh-Hans/reference/secret-protection#what-standard-mode-does-not-count-as-a-read)。strict 和 paranoid 会阻止这些形式。
+- standard 模式允许 `test -f .env` 这类只查元数据的检查，以及一些它视为“提及”的形式。见 [standard 模式不算作读取的情形](/zh-Hans/reference/secret-protection#what-standard-mode-does-not-count-as-a-read)。strict 和 paranoid 会阻止它们。
 - standard 模式不会从文件名追踪到后续的读取，因此 `python3 -c "for f in {'.env'}: print(open(f).read())"` 会被放行。strict 会阻止它。
 - `policy.json` 中的 `secret_protection.enabled: false` 会关闭整个阶段，拒绝路径也一并失效。
 
@@ -118,13 +126,23 @@ CC Safety Net 用文本检查读取 `cmd /c` 或 `cmd /k` 的命令体，而不�
 
 ### 磁盘工具的覆盖是一份具名列表
 
-磁盘规则匹配的是具名命令。CC Safety Net 不分析 `fdisk`、`sfdisk`、`gdisk`、`mkswap`、`blkdiscard` 以及 `diskutil apfs` 的子命令，因此 `fdisk /dev/sda` 会被放行。通过 `dd` 以外的任何方式写入设备同样不在覆盖范围内，所以 `tee /dev/sda` 和 `cp img.raw /dev/sda` 都会运行。重定向规则只读取字面目标，因此 `echo x > $DEV` 会被放行。请为团队使用的工具添加[自定义规则](/zh-Hans/configuration/custom-rules)。
+磁盘规则只匹配具名命令。以下情形不经检查直接运行：
+
+| 缺口 | 会被放行的示例 |
+| --- | --- |
+| `fdisk`、`sfdisk`、`gdisk`、`mkswap`、`blkdiscard` 以及 `diskutil apfs` 的子命令 | `fdisk /dev/sda` |
+| 通过 `dd` 以外的方式写入设备 | `tee /dev/sda`、`cp img.raw /dev/sda` |
+| 目标不是字面值的重定向 | `echo x > $DEV` |
+
+请为团队使用的工具添加[自定义规则](/zh-Hans/configuration/custom-rules)。
 
 <span id="no-network-layer"></span>
 
 ### 没有网络层
 
-CC Safety Net 检查调用时不发出任何网络请求，也不过滤流量。有两条规则会从命令文本中读出目标地址并阻止命令：一条针对 `curl` 或 `wget` 向非环回主机的上传，另一条针对发往云元数据端点的请求。见[网络命令](/zh-Hans/reference/blocked-commands#network-commands)。它们匹配的是自己列出的选项和主机，而不是实际连接。不在列表内的客户端、同一地址的十进制或十六进制写法、解析到该地址的 DNS 名称，以及指向它的重定向，都不在覆盖范围内。域名允许列表、由提示注入引发的外泄以及容器边界仍不属于 CC Safety Net 的范围。沙箱的网络限制可以覆盖这些。
+CC Safety Net 检查调用时不发出任何网络请求，也不过滤流量。有两条规则会从命令文本中读出目标地址并阻止命令：一条针对 `curl` 或 `wget` 向非环回主机的上传，另一条针对发往云元数据端点的请求。见[网络命令](/zh-Hans/reference/blocked-commands#network-commands)。
+
+这两条规则匹配的是自己列出的选项和主机，而不是实际连接。不在列表内的客户端、同一地址的十进制或十六进制写法、解析到该地址的 DNS 名称，以及指向它的重定向，都不在覆盖范围内。域名允许列表、由提示注入引发的外泄以及容器边界，请交给沙箱的网络限制。
 
 ### 符号链接 TOCTOU 风险
 

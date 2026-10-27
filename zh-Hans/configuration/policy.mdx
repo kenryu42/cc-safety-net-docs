@@ -21,15 +21,13 @@ description: "CC Safety Net policy.json 的完整参考：用户范围与项目�
 
 ## 什么是配置工作目录
 
-配置工作目录是智能体会话运行所在的目录，智能体会在每次工具调用时报告它。CC Safety Net 从这里读取项目的 `.cc-safety-net/` 目录，并以它为基准解析 `deny_paths` 和 `allow_paths` 中的相对条目。命令内部的 `cd`，或自带工作目录的工具调用，会改变该命令目标的解析位置，但不会改变配置工作目录。
+配置工作目录是智能体会话运行所在的目录。CC Safety Net 从这里读取项目的 `.cc-safety-net/` 目录，并以它为基准解析 `deny_paths` 和 `allow_paths` 中的相对条目。命令内部的 `cd`，或自带工作目录的工具调用，都不会改变它。
 
 <span id="project-policy"></span>
 
 ## 项目策略
 
-把 `.cc-safety-net/policy.json` 提交到仓库，团队就能通过仓库分发一份安全策略。成员无需运行任何命令，运行时会在下一次工具调用时读取该文件，每一份检出都是如此。
-
-项目文件是稀疏的：只包含它设置的字段，未写的字段继续从用户策略继承。只设置了一条规则覆盖的项目文件，就只改变那一条规则。
+把 `.cc-safety-net/policy.json` 提交到仓库，团队就能分发一份安全策略。成员无需运行任何命令，运行时会在下一次工具调用时读取该文件。项目文件只包含它设置的字段，未写的字段从用户策略继承。
 
 生效策略是用户策略叠加项目策略的结果：
 
@@ -53,7 +51,7 @@ CC Safety Net 会忽略项目文件中的 `audit` 部分，并报告 `project po
 
 ### 报告的削弱
 
-默认情况下，CC Safety Net 按写下的内容应用项目策略，不会把它拉回用户策略的基线，而是把项目相对用户策略放宽的每个字段各报告一行：
+CC Safety Net 按写下的内容应用项目策略，并把项目相对用户策略放宽的每个字段各报告一行：
 
 - `project policy lowers level: <user> -> <project>`
 - `project policy disables fail_closed`、`project policy disables paranoid_rm`、`project policy disables paranoid_interpreters`
@@ -64,9 +62,11 @@ CC Safety Net 会忽略项目文件中的 `audit` 部分，并报告 `project po
 - `project policy adds destructive allow path: <path>`
 - `project policy adds secret allow path: <path>`
 
-判断级别是否降低，以用户策略中的 `safety.level` 为基准；判断能力是否被关闭，以经 `CC_SAFETY_NET_LEVEL` 提高级别后的用户策略为基准。因此在 `CC_SAFETY_NET_LEVEL=paranoid` 下，项目中的 `safety.overrides.paranoid_rm: false` 会关闭 `paranoid_rm`，并作为削弱报告。设置[下文的开关](#ignore-project-weakenings)后，`paranoid_rm` 保持开启。
-
 `status` 在 `Project policy` 下列出这些行，`doctor` 在 `Project policy deltas:` 下输出它们。只要有任何削弱生效，[状态行](/zh-Hans/reference/cli/statusline)就会显示 `🔻`。
+
+<Accordion title="如何判定削弱">
+  判断级别是否降低，以用户策略中的 `safety.level` 为基准；判断能力是否被关闭，以经 `CC_SAFETY_NET_LEVEL` 提高级别后的用户策略为基准。因此在 `CC_SAFETY_NET_LEVEL=paranoid` 下，项目中的 `safety.overrides.paranoid_rm: false` 会关闭 `paranoid_rm`，并作为削弱报告。设置[下文的开关](#ignore-project-weakenings)后，`paranoid_rm` 保持开启。
+</Accordion>
 
 <span id="ignore-project-weakenings"></span>
 
@@ -92,7 +92,7 @@ CC Safety Net 会忽略项目文件中的 `audit` 部分，并报告 `project po
 npx cc-safety-net status
 ```
 
-判定为 `degraded`，说明 CC Safety Net 拒绝了文件中的部分内容，`npx cc-safety-net doctor` 会指出具体字段。运行时从不重写 `policy.json`，因此无效文件会原样保留，直到你修复它。参见[无效策略的行为](#invalid-policy-behavior)。
+判定为 `degraded`，说明 CC Safety Net 拒绝了文件中的部分内容，`npx cc-safety-net doctor` 会指出具体字段。参见[无效策略的行为](#invalid-policy-behavior)。
 
 ## 完整的策略示例
 
@@ -125,9 +125,7 @@ npx cc-safety-net status
 }
 ```
 
-只有 `version` 是必填的。其余字段都可以省略，省略时采用上面的默认值。如果文件根本不存在，CC Safety Net 就按这些默认值运行，并保持 `ready`。
-
-根对象是严格的：无法识别的顶级键会报错，`safety`、`workflow`、`destructive_command_protection`、`secret_protection` 或 `audit` 内无法识别的键同样如此。
+只有 `version` 是必填的，省略的字段采用上面的默认值。无法识别的键，无论在顶层还是在任一部分内，都会报错。
 
 ## Schema 参考
 
@@ -136,7 +134,7 @@ npx cc-safety-net status
 </ParamField>
 
 <ParamField body="safety.level" type="string" default="standard">
-  安全预设，取 `"standard"`、`"strict"` 或 `"paranoid"` 之一。每个预设都提供一组继承的能力默认值：`strict` 开启 `fail_closed`，`paranoid` 开启 `fail_closed`、`paranoid_rm` 和 `paranoid_interpreters`。各项能力改变了什么，参见[模式](/zh-Hans/configuration/modes)。
+  安全预设，取 `"standard"`、`"strict"` 或 `"paranoid"` 之一。`strict` 开启 `fail_closed`，`paranoid` 开启 `fail_closed`、`paranoid_rm` 和 `paranoid_interpreters`。各项能力改变了什么，参见[模式](/zh-Hans/configuration/modes)。
 </ParamField>
 
 <ParamField body="safety.overrides.fail_closed" type="boolean">
@@ -152,7 +150,7 @@ npx cc-safety-net status
 </ParamField>
 
 <ParamField body="workflow.worktree_mode" type="boolean" default="false">
-  在已确认的 linked worktree 内放宽本地丢弃类 git 规则。检测采用 fail-closed：如果 CC Safety Net 无法确认工作目录是 linked worktree，更严格的默认规则照常生效。worktree 模式放宽哪些规则、哪些从不放宽，确切列表见[模式](/zh-Hans/configuration/modes)。
+  在已确认的 linked worktree 内放宽本地丢弃类 git 规则。worktree 模式放宽哪些规则、哪些从不放宽，见[模式](/zh-Hans/configuration/modes#worktree-mode-cc_safety_net_worktree=1)。
 </ParamField>
 
 <ParamField body="destructive_command_protection.enabled" type="boolean" default="true">
@@ -160,7 +158,7 @@ npx cc-safety-net status
 </ParamField>
 
 <ParamField body="destructive_command_protection.overrides" type="object" default="{}">
-  按已注册破坏性命令规则 ID 设置的单条规则状态，值为 `"on"` 或 `"off"`。覆盖叠加在能力设定的状态之上，因此 `"on"` 可以开启预设未开启的规则，`"off"` 可以关闭预设开启的规则。
+  按破坏性命令规则 ID 设置的单条规则状态，值为 `"on"` 或 `"off"`。覆盖叠加在预设之上，因此 `"on"` 可以开启预设未开启的规则，`"off"` 可以关闭预设开启的规则。
 </ParamField>
 
 <ParamField body="destructive_command_protection.allow_paths" type="string[]" default="[]">
@@ -172,7 +170,7 @@ npx cc-safety-net status
 </ParamField>
 
 <ParamField body="secret_protection.overrides" type="object" default="{}">
-  按已注册机密保护规则 ID 设置的单条规则状态，值为 `"on"` 或 `"off"`。开启机密保护时，大多数机密规则都处于开启状态，因此通常写 `"off"`。[编码 CLI 配置层](#rules-that-are-off-by-default)默认关闭，显式写 `"on"` 才能启用其中的规则。
+  按机密保护规则 ID 设置的单条规则状态，值为 `"on"` 或 `"off"`。大多数机密规则默认开启，因此通常写 `"off"`。`"on"` 用于启用默认关闭的[编码 CLI 配置层](#rules-that-are-off-by-default)中的规则。
 </ParamField>
 
 <ParamField body="secret_protection.deny_paths" type="string[]" default="[]">
@@ -180,7 +178,7 @@ npx cc-safety-net status
 </ParamField>
 
 <ParamField body="secret_protection.allow_paths" type="string[]" default="[]">
-  不受内置机密模式规则约束的精确文件或目录树。条目也可以写成一个目录加 `**/` 再加精确文件名，例如 `~/code/**/.env.local`。配置的拒绝路径和编码 CLI 保护仍然适用。校验规则和优先顺序见[机密允许路径](#secret-allow-paths)。
+  不受内置机密模式规则约束的精确文件或目录树。配置的拒绝路径和编码 CLI 保护仍然适用。可用的写法和优先顺序见[机密允许路径](#secret-allow-paths)。
 </ParamField>
 
 <ParamField body="audit.retention_days" type="integer" default="30">
@@ -191,7 +189,7 @@ npx cc-safety-net status
 
 ## 安全级别和能力覆盖
 
-`safety.level` 选择预设，`safety.overrides` 再逐项显式设置能力。只有这里可以调低能力，环境变量只能调高。
+`safety.level` 选择预设，`safety.overrides` 再逐项显式设置能力。只有这里可以调低能力。环境变量只能提高级别或强制开启能力，完整优先顺序见[环境](/zh-Hans/configuration/environment)。
 
 ```json
 {
@@ -207,10 +205,6 @@ npx cc-safety-net status
 
 这个示例采用 `paranoid` 预设，但不阻止解释器单行命令。只要最终的能力组合不匹配任何预设，CC Safety Net 就报告生效级别为 `custom`。
 
-<Note>
-  环境可以提高策略的级别、强制开启能力，但反过来不行。`policy.json` 与环境之间的完整优先顺序见[环境](/zh-Hans/configuration/environment)，其中包括 `worktree_mode` 的 OR 合并和旧版 `SAFETY_NET_*` 别名。
-</Note>
-
 ## 该用哪个允许列表
 
 根据阻止命令的是什么来选择设置。阻止消息中会给出规则 ID。
@@ -222,7 +216,7 @@ npx cc-safety-net status
 | `git reset --hard` 等 Git 丢弃操作 | `cd ~/scratch && git reset --hard` 以 `git.reset-hard` 被阻止 | 临时目录下的一次性仓库无需设置，那里[已经允许](/zh-Hans/reference/blocked-commands#git-commands-in-a-temp-repository)。在 linked worktree 中，使用 [worktree 模式](/zh-Hans/configuration/modes#worktree-mode-cc_safety_net_worktree=1)。其他情况下关闭该规则 |
 | 其他任何命令 | `git push --force` 以 `git.push-force` 被阻止 | [关闭该规则](/zh-Hans/reference/blocked-commands#allow-a-blocked-command) |
 
-如果想让智能体在一个草稿目录中自由工作，把该目录放在 `/tmp` 等临时目录下即可，那里的递归删除和 Git 丢弃操作本来就会放行。CC Safety Net 只在普通文件的文件名形似机密、位于拒绝路径下，或者是 `policy.json` 或 Git 元数据时，才阻止对它的编辑。两个 `allow_paths` 列表相互独立，都不会放宽对方的规则。
+如果想让智能体在一个草稿目录中自由工作，把该目录放在 `/tmp` 等临时目录下即可，那里的递归删除和 Git 丢弃操作本来就会放行。两个 `allow_paths` 列表相互独立，都不会放宽对方的规则。
 
 <span id="destructive-command-protection"></span>
 
@@ -244,7 +238,7 @@ npx cc-safety-net status
 }
 ```
 
-未注册的 ID 会被拒绝，报 `unknown destructive command rule id "<id>"`；`"on"` 或 `"off"` 以外的值会被拒绝，报 `destructive_command_protection.overrides.<id> must be "on" or "off"`。`guard.policy-config`、`analysis.dynamic-shell-source` 等[固定拒绝 ID](/zh-Hans/reference/blocked-commands#fixed-denial-ids) 不是已注册的规则，指定它们的覆盖也会以同样方式被拒绝。
+未注册的 ID 会被拒绝，报 `unknown destructive command rule id "<id>"`。`guard.policy-config` 等[固定拒绝 ID](/zh-Hans/reference/blocked-commands#fixed-denial-ids) 不是规则，同样会被拒绝。`"on"` 或 `"off"` 以外的值会被拒绝，报 `destructive_command_protection.overrides.<id> must be "on" or "off"`。
 
 [灾难性规则](/zh-Hans/reference/blocked-commands#catastrophic-rules)无法关闭，它们会忽略 `enabled: false` 和 `"off"` 覆盖。
 
@@ -290,7 +284,7 @@ npx cc-safety-net status
 
 ### 默认关闭的规则
 
-编码 CLI 配置规则涵盖编码智能体的设置文件和 MCP 文件。智能体会把编辑这些文件当作日常工作，因此这些规则默认关闭，需要用显式的 `"on"` 覆盖逐条开启。十三个规则 ID 及其路径列在[机密保护参考](/zh-Hans/reference/secret-protection#coding-cli-config-tier-off-by-default)中。
+编码 CLI 配置规则涵盖编码智能体的设置文件和 MCP 文件。智能体会把编辑这些文件当作日常工作，因此这些规则默认关闭，需要用显式的 `"on"` 覆盖逐条开启。这些规则的 ID 及其路径列在[机密保护参考](/zh-Hans/reference/secret-protection#coding-cli-config-tier-off-by-default)中。
 
 <span id="deny-paths"></span>
 
@@ -307,7 +301,7 @@ npx cc-safety-net status
 }
 ```
 
-拒绝路径在每个安全级别都同时阻止读取和写入。有了上面的条目，`cat ~/.zshrc`、`ls ~/.zshrc`、`echo x >> ~/.zshrc` 和 `rm ~/.zshrc` 都会以 `secret.deny-path` 被阻止。目录条目也涵盖其中的全部内容。CC Safety Net 先于其他所有机密规则检查拒绝路径，任何允许路径或覆盖都无法放宽它们。
+拒绝路径在每个安全级别都同时阻止读取和写入。有了上面的条目，`cat ~/.zshrc` 和 `echo x >> ~/.zshrc` 都会以 `secret.deny-path` 被阻止。目录条目涵盖其中的全部内容。任何允许路径或覆盖都无法放宽拒绝路径。
 
 校验：
 
@@ -315,11 +309,8 @@ npx cc-safety-net status
 | --- | --- |
 | 非字符串，或去除空白后为空的字符串 | 无效：`must be a non-empty path string` |
 | 相对路径，例如 `config/secrets` 或 `./secrets` | 有效：每个会话按[配置工作目录](#what-the-config-working-directory-is)解析 |
-| 单独的 `~`、`$HOME` 或 `${HOME}` | 无效：主目录本身会被拒绝 |
-| `~/…`、`$HOME/…` | 展开后有效，除非解析到主目录或其上级 |
-| 恰好解析为主目录的路径 | 无效：`cannot be the home directory or a path above it (this would block every command the agent runs)` |
-| 解析为主目录上级的路径，例如 `/`、`/Users` 或 `/home` | 无效：消息同上 |
-| 其他任何绝对路径 | 有效 |
+| `~`、`$HOME`、`${HOME}`，或解析为主目录及其上级的任何路径，例如 `/` 或 `/Users` | 无效：`cannot be the home directory or a path above it (this would block every command the agent runs)` |
+| 其他任何绝对路径、`~/…` 或 `$HOME/…` 路径 | 有效 |
 
 拒绝路径属于机密保护，因此 `secret_protection.enabled: false` 也会关闭它们。`secret.deny-path` 不是已注册的规则 ID，因此无法用覆盖关闭它。
 
@@ -327,14 +318,14 @@ npx cc-safety-net status
 
 ### 机密允许路径
 
-`secret_protection.allow_paths` 把精确的文件，或某个目录及其全部后代，从内置的 basename、主目录、密钥变体和扩展名规则中豁免出来。它适用于你有意保留的文件，例如仓库中的 `.env.test`，或文件名形似凭证但并非机密的 fixture 目录。
+`secret_protection.allow_paths` 把精确的文件，或某个目录及其全部内容，从内置机密模式规则中豁免出来。它适用于你有意保留的文件，例如仓库中的 `.env.test`，或其中文件形似凭证但并非机密的 fixture 目录。
 
-条目也可以只指定某个目录下的一个文件名：先写目录，再写 `**/`，最后写精确的文件名，例如 `~/code/**/.env.local`。这条条目豁免 `~/code` 下任意深度的每个 `.env.local`，此外不豁免任何内容。`**/` 之前的目录是必需的，并且要经过与普通条目相同的检查。CC Safety Net 不接受其他 glob 形式。
+条目也可以写成目录加 `**/` 再加精确文件名。`~/code/**/.env.local` 豁免 `~/code` 下任意深度的每个 `.env.local`，此外不豁免任何内容。不接受其他 glob 形式。
 
 优先顺序是固定的：
 
 1. 配置的拒绝路径始终优先。同一目标同时出现在两个列表中时，结果是 `secret.deny-path`。
-2. 编码 CLI 凭证和配置规则（`secret.cli.*`）始终优先。允许路径无法暴露智能体自身的凭证或配置。
+2. 编码 CLI 凭证和配置规则（`secret.cli.*`）始终优先。
 3. 命中允许路径时，该目标上的其他内置机密规则都不再生效。
 
 校验：
@@ -344,14 +335,12 @@ npx cc-safety-net status
 | 非字符串，或去除空白后为空的字符串 | 无效：`must be a non-empty path string` |
 | 相对路径，例如 `.env.test` 或 `fixtures/credentials` | 有效：每个会话按[配置工作目录](#what-the-config-working-directory-is)解析 |
 | 目录加 `**/` 再加精确文件名，例如 `~/code/**/.env.local` 或 `packages/**/.env.local` | 有效：豁免该目录下任意深度的这一个文件名 |
-| `**/` 之前没有目录的条目，例如 `**/.env.local` | 无效：`supports only a folder followed by **/ and an exact file name, such as ~/code/**/.env.local` |
-| 其他任何使用 `*` 或 `?` 的写法，例如 `apps/*/.env`、`.env.v?` 或 `~/**/.ssh/config` | 无效：消息同上 |
-| 单独的 `~`、`$HOME` 或 `${HOME}`，或主目录之上的路径 | 无效：`cannot cover the home directory or a path above it (this would disable secret protection everywhere)` |
-| `**/` 之前的目录是主目录或其上级的条目，例如 `~/**/config` 或 `/**/id_rsa` | 无效：消息同上 |
+| `**/` 之前没有目录，或其他任何使用 `*` 或 `?` 的写法，例如 `**/.env.local`、`apps/*/.env` 或 `~/**/.ssh/config` | 无效：`supports only a folder followed by **/ and an exact file name, such as ~/code/**/.env.local` |
+| `~`、`$HOME`、`${HOME}`、主目录之上的路径，或 `**/` 之前的目录是主目录及其上级的条目，例如 `~/**/config` | 无效：`cannot cover the home directory or a path above it (this would disable secret protection everywhere)` |
 | `~/.cc-safety-net` 或其下的任何路径，包括 `~/.cc-safety-net/**/.env.local` | 无效：`cannot cover the guard's own configuration` |
 | 其他任何字面绝对路径、`~/…`、`$HOME/…` 或 `${HOME}/…` 路径 | 有效 |
 
-`**/` 后面只能是一个文件名，不能含斜杠，因此 CC Safety Net 会把 `~/**/.ssh/config` 当作 glob 拒绝。除这种写法外，条目都是字面路径，而不是 glob 模式。`**/` 条目从不豁免目录本身。通过符号链接到达的目标同样受允许路径覆盖。
+`**/` 条目从不豁免目录本身。通过符号链接到达的目标同样受允许路径覆盖。
 
 <span id="audit-retention"></span>
 
@@ -368,7 +357,7 @@ npx cc-safety-net status
 }
 ```
 
-超出范围的值会报错，并使运行时进入 `degraded`。此时保留期取最近的边界值；值不是整数时取 30。清理何时删除记录，参见[保留期](/zh-Hans/reference/audit-log#retention)。
+超出范围的值会使运行时进入 `degraded`，保留期取最近的边界值；值不是整数时取 30。清理何时删除记录，参见[保留期](/zh-Hans/reference/audit-log#retention)。
 
 <span id="invalid-policy-behavior"></span>
 
@@ -377,7 +366,7 @@ npx cc-safety-net status
 无效的 `policy.json` 永远不会阻止正常工作。CC Safety Net 保留每个有效字段，把每个无效字段替换为保护性默认值，并报告运行时为 `degraded`。文件缺失不算错误：CC Safety Net 使用内置默认值，运行时保持 `ready`。
 
 <Warning>
-  CC Safety Net 会丢弃无效条目，而不是修复它们。拼错的拒绝路径会悄无声息地不再保护对应位置，无效的 `safety.level` 会悄无声息地把你降到 `standard`。这是两种不会提示的失效方式。每次手动编辑后，请运行 `npx cc-safety-net status`。
+  CC Safety Net 会丢弃无效条目，而不是修复它们。拼错的拒绝路径会悄无声息地不再保护对应位置，无效的 `safety.level` 会悄无声息地把你降到 `standard`。每次手动编辑后，请运行 `npx cc-safety-net status`。
 </Warning>
 
 每个无效字段回退到什么、如何回到 `ready`，见[配置恢复](/zh-Hans/configuration/recovery#policy-json-salvaged-or-replaced-with-protective-defaults)。

@@ -6,7 +6,7 @@ description: "What CC Safety Net's standard, strict, and paranoid safety levels 
 
 ## Which safety level should I use?
 
-It depends on where the commands come from. Use the default `standard` level for sessions you supervise. It blocks recognized destructive commands and secret access but is best-effort against adversarial or dynamic input. Use `strict` when commands may come from prompt injection or another untrusted context, since it also blocks commands it cannot parse or verify. Use `paranoid` to also block `rm -rf` inside the project and every `python -c` or `node -e` one-liner. In linked Git worktrees, turn on worktree mode to allow local discards like `git reset --hard`. For untrusted code or network control, add a sandbox.
+Use the default `standard` level for sessions you supervise. It is best-effort against adversarial or dynamic input. Use `strict` when commands may come from prompt injection or another untrusted context. Use `paranoid` to also block `rm -rf` inside the project and every `python -c` or `node -e` one-liner.
 
 Each level is a preset of three capabilities:
 
@@ -16,32 +16,39 @@ Each level is a preset of three capabilities:
 | `strict` | **on** | off | off | Also blocks unparseable commands, unsupported heredocs, unverifiable delete targets, and metadata checks of secret files |
 | `paranoid` | **on** | **on** | **on** | Also blocks non-temp `rm -r` inside the working directory and every interpreter one-liner |
 
-Set the level with `safety.level` in `policy.json` or the `CC_SAFETY_NET_LEVEL` environment variable. The higher of the two wins. The toggles on this page each turn on one capability on top of that level. CC Safety Net reports a combination that matches no preset as the effective level `custom`. Worktree mode is separate from the level.
+Set the level with `safety.level` in `policy.json` or the `CC_SAFETY_NET_LEVEL` environment variable. The higher of the two wins. The toggles on this page each turn on one capability on top of that level, and a combination that matches no preset reports as `custom`.
+
+In linked Git worktrees, turn on [worktree mode](#worktree-mode-cc_safety_net_worktree=1) to allow local discards such as `git reset --hard`. For untrusted code or network control, add a sandbox.
 
 See [Environment](/configuration/environment) for every variable and the precedence between policy and environment, and [Policy](/configuration/policy#safety-level-and-capability-overrides) for `safety.overrides`. [What each safety level adds](/reference/blocked-commands#what-each-safety-level-adds) lists the affected commands.
 
 ## Default mode
 
-Default mode is the `standard` safety level. It needs no environment variables and blocks the built-in destructive git and filesystem patterns and access to secret files. Start here unless you need the stricter checks below.
+Default mode is the `standard` safety level. It needs no environment variables and blocks the built-in destructive git and filesystem patterns and access to secret files.
 
 Every level, standard included, blocks malformed hook input, an analyzer error, and a command too large or deeply nested to analyze. See [Fail-closed enforcement](/guides/security-model#what-happens-when-analysis-fails).
 
 Standard differs from strict on input it cannot parse or verify:
 
-- If a command cannot be split into tokens, for example because of an unterminated quote, CC Safety Net scans the text for known dangerous patterns. `echo 'unterminated` runs. Standard blocks `git reset --hard 'unterminated`, and on Claude Code it asks you to approve the command instead. See [When standard cannot verify a command](#when-standard-cannot-verify-a-command).
+- A command that cannot be split into tokens, such as one with an unterminated quote, gets a scan for known dangerous patterns. `echo 'unterminated` runs, and `git reset --hard 'unterminated` blocks. See [When standard cannot verify a command](#when-standard-cannot-verify-a-command).
 - A recursive delete with a dynamic target, such as `rm -rf "$target"`, is allowed. Strict blocks it.
 
-Standard also allows dynamic executables, commands assembled through substitution, and `eval` or `source` of one literal local generator such as `eval "$(ssh-agent -s)"`. Standard is best-effort against adversarial or dynamic input. Use strict or paranoid when commands may come from prompt injection.
+Standard also allows dynamic executables, commands assembled through substitution, and `eval` or `source` of one literal local generator such as `eval "$(ssh-agent -s)"`.
 
 Standard allows a check that a secret file exists without reading it, such as `test -f .env` or `ls ~/.ssh`. Strict and paranoid block these. [What standard mode does not count as a read](/reference/secret-protection#what-standard-mode-does-not-count-as-a-read) lists every such form. No level relaxes reading a secret file's contents, a configured deny path, or a [catastrophic rule](/reference/blocked-commands#catastrophic-rules).
 
 ### When standard cannot verify a command
 
-Two denials at the standard level mean "could not verify" rather than "dangerous": unparseable text that matched a destructive pattern, and a shell command source CC Safety Net cannot resolve, such as `bash -c "$CMD"`. On Claude Code, in most permission modes, these two ask you to approve the command instead of blocking it. Every other host, and strict and paranoid, keep the deny. See [When Claude Code asks you instead of blocking](/installation/claude-code#when-claude-code-asks-you-instead-of-blocking).
+Two standard-level denials mean "could not verify" rather than "dangerous":
+
+- Unparseable text that matched a destructive pattern.
+- A shell command source CC Safety Net cannot resolve, such as `bash -c "$CMD"`.
+
+On Claude Code, in most permission modes, these two ask you to approve the command instead of blocking it. Other hosts, and strict and paranoid, keep the deny. See [When Claude Code asks you instead of blocking](/installation/claude-code#when-claude-code-asks-you-instead-of-blocking).
 
 ## Strict mode (`CC_SAFETY_NET_STRICT=1`)
 
-Strict turns on the `fail_closed` capability. Use it when commands can come from an adversarial or untrusted context, or when you accept occasional false positives on unusual syntax. It blocks:
+Strict turns on the `fail_closed` capability. Expect occasional false positives on unusual syntax. It blocks:
 
 - **Unparseable commands**, even when the text scan finds nothing dangerous. The reason is "Command could not be safely analyzed (strict mode)". `echo 'unterminated` is allowed in standard and blocked here.
 - **Heredocs outside a small supported set.** `git commit -F - <<'EOF'` and a plain `cat <<'EOF'` pass, but strict denies `python3 - <<'PY'`. See [Heredocs](/reference/blocked-commands#heredocs).
@@ -77,15 +84,21 @@ The `paranoid` level is strict plus two capabilities, `paranoid_rm` and `paranoi
 
 ### rm check (`CC_SAFETY_NET_PARANOID_RM=1`)
 
-By default, CC Safety Net allows `rm -rf` and `find -delete` within the current working directory because it assumes that deletion inside your project root is intentional. The paranoid rm check blocks non-temp recursive removal even inside the current working directory. `rm -rf ./cache` and `rm -r ./cache` match `rm.recursive-force-paranoid`, and `find ./cache -delete` matches `find.delete`. The PowerShell equivalent `Remove-Item ./cache -Recurse -Force` matches `powershell.remove-item-recursive-force-paranoid`.
+By default, CC Safety Net allows `rm -rf` and `find -delete` inside the current working directory. The paranoid rm check blocks non-temp recursive removal there too:
 
-This check still allows temp targets and directories listed in `destructive_command_protection.allow_paths`.
+| Command | Rule id |
+| --- | --- |
+| `rm -rf ./cache`, `rm -r ./cache` | `rm.recursive-force-paranoid` |
+| `find ./cache -delete` | `find.delete` |
+| `Remove-Item ./cache -Recurse -Force` | `powershell.remove-item-recursive-force-paranoid` |
+
+Temp targets and directories listed in `destructive_command_protection.allow_paths` stay allowed.
 
 <span id="paranoid-interpreters"></span>
 
 ### Interpreter one-liners (`CC_SAFETY_NET_PARANOID_INTERPRETERS=1`)
 
-Interpreter one-liners can hide destructive commands inside strings that are hard to inspect statically. Below paranoid, CC Safety Net blocks only a one-liner whose body contains a dangerous command, under rule `interpreter.dangerous-command`. With this check on, `interpreter.one-liner-paranoid` blocks every interpreter one-liner, whatever its content:
+Below paranoid, CC Safety Net blocks only a one-liner whose body contains a dangerous command, under rule `interpreter.dangerous-command`. With this check on, `interpreter.one-liner-paranoid` blocks every interpreter one-liner, whatever its content:
 
 - `python -c '...'` (also `python3` and `python2`)
 - `node -e '...'`
@@ -126,7 +139,7 @@ You can also set `workflow.worktree_mode: true` in [policy.json](/configuration/
 
 ### Commands allowed in a linked worktree
 
-When worktree mode is on and CC Safety Net confirms that the working directory is a linked worktree, it allows these commands:
+In a confirmed linked worktree, worktree mode allows these commands:
 
 - `git restore <file>` and `git restore --worktree <file>`
 - `git checkout -- <file>`, `git checkout <path>`, `git checkout <ref> -- <file>`, `git checkout --force`, and ambiguous multi-positional checkout forms
@@ -143,12 +156,13 @@ These commands affect shared refs or other worktrees, so worktree mode never rel
 - `git stash drop` / `git stash clear` changes the stash shared across worktrees
 - `git worktree remove --force` could delete another worktree
 
-A separate [temp-root relaxation](/reference/blocked-commands#git-commands-in-a-temp-repository) can allow `git worktree remove --force` when the operand is a disposable worktree directory under a trusted temp root. It is not part of worktree mode and does not need `CC_SAFETY_NET_WORKTREE=1`.
+Without worktree mode, `git worktree remove --force` can still pass when its target is a worktree directory under a temp directory such as `/tmp`. See [Git commands in a temp repository](/reference/blocked-commands#git-commands-in-a-temp-repository).
 
 ### When worktree mode does not apply
 
-If CC Safety Net cannot confirm that the working directory is a linked worktree, the default rules stay in effect. Worktree mode never relaxes the main worktree or submodules. It is also off when:
+If CC Safety Net cannot confirm that the working directory is a linked worktree, the default rules stay in effect. Worktree mode never relaxes the main worktree or submodules.
 
+<Accordion title="Other conditions that turn worktree mode off">
 - The command passes `--git-dir` or `--work-tree`, or the environment sets `GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, or `GIT_INDEX_FILE`.
 - The command sets `core.worktree` through `git -c` or `GIT_CONFIG_*`, or the worktree's `config.worktree` or the shared repository config sets a `worktree` key.
 - The worktree's Git directory holds a symbolic link or a FIFO.
@@ -156,6 +170,8 @@ If CC Safety Net cannot confirm that the working directory is a linked worktree,
 - An argument is dynamic, containing `$`, `*`, `?`, or `[`.
 - The command uses `--recurse-submodules` or a recursive-submodule config.
 - The command force-resets a branch (`git checkout -B` or `git switch -C` with `-f` or `--discard-changes`), or runs `git clean` with more than one `-f`.
+
+</Accordion>
 
 <Tip>
   Check the level in effect with `npx cc-safety-net status`, or with the [status line](/reference/cli/statusline) in Claude Code.

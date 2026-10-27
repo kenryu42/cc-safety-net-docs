@@ -8,7 +8,7 @@ description: "CC Safety Net 的 standard、strict 和 paranoid 安全级别各�
 
 ## 我应该使用哪个安全级别？
 
-取决于命令来自哪里。有人监督的会话使用默认的 `standard` 级别：它阻止可识别的破坏性命令和机密访问，但对对抗性或动态输入只做尽力而为的防护。如果命令可能来自提示注入或其他不可信的上下文，请使用 `strict`，它还会阻止无法解析或验证的命令。如果还想阻止项目内的 `rm -rf` 以及所有 `python -c`、`node -e` 单行命令，请使用 `paranoid`。在 linked Git worktree 中，开启 worktree 模式即可允许 `git reset --hard` 等本地丢弃操作。如需隔离不可信代码或控制网络，请再加一层沙箱。
+有人监督的会话使用默认的 `standard` 级别，它对对抗性或动态输入只做尽力而为的防护。如果命令可能来自提示注入或其他不可信的上下文，请使用 `strict`。如果还想阻止项目内的 `rm -rf` 以及所有 `python -c`、`node -e` 单行命令，请使用 `paranoid`。
 
 每个级别都是三项能力的预设组合：
 
@@ -18,7 +18,9 @@ description: "CC Safety Net 的 standard、strict 和 paranoid 安全级别各�
 | `strict` | **开启** | 关闭 | 关闭 | 另外阻止无法解析的命令、不受支持的 heredoc、无法验证的删除目标，以及对机密文件的元数据检查 |
 | `paranoid` | **开启** | **开启** | **开启** | 另外阻止工作目录内非临时路径的 `rm -r`，以及所有解释器单行命令 |
 
-使用 `policy.json` 中的 `safety.level` 或 `CC_SAFETY_NET_LEVEL` 环境变量设置级别，两者取较高者。本页介绍的各项开关会在该级别之上各开启一项能力。不匹配任何预设的组合，CC Safety Net 会报告为生效级别 `custom`。Worktree 模式与级别无关。
+使用 `policy.json` 中的 `safety.level` 或 `CC_SAFETY_NET_LEVEL` 环境变量设置级别，两者取较高者。本页介绍的各项开关会在该级别之上各开启一项能力，不匹配任何预设的组合会报告为 `custom`。
+
+在 linked Git worktree 中，开启 [worktree 模式](#worktree-mode-cc_safety_net_worktree=1)即可允许 `git reset --hard` 等本地丢弃操作。如需隔离不可信代码或控制网络，请再加一层沙箱。
 
 全部变量以及策略与环境之间的优先级见[环境](/zh-Hans/configuration/environment)，`safety.overrides` 见[策略](/zh-Hans/configuration/policy#safety-level-and-capability-overrides)。受影响的命令列在[各安全级别增加的阻止](/zh-Hans/reference/blocked-commands#what-each-safety-level-adds)中。
 
@@ -26,16 +28,16 @@ description: "CC Safety Net 的 standard、strict 和 paranoid 安全级别各�
 
 ## 默认模式
 
-默认模式即 `standard` 安全级别。无需设置环境变量，即可阻止内置的破坏性 Git 和文件系统模式以及对机密文件的访问。除非需要下文更严格的检查，否则从这里开始即可。
+默认模式即 `standard` 安全级别。无需设置环境变量，即可阻止内置的破坏性 Git 和文件系统模式以及对机密文件的访问。
 
 包括 standard 在内，每个级别都会阻止格式错误的 hook 输入、分析器错误，以及过大或嵌套过深而无法分析的命令。参见 [Fail-closed 执行](/zh-Hans/guides/security-model#what-happens-when-analysis-fails)。
 
 Standard 与 strict 的区别在于如何处理无法解析或验证的输入：
 
-- 如果命令无法拆分成 token（例如存在未闭合的引号），CC Safety Net 会扫描文本中的已知危险模式。`echo 'unterminated` 可以执行；`git reset --hard 'unterminated` 会被 standard 阻止，在 Claude Code 中则改为请你确认。参见 [standard 无法验证命令时](#when-standard-cannot-verify-a-command)。
+- 命令无法拆分成 token 时（例如存在未闭合的引号），CC Safety Net 改为扫描文本中的已知危险模式。`echo 'unterminated` 可以执行，`git reset --hard 'unterminated` 会被阻止。参见 [standard 无法验证命令时](#when-standard-cannot-verify-a-command)。
 - 目标为动态值的递归删除（如 `rm -rf "$target"`）会被允许，strict 则会阻止。
 
-Standard 还允许动态可执行文件、通过替换拼接的命令，以及对单个字面量本地生成命令执行 `eval` 或 `source`（如 `eval "$(ssh-agent -s)"`）。对于对抗性或动态输入，standard 只做尽力而为的防护。如果命令可能来自提示注入，请使用 strict 或 paranoid。
+Standard 还允许动态可执行文件、通过替换拼接的命令，以及对单个字面量本地生成命令执行 `eval` 或 `source`（如 `eval "$(ssh-agent -s)"`）。
 
 Standard 允许只检查机密文件是否存在而不读取它，例如 `test -f .env` 或 `ls ~/.ssh`；strict 和 paranoid 会阻止这类检查。全部此类形式见 [standard 模式不算作读取的情形](/zh-Hans/reference/secret-protection#what-standard-mode-does-not-count-as-a-read)。读取机密文件内容、配置的拒绝路径和[灾难性规则](/zh-Hans/reference/blocked-commands#catastrophic-rules)在任何级别都不会放宽。
 
@@ -43,13 +45,18 @@ Standard 允许只检查机密文件是否存在而不读取它，例如 `test -
 
 ### standard 无法验证命令时
 
-在 standard 级别，有两类拒绝表示“无法验证”而不是“危险”：命中破坏性模式的无法解析文本，以及 CC Safety Net 无法确定其来源的 shell 命令（如 `bash -c "$CMD"`）。在 Claude Code 的大多数权限模式下，这两类会改为请你确认，而不是直接阻止。其他宿主以及 strict 和 paranoid 都保持拒绝。参见 [Claude Code 何时改为询问而不是阻止](/zh-Hans/installation/claude-code#when-claude-code-asks-you-instead-of-blocking)。
+在 standard 级别，有两类拒绝表示“无法验证”而不是“危险”：
+
+- 命中破坏性模式的无法解析文本。
+- CC Safety Net 无法确定其来源的 shell 命令，如 `bash -c "$CMD"`。
+
+在 Claude Code 的大多数权限模式下，这两类会改为请你确认，而不是直接阻止。其他宿主以及 strict 和 paranoid 都保持拒绝。参见 [Claude Code 何时改为询问而不是阻止](/zh-Hans/installation/claude-code#when-claude-code-asks-you-instead-of-blocking)。
 
 <span id="strict-mode-cc_safety_net_strict=1"></span>
 
 ## Strict 模式（`CC_SAFETY_NET_STRICT=1`）
 
-Strict 开启 `fail_closed` 能力。当命令可能来自对抗性或不可信的上下文，或者你能接受少见语法偶尔被误判时，请使用它。它会阻止：
+Strict 开启 `fail_closed` 能力，少见语法偶尔会被误判。它会阻止：
 
 - **无法解析的命令**，即使文本扫描没有发现危险内容。原因为“Command could not be safely analyzed (strict mode)”。`echo 'unterminated` 在 standard 中允许，在此级别被阻止。
 - **少数受支持形式以外的 heredoc。** `git commit -F - <<'EOF'` 和普通的 `cat <<'EOF'` 可以通过，但 strict 会拒绝 `python3 - <<'PY'`。参见 [Heredoc](/zh-Hans/reference/blocked-commands#heredocs)。
@@ -89,9 +96,15 @@ export CC_SAFETY_NET_STRICT=1
 
 ### rm 检查（`CC_SAFETY_NET_PARANOID_RM=1`）
 
-默认情况下，CC Safety Net 允许在当前工作目录内执行 `rm -rf` 和 `find -delete`，因为它假定在项目根目录内删除是有意为之。Paranoid rm 检查会阻止非临时路径的递归删除，即使目标在当前工作目录内。`rm -rf ./cache` 和 `rm -r ./cache` 匹配 `rm.recursive-force-paranoid`，`find ./cache -delete` 匹配 `find.delete`。等效的 PowerShell 命令 `Remove-Item ./cache -Recurse -Force` 匹配 `powershell.remove-item-recursive-force-paranoid`。
+默认情况下，CC Safety Net 允许在当前工作目录内执行 `rm -rf` 和 `find -delete`。Paranoid rm 检查在这里也会阻止非临时路径的递归删除：
 
-临时目标和 `destructive_command_protection.allow_paths` 中列出的目录在此检查下仍然允许。
+| 命令 | 规则 ID |
+| --- | --- |
+| `rm -rf ./cache`、`rm -r ./cache` | `rm.recursive-force-paranoid` |
+| `find ./cache -delete` | `find.delete` |
+| `Remove-Item ./cache -Recurse -Force` | `powershell.remove-item-recursive-force-paranoid` |
+
+临时目标和 `destructive_command_protection.allow_paths` 中列出的目录仍然允许。
 
 <span id="paranoid-interpreters"></span>
 
@@ -99,7 +112,7 @@ export CC_SAFETY_NET_STRICT=1
 
 ### 解释器单行命令（`CC_SAFETY_NET_PARANOID_INTERPRETERS=1`）
 
-解释器单行命令可以把破坏性命令藏在难以静态检查的字符串里。在 paranoid 以下的级别，CC Safety Net 只阻止正文含有危险命令的单行命令，规则为 `interpreter.dangerous-command`。开启此检查后，`interpreter.one-liner-paranoid` 会阻止所有解释器单行命令，不论内容如何：
+在 paranoid 以下的级别，CC Safety Net 只阻止正文含有危险命令的单行命令，规则为 `interpreter.dangerous-command`。开启此检查后，`interpreter.one-liner-paranoid` 会阻止所有解释器单行命令，不论内容如何：
 
 - `python -c '...'`（也包括 `python3` 和 `python2`）
 - `node -e '...'`
@@ -142,7 +155,7 @@ export CC_SAFETY_NET_WORKTREE=1
 
 ### 在 linked worktree 中允许的命令
 
-开启 worktree 模式且 CC Safety Net 确认工作目录是 linked worktree 后，允许以下命令：
+在已确认的 linked worktree 中，worktree 模式允许以下命令：
 
 - `git restore <file>` 和 `git restore --worktree <file>`
 - `git checkout -- <file>`、`git checkout <path>`、`git checkout <ref> -- <file>`、`git checkout --force`，以及有歧义的多位置参数 checkout 形式
@@ -159,12 +172,13 @@ export CC_SAFETY_NET_WORKTREE=1
 - `git stash drop` / `git stash clear`：改动在各 worktree 之间共享的 stash
 - `git worktree remove --force`：可能删除另一个 worktree
 
-另有一条独立的[临时根目录放宽](/zh-Hans/reference/blocked-commands#git-commands-in-a-temp-repository)：当操作数是受信任临时根目录下的一次性 worktree 目录时，可以允许 `git worktree remove --force`。它不属于 worktree 模式，也不需要 `CC_SAFETY_NET_WORKTREE=1`。
+不开启 worktree 模式时，如果目标是 `/tmp` 等临时目录下的 worktree 目录，`git worktree remove --force` 仍可能放行。参见[临时仓库中的 Git 命令](/zh-Hans/reference/blocked-commands#git-commands-in-a-temp-repository)。
 
 ### worktree 模式不生效的情况
 
-如果 CC Safety Net 无法确认工作目录是 linked worktree，默认规则照常生效。主 worktree 和 submodule 从不放宽。以下情况也不生效：
+如果 CC Safety Net 无法确认工作目录是 linked worktree，默认规则照常生效。主 worktree 和 submodule 从不放宽。
 
+<Accordion title="其他使 worktree 模式不生效的情况">
 - 命令传入了 `--git-dir` 或 `--work-tree`，或环境中设置了 `GIT_DIR`、`GIT_WORK_TREE`、`GIT_COMMON_DIR` 或 `GIT_INDEX_FILE`。
 - 命令通过 `git -c` 或 `GIT_CONFIG_*` 设置了 `core.worktree`，或者该 worktree 的 `config.worktree`、共享的仓库配置中设置了 `worktree` 键。
 - 该 worktree 的 Git 目录中有符号链接或 FIFO。
@@ -172,6 +186,8 @@ export CC_SAFETY_NET_WORKTREE=1
 - 参数是动态的，含有 `$`、`*`、`?` 或 `[`。
 - 命令使用了 `--recurse-submodules` 或递归 submodule 配置。
 - 命令强制重置分支（带 `-f` 或 `--discard-changes` 的 `git checkout -B` 或 `git switch -C`），或执行带多个 `-f` 的 `git clean`。
+
+</Accordion>
 
 <Tip>
   可以用 `npx cc-safety-net status` 查看当前生效的级别，在 Claude Code 中也可以看[状态行](/zh-Hans/reference/cli/statusline)。

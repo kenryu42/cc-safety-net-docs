@@ -25,8 +25,6 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 
 ## ExplainResult
 
-`explain --json` 返回的顶级对象。
-
 | 字段 | 类型 | 何时出现 | 描述 |
 | --- | --- | --- | --- |
 | `result` | `"blocked" \| "allowed"` | 始终 | 命令的最终结果 |
@@ -43,8 +41,6 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 | `effectiveCapabilities` | `object` | 始终 | 各项能力的状态，见下文 |
 | `destructiveCommandRuleOverrides` | `Record<string, "on" \| "off">` | 始终，可能为 `{}` | 策略中存储的单条规则覆盖 |
 | `ruleActivation` | `object` | 视情况而定，见下文 | 相关规则的开启/关闭状态由什么决定 |
-
-即使解释的是空命令，`effectiveLevel`、`selectedPreset`、`effectiveCapabilities` 和 `destructiveCommandRuleOverrides` 也会出现。
 
 ### `effectiveCapabilities`
 
@@ -120,30 +116,41 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 
 ### `script-file` 步骤
 
-分析器从磁盘读取 shell 脚本时会出现 `script-file` 步骤，例如 `sh deploy.sh` 或 `./deploy.sh`。`path` 就是命令中书写的那个路径，`bytes` 是文件大小。脚本内部的命令不再产生后续步骤，也没有任何字段携带脚本文本，因为工具调用并未提供这段文本。见[从文件运行的脚本](/zh-Hans/reference/blocked-commands#scripts-run-from-a-file)。如果脚本由同一命令中的 heredoc 写出，记录的则是原因为 `heredoc-file` 的 `recurse` 步骤，而那一步确实会携带正文。
+`sh deploy.sh` 或 `./deploy.sh` 这类命令会产生 `script-file` 步骤。`path` 就是命令中书写的那个路径，`bytes` 是文件大小。脚本内部的命令不再产生后续步骤，也没有任何字段携带脚本文本。见[从文件运行的脚本](/zh-Hans/reference/blocked-commands#scripts-run-from-a-file)。
+
+如果脚本由同一命令中的 heredoc 写出，记录的则是原因为 `heredoc-file` 的 `recurse` 步骤，这一步会携带正文。
 
 ### `transparent-wrapper` 步骤
 
-分析过程看穿用 [`rule wrapper add`](/zh-Hans/reference/cli/rule#rule-wrapper) 注册的命令时，会出现 `transparent-wrapper` 步骤。`wrapper` 是包装器名称，`output` 是被包装命令的 token 列表。该步骤紧接在被包装命令的分析之前，每个候选各产生一个步骤。
+分析过程看穿用 [`rule wrapper add`](/zh-Hans/reference/cli/rule#rule-wrapper) 注册的命令时，会出现 `transparent-wrapper` 步骤。`wrapper` 是包装器名称，`output` 是被包装命令的 token 列表。每个候选各产生一个步骤，紧接在被包装命令的分析之前。
 
 ## 跟踪顺序
 
-典型的跟踪以 `parse` 开头。之后每个片段依次出现 `env-strip` 或 `leading-tokens-stripped`，然后是包装器检测步骤 `shell-wrapper`、`interpreter`、`busybox` 和 `transparent-wrapper`，最后是 `rule-check` 或 `custom-rules-check`。嵌套命令表现为带 `depth` 的 `recurse` 步骤。只需要决策结果时，直接读取顶级的 `result`、`reason`、`segment` 和 `ruleId`，不必遍历跟踪。
+典型的跟踪以 `parse` 开头。之后每个片段依次出现 `env-strip` 或 `leading-tokens-stripped`，然后是包装器检测步骤 `shell-wrapper`、`interpreter`、`busybox` 和 `transparent-wrapper`，最后是 `rule-check` 或 `custom-rules-check`。嵌套命令表现为带 `depth` 的 `recurse` 步骤。
 
-有四种保护会在评估器运行之前短路：策略文件保护、`policy apply` 保护、Git 元数据保护和机密保护。其中之一阻止命令时，跟踪只含一个合成的 `rule-check` 步骤，没有 `parse` 步骤，其 `ruleId` 为 `guard.policy-config`、`guard.policy-apply`、`guard.git-metadata` 或匹配到的机密规则的 ID。假定每条跟踪都以 `parse` 开头的脚本必须处理这种情况。
+下面四种保护会在评估器运行之前阻止命令。此时跟踪只含一个合成的 `rule-check` 步骤，没有 `parse` 步骤，假定每条跟踪都以 `parse` 开头的脚本必须处理这种情况：
+
+| 保护 | `ruleId` |
+| --- | --- |
+| 策略文件保护 | `guard.policy-config` |
+| `policy apply` 保护 | `guard.policy-apply` |
+| Git 元数据保护 | `guard.git-metadata` |
+| 机密保护 | 匹配到的机密规则的 ID |
 
 <span id="before-you-share-a-trace"></span>
 
 ## 分享跟踪之前
 
 <Warning>
-  explain 跟踪本身并不一定适合分享。`parse` 步骤会记录原始命令字符串和解析出的每个 token。其他字段也携带原始文本：`fallback-scan.tokensScanned`、`dangerous-text.token`、`shell-wrapper.innerCommand`、`interpreter.codeArg`、`recurse.innerCommand`、`script-file.path`、`strict-unparseable.rawCommand`、`transparent-wrapper.output`、`worktree-relaxation.gitCwd`、`temp-root-relaxation.gitCwd` 和 `cwd-change.segment`。`configSource` 是绝对路径，通常位于你的主目录内。
-
-  脱敏只移除可识别的凭证形式，使用的模式列表与[审计日志](/zh-Hans/reference/audit-log#secret-redaction)相同，同样是有界的。它不覆盖文件路径、主机名、IP 地址、用户名、项目或客户名称，也不覆盖格式无法识别的机密。
-
-  分享跟踪之前，请用占位凭证和占位路径复现问题，然后通读完整输出，删除任何你不愿公开发布的内容。
+  脱敏只移除可识别的凭证形式，使用的模式列表与[审计日志](/zh-Hans/reference/audit-log#secret-redaction)相同。文件路径、主机名、IP 地址、用户名、项目或客户名称，以及格式无法识别的机密都会原样保留。请用占位凭证和占位路径复现问题，通读完整输出后再分享。
 </Warning>
 
-例如，解释一条包含 `--token=…` 赋值的命令时，输出会把 token 脱敏，但同一命令中 `/srv/acme-prod/customer-dump.sql` 这样的路径仍会完整返回，命令文本中的主机名、IP 地址或账户名也一样。
+`parse` 步骤会记录原始命令字符串和解析出的每个 token。以下字段同样携带原始文本：
 
-漏洞报告中可以附上 `explain` 输出。脱敏是尽力而为的控制手段，并不提供保证。如果你提供的文本中某种凭证格式没有被脱敏，这属于普通 bug，请提交公开的 GitHub issue，不必按漏洞报告。粘贴之前请检查完整输出。
+- `fallback-scan.tokensScanned`、`dangerous-text.token`、`strict-unparseable.rawCommand`
+- `shell-wrapper.innerCommand`、`interpreter.codeArg`、`recurse.innerCommand`、`transparent-wrapper.output`
+- `script-file.path`、`worktree-relaxation.gitCwd`、`temp-root-relaxation.gitCwd`、`cwd-change.segment`
+
+`configSource` 是绝对路径，通常位于你的主目录内。
+
+漏洞报告中可以附上 `explain` 输出。如果你提供的文本中某种凭证格式没有被脱敏，这属于普通 bug，请提交公开的 GitHub issue，不必按漏洞报告。

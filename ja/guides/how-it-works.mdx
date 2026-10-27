@@ -10,7 +10,7 @@ CC Safety Net は実行前フックです。コーディングエージェント
 
 ## CC Safety Net は LLM を使いますか？
 
-使いません。判定はすべて、ローカルのルールベースのパーサーが行います。コマンドを実行ファイル、サブコマンド、フラグ、引数に分解し、その構造に固定のルールを適用します。コマンド、作業ディレクトリ、設定が同じなら、判定は常に同じです。モデルにもネットワークにも何も送らないため、プロンプトの書き方でブロックを許可に変えることはできません。
+使いません。判定はすべて、ローカルのルールベースのパーサーが行います。コマンドを実行ファイル、サブコマンド、フラグ、引数に分解し、固定のルールを適用します。コマンド、作業ディレクトリ、設定が同じなら、判定は常に同じです。モデルにもネットワークにも何も送らないため、プロンプトの書き方でブロックを許可に変えることはできません。
 
 ## 1 つのツール呼び出しのライフサイクル
 
@@ -22,7 +22,7 @@ CC Safety Net は実行前フックです。コーディングエージェント
     そのエージェント用の CC Safety Net の連携が、ツールの実行前に呼び出しを受け取ります。受け取り方はエージェントによって異なります。[連携方式](#integration-models)を参照してください。
   </Step>
   <Step title="CC Safety Net が操作を検査する">
-    CC Safety Net は入力を 1 回だけ解析し、[検査の順序](#what-gets-checked-in-order)に示す検査を実行します。この順序はどのエージェントでも同じです。
+    CC Safety Net は入力を 1 回だけ解析し、[検査の順序](#what-gets-checked-in-order)に示す検査を実行します。
   </Step>
   <Step title="許可またはブロックが返る">
     許可された呼び出しは通常どおり実行されます。ブロックされた呼び出しは実行されず、エージェントはツールの結果として[ブロックメッセージ](#what-a-block-looks-like)を受け取ります。
@@ -88,7 +88,7 @@ CC Safety Net は、コマンドが実際に何をするかで判定します。
 
 どちらも `git checkout` で始まるため、前方一致のルールでは、Git のオプション解釈を作り直さないかぎり区別できません。コマンドを解析すれば、フラグの順序の入れ替え（`rm -r -f /`）、シェルラッパー（`sh -c "rm -rf /"`）、インタープリターのワンライナー（`python -c 'import os; os.system("rm -rf /")'`）も検出できます。
 
-このページではルールを一覧しません。何を止め、何を止めないかは[ブロック・許可されるコマンド](/ja/reference/blocked-commands)にまとめています。
+何を止め、何を止めないかは[ブロック・許可されるコマンド](/ja/reference/blocked-commands)にまとめています。
 
 <span id="what-a-block-looks-like"></span>
 
@@ -108,7 +108,16 @@ Command: git checkout -- src/main.py
 Do not retry the blocked form. Continue the task using the safer alternative described above.
 ```
 
-`Rule:` 行には、呼び出しをブロックしたルールまたは[固定の拒否](/ja/reference/blocked-commands#fixed-denial-ids)の ID が入ります。この行が付かないのは、フックの入力がない、または有効な JSON でない呼び出しをブロックした場合だけです。該当する場合は、ツール名を示す `Tool:`、ブロックのきっかけになった `Segment:`、フォールバック設定が有効なときの `Config warning:` も付きます。実行先のディレクトリを理由に拒否したときは、`Working directory:` 行が加わります。コマンドとセグメントのテキストは短縮され、メッセージ全体からシークレットがマスクされます。
+`Rule:` 行には、呼び出しをブロックしたルールまたは[固定の拒否](/ja/reference/blocked-commands#fixed-denial-ids)の ID が入ります。この行が付かないのは、フックの入力がない、または有効な JSON でない呼び出しをブロックした場合だけです。コマンドとセグメントのテキストは短縮され、メッセージ全体からシークレットがマスクされます。
+
+次の行は、該当する場合だけ付きます。
+
+| 行 | 内容 |
+| --- | --- |
+| `Tool:` | エージェントが呼び出したツールの名前 |
+| `Segment:` | ブロックのきっかけになったコマンドの部分 |
+| `Config warning:` | 有効になっているフォールバック設定 |
+| `Working directory:` | CC Safety Net が呼び出しを拒否する理由になった実行先のディレクトリ |
 
 ブロックによってエージェントのセッションが終わることはありません。最後の指示はルールの意図（`intent`）によって決まり、別の書き方を試すのではなく本来のタスクに戻るようエージェントを促します。
 
@@ -120,7 +129,7 @@ Do not retry the blocked form. Continue the task using the safer alternative des
 | `manual_only` | ユーザーに明示的な許可を求め、ユーザー自身に手動で実行してもらう |
 | `stop_and_explain` | 別の形式を総当たりで試さず、コマンドを単純化または組み直すか、ブロックを報告する |
 
-この指示は、エージェントが次に何をすべきかを伝えるものです。コマンドは実行されないため、ブロックそのものはエージェントが指示に従うかどうかに左右されません。
+コマンドは実行されないため、ブロックそのものはエージェントがこの指示に従うかどうかに左右されません。
 
 <span id="when-the-message-asks-instead-of-blocking"></span>
 
@@ -140,7 +149,7 @@ Segment: eval $CMD
 Approve only if you expected this command.
 ```
 
-最後の行は、意図に応じた指示の代わりに入ります。これを判断するのはエージェントではなくユーザーだからです。承認すればコマンドは実行され、拒否すれば実行されません。どちらの場合も、監査ログには拒否として記録されます。どの拒否が確認に変わるか、どの権限モードで変わるかは、[Claude Code がブロックせずに確認を求める場合](/ja/installation/claude-code#when-claude-code-asks-you-instead-of-blocking)を参照してください。
+最後の行は、意図に応じた指示の代わりに入ります。これを判断するのはエージェントではなくユーザーだからです。承認しても拒否しても、監査ログには拒否として記録されます。どの拒否が確認に変わるか、どの権限モードで変わるかは、[Claude Code がブロックせずに確認を求める場合](/ja/installation/claude-code#when-claude-code-asks-you-instead-of-blocking)を参照してください。
 
 <span id="the-audit-record"></span>
 

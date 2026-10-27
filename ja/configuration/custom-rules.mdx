@@ -21,7 +21,7 @@ CC Safety Net は 2 つのスコープからルールブックを読み込み、
 1. **ユーザースコープ。** `~/.cc-safety-net/rules/rule.json`（`rule init --global` で作成）。すべてのプロジェクトに適用する個人の既定設定に使います。
 2. **プロジェクトスコープ。** プロジェクトルートにある `.cc-safety-net/rules/rule.json`。ソース管理にコミットできる、チームやプロジェクト固有のルールに使います。
 
-どちらのファイルもなければ、組み込みルールだけが適用されます。ユーザーの `.cc-safety-net/` があるディレクトリ（既定ではホームディレクトリ）では、プロジェクトのパスがユーザー設定そのものになります。そのため、プロジェクトスコープに書き込む `rule` のサブコマンドは、そこでは実行を拒否します。[ユーザー設定ディレクトリでの rule](/ja/reference/cli/rule#rule-in-the-user-config-directory) を参照してください。
+どちらのファイルもなければ、組み込みルールだけが適用されます。ユーザーの `.cc-safety-net/` があるディレクトリ（通常はホームディレクトリ）では、プロジェクトのパスがユーザー設定そのものになります。そのため、プロジェクトスコープに書き込む `rule` のサブコマンドは、そこでは実行を拒否します。[ユーザー設定ディレクトリでの rule](/ja/reference/cli/rule#rule-in-the-user-config-directory) を参照してください。
 
 <span id="scope-merge-behavior"></span>
 
@@ -29,16 +29,17 @@ CC Safety Net は 2 つのスコープからルールブックを読み込み、
 
 - CC Safety Net はユーザースコープを先に読み込み、両スコープのルールブックを合わせて使います。
 - 同じ名前のルールブックが両方のスコープにある場合は、ユーザー側が優先され、プロジェクト側のルールは使われません。警告が報告され、ランタイムは `degraded` になります。どちらかの名前を変えれば解消します。
-- 各スコープの `overrides` は、そのスコープのルールにだけ適用されます。ユーザーのルールを指定したプロジェクトのオーバーライドは無視され、警告が報告されます。そのため、プロジェクトの設定でユーザーのルールを無効にしたり書き換えたりすることはできません。
-- どのルールにも一致しないオーバーライドのキーも、警告付きで無視されます。
+- 各スコープの `overrides` は、そのスコープのルールにだけ適用されるため、プロジェクトの設定でユーザーのルールを無効にしたり書き換えたりすることはできません。ユーザーのルールを指定したプロジェクトのオーバーライドや、どのルールにも一致しないオーバーライドのキーは、警告付きで無視されます。
 - `transparent_wrappers` と `command_tools` は、両スコープの内容を合わせて使います。
 
 ## ルールブックの設定元を管理する
 
 `rule.json` の `rules` 配列の各項目は、ルールブックの設定元です。
 
-- **ローカルの設定元。** `project-rules` のような名前だけを書きます。ルールブックは `.cc-safety-net/rules/project-rules/rulebook.json`（プロジェクト）または `~/.cc-safety-net/rules/project-rules/rulebook.json`（ユーザー）に置きます。
-- **GitHub の設定元。** `owner/repo#ref/<rulebook-name>` は、そのリポジトリの `.cc-safety-net/rules/<rulebook-name>/rulebook.json` を指します。`rule add` と `rule update` はこのファイルを自分のスコープの同じパスにコピーするため、ローカルのルールブックと同じように読み込まれます。
+| 設定元 | 例 | ルールブックのファイル |
+| --- | --- | --- |
+| ローカル | `project-rules` | プロジェクトでは `.cc-safety-net/rules/project-rules/rulebook.json`。ユーザースコープでは `~/.cc-safety-net/rules/` の下 |
+| GitHub | `owner/repo#ref/<rulebook-name>` | そのリポジトリの `.cc-safety-net/rules/<rulebook-name>/rulebook.json`。`rule add` と `rule update` が自分のスコープの同じパスにコピーします |
 
 `rule.json` を手で編集する代わりに、`rule` コマンドを使ってください。
 
@@ -71,7 +72,7 @@ npx -y cc-safety-net rule remove example-rules --delete-source
 
 ### ルールブックはライブファイル
 
-ランタイムは、ツール呼び出しのたびに各 `rulebook.json` をディスクから読み取ります。保存した編集は次のコマンドから反映され、公開や再ビルドは必要ありません。ルールブックが存在しない、読み取れない、または無効な場合、そのルールブックのルールは使われません。ほかのルールブックと組み込みルールはすべて適用され続け、ランタイムは `degraded` を報告します。一度も取得していない GitHub の設定元がある場合は、`npx -y cc-safety-net rule update` を実行してください。修復の手順は[設定の復旧](/ja/configuration/recovery)を参照してください。
+ランタイムはツール呼び出しのたびに各 `rulebook.json` をディスクから読み取るため、保存した編集は次のコマンドから反映されます。存在しない、読み取れない、または無効なルールブックのルールは使われず、ランタイムは `degraded` を報告します。一度も取得していない GitHub の設定元がある場合は、`npx -y cc-safety-net rule update` を実行してください。[設定の復旧](/ja/configuration/recovery)を参照してください。
 
 <span id="transparent-wrappers"></span>
 
@@ -96,8 +97,8 @@ npx -y cc-safety-net rule wrapper add rtk --global
 ```
 
 - ラッパー名は `^[a-zA-Z][a-zA-Z0-9_-]*$` に一致し、ファイル内で一意でなければなりません。
-- 予約されたコマンドはラッパーにできません。`git`、`busybox`、組み込みで解析する `rm`、`find`、`xargs`、`parallel`、すべてのシェルラッパー、すべてのインタープリター、awk のインタープリターが該当します。
-- 追加するのは、子コマンドを書かれたとおりに実行するラッパーだけにしてください。子コマンドを書き換えたり隠したりするラッパーは、一覧に載せても CC Safety Net は透過しません。
+- 予約されたコマンドはラッパーにできません。`git`、`busybox`、`rm`、`find`、`xargs`、`parallel`、すべてのシェルラッパー、すべてのインタープリター、awk のインタープリターが該当します。
+- 追加するのは、子コマンドを書かれたとおりに実行するラッパーだけにしてください。
 
 追加したラッパーは `rule.json` に保存されるため、`rule.json` を読み取れないと失われます。[`rule.json` で宣言する対象範囲](/ja/configuration/recovery#coverage-declared-in-rule-json)を参照してください。
 
@@ -138,11 +139,9 @@ npx -y cc-safety-net rule tool remove ops_bash
 
 次のツール呼び出しから、宣言したツールの呼び出しには、組み込みのシェルツールと同じ組み込みルール、カスタムルール、安全レベルが適用されます。`ops_bash` で `git reset --hard` を実行すると、`git.reset-hard` でブロックされるようになります。
 
-- `rule tool` は既定でユーザー設定に書き込みます。プロジェクト設定に書き込むには `--project` を付けます。
-- 名前は、エージェントが送るツール名と大文字・小文字まで完全に一致させます。
-- 宣言によって組み込みツールの扱いを変えることはできず、`rule tool add` は組み込みのツール名を拒否します。そのほかの命名規則は [`rule tool add` の名前のエラー](/ja/reference/cli/rule#rule-tool-add-name-errors)を参照してください。
-- CC Safety Net が解析するのは、`command` が空でない文字列の呼び出しだけです。
-- `cwd` には、作業ディレクトリを渡す引数の名前を指定します。指定しない場合は `workdir`、`cwd`、`working_directory` を読みます。作業ディレクトリのない呼び出しは、セッションのワークスペースで実行されたものとして扱います。値が空白の場合は `tool-call.malformed`、存在しないディレクトリを指す場合は `cwd.requested-unusable` として呼び出しを拒否します。
+- 名前は、エージェントが送るツール名と大文字・小文字まで完全に一致させます。`rule tool add` は組み込みのツール名を拒否します。[`rule tool add` の名前のエラー](/ja/reference/cli/rule#rule-tool-add-name-errors)を参照してください。
+- `cwd` には、作業ディレクトリを渡す引数の名前を指定します。指定しない場合は `workdir`、`cwd`、`working_directory` を読み、どれもなければセッションのワークスペースを使います。
+- 作業ディレクトリが空白の場合は `tool-call.malformed`、存在しないディレクトリの場合は `cwd.requested-unusable` として呼び出しを拒否します。
 
 宣言は `rule.json` に保存されるため、`rule.json` を読み取れないと、そのスコープのツールは失われます。ファイルを手で編集したら `npx -y cc-safety-net rule verify` を実行してください。
 
@@ -238,7 +237,7 @@ npx -y cc-safety-net rule tool remove ops_bash
 </ParamField>
 
 <ParamField body="command_tools" type="array">
-  プラグインがエージェントに追加した、CC Safety Net が知らないシェルツールです。ここで宣言すると、CC Safety Net はその `command` を組み込みのシェルツールと同じように解析します。各項目は、ツール名か、作業ディレクトリを渡す引数を指定する `{ "name": "ops_bash", "cwd": "dir" }` のようなオブジェクトです。既定値は空の配列です。名前はファイル内で一意でなければならず、組み込みのツール名は指定できません。[コミュニティ製のシェルツール](#community-shell-tools)を参照してください。
+  プラグインのシェルツールです。CC Safety Net はその `command` を組み込みのシェルツールと同じように解析します。各項目は、ツール名か `{ "name": "ops_bash", "cwd": "dir" }` のようなオブジェクトです。既定値は空の配列です。名前は一意でなければならず、組み込みのツール名は指定できません。[コミュニティ製のシェルツール](#community-shell-tools)を参照してください。
 </ParamField>
 
 メッセージとエージェント向けの意図（`intent`）の両方を変えるオーバーライドは、次のようになります。
@@ -307,7 +306,7 @@ CC Safety Net は `rule.json` の JSON Schema を公開しています。エデ�
 </ParamField>
 
 <ParamField body="tests" type="array">
-  任意のフィクスチャです。[フィクスチャのスキーマ](#fixture-schema)を参照してください。バージョン 1 のフィクスチャは形式だけを確認します。バージョン 2 のフィクスチャは、ルールブック自身のルールに対して評価もします。
+  任意のフィクスチャです。[フィクスチャのスキーマ](#fixture-schema)を参照してください。
 </ParamField>
 
 <span id="rule-schema"></span>
@@ -345,8 +344,6 @@ CC Safety Net は `rule.json` の JSON Schema を公開しています。エデ�
 ## バージョン 2 のルール
 
 `"rulebook_version": 2` を設定すると、サブコマンドと引数の組み合わせではなく、厳密なコマンドパスで照合します。`gcloud compute` の下の `delete` をブロックするバージョン 1 のルールは、コマンド中のどこかにそのトークンがあれば一致するため、`gcloud compute instances create delete` もブロックします。コマンドパスが `["compute", "instances", "delete"]` のバージョン 2 のルールは、これをブロックしません。
-
-バージョン 1 のルールブックのフィールド、照合方法、形式だけを確認するフィクスチャは、そのまま変わりません。各ルールブックは、それぞれが宣言したバージョンに従って検証されます。
 
 バージョン 2 のルールは、`name`、`command`、`reason`、`intent` をバージョン 1 から引き継ぎ、`subcommand` と `block_args` を `match` オブジェクトに置き換えます。
 
@@ -396,18 +393,6 @@ CC Safety Net は `rule.json` の JSON Schema を公開しています。エデ�
 }
 ```
 
-<span id="version-2-matching"></span>
-
-### バージョン 2 の照合
-
-- **コマンド。** バージョン 1 と同じく、コマンドを小文字の basename にしてから照合します。
-- **コマンドパス。** 認識できるグローバルオプションとその値を読み飛ばし、その後に続くコマンドの語が `command_path` と順序どおり完全に一致する必要があります。パスより後ろの引数は、パスの照合に影響しません。
-- **グローバルオプション。** 値を取るグローバルオプションを認識できるのは、`aws`、`gcloud`、`az` だけです。それ以外のコマンドでは、`git -C repo push` のように値を別の語として書いたオプションがあると、ルールは一致しません。Terraform の `-chdir=DIR` は 1 つのトークンなので読み飛ばされます。
-- **短いオプションは展開しない。** `-Ap` は `-Ap` のままです。`"-destroy"` と `"--destroy"` のように、捕捉したい書き方をすべて列挙してください。
-- **リテラルで、大文字と小文字を区別する。** 正規表現、glob、部分一致はありません。
-- **最初に一致したルールが優先。** ルールは順番に評価され、最初に一致したルールがブロックします。
-- **リリースチャネルには別のルールが必要。** `gcloud beta compute instances delete` は、`command_path` が `["compute", "instances", "delete"]` のルールには一致しません。`["beta", "compute", "instances", "delete"]` で 2 つ目のルールを書いてください。
-
 <span id="fixture-schema"></span>
 
 ## フィクスチャのスキーマ
@@ -426,7 +411,9 @@ CC Safety Net は `rule.json` の JSON Schema を公開しています。エデ�
   コマンドをブロックするはずのルールです。`blocked` のフィクスチャでは必須です。
 </ParamField>
 
-バージョン 1 のフィクスチャは形式だけを確認します。バージョン 2 のフィクスチャは、`rule add`、`rule update`、`rule verify` が評価します。`blocked` のフィクスチャは、指定したルールが最初に一致した場合だけ合格し、`allowed` のフィクスチャは、どのルールにも一致しない場合だけ合格します。`rule add` と `rule update` は、フィクスチャが失敗した設定元を書き込む前に拒否します。失敗したフィクスチャは、`tests` 内のインデックスで示されます。
+バージョン 1 のフィクスチャは形式だけを確認します。バージョン 2 のフィクスチャは、`rule add`、`rule update`、`rule verify` が評価します。`blocked` のフィクスチャは指定したルールが最初に一致すれば合格し、`allowed` のフィクスチャはどのルールにも一致しなければ合格します。
+
+`rule add` と `rule update` は、フィクスチャが失敗した設定元を書き込む前に拒否します。失敗したフィクスチャは、`tests` 内のインデックスで示されます。
 
 ```text
 tests[<index>]: expected "<rule>" to block "<command>" but no rule matched
@@ -439,20 +426,28 @@ tests[<index>]: could not parse fixture command: <command>
 
 ## 照合の挙動
 
-以下のサブコマンド、引数、オプションに関する規則は、`rulebook_version` 1 のルールについてのものです。バージョン 2 のルールの照合は[バージョン 2 の照合](#version-2-matching)で説明しています。コマンドの正規化、透過ラッパー、入れ子の扱いは両方に共通です。
+| | バージョン 1 | バージョン 2 |
+| --- | --- | --- |
+| コマンド | 小文字の basename で照合します。`/usr/local/bin/npm` は `"command": "npm"` に一致します | バージョン 1 と同じです |
+| 位置 | `subcommand` は、コマンドの後に続く最初のオプションでない引数です。`git --no-pager add -A` では `add` です。`block_args` のトークンはどこにあってもかまいません | 認識できるグローバルオプションを読み飛ばした後、コマンドの語が `command_path` と順序どおり一致する必要があります。パスより後ろの引数は影響しません |
+| 引数 | `block_args` のトークンが 1 つでもあればブロックします | `any_args` のトークンが 1 つ以上必要で、`exclude_args` のトークンが 1 つでもあれば一致しません |
+| 短いオプション | 分解します。`-Ap` は `-A` と `-p` として扱います | 展開しません。`-Ap` は `-Ap` のままなので、`"-destroy"` と `"--destroy"` のように書き方をすべて列挙してください |
 
-- **コマンドの正規化。** 照合の前に、コマンドを basename にします。`/usr/local/bin/npm` は `"command": "npm"` のルールに一致します。
-- **サブコマンドの検出。** サブコマンドは、コマンドの後に続く最初のオプションでない引数です。`git --no-pager add -A` のサブコマンドは `add` です。
-- **引数の照合。** `block_args` の引数はそのままの形で照合します。正規表現や glob は使えません。
-- **短いオプションの展開。** 照合の前に、まとめて書かれた短いフラグを分解します。`-Ap` は `-A` と `-p` として扱います。
-- **長いオプションの照合。** 長いオプションは文字列の完全一致で照合します。`--all-files` は `--all` に一致しません。
-- **いずれかの引数で一致。** `block_args` の引数が 1 つでもあれば、コマンドをブロックします。
-- **追加のみ。** カスタムルールは制限を追加するだけです。組み込みの保護を迂回することはできません。
-- **どの深さでも適用。** ルールは、トップレベルのコマンドと同じように入れ子のコマンドにも適用されます。`rm` のルールがあれば、`bash -c 'rm -r ./tmpdir'` も `eval 'rm -r ./tmpdir'` もブロックされます。`sh -c` や呼び出された関数の本体でも同じです。組み込みのアナライザーが扱う `rm`、`rmdir`、`git`、`find`、`xargs`、`parallel` も対象です。
+どちらのバージョンも、トークンをそのままの形で、大文字と小文字を区別して照合します。正規表現、glob、部分一致はありません。`--all-files` は `--all` に一致しません。ルールは順番に評価され、最初に一致したルールがブロックします。
 
-<Note>
-  **既知の制限。** CC Safety Net は `-Cfoo` を `-C foo` ではなく `-C -f -o -o` として扱います。そのため、`-f` をブロックするルールが、オプションに続けて書かれた値に誤って一致することがあります。
-</Note>
+ルールは入れ子のコマンドにも適用されます。`rm` のルールがあれば、`bash -c 'rm -r ./tmpdir'`、`eval 'rm -r ./tmpdir'`、呼び出された関数の本体のいずれもブロックされます。組み込みのアナライザーが扱うコマンドも対象です。
+
+<span id="version-2-global-options"></span>
+
+### バージョン 2 のグローバルオプション
+
+値を取るグローバルオプションを認識できるのは、`aws`、`gcloud`、`az` だけです。それ以外のコマンドでは、`git -C repo push` のように値を別の語として書いたオプションがあると、ルールは一致しません。Terraform の `-chdir=DIR` は 1 つのトークンなので読み飛ばされます。
+
+リリースチャネルには別のルールが必要です。`gcloud beta compute instances delete` は `["compute", "instances", "delete"]` に一致しません。`["beta", "compute", "instances", "delete"]` で 2 つ目のルールを書いてください。
+
+<Accordion title="バージョン 1 はオプションに続けて書いた値を誤読する">
+  CC Safety Net は `-Cfoo` を `-C foo` ではなく `-C -f -o -o` として扱います。そのため、`-f` をブロックするルールが、オプションに続けて書かれた値に誤って一致することがあります。
+</Accordion>
 
 ### ルールが照合するのはコマンドで、ファイルパスではない
 
@@ -501,7 +496,7 @@ tests[<index>]: could not parse fixture command: <command>
 }
 ```
 
-`timeout` は[透過ラッパー](#transparent-wrappers)なので、このルールは `timeout 5 git push` もブロックします。一方、`git -C repo push` には一致しません。値を別の語として書いた git のグローバルオプションが `push` の前にあるためです。[バージョン 2 の照合](#version-2-matching)を参照してください。
+`timeout` は[透過ラッパー](#transparent-wrappers)なので、このルールは `timeout 5 git push` もブロックします。一方、`git -C repo push` には一致しません。[バージョン 2 のグローバルオプション](#version-2-global-options)を参照してください。
 
 <span id="turn-off-one-rule"></span>
 
@@ -553,37 +548,6 @@ tests[<index>]: could not parse fixture command: <command>
 }
 ```
 
-### docker system prune をブロックする
-
-```json
-{
-  "rulebook_version": 1,
-  "name": "project-rules",
-  "version": "1.0.0",
-  "allowed_commands": ["docker"],
-  "rules": [
-    {
-      "name": "block-docker-system-prune",
-      "command": "docker",
-      "subcommand": "system",
-      "block_args": ["prune"],
-      "reason": "docker system prune removes all unused data. Use targeted cleanup instead."
-    }
-  ],
-  "tests": [
-    {
-      "command": "docker system prune",
-      "expect": "blocked",
-      "rule": "block-docker-system-prune"
-    },
-    {
-      "command": "docker ps",
-      "expect": "allowed"
-    }
-  ]
-}
-```
-
 ## ブロックメッセージの形式
 
 ブロックメッセージ全体のレイアウトは[ブロック時の表示](/ja/guides/how-it-works#what-a-block-looks-like)で説明しています。カスタムルールでは、どのルールブックがブロックしたかが分かるように、ルールブック名とルール名が先頭に付きます。
@@ -628,7 +592,7 @@ npx -y cc-safety-net rule verify
 
 ## カスタムルールの設定が無効な場合
 
-読み込みに失敗したカスタムルールの設定は破棄されます。その失敗が拒否に変わることはありません。ほかの有効な設定元と組み込みルールはすべて適用され続け、ランタイムは `degraded` を報告します。設定元が破棄されるとブロックが減りますが、それを知らせる拒否は発生しません。ルールを編集したときやアップグレードしたときは、`npx -y cc-safety-net status` を実行してください。[設定の復旧](/ja/configuration/recovery)を参照してください。
+読み込みに失敗したカスタムルールの設定は、コマンドを拒否するのではなく破棄されます。ほかの設定元と組み込みルールは適用され続け、ランタイムは `degraded` を報告します。ブロックが減っても通知されないため、ルールを編集したときやアップグレードしたときは `npx -y cc-safety-net status` を実行してください。[設定の復旧](/ja/configuration/recovery)を参照してください。
 
 <Warning>
   カスタムルールの設定は改ざんへの耐性がありません。`rule.json` とルールブックのファイルはエージェントが編集できます。保護されているパスは `policy.json` だけです。カスタムルールを手で追加・変更したら、`npx -y cc-safety-net rule verify` で検証してください。

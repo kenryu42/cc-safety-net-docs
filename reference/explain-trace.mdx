@@ -25,8 +25,6 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 
 ## ExplainResult
 
-`explain --json` returns this top-level object.
-
 | Field | Type | Presence | Description |
 | --- | --- | --- | --- |
 | `result` | `"blocked" \| "allowed"` | always | The final outcome for the command |
@@ -43,8 +41,6 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 | `effectiveCapabilities` | `object` | always | Per-capability state. See below |
 | `destructiveCommandRuleOverrides` | `Record<string, "on" \| "off">` | always, may be `{}` | Per-rule overrides stored in the policy |
 | `ruleActivation` | `object` | conditional. See below | How the relevant rule got its on/off state |
-
-`effectiveLevel`, `selectedPreset`, `effectiveCapabilities`, and `destructiveCommandRuleOverrides` are present even when you explain an empty command.
 
 ### `effectiveCapabilities`
 
@@ -120,28 +116,39 @@ See [Temp-root relaxation](/reference/blocked-commands#git-commands-in-a-temp-re
 
 ### `script-file` steps
 
-A `script-file` step appears when the analyzer read a shell script from disk, as for `sh deploy.sh` or `./deploy.sh`. `path` is the path as the command spelled it, and `bytes` is the file's size. The commands inside the script produce no further steps, and no field carries the script's text, because the tool call did not supply it. See [Scripts run from a file](/reference/blocked-commands#scripts-run-from-a-file). A script a heredoc in the same command wrote records a `recurse` step with the reason `heredoc-file` instead, and that step does carry the body.
+A `script-file` step appears for a command such as `sh deploy.sh` or `./deploy.sh`. `path` is the path as the command spelled it, and `bytes` is the file's size. The commands inside the script produce no further steps, and no field carries the script's text. See [Scripts run from a file](/reference/blocked-commands#scripts-run-from-a-file).
+
+A script that a heredoc in the same command wrote records a `recurse` step with the reason `heredoc-file` instead. That step carries the body.
 
 ### `transparent-wrapper` steps
 
-A `transparent-wrapper` step appears when analysis looks through a command registered with [`rule wrapper add`](/reference/cli/rule#rule-wrapper). `wrapper` is the wrapper name, and `output` is the token list of the wrapped command. The step comes right before that command's analysis, with one step per candidate.
+A `transparent-wrapper` step appears when analysis looks through a command registered with [`rule wrapper add`](/reference/cli/rule#rule-wrapper). `wrapper` is the wrapper name, and `output` is the token list of the wrapped command. One step per candidate comes right before that command's analysis.
 
 ## Trace order
 
-A typical trace starts with `parse`. Each segment then shows `env-strip` or `leading-tokens-stripped`, then the wrapper detection steps `shell-wrapper`, `interpreter`, `busybox`, and `transparent-wrapper`, then `rule-check` or `custom-rules-check`. Nested commands appear as `recurse` steps with a `depth`. When you only need the decision, read `result`, `reason`, `segment`, and `ruleId` at the top level instead of walking the trace.
+A typical trace starts with `parse`. Each segment then shows `env-strip` or `leading-tokens-stripped`, then the wrapper detection steps `shell-wrapper`, `interpreter`, `busybox`, and `transparent-wrapper`, then `rule-check` or `custom-rules-check`. Nested commands appear as `recurse` steps with a `depth`.
 
-Four protections short-circuit before the evaluator runs: policy-file protection, `policy apply` protection, Git-metadata protection, and secret protection. When one of those blocks a command, the trace contains a single synthetic `rule-check` step and no `parse` step. Its `ruleId` is `guard.policy-config`, `guard.policy-apply`, `guard.git-metadata`, or the id of the matched secret rule. Scripts that expect every trace to open with `parse` must handle this case.
+Four protections block before the evaluator runs. Their trace holds a single synthetic `rule-check` step and no `parse` step, so a script that expects every trace to open with `parse` must handle them:
+
+| Protection | `ruleId` |
+| --- | --- |
+| Policy-file protection | `guard.policy-config` |
+| `policy apply` protection | `guard.policy-apply` |
+| Git-metadata protection | `guard.git-metadata` |
+| Secret protection | The id of the matched secret rule |
 
 ## Before you share a trace
 
 <Warning>
-  An explain trace is not inherently safe to share. The `parse` step records the raw command string and every parsed token. Other fields also carry raw text: `fallback-scan.tokensScanned`, `dangerous-text.token`, `shell-wrapper.innerCommand`, `interpreter.codeArg`, `recurse.innerCommand`, `script-file.path`, `strict-unparseable.rawCommand`, `transparent-wrapper.output`, `worktree-relaxation.gitCwd`, `temp-root-relaxation.gitCwd`, and `cwd-change.segment`. `configSource` is an absolute path, normally inside your home directory.
-
-  Redaction removes only recognized credential shapes, using the same bounded pattern list as the [audit log](/reference/audit-log#secret-redaction). It does not cover file paths, hostnames, IP addresses, usernames, project or client names, or secrets with unrecognized formats.
-
-  Before you share a trace, reproduce the case with placeholder credentials and placeholder paths. Then read the output end to end and remove anything you would not post publicly.
+  Redaction removes only recognized credential shapes, using the same pattern list as the [audit log](/reference/audit-log#secret-redaction). File paths, hostnames, IP addresses, usernames, project or client names, and secrets in unrecognized formats stay in full. Reproduce the case with placeholder credentials and paths, then read the output end to end before you share it.
 </Warning>
 
-For example, if you explain a command that contains a `--token=…` assignment, the output redacts the token. It still returns a path like `/srv/acme-prod/customer-dump.sql` in the same command in full, along with any hostname, IP address, or account name in the command text.
+The `parse` step records the raw command string and every parsed token. These fields also carry raw text:
 
-You can include `explain` output in a vulnerability report. Redaction is a best-effort control, not a guarantee. A credential format it misses in text you supplied is an ordinary bug for a public GitHub issue, not a vulnerability. Review the complete output before you paste it.
+- `fallback-scan.tokensScanned`, `dangerous-text.token`, `strict-unparseable.rawCommand`
+- `shell-wrapper.innerCommand`, `interpreter.codeArg`, `recurse.innerCommand`, `transparent-wrapper.output`
+- `script-file.path`, `worktree-relaxation.gitCwd`, `temp-root-relaxation.gitCwd`, `cwd-change.segment`
+
+`configSource` is an absolute path, normally inside your home directory.
+
+You can include `explain` output in a vulnerability report. A credential format that redaction misses in text you supplied is an ordinary bug for a public GitHub issue, not a vulnerability.

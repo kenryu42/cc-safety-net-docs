@@ -21,22 +21,23 @@ CC Safety Net loads rulebooks from two scopes and merges them:
 1. **User scope.** `~/.cc-safety-net/rules/rule.json` (created with `rule init --global`). Use this for personal defaults that apply to every project.
 2. **Project scope.** `.cc-safety-net/rules/rule.json` in the project root. Use this for team or project-specific rules you can commit to source control.
 
-If neither file exists, only built-in rules apply. In the directory that holds your user `.cc-safety-net/` (your home directory by default), the project path is the user config, so `rule` subcommands that write the project scope refuse to run there. See [rule in the user config directory](/reference/cli/rule#rule-in-the-user-config-directory).
+If neither file exists, only built-in rules apply. In the directory that holds your user `.cc-safety-net/`, usually your home directory, the project path is the user config, so `rule` subcommands that write the project scope refuse to run there. See [rule in the user config directory](/reference/cli/rule#rule-in-the-user-config-directory).
 
 ### Scope merge behavior
 
 - CC Safety Net loads the user scope first and combines both scopes' rulebooks.
 - When both scopes list a rulebook with the same name, the user rulebook wins and the project one contributes no rules. CC Safety Net reports a warning and the runtime shows `degraded`. Rename one of them to fix it.
-- Each scope's `overrides` apply only to its own rules. CC Safety Net ignores a project override that names a user rule and reports a warning, so project config cannot disable or rewrite a user rule.
-- CC Safety Net also ignores, with a warning, an override key that matches no rule.
+- Each scope's `overrides` apply only to its own rules, so project config cannot disable or rewrite a user rule. CC Safety Net ignores, with a warning, a project override that names a user rule and any override key that matches no rule.
 - CC Safety Net combines `transparent_wrappers` and `command_tools` from both scopes.
 
 ## Managing rulebook sources
 
 Each entry in `rule.json`'s `rules` array is a rulebook source:
 
-- **Local source.** A bare name such as `project-rules`. The rulebook lives at `.cc-safety-net/rules/project-rules/rulebook.json` (project) or `~/.cc-safety-net/rules/project-rules/rulebook.json` (user).
-- **GitHub source.** `owner/repo#ref/<rulebook-name>` names `.cc-safety-net/rules/<rulebook-name>/rulebook.json` in that repository. `rule add` and `rule update` copy that file into your own scope at the same path, so it loads like a local rulebook.
+| Source | Example | Rulebook file |
+| --- | --- | --- |
+| Local | `project-rules` | `.cc-safety-net/rules/project-rules/rulebook.json` in the project, or under `~/.cc-safety-net/rules/` for the user scope |
+| GitHub | `owner/repo#ref/<rulebook-name>` | `.cc-safety-net/rules/<rulebook-name>/rulebook.json` in that repository. `rule add` and `rule update` copy it into your scope at the same path |
 
 Use the `rule` command instead of editing `rule.json` by hand:
 
@@ -67,7 +68,7 @@ Add `--global` (`-g`) to change the user scope instead of the project scope. [Of
 
 ### Rulebooks are live files
 
-The runtime reads each `rulebook.json` from disk on every tool call. A saved edit applies to the next command, with nothing to publish or rebuild. A rulebook that is missing, unreadable, or invalid contributes no rules. Every other rulebook and every built-in rule keeps applying, and the runtime reports `degraded`. For a GitHub source you have never fetched, run `npx -y cc-safety-net rule update`. See [Configuration recovery](/configuration/recovery) for the repair steps.
+The runtime reads each `rulebook.json` from disk on every tool call, so a saved edit applies to the next command. A missing, unreadable, or invalid rulebook contributes no rules, and the runtime reports `degraded`. For a GitHub source you have never fetched, run `npx -y cc-safety-net rule update`. See [Configuration recovery](/configuration/recovery).
 
 ## Transparent wrappers
 
@@ -89,9 +90,9 @@ npx -y cc-safety-net rule wrapper remove rtk
 npx -y cc-safety-net rule wrapper add rtk --global
 ```
 
-- A wrapper name must match `^[a-zA-Z][a-zA-Z0-9_-]*$` and must be unique within the file.
-- Reserved commands cannot be wrappers: `git`, `busybox`, the built-in analyzed commands `rm`, `find`, `xargs`, and `parallel`, every shell wrapper, every interpreter, and the awk interpreters.
-- Add only a wrapper that runs its child command as written. CC Safety Net does not look through a wrapper that rewrites or hides its child, even when you list it.
+- A wrapper name must match `^[a-zA-Z][a-zA-Z0-9_-]*$` and be unique within the file.
+- Reserved commands cannot be wrappers: `git`, `busybox`, `rm`, `find`, `xargs`, `parallel`, every shell wrapper, every interpreter, and the awk interpreters.
+- Add only a wrapper that runs its child command as written.
 
 The wrappers you add live in `rule.json`, so an unreadable `rule.json` drops them. See [Coverage declared in `rule.json`](/configuration/recovery#coverage-declared-in-rule-json).
 
@@ -130,11 +131,9 @@ That writes the `command_tools` array:
 
 From the next tool call, a declared call gets the same built-in rules, custom rules, and safety level as a built-in shell tool. `git.reset-hard` then blocks `ops_bash` running `git reset --hard`.
 
-- `rule tool` writes the user config by default. Pass `--project` for the project config.
-- The name must match the tool name the agent sends exactly, including case.
-- A declaration cannot change how CC Safety Net handles a built-in tool, and `rule tool add` refuses built-in tool names. [`rule tool add` name errors](/reference/cli/rule#rule-tool-add-name-errors) lists the other naming rules.
-- CC Safety Net analyzes only a call with a non-empty string `command`.
-- `cwd` names the argument that holds the working directory. Without it, CC Safety Net reads `workdir`, `cwd`, or `working_directory`. A call with no working directory runs in the session workspace. A blank value denies the call as `tool-call.malformed`, and a directory that does not exist denies it as `cwd.requested-unusable`.
+- The name must match the tool name the agent sends exactly, including case. `rule tool add` refuses built-in tool names. See [`rule tool add` name errors](/reference/cli/rule#rule-tool-add-name-errors).
+- `cwd` names the argument that holds the working directory. Without it, CC Safety Net reads `workdir`, `cwd`, or `working_directory`, then falls back to the session workspace.
+- A blank working directory denies the call as `tool-call.malformed`, and a directory that does not exist denies it as `cwd.requested-unusable`.
 
 Declarations live in `rule.json`, so an unreadable `rule.json` drops that scope's tools. Run `npx -y cc-safety-net rule verify` after editing the file by hand.
 
@@ -230,7 +229,7 @@ Declarations live in `rule.json`, so an unreadable `rule.json` drops that scope'
 </ParamField>
 
 <ParamField body="command_tools" type="array">
-  Shell tools a plugin added to your agent that CC Safety Net does not know. Declaring one here makes CC Safety Net analyze its `command` like a built-in shell tool's. Each entry is a tool name, or an object like `{ "name": "ops_bash", "cwd": "dir" }` naming the argument that carries the working directory. Defaults to an empty array. Names must be unique within the file and must not be built-in tool names. See [Community shell tools](#community-shell-tools).
+  Plugin shell tools whose `command` CC Safety Net analyzes like a built-in shell tool's. Each entry is a tool name, or an object like `{ "name": "ops_bash", "cwd": "dir" }`. Defaults to an empty array. Names must be unique and must not be built-in tool names. See [Community shell tools](#community-shell-tools).
 </ParamField>
 
 An override that changes both the message and the agent-facing intent looks like this:
@@ -299,7 +298,7 @@ Each rulebook lives in its own `rulebook.json` file.
 </ParamField>
 
 <ParamField body="tests" type="array">
-  Optional rulebook fixtures. See [Fixture schema](#fixture-schema). CC Safety Net checks only the shape of version 1 fixtures. It also evaluates version 2 fixtures against the rulebook's own rules.
+  Optional rulebook fixtures. See [Fixture schema](#fixture-schema).
 </ParamField>
 
 ## Rule schema
@@ -333,8 +332,6 @@ The fields below define a `rulebook_version` 1 rule. Version 2 replaces `subcomm
 ## Version 2 rules
 
 Set `"rulebook_version": 2` to match on an exact command path instead of a subcommand plus a set of arguments. A version 1 rule that blocks `delete` under `gcloud compute` also blocks `gcloud compute instances create delete`, because it looks for the token anywhere in the command. A version 2 rule with the command path `["compute", "instances", "delete"]` does not.
-
-Version 1 rulebooks keep their fields, their matching, and their shape-only fixtures. CC Safety Net validates each rulebook against the version it declares.
 
 A version 2 rule keeps `name`, `command`, `reason`, and `intent` from version 1 and replaces `subcommand` and `block_args` with a `match` object.
 
@@ -384,16 +381,6 @@ Version 2 rejects the version 1 fields instead of ignoring them. A rule that sti
 }
 ```
 
-### Version 2 matching
-
-- **Command.** CC Safety Net reduces the command to its lowercase basename, as in version 1.
-- **Command path.** CC Safety Net skips recognized global options and their values. The command words that follow must equal `command_path` exactly, in order. Arguments after the path do not affect the path match.
-- **Global options.** CC Safety Net knows the value-taking global options of `aws`, `gcloud`, and `az` only. For any other command, an option written with a separate value, such as `git -C repo push`, makes the rule miss. Terraform's `-chdir=DIR` is one token, so CC Safety Net skips it.
-- **No short-option expansion.** `-Ap` stays `-Ap`. List every spelling you want to catch, such as `"-destroy"` and `"--destroy"`.
-- **Literal and case-sensitive.** There is no regex, glob, or substring matching.
-- **First match wins.** CC Safety Net evaluates rules in order, and the first rule that matches produces the block.
-- **Release channels need their own rule.** `gcloud beta compute instances delete` does not match a `command_path` of `["compute", "instances", "delete"]`. Write a second rule with `["beta", "compute", "instances", "delete"]`.
-
 ## Fixture schema
 
 Fixtures document intended behavior. CC Safety Net parses their commands and runs them through the rulebook's rules. It never executes them.
@@ -410,7 +397,9 @@ Fixtures document intended behavior. CC Safety Net parses their commands and run
   Rule expected to block the command. Required for blocked fixtures.
 </ParamField>
 
-CC Safety Net checks only the shape of version 1 fixtures. `rule add`, `rule update`, and `rule verify` evaluate version 2 fixtures. A `blocked` fixture passes only when its named rule is the first match, and an `allowed` fixture passes only when no rule matches. `rule add` and `rule update` reject a source whose fixtures fail, before writing it. Each failure names the fixture by its index in `tests`:
+CC Safety Net checks only the shape of version 1 fixtures. `rule add`, `rule update`, and `rule verify` run version 2 fixtures. A `blocked` fixture passes when its named rule is the first match, and an `allowed` fixture passes when no rule matches.
+
+`rule add` and `rule update` reject a source whose fixtures fail, before writing it. Each failure names the fixture by its index in `tests`:
 
 ```text
 tests[<index>]: expected "<rule>" to block "<command>" but no rule matched
@@ -423,20 +412,26 @@ tests[<index>]: could not parse fixture command: <command>
 
 ## Matching behavior
 
-The subcommand, argument, and option rules below describe `rulebook_version` 1 rules. Version 2 rules match as described in [Version 2 matching](#version-2-matching). Command normalization, transparent wrappers, and nesting apply to both.
+| | Version 1 | Version 2 |
+| --- | --- | --- |
+| Command | Lowercase basename, so `/usr/local/bin/npm` matches `"command": "npm"` | Same as version 1 |
+| Position | `subcommand` is the first non-option argument, so in `git --no-pager add -A` it is `add`. A `block_args` token can appear anywhere | After skipping recognized global options, the command words must equal `command_path` in order. Arguments after the path do not matter |
+| Arguments | The rule blocks if any one `block_args` token is present | `any_args` needs one token present, and any `exclude_args` token stops the match |
+| Short options | Unbundled, so `-Ap` counts as `-A` and `-p` | Not expanded, so `-Ap` stays `-Ap`. List every spelling, such as `"-destroy"` and `"--destroy"` |
 
-- **Command normalization.** CC Safety Net reduces a command to its basename before matching. `/usr/local/bin/npm` matches a rule with `"command": "npm"`.
-- **Subcommand detection.** The subcommand is the first non-option argument following the command. In `git --no-pager add -A`, the subcommand is `add`.
-- **Argument matching.** Arguments in `block_args` match literally. There is no regex or glob support.
-- **Short option expansion.** CC Safety Net unbundles short flags before matching. `-Ap` counts as `-A` and `-p`.
-- **Long option matching.** Long options use exact string matching. `--all-files` does not match `--all`.
-- **Any-argument matching.** The rule blocks a command if any single argument in `block_args` is present.
-- **Additive only.** Custom rules can only add new restrictions. They cannot bypass built-in protections.
-- **Every depth.** A rule applies to a nested command the same way it applies to a top-level one. Under a rule for `rm`, both `bash -c 'rm -r ./tmpdir'` and `eval 'rm -r ./tmpdir'` block, and the same goes for `sh -c` and a called function body. This includes the commands a built-in analyzer also covers: `rm`, `rmdir`, `git`, `find`, `xargs`, and `parallel`.
+Both versions match tokens literally and case-sensitively, with no regex, glob, or substring matching. `--all-files` does not match `--all`. Rules run in order, and the first match produces the block.
 
-<Note>
-  **Known limitation.** CC Safety Net treats `-Cfoo` as `-C -f -o -o`, not `-C foo`. A rule that blocks `-f` can therefore match an attached option value by mistake.
-</Note>
+A rule applies to nested commands too. Under a rule for `rm`, `bash -c 'rm -r ./tmpdir'`, `eval 'rm -r ./tmpdir'`, and a called function body all block, including for commands a built-in analyzer also covers.
+
+### Version 2 global options
+
+CC Safety Net knows the value-taking global options of `aws`, `gcloud`, and `az` only. For any other command, an option with a separate value, such as `git -C repo push`, makes the rule miss. Terraform's `-chdir=DIR` is one token, so it is skipped.
+
+Release channels need their own rule. `gcloud beta compute instances delete` does not match `["compute", "instances", "delete"]`. Write a second rule with `["beta", "compute", "instances", "delete"]`.
+
+<Accordion title="Version 1 misreads attached option values">
+  CC Safety Net treats `-Cfoo` as `-C -f -o -o`, not `-C foo`. A rule that blocks `-f` can therefore match an attached option value by mistake.
+</Accordion>
 
 ### Rules match commands, not file paths
 
@@ -483,7 +478,7 @@ A version 2 rule with `command_path: ["push"]` and no `any_args` blocks `git pus
 }
 ```
 
-The rule also blocks `timeout 5 git push`, because `timeout` is a [transparent wrapper](#transparent-wrappers). It misses `git -C repo push`, because a git global option with a separate value comes before `push`. See [Version 2 matching](#version-2-matching).
+The rule also blocks `timeout 5 git push`, because `timeout` is a [transparent wrapper](#transparent-wrappers). It misses `git -C repo push`. See [Version 2 global options](#version-2-global-options).
 
 ### Turn off one rule
 
@@ -533,37 +528,6 @@ The rulebook file stays unchanged, so `rule update` never undoes the override. T
 }
 ```
 
-### Block docker system prune
-
-```json
-{
-  "rulebook_version": 1,
-  "name": "project-rules",
-  "version": "1.0.0",
-  "allowed_commands": ["docker"],
-  "rules": [
-    {
-      "name": "block-docker-system-prune",
-      "command": "docker",
-      "subcommand": "system",
-      "block_args": ["prune"],
-      "reason": "docker system prune removes all unused data. Use targeted cleanup instead."
-    }
-  ],
-  "tests": [
-    {
-      "command": "docker system prune",
-      "expect": "blocked",
-      "rule": "block-docker-system-prune"
-    },
-    {
-      "command": "docker ps",
-      "expect": "allowed"
-    }
-  ]
-}
-```
-
 ## Block message format
 
 [What a block looks like](/guides/how-it-works#what-a-block-looks-like) describes the full block message layout. A custom rule adds the rulebook name and the rule name as a prefix, so you can tell which rulebook produced the block:
@@ -606,7 +570,7 @@ It turns the inline files into this layout:
 
 ## Invalid custom-rule configuration
 
-CC Safety Net drops custom-rule configuration that fails to load. It never turns the failure into a denial. Every other valid source and every built-in rule keeps applying, and the runtime reports `degraded`. A dropped source removes blocks, and no denial alerts you to it. Run `npx -y cc-safety-net status` after editing rules or upgrading. See [Configuration recovery](/configuration/recovery).
+CC Safety Net drops custom-rule configuration that fails to load instead of denying commands. Other sources and built-in rules keep applying, and the runtime reports `degraded`. Nothing alerts you to the lost blocks, so run `npx -y cc-safety-net status` after editing rules or upgrading. See [Configuration recovery](/configuration/recovery).
 
 <Warning>
   Custom rule configuration is not tamper-resistant. An agent can edit `rule.json` and the rulebook files. Only `policy.json` is a protected path. If you add or change custom rules by hand, validate them with `npx -y cc-safety-net rule verify`.

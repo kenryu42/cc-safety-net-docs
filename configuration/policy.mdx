@@ -19,13 +19,11 @@ The runtime reads both files on every tool call, so an edit applies to the next 
 
 ## What the config working directory is
 
-The config working directory is the directory your agent session runs in, which the agent reports with each tool call. CC Safety Net reads the project `.cc-safety-net/` folder from there, and resolves relative `deny_paths` and `allow_paths` entries against it. A `cd` inside a command, or a tool call that names its own working directory, changes where that command's targets resolve. It does not change the config working directory.
+The config working directory is the directory your agent session runs in. CC Safety Net reads the project `.cc-safety-net/` folder from there, and resolves relative `deny_paths` and `allow_paths` entries against it. A `cd` inside a command, or a tool call that names its own working directory, does not change it.
 
 ## Project policy
 
-A team ships a safety policy through the repository by committing `.cc-safety-net/policy.json`. Members run nothing. The runtime reads the file on the next tool call, in every checkout.
-
-The project file is sparse. It holds only the fields it sets, and an absent field keeps inheriting from the user policy. A project file that sets one rule override changes that one rule and nothing else.
+A team ships a safety policy by committing `.cc-safety-net/policy.json` to the repository. Members run nothing, and the runtime reads the file on the next tool call. The project file holds only the fields it sets. Every absent field inherits from the user policy.
 
 The effective policy is the user policy with the project policy layered on top:
 
@@ -45,7 +43,7 @@ The directory that holds your user `.cc-safety-net/`, your home directory by def
 
 ### Reported weakenings
 
-By default, CC Safety Net applies a project policy as written and does not raise it back to the user baseline. Instead, it reports each field the project relaxes relative to the user policy on its own line:
+CC Safety Net applies a project policy as written. It reports each field the project relaxes relative to the user policy on its own line:
 
 - `project policy lowers level: <user> -> <project>`
 - `project policy disables fail_closed`, `project policy disables paranoid_rm`, `project policy disables paranoid_interpreters`
@@ -56,9 +54,11 @@ By default, CC Safety Net applies a project policy as written and does not raise
 - `project policy adds destructive allow path: <path>`
 - `project policy adds secret allow path: <path>`
 
-CC Safety Net measures a lowered level against `safety.level` in the user policy. It measures a disabled capability against the user policy with its level raised by `CC_SAFETY_NET_LEVEL`. So under `CC_SAFETY_NET_LEVEL=paranoid`, a project `safety.overrides.paranoid_rm: false` turns `paranoid_rm` off and appears as a weakening. [The switch below](#ignore-project-weakenings) keeps `paranoid_rm` on.
-
 `status` lists these lines under `Project policy`, `doctor` prints them under `Project policy deltas:`, and the [status line](/reference/cli/statusline) shows `🔻` while any weakening is in force.
+
+<Accordion title="How CC Safety Net measures a weakening">
+  A lowered level is measured against `safety.level` in the user policy. A disabled capability is measured against the user policy with its level raised by `CC_SAFETY_NET_LEVEL`. So under `CC_SAFETY_NET_LEVEL=paranoid`, a project `safety.overrides.paranoid_rm: false` turns `paranoid_rm` off and appears as a weakening. [The switch below](#ignore-project-weakenings) keeps `paranoid_rm` on.
+</Accordion>
 
 ### Ignore project weakenings
 
@@ -80,7 +80,7 @@ After a hand edit, confirm the result:
 npx cc-safety-net status
 ```
 
-A `degraded` verdict means CC Safety Net rejected part of your file, and `npx cc-safety-net doctor` names the fields. The runtime never rewrites `policy.json`, so an invalid file stays as you left it until you fix it. See [Invalid policy behavior](#invalid-policy-behavior).
+A `degraded` verdict means CC Safety Net rejected part of your file, and `npx cc-safety-net doctor` names the fields. See [Invalid policy behavior](#invalid-policy-behavior).
 
 ## Complete policy example
 
@@ -113,9 +113,7 @@ Every field, with its default value:
 }
 ```
 
-Only `version` is required. You can omit every other field, and an omitted field takes the default shown above. If the file does not exist at all, CC Safety Net runs on these defaults and stays `ready`.
-
-The root object is strict. An unrecognized top-level key is an error, and so is an unrecognized key inside `safety`, `workflow`, `destructive_command_protection`, `secret_protection`, or `audit`.
+Only `version` is required, and an omitted field takes the default shown above. An unrecognized key, at the top level or inside any section, is an error.
 
 ## Schema reference
 
@@ -124,7 +122,7 @@ The root object is strict. An unrecognized top-level key is an error, and so is 
 </ParamField>
 
 <ParamField body="safety.level" type="string" default="standard">
-  The safety preset, one of `"standard"`, `"strict"`, or `"paranoid"`. Each preset supplies the capability defaults you inherit. `strict` enables `fail_closed`, and `paranoid` enables `fail_closed`, `paranoid_rm`, and `paranoid_interpreters`. See [Modes](/configuration/modes) for what each capability changes.
+  The safety preset, one of `"standard"`, `"strict"`, or `"paranoid"`. `strict` enables `fail_closed`, and `paranoid` enables `fail_closed`, `paranoid_rm`, and `paranoid_interpreters`. See [Modes](/configuration/modes) for what each capability changes.
 </ParamField>
 
 <ParamField body="safety.overrides.fail_closed" type="boolean">
@@ -140,7 +138,7 @@ The root object is strict. An unrecognized top-level key is an error, and so is 
 </ParamField>
 
 <ParamField body="workflow.worktree_mode" type="boolean" default="false">
-  Relax local-discard git rules inside a confirmed linked worktree. Detection is fail-closed. If CC Safety Net cannot confirm that the working directory is a linked worktree, the stricter default rules stay in effect. See [Modes](/configuration/modes) for the exact list of what worktree mode relaxes and what it never relaxes.
+  Relax local-discard git rules inside a confirmed linked worktree. See [Modes](/configuration/modes#worktree-mode-cc_safety_net_worktree=1) for what worktree mode relaxes and what it never relaxes.
 </ParamField>
 
 <ParamField body="destructive_command_protection.enabled" type="boolean" default="true">
@@ -148,7 +146,7 @@ The root object is strict. An unrecognized top-level key is an error, and so is 
 </ParamField>
 
 <ParamField body="destructive_command_protection.overrides" type="object" default="{}">
-  Per-rule state, keyed by registered destructive-command rule id, with the value `"on"` or `"off"`. The override applies on top of the state your capabilities set, so `"on"` can enable a rule your preset leaves off and `"off"` can disable one it turns on.
+  Per-rule state, keyed by destructive-command rule id, with the value `"on"` or `"off"`. It applies on top of your preset, so `"on"` can enable a rule the preset leaves off and `"off"` can disable one it turns on.
 </ParamField>
 
 <ParamField body="destructive_command_protection.allow_paths" type="string[]" default="[]">
@@ -160,7 +158,7 @@ The root object is strict. An unrecognized top-level key is an error, and so is 
 </ParamField>
 
 <ParamField body="secret_protection.overrides" type="object" default="{}">
-  Per-rule state, keyed by registered secret-protection rule id, with the value `"on"` or `"off"`. Most secret rules are on whenever secret protection is enabled, so `"off"` is the usual direction. The [Coding CLI config tier](#rules-that-are-off-by-default) is off by default, and an explicit `"on"` is how you opt into one of those rules.
+  Per-rule state, keyed by secret-protection rule id, with the value `"on"` or `"off"`. Most secret rules are on by default, so `"off"` is the usual direction. `"on"` opts into a rule from the [Coding CLI config tier](#rules-that-are-off-by-default), which is off by default.
 </ParamField>
 
 <ParamField body="secret_protection.deny_paths" type="string[]" default="[]">
@@ -168,7 +166,7 @@ The root object is strict. An unrecognized top-level key is an error, and so is 
 </ParamField>
 
 <ParamField body="secret_protection.allow_paths" type="string[]" default="[]">
-  Exact files or directory trees exempted from built-in secret-pattern rules. An entry can instead be a folder, then `**/`, then an exact file name, such as `~/code/**/.env.local`. Configured deny paths and Coding CLI protections still apply. See [Secret allow paths](#secret-allow-paths) for the validation rules and precedence.
+  Exact files or directory trees exempted from built-in secret-pattern rules. Configured deny paths and Coding CLI protections still apply. See [Secret allow paths](#secret-allow-paths) for the accepted forms and precedence.
 </ParamField>
 
 <ParamField body="audit.retention_days" type="integer" default="30">
@@ -177,7 +175,7 @@ The root object is strict. An unrecognized top-level key is an error, and so is 
 
 ## Safety level and capability overrides
 
-`safety.level` picks a preset. `safety.overrides` then sets individual capabilities explicitly. This is the only place that can turn a capability down. Environment flags can only raise it.
+`safety.level` picks a preset. `safety.overrides` then sets individual capabilities explicitly. This is the only place that can turn a capability down. Environment variables can only raise the level or force capabilities on. See [Environment](/configuration/environment) for the full precedence.
 
 ```json
 {
@@ -191,11 +189,7 @@ The root object is strict. An unrecognized top-level key is an error, and so is 
 }
 ```
 
-That example takes the `paranoid` preset but leaves interpreter one-liners alone. CC Safety Net reports the effective level as `custom` whenever the resulting combination of capabilities matches no preset.
-
-<Note>
-  The environment can raise your policy's level and force capabilities on, but never the reverse. See [Environment](/configuration/environment) for the full ordering between `policy.json` and the environment, including the `worktree_mode` OR and the legacy `SAFETY_NET_*` aliases.
-</Note>
+That example takes the `paranoid` preset but leaves interpreter one-liners alone. A combination of capabilities that matches no preset reports as the effective level `custom`.
 
 ## Which allow list do I use
 
@@ -208,7 +202,7 @@ Pick the setting by what blocked the command. The block message names the rule i
 | A Git discard such as `git reset --hard` | `cd ~/scratch && git reset --hard` blocks as `git.reset-hard` | Nothing in a throwaway repository under a temp directory, where it is [already allowed](/reference/blocked-commands#git-commands-in-a-temp-repository). In a linked worktree, use [worktree mode](/configuration/modes#worktree-mode-cc_safety_net_worktree=1). Otherwise, turn the rule off |
 | Any other command | `git push --force` blocks as `git.push-force` | [Turn the rule off](/reference/blocked-commands#allow-a-blocked-command) |
 
-To let an agent work freely in a scratch folder, put the folder under a temp directory such as `/tmp`, where recursive deletes and Git discards already pass. CC Safety Net blocks an edit to an ordinary file only when it has a secret-like name, sits under a deny path, or is `policy.json` or Git metadata. The two `allow_paths` lists are separate, and neither relaxes the other's rules.
+To let an agent work freely in a scratch folder, put the folder under a temp directory such as `/tmp`, where recursive deletes and Git discards already pass. The two `allow_paths` lists are separate, and neither relaxes the other's rules.
 
 ## Destructive-command protection
 
@@ -228,7 +222,7 @@ To allow a blocked command, turn off the rule that blocks it. [Allow a blocked c
 }
 ```
 
-CC Safety Net rejects an id that is not registered with `unknown destructive command rule id "<id>"`, and any value other than `"on"` or `"off"` with `destructive_command_protection.overrides.<id> must be "on" or "off"`. The [fixed denial ids](/reference/blocked-commands#fixed-denial-ids), such as `guard.policy-config` or `analysis.dynamic-shell-source`, are not registered rules, so CC Safety Net rejects an override that names one the same way.
+An unregistered id fails with `unknown destructive command rule id "<id>"`. That includes the [fixed denial ids](/reference/blocked-commands#fixed-denial-ids), such as `guard.policy-config`, which are not rules. Any value other than `"on"` or `"off"` fails with `destructive_command_protection.overrides.<id> must be "on" or "off"`.
 
 You cannot turn off [catastrophic rules](/reference/blocked-commands#catastrophic-rules). They ignore `enabled: false` and an `"off"` override.
 
@@ -268,7 +262,7 @@ CC Safety Net rejects an unregistered id with `unknown secret protection rule id
 
 ### Rules that are off by default
 
-The Coding CLI config rules, which cover coding agents' settings and MCP files, ship off because agents edit those files as routine work. Turn one on with an explicit `"on"` override. The [Secret protection reference](/reference/secret-protection#coding-cli-config-tier-off-by-default) lists the thirteen ids and their paths.
+The Coding CLI config rules, which cover coding agents' settings and MCP files, ship off because agents edit those files as routine work. Turn one on with an explicit `"on"` override. The [Secret protection reference](/reference/secret-protection#coding-cli-config-tier-off-by-default) lists their ids and paths.
 
 <span id="deny-paths"></span>
 
@@ -285,7 +279,7 @@ The Coding CLI config rules, which cover coding agents' settings and MCP files, 
 }
 ```
 
-A deny path blocks reads as well as writes, at every safety level. With the entry above, `cat ~/.zshrc`, `ls ~/.zshrc`, `echo x >> ~/.zshrc`, and `rm ~/.zshrc` all block as `secret.deny-path`. A folder entry also covers everything inside it. CC Safety Net checks deny paths before every other secret rule, and no allow path or override relaxes them.
+A deny path blocks reads and writes at every safety level. With the entry above, `cat ~/.zshrc` and `echo x >> ~/.zshrc` both block as `secret.deny-path`. A folder entry covers everything inside it. No allow path or override relaxes a deny path.
 
 Validation:
 
@@ -293,24 +287,21 @@ Validation:
 | --- | --- |
 | Non-string, or a string that trims to empty | Invalid. `must be a non-empty path string` |
 | Relative path, such as `config/secrets` or `./secrets` | Valid. Resolved per session against the [config working directory](#what-the-config-working-directory-is) |
-| `~`, `$HOME`, or `${HOME}` alone | Invalid. The home directory itself is rejected |
-| `~/…`, `$HOME/…` | Valid once expanded, unless it resolves to home or above |
-| A path that resolves to exactly the home directory | Invalid. `cannot be the home directory or a path above it (this would block every command the agent runs)` |
-| A path that resolves to an ancestor of home, such as `/`, `/Users`, or `/home` | Invalid. Same message |
-| Any other absolute path | Valid |
+| `~`, `$HOME`, `${HOME}`, or any path that resolves to home or above, such as `/` or `/Users` | Invalid. `cannot be the home directory or a path above it (this would block every command the agent runs)` |
+| Any other absolute, `~/…`, or `$HOME/…` path | Valid |
 
 Deny paths belong to secret protection, so `secret_protection.enabled: false` turns them off too. `secret.deny-path` is not a registered rule id, so an override cannot disable it.
 
 ### Secret allow paths
 
-`secret_protection.allow_paths` exempts an exact file or a directory and all its descendants from the built-in basename, home-directory, key-variant, and extension rules. Use it for files you keep on purpose, such as a repository's `.env.test`, or a fixture directory that contains non-secret credential-shaped filenames.
+`secret_protection.allow_paths` exempts an exact file, or a directory and everything in it, from the built-in secret-pattern rules. Use it for files you keep on purpose, such as a repository's `.env.test` or a fixture directory of non-secret credential-shaped files.
 
-An entry can instead name one file name under a folder: the folder, then `**/`, then an exact file name, such as `~/code/**/.env.local`. That entry exempts every `.env.local` at any depth below `~/code`, and nothing else. The folder before `**/` is required, and it goes through the same checks a plain entry does. CC Safety Net accepts no other glob form.
+An entry can also be a folder, then `**/`, then an exact file name. `~/code/**/.env.local` exempts every `.env.local` at any depth below `~/code`, and nothing else. No other glob form is accepted.
 
 The precedence is fixed:
 
 1. A configured deny path always wins. If the same target is in both lists, the result is `secret.deny-path`.
-2. Coding CLI credential and config rules (`secret.cli.*`) always win. An allow path cannot expose the agent's own credentials or configuration.
+2. Coding CLI credential and config rules (`secret.cli.*`) always win.
 3. An allow-path match suppresses any other built-in secret rule for that target.
 
 Validation:
@@ -320,14 +311,12 @@ Validation:
 | Non-string, or a string that trims to empty | Invalid. `must be a non-empty path string` |
 | Relative path, such as `.env.test` or `fixtures/credentials` | Valid. Resolved per session against the [config working directory](#what-the-config-working-directory-is) |
 | A folder, then `**/`, then an exact file name, such as `~/code/**/.env.local` or `packages/**/.env.local` | Valid. Exempts that one file name at any depth below the folder |
-| An entry with no folder before `**/`, such as `**/.env.local` | Invalid. `supports only a folder followed by **/ and an exact file name, such as ~/code/**/.env.local` |
-| Any other use of `*` or `?`, such as `apps/*/.env`, `.env.v?`, or `~/**/.ssh/config` | Invalid. Same message |
-| `~`, `$HOME`, or `${HOME}` alone, or a path above home | Invalid. `cannot cover the home directory or a path above it (this would disable secret protection everywhere)` |
-| A `**/` entry whose folder is home or above, such as `~/**/config` or `/**/id_rsa` | Invalid. Same message |
+| No folder before `**/`, or any other `*` or `?`, such as `**/.env.local`, `apps/*/.env`, or `~/**/.ssh/config` | Invalid. `supports only a folder followed by **/ and an exact file name, such as ~/code/**/.env.local` |
+| `~`, `$HOME`, `${HOME}`, a path above home, or a `**/` entry whose folder is home or above, such as `~/**/config` | Invalid. `cannot cover the home directory or a path above it (this would disable secret protection everywhere)` |
 | `~/.cc-safety-net` or anything below it, including `~/.cc-safety-net/**/.env.local` | Invalid. `cannot cover the guard's own configuration` |
 | Any other literal absolute, `~/…`, `$HOME/…`, or `${HOME}/…` path | Valid |
 
-The name after `**/` is one file name and cannot contain a slash, so CC Safety Net rejects `~/**/.ssh/config` as a glob. Apart from this form, entries are literal paths, not glob patterns. A `**/` entry never exempts the folder itself. An allow path also covers a target reached through a symlink.
+A `**/` entry never exempts the folder itself. An allow path also covers a target reached through a symlink.
 
 ## Audit retention
 
@@ -342,14 +331,14 @@ The name after `**/` is one file name and cannot contain a slash, so CC Safety N
 }
 ```
 
-A value outside the range is an error that puts the runtime in `degraded`. Retention then uses the nearest bound, or 30 when the value is not a whole number. See [Retention](/reference/audit-log#retention) for when the sweep deletes records.
+A value outside the range puts the runtime in `degraded`, and retention uses the nearest bound, or 30 when the value is not a whole number. See [Retention](/reference/audit-log#retention) for when the sweep deletes records.
 
 ## Invalid policy behavior
 
 An invalid `policy.json` never blocks ordinary work. CC Safety Net keeps each valid field, replaces each invalid one with a protective default, and reports the runtime as `degraded`. A missing file is not an error. CC Safety Net uses the built-in defaults, and the runtime stays `ready`.
 
 <Warning>
-  CC Safety Net discards invalid entries instead of repairing them. A mistyped deny path silently stops protecting that location, and an invalid `safety.level` silently lowers you to `standard`. These are the two quiet failure modes. Run `npx cc-safety-net status` after every hand edit.
+  CC Safety Net discards invalid entries instead of repairing them. A mistyped deny path silently stops protecting that location, and an invalid `safety.level` silently lowers you to `standard`. Run `npx cc-safety-net status` after every hand edit.
 </Warning>
 
 [Configuration recovery](/configuration/recovery#policy-json-salvaged-or-replaced-with-protective-defaults) lists what each invalid field falls back to and how to get back to `ready`.

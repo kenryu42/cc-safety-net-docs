@@ -25,8 +25,6 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 
 ## ExplainResult
 
-`explain --json` が返す最上位のオブジェクトです。
-
 | フィールド | 型 | 有無 | 説明 |
 | --- | --- | --- | --- |
 | `result` | `"blocked" \| "allowed"` | 常にある | コマンドの最終結果 |
@@ -43,8 +41,6 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 | `effectiveCapabilities` | `object` | 常にある | 機能ごとの状態。下記を参照 |
 | `destructiveCommandRuleOverrides` | `Record<string, "on" \| "off">` | 常にある。`{}` の場合もある | ポリシーに保存されたルールごとのオーバーライド |
 | `ruleActivation` | `object` | 条件付き。下記を参照 | 関連するルールが有効または無効になった経緯 |
-
-`effectiveLevel`、`selectedPreset`、`effectiveCapabilities`、`destructiveCommandRuleOverrides` は、空のコマンドを explain した場合にも含まれます。
 
 ### `effectiveCapabilities`
 
@@ -120,30 +116,41 @@ npx cc-safety-net explain --json "git checkout -- file.txt"
 
 ### `script-file` ステップ
 
-`script-file` ステップは、`sh deploy.sh` や `./deploy.sh` のように、アナライザーがディスクからシェルスクリプトを読み込んだときに現れます。`path` はコマンドに書かれたとおりのパス、`bytes` はファイルのサイズです。スクリプト内のコマンドについてはステップが追加されず、スクリプトのテキストを含むフィールドもありません。ツール呼び出しがそのテキストを渡していないためです。[ファイルから実行するスクリプト](/ja/reference/blocked-commands#scripts-run-from-a-file)を参照してください。同じコマンド内の heredoc が書き出したスクリプトの場合は、代わりに理由が `heredoc-file` の `recurse` ステップを記録し、そちらには本文も含まれます。
+`script-file` ステップは、`sh deploy.sh` や `./deploy.sh` のようなコマンドで現れます。`path` はコマンドに書かれたとおりのパス、`bytes` はファイルのサイズです。スクリプト内のコマンドについてはステップが追加されず、スクリプトのテキストを含むフィールドもありません。[ファイルから実行するスクリプト](/ja/reference/blocked-commands#scripts-run-from-a-file)を参照してください。
+
+同じコマンド内の heredoc が書き出したスクリプトの場合は、代わりに理由が `heredoc-file` の `recurse` ステップを記録します。こちらには本文が含まれます。
 
 ### `transparent-wrapper` ステップ
 
-`transparent-wrapper` ステップは、[`rule wrapper add`](/ja/reference/cli/rule#rule-wrapper) で登録したコマンドの中を解析が確認したときに現れます。`wrapper` はラッパーの名前、`output` はラップされたコマンドのトークンのリストです。このステップは、ラップされたコマンドの解析の直前に、候補ごとに 1 つずつ記録されます。
+`transparent-wrapper` ステップは、[`rule wrapper add`](/ja/reference/cli/rule#rule-wrapper) で登録したコマンドの中を解析が確認したときに現れます。`wrapper` はラッパーの名前、`output` はラップされたコマンドのトークンのリストです。ラップされたコマンドの解析の直前に、候補ごとに 1 つずつ記録されます。
 
 ## トレースの順序
 
-典型的なトレースは `parse` で始まります。続いて各セグメントに `env-strip` または `leading-tokens-stripped` が現れ、次にラッパーを検出するステップ `shell-wrapper`、`interpreter`、`busybox`、`transparent-wrapper`、その後に `rule-check` または `custom-rules-check` が続きます。入れ子のコマンドは、`depth` を持つ `recurse` ステップとして現れます。判定だけが必要な場合は、トレースをたどらずに、最上位の `result`、`reason`、`segment`、`ruleId` を読んでください。
+典型的なトレースは `parse` で始まります。続いて各セグメントに `env-strip` または `leading-tokens-stripped` が現れ、次にラッパーを検出するステップ `shell-wrapper`、`interpreter`、`busybox`、`transparent-wrapper`、その後に `rule-check` または `custom-rules-check` が続きます。入れ子のコマンドは、`depth` を持つ `recurse` ステップとして現れます。
 
-4 つの保護は、評価器より前に判定を確定させます。ポリシーファイルの保護、`policy apply` の保護、Git メタデータの保護、シークレット保護です。これらのいずれかがコマンドをブロックした場合、トレースには合成された `rule-check` ステップが 1 つだけ入り、`parse` ステップはありません。`ruleId` は `guard.policy-config`、`guard.policy-apply`、`guard.git-metadata`、または一致したシークレットルールの ID です。すべてのトレースが `parse` で始まることを前提にしたスクリプトは、この場合を処理する必要があります。
+次の 4 つの保護は、評価器が動く前にコマンドをブロックします。このときトレースには合成された `rule-check` ステップが 1 つだけ入り、`parse` ステップはありません。すべてのトレースが `parse` で始まることを前提にしたスクリプトは、この場合も処理する必要があります。
+
+| 保護 | `ruleId` |
+| --- | --- |
+| ポリシーファイルの保護 | `guard.policy-config` |
+| `policy apply` の保護 | `guard.policy-apply` |
+| Git メタデータの保護 | `guard.git-metadata` |
+| シークレット保護 | 一致したシークレットルールの ID |
 
 <span id="before-you-share-a-trace"></span>
 
 ## トレースを共有する前に
 
 <Warning>
-  explain のトレースは、そのまま安全に共有できるものではありません。`parse` ステップは、生のコマンド文字列とパースしたすべてのトークンを記録します。ほかにも生のテキストを含むフィールドがあります。`fallback-scan.tokensScanned`、`dangerous-text.token`、`shell-wrapper.innerCommand`、`interpreter.codeArg`、`recurse.innerCommand`、`script-file.path`、`strict-unparseable.rawCommand`、`transparent-wrapper.output`、`worktree-relaxation.gitCwd`、`temp-root-relaxation.gitCwd`、`cwd-change.segment` です。`configSource` は絶対パスで、通常はホームディレクトリ内を指します。
-
-  マスク処理が取り除くのは、認識できた資格情報の形式だけです。使うのは[監査ログ](/ja/reference/audit-log#secret-redaction)と同じ、範囲を限定したパターンのリストです。ファイルパス、ホスト名、IP アドレス、ユーザー名、プロジェクト名やクライアント名、認識できない形式のシークレットは対象外です。
-
-  トレースを共有する前に、ダミーの資格情報とダミーのパスで問題を再現してください。そのうえで出力を最初から最後まで読み、公開したくないものを削除してください。
+  マスク処理が取り除くのは、認識できた資格情報の形式だけで、使うパターンのリストは[監査ログ](/ja/reference/audit-log#secret-redaction)と同じです。ファイルパス、ホスト名、IP アドレス、ユーザー名、プロジェクト名やクライアント名、認識できない形式のシークレットはそのまま残ります。ダミーの資格情報とダミーのパスで問題を再現し、出力を最初から最後まで読んでから共有してください。
 </Warning>
 
-たとえば `--token=…` の代入を含むコマンドを explain すると、出力ではそのトークンがマスクされます。しかし、同じコマンドにある `/srv/acme-prod/customer-dump.sql` のようなパスは、コマンドテキスト中のホスト名、IP アドレス、アカウント名とともに、そのまま返されます。
+`parse` ステップは、生のコマンド文字列とパースしたすべてのトークンを記録します。次のフィールドにも生のテキストが入ります。
 
-脆弱性レポートに `explain` の出力を含めてかまいません。マスク処理は可能な範囲で行う対策であり、保証ではありません。自分で入力したテキストに含まれる資格情報の形式をマスク処理が見逃した場合、それは脆弱性ではなく、公開の GitHub Issue で報告する通常のバグです。貼り付ける前に、出力全体を確認してください。
+- `fallback-scan.tokensScanned`、`dangerous-text.token`、`strict-unparseable.rawCommand`
+- `shell-wrapper.innerCommand`、`interpreter.codeArg`、`recurse.innerCommand`、`transparent-wrapper.output`
+- `script-file.path`、`worktree-relaxation.gitCwd`、`temp-root-relaxation.gitCwd`、`cwd-change.segment`
+
+`configSource` は絶対パスで、通常はホームディレクトリ内を指します。
+
+脆弱性レポートに `explain` の出力を含めてかまいません。自分で入力したテキストに含まれる資格情報の形式をマスク処理が見逃した場合、それは脆弱性ではなく、公開の GitHub Issue で報告する通常のバグです。
