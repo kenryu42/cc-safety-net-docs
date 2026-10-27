@@ -53,6 +53,15 @@ sync (see Feedback at the end).
    and every link to the old anchor. Mirrors keep the English page's headings
    one for one, at the same levels and in the same order. Dropping or flattening
    a deep link is a regression, not a simplification.
+10. Less is better. A page states what a user needs to act: what is blocked or
+    allowed, why, and how to change it. Implementation detail, exhaustive
+    option lists, and parser internals stay out, or go in a table when a user
+    really looks them up. An edge case few users hit goes in an `<Accordion>`
+    or is left out. When a fact changes, rewrite the section that holds it
+    instead of appending a qualifier, and look for text the change makes
+    redundant. A sync that only ever adds words is a defect. Follow "Page
+    structure" in `AGENTS.md`: no paragraph over about 60 words, tables for
+    options and messages, `<Steps>` for procedures.
 
 ## Workflow
 
@@ -60,7 +69,13 @@ sync (see Feedback at the end).
 
 Run `make drift`.
 
-- "Docs are current" → report that and stop.
+- "Docs are current" → check the home page release card anyway (see "Refresh
+  the home page release card" in step 4): a manual sync can cover a release's
+  commits before it is tagged. If the card is behind the latest release, refresh
+  it, run steps 5 and 6 on the three home pages, and commit them alone as
+  `docs: update the home page release card to <tag>`, leaving
+  `SOURCE-SYNC.json` unchanged. Otherwise report that the docs are current and
+  stop.
 - Error → report it (source repo path or sha problem) and stop.
 - Otherwise the output is the work-list, oldest first.
 
@@ -70,6 +85,9 @@ Read each commit with `git -C <path> show <sha>` (take `<path>` from
 `SOURCE-SYNC.json`). Put each commit in one bin:
 
 - **Skip** — tests, pure refactors, CI, internal cleanup. No user-visible change.
+- **Release notes only** — user-visible, but it changes nothing a user does or
+  decides: a narrower false positive, a new spelling of an already-blocked
+  command, a message rewording. The release notes carry it; the docs do not.
 - **Small** — changes one fact on an existing page.
 - **Large** — needs a new section or touches several pages.
 
@@ -104,7 +122,8 @@ translate that edit into both mirrors.
 - If the plan touches more than ~4 English pages, fan out one subagent per
   page unit (Agent tool). Give each subagent: the commit shas, the source repo
   path, the English page plus its two mirror paths, and hard rules 2-4 and 7-9
-  above. Subagents do not inherit the unslop skill — include its path
+  above, plus hard rule 10 and the "Page structure" section of `AGENTS.md`.
+  Subagents do not inherit the unslop skill — include its path
   (`.claude/skills/unslop/SKILL.md`) with an instruction to read it before
   drafting English prose. Page units that share a story go to one subagent.
 - Match the plain-language standard of the existing pages, and match the
@@ -119,9 +138,37 @@ translate that edit into both mirrors.
 - If a fact cannot be verified in the code, leave the page unchanged and raise
   it as an open question instead of guessing.
 
-When the English draft is done, self-audit its `git diff` against the unslop
-patterns before translating: changed passages only — untouched prose is not a
-work item. Cleaning the English first means both mirrors inherit the fix.
+#### Refresh the home page release card
+
+Run this on every sync, whether or not the drift touches a page.
+
+The `cc-overview-release` section in `index.mdx`, `ja/index.mdx`, and
+`zh-Hans/index.mdx` summarizes the latest PUBLISHED release. Build it from
+`gh release view --repo kenryu42/cc-safety-net --json tagName,publishedAt,body`,
+never from the commits being synced: a manual sync can include commits on
+`main` that no release ships yet. If the tag already matches the card, leave
+it unchanged.
+
+- Heading names the tag; the date line is the release's `publishedAt` date.
+- Two or three bullets from the release's Highlights, plus any behaviour change
+  a user would notice as a new block. One or two sentences each, linking to the
+  docs section that owns the fact (deep links, hard rule 9).
+- A `cc-release-breaking` paragraph only when the release has Breaking Changes,
+  linking to the page that states the new requirement. Drop it otherwise.
+- Keep the update command, and link the full notes at
+  `https://ccsafetynet.com/release#release-<tag>` (`/ja/release`,
+  `/zh-Hans/release` in the mirrors).
+
+When the English draft is done, self-audit its `git diff` before translating:
+changed passages only — untouched prose is not a work item. Cleaning the
+English first means both mirrors inherit the fix. Check:
+
+- the unslop patterns;
+- hard rule 10: every paragraph you touched is under about 60 words, a list of
+  options or values in prose is a table, a rare edge case is in an
+  `<Accordion>` or gone, and each new sentence is one a user needs to act;
+- the section reads shorter or no longer than the facts require — if it grew,
+  name what you cut elsewhere, or justify the growth in the step-7 report.
 
 ### Step 5 — Localization review
 
@@ -146,6 +193,9 @@ Give each subagent:
    makes that review harder.
 5. Hard rules 3-4 and 9: machine-checkable strings stay verbatim, and deep
    links stay deep and stay inside the mirror's own tree.
+6. Hard rule 10: a mirror passage says what the English says and no more. Do
+   not add explanatory clauses the English lacks; if the English passage is
+   too long to translate tightly, report it as an English defect.
 
 Each subagent edits the mirror files directly and returns the report its guide
 specifies. Apply their findings, and carry their reports into step 7.
@@ -181,6 +231,9 @@ Run `make check` (see rule 6). Fix what it reports.
    - A table: commit → decision (skip / documented) → English pages touched
      (mirrors are implied by rule 7; flag any mirror you could NOT update).
    - `git show --stat` of the commit.
+   - English word count before and after for each page touched
+     (`git show HEAD~1:<page> | wc -w` against `wc -w <page>`), flagging any
+     page that grew more than about 20% with the reason.
    - Localization notes, condensed from the two step-5 reports: terminology
      decisions that required judgment, and pre-existing mirror problems the
      reviewers found but left alone.
