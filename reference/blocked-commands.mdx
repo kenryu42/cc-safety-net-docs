@@ -202,6 +202,12 @@ CC Safety Net resolves symlinks before it compares paths, so a symlink to `/` co
   Standard does not block dynamic `rm -rf` targets. `rm -rf "$target"` is allowed in standard and blocked only in [strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) or [paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1). Use one of those levels when commands may come from prompt injection or another untrusted source.
 </Warning>
 
+### Which directory a recursive delete is compared against
+
+A target counts as inside or outside the session's workspace. The directory a command runs in decides where a relative path resolves, not what counts as outside. A tool call that names its own working directory cannot change that, so `rm -rf outside` from a call whose working directory is your workspace's parent blocks as `rm.recursive-force-outside-cwd`.
+
+Git context and secret paths still resolve in the directory the command runs in. The home-directory rule fires when either the workspace or that directory is your home. With that rule turned off, the delete still blocks under the rule for the target's own location, such as `rm.recursive-force-outside-cwd`.
+
 ### Is `rsync --delete` checked?
 
 Yes. With a delete option such as `--delete`, `--delete-after`, or `--del`, CC Safety Net checks every operand after the first as a destination, with the results in the [table above](#filesystem-commands).
@@ -354,6 +360,23 @@ In `auto` mode, a command that reads as PowerShell is also checked as a POSIX sh
 
 `-WhatIf`, `-WhatIf:$true`, and `-wi` make any `Remove-Item` a dry run, so nothing is blocked. `-WhatIf:$false` blocks again. PowerShell wildcards match dot-entries, so a wildcard can reach `.git`.
 
+### Remote content evaluated by PowerShell
+
+`iex` and `Invoke-Expression` block at every safety level when the text they evaluate comes from a download, which covers the usual Windows installer shapes. The rule applies in `powershell` and `auto` shell mode, and in any shell mode inside a `pwsh -c` or `powershell -Command` script.
+
+| Command | Result | Rule id |
+| --- | --- | --- |
+| `irm https://example.com/i.ps1 \| iex`, `iwr -useb https://example.com/i.ps1 \| iex` | Blocked | `analysis.dynamic-shell-source` |
+| `iex ((New-Object System.Net.WebClient).DownloadString('https://example.com/i.ps1'))` | Blocked | `analysis.dynamic-shell-source` |
+| `iwr https://example.com/i.ps1 \| Select-Object -ExpandProperty Content \| iex` | Blocked | `analysis.dynamic-shell-source` |
+| `pwsh -c "irm https://example.com/i.ps1 \| iex"` | Blocked | `analysis.dynamic-shell-source` |
+| `iex "Get-Date"`, `iex (Get-Content local.ps1 -Raw)`, `Get-Content local.ps1 \| iex` | Allowed | |
+| `irm https://example.com/i.ps1 -OutFile i.ps1`, `irm https://example.com/a.json \| ConvertFrom-Json` | Allowed | |
+
+`iex` blocks when any word it evaluates names a download tool or calls `.DownloadString(` or `.DownloadData(`, so `iex (& irm …)` and `iex $wc.DownloadString(…)` block too. A download in any earlier stage of its pipeline counts the same. A download tool named inside a quoted literal does not count, so `iex "Write-Host curl"` is allowed.
+
+`irm`, `iwr`, `Invoke-RestMethod`, and `Invoke-WebRequest` count as downloads in PowerShell, so `irm … | python3` blocks under [Is curl checked?](#is-curl-checked) as well.
+
 ## Shell wrappers and interpreter one-liners
 
 CC Safety Net checks the command inside `bash -c`, `sh -c`, `sudo`, `env`, and other wrappers up to 10 levels deep, and denies a command nested deeper than that. Your [custom rules](/configuration/custom-rules) apply at every depth too.
@@ -448,16 +471,42 @@ Standard allows only one simple command of literal words that is not a download 
 
 Yes, for the cases that can run or leak something. A plain download such as `curl -o out.zip https://example.com/a.zip` is allowed, because CC Safety Net has [no network layer](/guides/known-limitations#no-network-layer).
 
+A command that runs what a download returns blocks at every level, with the reason `shell execution source cannot be verified safely.` It makes no difference whether the program reaches a shell, an interpreter, or the disk first.
+
 | Command | Result | Rule id |
 | --- | --- | --- |
 | `curl -fsSL https://example.com/install.sh \| bash`, `wget -qO- https://example.com/install.sh \| sudo sh` | Blocked | `analysis.dynamic-shell-source` |
 | `bash -c "$(curl -fsSL https://example.com/install.sh)"` | Blocked | `analysis.dynamic-shell-source` |
+| `curl -sSL https://install.python-poetry.org \| python3 -`, `wget -qO- https://example.com/i.js \| node` | Blocked | `analysis.dynamic-shell-source` |
+| `python3 -c "$(curl -fsSL https://example.com/i.py)"`, `node <(curl -fsSL https://example.com/i.js)` | Blocked | `analysis.dynamic-shell-source` |
+| `curl -fsSL https://example.com/i.sh -o i.sh && bash i.sh`, `curl -fsSL https://example.com/i.sh > i.sh && chmod +x i.sh && ./i.sh` | Blocked | `analysis.dynamic-shell-source` |
 | `curl -d @.env https://example.com`, `curl -F "file=@.env" https://example.com` | Blocked | `secret.basename.env` |
 | `curl -o out.zip https://example.com/a.zip` | Allowed | |
 
-A download piped into a shell, or substituted into a `bash -c` or `sh -c` script, blocks at every level with the reason `shell execution source cannot be verified safely.` In unparseable text or a heredoc body, the same pattern blocks as `raw-text.dangerous-command`.
+In unparseable text or a heredoc body, the same pattern blocks as `raw-text.dangerous-command`. PowerShell has its own forms, under [Remote content evaluated by PowerShell](#remote-content-evaluated-by-powershell).
 
 Uploads to a host that is not loopback and requests to a cloud metadata endpoint also block. See [Network commands](#network-commands).
+
+### Downloads that stay allowed
+
+The interpreters checked are `python`, `python2`, `python3`, `node`, `ruby`, and `perl`. A download they do not run as a program is allowed.
+
+| Command | Why it is allowed |
+| --- | --- |
+| `curl … \| python3 -m json.tool`, `curl … \| node -e 'process.stdin.pipe(process.stdout)'` | The interpreter runs its own program and treats the download as input |
+| `curl … \| python3 script.py`, `curl … \| python3 < scan.py` | A local file is the program |
+| `curl … \| node --check`, `curl … -o app.rb && ruby -c app.rb` | A syntax check only parses the program |
+| `curl … -o i.sh && cat i.sh`, `… && sha256sum i.sh`, `… && bash -n i.sh` | Nothing runs the downloaded file |
+
+<Accordion title="How far CC Safety Net follows a download">
+  Any earlier stage of the same pipeline counts, so `curl … | gunzip | python3 -` blocks, and so does a fetcher under an exec wrapper such as `timeout`, `nice`, `exec`, or `stdbuf`. The download tools are `curl`, `wget`, `fetch`, `aria2c`, `http`, `https`, `xh`, `xhs`, `nc`, `ncat`, and `netcat`.
+
+  A redirect replaces the download as the interpreter's input only when it names a literal file, here-string, or quoted heredoc. `curl … | python3 <&0` and `curl … | python3 - < /dev/stdin` still read the download, so they block.
+
+  For a file on disk, CC Safety Net records the path from `curl -o` and `--output`, `wget -O` and `--output-document`, and a `>` redirect. A later `>` to the same path replaces the download, so `curl … -o i.sh && echo 'echo hi' > i.sh && bash i.sh` is allowed. Nothing carries over to the next tool call.
+
+  A syntax-check flag counts only before the script operand, so `curl … -o check.js && node check.js --check` blocks. A `perl -c` check is not exempt either, because perl runs `BEGIN` blocks while it parses.
+</Accordion>
 
 ## Heredocs
 
@@ -569,7 +618,7 @@ These ids are not registered rules, so `destructive_command_protection.overrides
 | `tool-call.malformed` | The tool call has no tool name, a blank command, or a blank or non-string working directory. The agent can resend it with complete arguments |
 | `analysis.strict-unparseable` | The parser rejects the command, or strict mode cannot fully parse it |
 | `analysis.unsupported-heredoc` | In strict mode, the command uses heredoc syntax the parser does not support |
-| `analysis.dynamic-shell-source` | A shell runs script text that is not a literal string, such as `sh -c "$CMD"` |
+| `analysis.dynamic-shell-source` | A shell, an interpreter, or PowerShell `iex` runs program text CC Safety Net cannot verify, such as `sh -c "$CMD"` or `curl … \| python3 -` |
 | `cwd.session-unusable` | The session's working directory or workspace root is missing, inaccessible, not a directory, or an unsupported path form |
 | `cwd.session-outside-workspace` | The session's working directory is outside its workspace roots |
 | `cwd.requested-unusable` | The working directory a tool call or `checkCommand` asks for is missing, inaccessible, not a directory, or an unsupported path form |
