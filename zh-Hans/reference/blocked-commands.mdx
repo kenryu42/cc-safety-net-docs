@@ -95,7 +95,7 @@ CC Safety Net 阻止可能永久破坏未提交更改、stash、远程历史或�
 | 级别 | 变化 |
 | --- | --- |
 | [Standard](/zh-Hans/configuration/modes#default-mode) | 阻止所有“阻止”和“灾难性”行。允许“仅 standard 允许”的行：动态删除目标、动态可执行文件、看似安全的无法解析文本，以及对单个字面量本地生成命令的 `eval` |
-| [Strict](/zh-Hans/configuration/modes#strict-mode-cc_safety_net_strict=1) | 另外阻止“仅 standard 允许”的行、所有无法解析的命令，以及少数受支持形式之外的 [heredoc](#heredocs) |
+| [Strict](/zh-Hans/configuration/modes#strict-mode-cc_safety_net_strict=1) | 另外阻止“仅 standard 允许”的行、向远程主机的上传、所有无法解析的命令，以及少数受支持形式之外的 [heredoc](#heredocs) |
 | [Paranoid](/zh-Hans/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) | 另外阻止工作目录内非临时路径的递归删除，以及所有解释器单行命令，无论其内容 |
 
 <span id="catastrophic-rules"></span>
@@ -184,8 +184,8 @@ CC Safety Net 阻止可能永久破坏未提交更改、stash、远程历史或�
 | `rm -rf .git` 和仓库的 hooks 目录 | 灾难性 | `rm.git-metadata` |
 | `rm -rf .`（工作目录本身） | 阻止 | `rm.recursive-force-cwd-self` |
 | `rm -rf ../outside` 及工作目录外的其他非临时路径 | 阻止 | `rm.recursive-force-outside-cwd` |
-| 工作目录是主目录时的 `rm -rf build` | 阻止 | `rm.recursive-force-home-cwd` |
-| `rm -rf "$target"` 及其他由变量或替换构成的目标 | strict 阻止 | `rm.recursive-force-dynamic-target` |
+| 工作目录是主目录时的 `rm -rf build` 或 `rm -rf "$target"` | 阻止 | `rm.recursive-force-home-cwd` |
+| 主目录之外的 `rm -rf "$target"` 及其他由变量或替换构成的目标 | strict 阻止 | `rm.recursive-force-dynamic-target` |
 | `rm -rf ./cache`（工作目录内的非临时路径） | paranoid rm 阻止 | `rm.recursive-force-paranoid` |
 | `rm -rf /tmp/...`、`rm -rf /var/tmp/...`、`rm -rf $TMPDIR/...` | 允许 | |
 | `cleanup() { rm -rf ../outside; }; cleanup` | 阻止 | `rm.recursive-force-outside-cwd` |
@@ -209,7 +209,7 @@ CC Safety Net 阻止可能永久破坏未提交更改、stash、远程历史或�
 CC Safety Net 先解析符号链接再比较路径，因此指向 `/` 的符号链接按 `/` 处理，`/tmp-malicious` 也不算临时路径。未加引号的 glob 会先展开，因此工作目录是主目录时，`rm -rf *` 以 `rm.recursive-force-root-or-home` 阻止。
 
 <Warning>
-  standard 不阻止动态 `rm -rf` 目标。`rm -rf "$target"` 在 standard 中允许，只有在 [strict](/zh-Hans/configuration/modes#strict-mode-cc_safety_net_strict=1) 或 [paranoid](/zh-Hans/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) 中才会阻止。命令可能来自提示注入或其他不可信来源时，请使用这两个级别之一。
+  在主目录之外，standard 允许 `rm -rf "$target"` 这类动态 `rm -rf` 目标。只有 [strict](/zh-Hans/configuration/modes#strict-mode-cc_safety_net_strict=1) 和 [paranoid](/zh-Hans/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) 会阻止它们。命令可能来自提示注入或其他不可信来源时，请使用这两个级别之一。
 </Warning>
 
 <span id="which-directory-a-recursive-delete-is-compared-against"></span>
@@ -219,6 +219,8 @@ CC Safety Net 先解析符号链接再比较路径，因此指向 `/` 的符号�
 目标算在内还是在外，以会话工作区为基准判定。命令运行的目录只决定相对路径解析到哪里，不决定哪些路径算在外面。工具调用指定自己的工作目录也改变不了这一点，因此在工作目录为工作区父目录的调用中，`rm -rf outside` 以 `rm.recursive-force-outside-cwd` 阻止。
 
 Git 上下文和机密路径仍在命令运行的目录中解析。只要工作区或该目录是主目录，主目录规则就会生效。关闭这条规则后，删除仍会按目标自身位置对应的规则阻止，例如 `rm.recursive-force-outside-cwd`。
+
+与字面量路径不同，由变量或替换构成的目标只看命令运行的目录，因此被成功追踪的 `cd` 离开主目录后，standard 又会允许。
 
 ### `rsync --delete` 会被检查吗？
 
@@ -255,7 +257,7 @@ CC Safety Net 在所有安全级别检查 `dd`、`mkfs`、`mke2fs`、`newfs`、`
 
 ## 网络命令
 
-有两条规则会从命令文本中读出目标地址，并在所有安全级别阻止：[云元数据端点](#cloud-metadata-endpoints)和[向远程主机上传数据](#data-uploads-to-a-remote-host)。CC Safety Net [没有网络层](/zh-Hans/guides/known-limitations#no-network-layer)，看不到请求本身。
+CC Safety Net 从命令文本中读出目标地址。它[没有网络层](/zh-Hans/guides/known-limitations#no-network-layer)，看不到请求本身。发往[云元数据端点](#cloud-metadata-endpoints)的请求在所有安全级别都会阻止，[向远程主机上传数据](#data-uploads-to-a-remote-host)在 strict 和 paranoid 阻止。
 
 | 命令 | 结果 | 规则 ID |
 | --- | --- | --- |
@@ -264,9 +266,9 @@ CC Safety Net 在所有安全级别检查 `dd`、`mkfs`、`mke2fs`、`newfs`、`
 | `nc 169.254.169.254 80`、`socat - TCP:169.254.169.254:80` | 阻止 | `network.cloud-metadata` |
 | `timeout 10 curl http://169.254.169.254/`、`xargs curl http://169.254.169.254/` | 阻止 | `network.cloud-metadata` |
 | `grep -rn 169.254.169.254 /var/log`、`dig metadata.google.internal`、`iptables -A OUTPUT -d 169.254.169.254 -j DROP` | 允许 | |
-| `curl -T backup.tar https://uploads.example.com/`、`curl -F 'file=@report.pdf' https://example.com/u` | 阻止 | `network.upload-remote` |
-| `curl -d 'a=1' https://example.com/api`、`wget --post-data 'a=1' https://example.com/api` | 阻止 | `network.upload-remote` |
-| `curl -d x 'http://$HOST:3000/x'` | 阻止 | `network.upload-remote` |
+| `curl -T backup.tar https://uploads.example.com/`、`curl -F 'file=@report.pdf' https://example.com/u` | strict 阻止 | `network.upload-remote` |
+| `curl -d 'a=1' https://example.com/api`、`wget --post-data 'a=1' https://example.com/api` | strict 阻止 | `network.upload-remote` |
+| `curl -d x 'http://$HOST:3000/x'` | strict 阻止 | `network.upload-remote` |
 | `curl -d 'a=1' http://localhost:3000/api`、`curl -d x "http://127.0.0.1:$PORT/x"` | 允许 | |
 | `curl -X PUT https://example.com/api`、`curl -G -d 'q=1' https://example.com/search` | 允许 | |
 | `curl --unix-socket /var/run/docker.sock -d '{}' http://localhost/containers/create` | 允许 | |
@@ -289,7 +291,7 @@ CC Safety Net 在所有安全级别检查 `dd`、`mkfs`、`mke2fs`、`newfs`、`
 
 ### 向远程主机上传数据
 
-`network.upload-remote` 会阻止发送请求体或文件的 `curl`、`wget` 请求，除非其中每个 URL 都是环回地址。以下选项会发送数据，`-d@data.json` 这种值紧贴选项的写法和 `-sd x` 这种组合短选项也算：
+在 strict 和 paranoid 下，`network.upload-remote` 会阻止发送请求体或文件的 `curl`、`wget` 请求，除非其中每个 URL 都是环回地址。standard 允许这类请求，除非你开启这条规则。以下选项会发送数据，`-d@data.json` 这种值紧贴选项的写法和 `-sd x` 这种组合短选项也算：
 
 | 工具 | 选项 |
 | --- | --- |
@@ -380,8 +382,8 @@ Only the user may apply a policy proposal, because it rewrites the configuration
 | `Remove-Item .git -Recurse -Force` | 灾难性 | `powershell.remove-item-git-metadata` |
 | `Remove-Item . -Recurse -Force` | 阻止 | `powershell.remove-item-recursive-force-cwd-self` |
 | `Remove-Item ../outside -Recurse -Force` | 阻止 | `powershell.remove-item-recursive-force-outside-cwd` |
-| `Set-Location $HOME; Remove-Item ./build -Recurse -Force` | 阻止 | `powershell.remove-item-recursive-force-home-cwd` |
-| `Remove-Item $target -Recurse -Force`、`Remove-Item @params -Recurse -Force` | strict 阻止 | `powershell.remove-item-recursive-force-dynamic-target` |
+| `Set-Location $HOME; Remove-Item ./build -Recurse -Force`、主目录下的 `Remove-Item $f -Recurse -Force` | 阻止 | `powershell.remove-item-recursive-force-home-cwd` |
+| 主目录之外的 `Remove-Item $target -Recurse -Force`、`Remove-Item @params -Recurse -Force` | strict 阻止 | `powershell.remove-item-recursive-force-dynamic-target` |
 | `Get-ChildItem . -Recurse \| Remove-Item -Force` | strict 阻止 | `powershell.remove-item-pipeline-dynamic-target` |
 | `Remove-Item ./cache -Recurse -Force` | paranoid rm 阻止 | `powershell.remove-item-recursive-force-paranoid` |
 | `Remove-Item /tmp/test-dir -Recurse -Force`、`Remove-Item file.txt`、`Remove-Item . -Recurse -Force -WhatIf` | 允许 | |
@@ -466,8 +468,8 @@ CC Safety Net 在任何 shell 模式下都会读取 `cmd /c` 和 `cmd /k` 的正
 | `cmd /c "rmdir /s /q \"build output\""` | 灾难性 | `cmd.recursive-delete-escaped-quote` |
 | `cmd /c rmdir /s /q .` | 阻止 | `cmd.recursive-delete-cwd-self` |
 | `cmd /c '@rd /s /q ..\outside'` | 阻止 | `cmd.recursive-delete-outside-cwd` |
-| `Set-Location $HOME; cmd /c rmdir /s /q build` | 阻止 | `cmd.recursive-delete-home-cwd` |
-| `cmd /c del /s /q *.log` | strict 阻止 | `cmd.recursive-delete-dynamic-target` |
+| `Set-Location $HOME; cmd /c rmdir /s /q build`、主目录下的 `cmd /c del /s /q *.log` | 阻止 | `cmd.recursive-delete-home-cwd` |
+| 主目录之外的 `cmd /c del /s /q *.log` | strict 阻止 | `cmd.recursive-delete-dynamic-target` |
 | `cmd /c rmdir /s /q build` | paranoid rm 阻止 | `cmd.recursive-delete-paranoid` |
 | `cmd /c 'cd /d C:\Users && rmdir /s /q build'`、`cmd /c 'rd/s/q C:\'` | 阻止 | `analysis.dynamic-shell-source` |
 | `cmd /c 'if exist node_modules rmdir /s /q node_modules'`、`cmd /c 'del /q build.log'` | 允许 | |
@@ -525,7 +527,7 @@ standard 只允许由字面量单词组成的单条简单命令，且该命令�
 
 在无法解析的文本或 heredoc 正文中，同样的写法以 `raw-text.dangerous-command` 阻止。PowerShell 自有的写法见 [PowerShell 求值的远程内容](#remote-content-evaluated-by-powershell)。
 
-向非环回主机的上传和发往云元数据端点的请求也会被阻止，见[网络命令](#network-commands)。
+发往云元数据端点的请求也会被阻止，向非环回主机的上传则由 strict 阻止，见[网络命令](#network-commands)。
 
 ### 仍然允许的下载
 
@@ -565,7 +567,7 @@ standard 只允许由字面量单词组成的单条简单命令，且该命令�
 
 在 standard 下，其他 heredoc 的正文会作为文本扫描破坏性模式。分隔符带引号，或正文中没有 `$`、反引号和反斜杠时，正文不展开。
 
-shell 把不展开的 heredoc 读作自己的程序时（例如 `bash <<'EOF'`），standard 会把正文中的每条命令都当作顶层命令分析，正文里的 `git reset --hard` 或上传会以各自的规则阻止。
+shell 把不展开的 heredoc 读作自己的程序时（例如 `bash <<'EOF'`），standard 会把正文中的每条命令都当作顶层命令分析，正文里的 `git reset --hard` 会按它自己的规则阻止。
 
 <Accordion title="standard 下 shell heredoc 的细节">
   heredoc 必须是标准输入上最后一个输入重定向。命令分析没有命中时，文本扫描仍会运行，因此 `rm -rf "$1"` 这样的正文会以 `raw-text.dangerous-command` 阻止。
@@ -591,7 +593,7 @@ This heredoc form or stdin consumer is not supported safely. Use a quoted heredo
 
 | 命令 | 结果 | 规则 ID |
 | --- | --- | --- |
-| `sh deploy.sh`、`source deploy.sh` 或 `./deploy.sh`，文件第 3 行向远程主机上传 | 阻止 | `network.upload-remote` |
+| `sh deploy.sh`、`source deploy.sh` 或 `./deploy.sh`，文件第 3 行向远程主机上传 | strict 阻止 | `network.upload-remote` |
 | `bash clean.sh`，文件里只有 echo | 允许 | |
 | `cp lib/deploy.sh scripts/ && sh scripts/deploy.sh` | 允许 | |
 | `python3 tool.py` | 允许 | |

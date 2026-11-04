@@ -15,7 +15,7 @@ description: "CC Safety Net 的 standard、strict 和 paranoid 安全级别各�
 | 级别 | `fail_closed` | `paranoid_rm` | `paranoid_interpreters` | 新增的保护 |
 | --- | --- | --- | --- | --- |
 | `standard`（默认） | 关闭 | 关闭 | 关闭 | 阻止可识别的破坏性命令和机密访问 |
-| `strict` | **开启** | 关闭 | 关闭 | 另外阻止无法解析的命令、不受支持的 heredoc、无法验证的删除目标，以及对机密文件的元数据检查 |
+| `strict` | **开启** | 关闭 | 关闭 | 另外阻止无法解析的命令、不受支持的 heredoc、无法验证的删除目标、向远程主机的上传，以及对机密文件的元数据检查 |
 | `paranoid` | **开启** | **开启** | **开启** | 另外阻止工作目录内非临时路径的 `rm -r`，以及所有解释器单行命令 |
 
 使用 `policy.json` 中的 `safety.level` 或 `CC_SAFETY_NET_LEVEL` 环境变量设置级别，两者取较高者。本页介绍的各项开关会在该级别之上各开启一项能力，不匹配任何预设的组合会报告为 `custom`。
@@ -35,7 +35,7 @@ description: "CC Safety Net 的 standard、strict 和 paranoid 安全级别各�
 Standard 与 strict 的区别在于如何处理无法解析或验证的输入：
 
 - 命令无法拆分成 token 时（例如存在未闭合的引号），CC Safety Net 改为扫描文本中的已知危险模式。`echo 'unterminated` 可以执行，`git reset --hard 'unterminated` 会被阻止。参见 [standard 无法验证命令时](#when-standard-cannot-verify-a-command)。
-- 目标为动态值的递归删除（如 `rm -rf "$target"`）会被允许，strict 则会阻止。
+- 目标为动态值的递归删除（如 `rm -rf "$target"`），只要命令不在主目录中运行就允许；strict 在任何目录下都会阻止。
 
 Standard 还允许动态可执行文件、通过替换拼接的命令，以及对单个字面量本地生成命令执行 `eval` 或 `source`（如 `eval "$(ssh-agent -s)"`）。
 
@@ -60,17 +60,20 @@ Strict 开启 `fail_closed` 能力，少见语法偶尔会被误判。它会阻�
 
 - **无法解析的命令**，即使文本扫描没有发现危险内容。原因为“Command could not be safely analyzed (strict mode)”。`echo 'unterminated` 在 standard 中允许，在此级别被阻止。
 - **少数受支持形式以外的 heredoc。** `git commit -F - <<'EOF'` 和普通的 `cat <<'EOF'` 可以通过，但 strict 会拒绝 `python3 - <<'PY'`。参见 [Heredoc](/zh-Hans/reference/blocked-commands#heredocs)。
-- **无法验证的破坏性目标**，由下面五条规则负责。
+- **无法验证的破坏性目标**，例如 `rm -rf "$target"`。
+- **向远程主机的上传。** 发送请求体或文件的 `curl`、`wget` 请求会被阻止，除非其中每个 URL 都是环回地址。见[网络命令](/zh-Hans/reference/blocked-commands#network-commands)。
 - **对机密文件的存在性检查**，例如 `test -f ~/.ssh/id_rsa` 或 `find ~/.ssh -type f`。
 - **解释器代码中被 standard 视为数据的机密路径**，例如 `python -c "x = '.env'"`。
 
-以下五条规则仅在 `fail_closed` 开启时生效：
+以下规则仅在 `fail_closed` 开启时生效：
 
 | 规则 ID | 在 standard 中允许、在 strict 中阻止的示例 |
 | --- | --- |
 | `rm.recursive-force-dynamic-target` | `rm -rf "$target"` |
 | `powershell.remove-item-recursive-force-dynamic-target` | `Remove-Item $target -Recurse -Force` |
 | `powershell.remove-item-pipeline-dynamic-target` | `Get-ChildItem . -Recurse \| Remove-Item -Force` |
+| `cmd.recursive-delete-dynamic-target` | `cmd /c del /s /q *.log` |
+| `network.upload-remote` | `curl -T backup.tar https://uploads.example.com/` |
 | `shell.dynamic-executable` | `$(printf r)m -rf /` |
 | `shell.dynamic-structure` | `git reset $(printf --hard)` |
 
@@ -83,7 +86,7 @@ export CC_SAFETY_NET_STRICT=1
 ```
 
 <Note>
-  可以在 [policy.json](/zh-Hans/configuration/policy#destructive-command-protection) 中用 `destructive_command_protection.overrides` 关闭上述五条规则中的任意一条，也可以用 `"on"` 在 standard 下开启其中一条。无法解析的命令、不受支持的 heredoc 和机密文件检查没有可关闭的规则，因此只要 strict 开启，它们就一直被阻止。
+  可以在 [policy.json](/zh-Hans/configuration/policy#destructive-command-protection) 中用 `destructive_command_protection.overrides` 关闭上表中的任意一条规则，也可以用 `"on"` 在 standard 下开启其中一条。无法解析的命令、不受支持的 heredoc 和机密文件检查没有可关闭的规则，因此只要 strict 开启，它们就一直被阻止。
 </Note>
 
 <span id="paranoid-mode-cc_safety_net_paranoid=1"></span>

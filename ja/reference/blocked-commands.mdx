@@ -95,7 +95,7 @@ CC Safety Net は、未コミットの変更、スタッシュに退避した作
 | レベル | 変わること |
 | --- | --- |
 | [Standard](/ja/configuration/modes#default-mode) | 結果が「ブロック」と「致命的」の行をすべてブロックする。「Standard のみ」の行は許可する。対象は、動的な削除対象、動的な実行ファイル、安全に見える解析不能なテキスト、リテラルのローカル生成コマンド 1 つに対する `eval` |
-| [Strict](/ja/configuration/modes#strict-mode-cc_safety_net_strict=1) | さらに「Standard のみ」の行、解析できないすべてのコマンド、限られた対応形式から外れる [heredoc](#heredocs) もブロックする |
+| [Strict](/ja/configuration/modes#strict-mode-cc_safety_net_strict=1) | さらに「Standard のみ」の行、リモートホストへのアップロード、解析できないすべてのコマンド、限られた対応形式から外れる [heredoc](#heredocs) もブロックする |
 | [Paranoid](/ja/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) | さらに、作業ディレクトリ内でも一時パス以外への再帰削除をブロックし、インタープリターのワンライナーを内容にかかわらずすべてブロックする |
 
 <span id="catastrophic-rules"></span>
@@ -184,8 +184,8 @@ CC Safety Net は、未コミットの変更、スタッシュに退避した作
 | `rm -rf .git` とリポジトリのフックディレクトリ | 致命的 | `rm.git-metadata` |
 | `rm -rf .`（作業ディレクトリそのもの） | ブロック | `rm.recursive-force-cwd-self` |
 | `rm -rf ../outside` など、作業ディレクトリ外の一時パス以外 | ブロック | `rm.recursive-force-outside-cwd` |
-| 作業ディレクトリがホームのときの `rm -rf build` | ブロック | `rm.recursive-force-home-cwd` |
-| `rm -rf "$target"` など、変数や置換から組み立てた対象 | Strict | `rm.recursive-force-dynamic-target` |
+| 作業ディレクトリがホームのときの `rm -rf build` や `rm -rf "$target"` | ブロック | `rm.recursive-force-home-cwd` |
+| ホーム以外での `rm -rf "$target"` など、変数や置換から組み立てた対象 | Strict | `rm.recursive-force-dynamic-target` |
 | `rm -rf ./cache`（作業ディレクトリ内の一時パス以外） | Paranoid rm | `rm.recursive-force-paranoid` |
 | `rm -rf /tmp/...`、`rm -rf /var/tmp/...`、`rm -rf $TMPDIR/...` | 許可 | |
 | `cleanup() { rm -rf ../outside; }; cleanup` | ブロック | `rm.recursive-force-outside-cwd` |
@@ -209,7 +209,7 @@ CC Safety Net は、未コミットの変更、スタッシュに退避した作
 CC Safety Net はシンボリックリンクを解決してからパスを比較します。そのため、`/` を指すシンボリックリンクは `/` として扱い、`/tmp-malicious` は一時パスとは見なしません。引用符のない glob も先に展開するため、作業ディレクトリがホームの場合、`rm -rf *` は `rm.recursive-force-root-or-home` としてブロックされます。
 
 <Warning>
-  standard は、動的な `rm -rf` の対象をブロックしません。`rm -rf "$target"` は standard では許可され、[strict](/ja/configuration/modes#strict-mode-cc_safety_net_strict=1) か [paranoid](/ja/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) でだけブロックされます。プロンプトインジェクションなど、信頼できない経路からコマンドが来る可能性がある場合は、どちらかのレベルを使ってください。
+  ホーム以外では、standard は `rm -rf "$target"` のような動的な `rm -rf` の対象を許可します。ブロックするのは [strict](/ja/configuration/modes#strict-mode-cc_safety_net_strict=1) と [paranoid](/ja/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) だけです。プロンプトインジェクションなど、信頼できない経路からコマンドが来る可能性がある場合は、どちらかのレベルを使ってください。
 </Warning>
 
 <span id="which-directory-a-recursive-delete-is-compared-against"></span>
@@ -219,6 +219,8 @@ CC Safety Net はシンボリックリンクを解決してからパスを比較
 対象が内側か外側かは、セッションのワークスペースを基準に判定します。コマンドが動くディレクトリは、相対パスの解決先を決めるだけで、どこからが外側かは変えません。ツール呼び出しが独自の作業ディレクトリを指定しても、これは変わりません。そのため、ワークスペースの親を作業ディレクトリとする呼び出しからの `rm -rf outside` は、`rm.recursive-force-outside-cwd` としてブロックされます。
 
 Git のコンテキストとシークレットのパスは、これまでどおりコマンドが動くディレクトリで解決します。ホームディレクトリのルールは、ワークスペースかそのディレクトリのどちらかがホームであれば適用されます。このルールをオフにしても、削除は `rm.recursive-force-outside-cwd` のように対象自身の位置に対応するルールでブロックされます。
+
+リテラルのパスと違い、変数や置換から組み立てた対象では、コマンドが動くディレクトリだけが基準になります。そのため、追跡できた `cd` でホームから出れば、standard では再び許可されます。
 
 ### `rsync --delete` は検査されますか？
 
@@ -255,7 +257,7 @@ CC Safety Net は、`dd`、`mkfs`、`mke2fs`、`newfs`、`shred`、`diskutil`、
 
 ## ネットワークコマンド
 
-2 つのルールが、コマンドテキストから通信先を読み取り、すべての安全レベルでブロックします。[クラウドのメタデータエンドポイント](#cloud-metadata-endpoints)と[リモートホストへのデータアップロード](#data-uploads-to-a-remote-host)です。CC Safety Net には[ネットワーク層がない](/ja/guides/known-limitations#no-network-layer)ため、リクエスト自体は見ていません。
+CC Safety Net は通信先をコマンドテキストから読み取ります。[ネットワーク層がない](/ja/guides/known-limitations#no-network-layer)ため、リクエスト自体は見ていません。[クラウドのメタデータエンドポイント](#cloud-metadata-endpoints)はすべての安全レベルでブロックされ、[リモートホストへのデータアップロード](#data-uploads-to-a-remote-host)は strict と paranoid でブロックされます。
 
 | コマンド | 結果 | ルール ID |
 | --- | --- | --- |
@@ -264,9 +266,9 @@ CC Safety Net は、`dd`、`mkfs`、`mke2fs`、`newfs`、`shred`、`diskutil`、
 | `nc 169.254.169.254 80`、`socat - TCP:169.254.169.254:80` | ブロック | `network.cloud-metadata` |
 | `timeout 10 curl http://169.254.169.254/`、`xargs curl http://169.254.169.254/` | ブロック | `network.cloud-metadata` |
 | `grep -rn 169.254.169.254 /var/log`、`dig metadata.google.internal`、`iptables -A OUTPUT -d 169.254.169.254 -j DROP` | 許可 | |
-| `curl -T backup.tar https://uploads.example.com/`、`curl -F 'file=@report.pdf' https://example.com/u` | ブロック | `network.upload-remote` |
-| `curl -d 'a=1' https://example.com/api`、`wget --post-data 'a=1' https://example.com/api` | ブロック | `network.upload-remote` |
-| `curl -d x 'http://$HOST:3000/x'` | ブロック | `network.upload-remote` |
+| `curl -T backup.tar https://uploads.example.com/`、`curl -F 'file=@report.pdf' https://example.com/u` | Strict | `network.upload-remote` |
+| `curl -d 'a=1' https://example.com/api`、`wget --post-data 'a=1' https://example.com/api` | Strict | `network.upload-remote` |
+| `curl -d x 'http://$HOST:3000/x'` | Strict | `network.upload-remote` |
 | `curl -d 'a=1' http://localhost:3000/api`、`curl -d x "http://127.0.0.1:$PORT/x"` | 許可 | |
 | `curl -X PUT https://example.com/api`、`curl -G -d 'q=1' https://example.com/search` | 許可 | |
 | `curl --unix-socket /var/run/docker.sock -d '{}' http://localhost/containers/create` | 許可 | |
@@ -289,7 +291,7 @@ CC Safety Net は、`dd`、`mkfs`、`mke2fs`、`newfs`、`shred`、`diskutil`、
 
 ### リモートホストへのデータアップロード
 
-`network.upload-remote` は、本文やファイルを送る `curl` と `wget` のリクエストをブロックします。ただし、そのコマンドに含まれる URL がすべてループバックなら許可されます。データを送るオプションは次のとおりです。`-d@data.json` のように値を続けて書いた形や、`-sd x` のように短いオプションをまとめて書いた形も含みます。
+`network.upload-remote` は、本文やファイルを送る `curl` と `wget` のリクエストを strict と paranoid でブロックします。ただし、そのコマンドに含まれる URL がすべてループバックなら許可されます。standard では、このルールを有効にしない限りリクエストは許可されます。データを送るオプションは次のとおりです。`-d@data.json` のように値を続けて書いた形や、`-sd x` のように短いオプションをまとめて書いた形も含みます。
 
 | ツール | オプション |
 | --- | --- |
@@ -380,8 +382,8 @@ Only the user may apply a policy proposal, because it rewrites the configuration
 | `Remove-Item .git -Recurse -Force` | 致命的 | `powershell.remove-item-git-metadata` |
 | `Remove-Item . -Recurse -Force` | ブロック | `powershell.remove-item-recursive-force-cwd-self` |
 | `Remove-Item ../outside -Recurse -Force` | ブロック | `powershell.remove-item-recursive-force-outside-cwd` |
-| `Set-Location $HOME; Remove-Item ./build -Recurse -Force` | ブロック | `powershell.remove-item-recursive-force-home-cwd` |
-| `Remove-Item $target -Recurse -Force`、`Remove-Item @params -Recurse -Force` | Strict | `powershell.remove-item-recursive-force-dynamic-target` |
+| `Set-Location $HOME; Remove-Item ./build -Recurse -Force`、ホームでの `Remove-Item $f -Recurse -Force` | ブロック | `powershell.remove-item-recursive-force-home-cwd` |
+| ホーム以外での `Remove-Item $target -Recurse -Force`、`Remove-Item @params -Recurse -Force` | Strict | `powershell.remove-item-recursive-force-dynamic-target` |
 | `Get-ChildItem . -Recurse \| Remove-Item -Force` | Strict | `powershell.remove-item-pipeline-dynamic-target` |
 | `Remove-Item ./cache -Recurse -Force` | Paranoid rm | `powershell.remove-item-recursive-force-paranoid` |
 | `Remove-Item /tmp/test-dir -Recurse -Force`、`Remove-Item file.txt`、`Remove-Item . -Recurse -Force -WhatIf` | 許可 | |
@@ -466,8 +468,8 @@ CC Safety Net は、どのシェルモードでも `cmd /c` と `cmd /k` の本�
 | `cmd /c "rmdir /s /q \"build output\""` | 致命的 | `cmd.recursive-delete-escaped-quote` |
 | `cmd /c rmdir /s /q .` | ブロック | `cmd.recursive-delete-cwd-self` |
 | `cmd /c '@rd /s /q ..\outside'` | ブロック | `cmd.recursive-delete-outside-cwd` |
-| `Set-Location $HOME; cmd /c rmdir /s /q build` | ブロック | `cmd.recursive-delete-home-cwd` |
-| `cmd /c del /s /q *.log` | Strict | `cmd.recursive-delete-dynamic-target` |
+| `Set-Location $HOME; cmd /c rmdir /s /q build`、ホームでの `cmd /c del /s /q *.log` | ブロック | `cmd.recursive-delete-home-cwd` |
+| ホーム以外での `cmd /c del /s /q *.log` | Strict | `cmd.recursive-delete-dynamic-target` |
 | `cmd /c rmdir /s /q build` | Paranoid rm | `cmd.recursive-delete-paranoid` |
 | `cmd /c 'cd /d C:\Users && rmdir /s /q build'`、`cmd /c 'rd/s/q C:\'` | ブロック | `analysis.dynamic-shell-source` |
 | `cmd /c 'if exist node_modules rmdir /s /q node_modules'`、`cmd /c 'del /q build.log'` | 許可 | |
@@ -525,7 +527,7 @@ standard が許可するのは、リテラルの語だけからなる単純な�
 
 解析できないテキストや heredoc の本文では、同じパターンが `raw-text.dangerous-command` としてブロックされます。PowerShell 固有の形は[PowerShell が評価するリモートのコンテンツ](#remote-content-evaluated-by-powershell)にまとめてあります。
 
-ループバック以外のホストへのアップロードと、クラウドのメタデータエンドポイントへのリクエストもブロックされます。[ネットワークコマンド](#network-commands)を参照してください。
+クラウドのメタデータエンドポイントへのリクエストもブロックされ、ループバック以外のホストへのアップロードは strict でブロックされます。[ネットワークコマンド](#network-commands)を参照してください。
 
 ### 許可されるダウンロード
 
@@ -565,7 +567,7 @@ standard が許可するのは、リテラルの語だけからなる単純な�
 
 standard では、それ以外の heredoc の本文を、テキストとして破壊的なパターンと照合します。デリミタが引用符で囲まれているか、本文に `$`、バッククォート、バックスラッシュが含まれない場合、本文は展開されません。
 
-シェルが展開されない heredoc をプログラムとして読み込む場合（`bash <<'EOF'` など）、standard は本文の各コマンドをトップレベルのコマンドと同じように解析します。本文に `git reset --hard` やアップロードがあれば、それぞれのルールでブロックされます。
+シェルが展開されない heredoc をプログラムとして読み込む場合（`bash <<'EOF'` など）、standard は本文の各コマンドをトップレベルのコマンドと同じように解析します。本文に `git reset --hard` があれば、そのコマンド自身のルールでブロックされます。
 
 <Accordion title="standard でのシェルの heredoc の詳細">
   その heredoc は、標準入力への最後の入力リダイレクトである必要があります。コマンドとしての解析で何も見つからなくてもテキストの検査は実行するため、`rm -rf "$1"` のような本文は `raw-text.dangerous-command` としてブロックされます。
@@ -591,7 +593,7 @@ CC Safety Net は、すべての安全レベルで、コマンドが実行する
 
 | コマンド | 結果 | ルール ID |
 | --- | --- | --- |
-| `sh deploy.sh`、`source deploy.sh`、`./deploy.sh`（ファイルの 3 行目がリモートホストにアップロードする） | ブロック | `network.upload-remote` |
+| `sh deploy.sh`、`source deploy.sh`、`./deploy.sh`（ファイルの 3 行目がリモートホストにアップロードする） | Strict | `network.upload-remote` |
 | `bash clean.sh`（ファイルが echo しかしない） | 許可 | |
 | `cp lib/deploy.sh scripts/ && sh scripts/deploy.sh` | 許可 | |
 | `python3 tool.py` | 許可 | |

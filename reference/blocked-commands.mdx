@@ -91,7 +91,7 @@ An override accepts only `"on"` or `"off"`. No setting makes a rule prompt you f
 | Level | What changes |
 | --- | --- |
 | [Standard](/configuration/modes#default-mode) | Blocks every Blocked and Catastrophic row. Allows the Standard only rows: dynamic delete targets, dynamic executables, safe-looking unparseable text, and `eval` of one literal local generator |
-| [Strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) | Also blocks the Standard only rows, every unparseable command, and [heredocs](#heredocs) outside a small supported set |
+| [Strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) | Also blocks the Standard only rows, uploads to a remote host, every unparseable command, and [heredocs](#heredocs) outside a small supported set |
 | [Paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) | Also blocks recursive deletes of non-temp paths inside the working directory, and every interpreter one-liner whatever it contains |
 
 ## Catastrophic rules
@@ -174,8 +174,8 @@ Every `rm -rf` row also covers `rm -r`, `rm -R`, and `rm --recursive` under the 
 | `rm -rf .git` and the repository's hooks directories | Catastrophic | `rm.git-metadata` |
 | `rm -rf .` (the working directory itself) | Blocked | `rm.recursive-force-cwd-self` |
 | `rm -rf ../outside` and other non-temp paths outside the working directory | Blocked | `rm.recursive-force-outside-cwd` |
-| `rm -rf build` while the working directory is your home | Blocked | `rm.recursive-force-home-cwd` |
-| `rm -rf "$target"` and other targets built from a variable or substitution | Strict | `rm.recursive-force-dynamic-target` |
+| `rm -rf build` or `rm -rf "$target"` while the working directory is your home | Blocked | `rm.recursive-force-home-cwd` |
+| `rm -rf "$target"` and other targets built from a variable or substitution, outside your home | Strict | `rm.recursive-force-dynamic-target` |
 | `rm -rf ./cache` (a non-temp path inside the working directory) | Paranoid rm | `rm.recursive-force-paranoid` |
 | `rm -rf /tmp/...`, `rm -rf /var/tmp/...`, `rm -rf $TMPDIR/...` | Allowed | |
 | `cleanup() { rm -rf ../outside; }; cleanup` | Blocked | `rm.recursive-force-outside-cwd` |
@@ -199,7 +199,7 @@ Every `rm -rf` row also covers `rm -r`, `rm -R`, and `rm --recursive` under the 
 CC Safety Net resolves symlinks before it compares paths, so a symlink to `/` counts as `/`, and `/tmp-malicious` is not a temp path. It expands an unquoted glob first, so with your home as the working directory, `rm -rf *` blocks as `rm.recursive-force-root-or-home`.
 
 <Warning>
-  Standard does not block dynamic `rm -rf` targets. `rm -rf "$target"` is allowed in standard and blocked only in [strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) or [paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1). Use one of those levels when commands may come from prompt injection or another untrusted source.
+  Outside your home, standard allows dynamic `rm -rf` targets such as `rm -rf "$target"`. Only [strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) and [paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) block them. Use one of those levels when commands may come from prompt injection or another untrusted source.
 </Warning>
 
 ### Which directory a recursive delete is compared against
@@ -207,6 +207,8 @@ CC Safety Net resolves symlinks before it compares paths, so a symlink to `/` co
 A target counts as inside or outside the session's workspace. The directory a command runs in decides where a relative path resolves, not what counts as outside. A tool call that names its own working directory cannot change that, so `rm -rf outside` from a call whose working directory is your workspace's parent blocks as `rm.recursive-force-outside-cwd`.
 
 Git context and secret paths still resolve in the directory the command runs in. The home-directory rule fires when either the workspace or that directory is your home. With that rule turned off, the delete still blocks under the rule for the target's own location, such as `rm.recursive-force-outside-cwd`.
+
+Unlike a literal path, a target built from a variable or substitution counts only the directory the command runs in, so standard allows it again after a tracked `cd` out of your home.
 
 ### Is `rsync --delete` checked?
 
@@ -239,7 +241,7 @@ The redirect rule matches disk devices such as `/dev/sda`, `/dev/disk4`, `/dev/n
 
 ## Network commands
 
-Two rules read the destination from the command text and block at every safety level: [cloud metadata endpoints](#cloud-metadata-endpoints) and [data uploads to a remote host](#data-uploads-to-a-remote-host). CC Safety Net has [no network layer](/guides/known-limitations#no-network-layer) and does not see the request itself.
+CC Safety Net reads the destination from the command text. It has [no network layer](/guides/known-limitations#no-network-layer), so it never sees the request. [Cloud metadata endpoints](#cloud-metadata-endpoints) block at every safety level, and [data uploads to a remote host](#data-uploads-to-a-remote-host) block in strict and paranoid.
 
 | Command | Result | Rule id |
 | --- | --- | --- |
@@ -248,9 +250,9 @@ Two rules read the destination from the command text and block at every safety l
 | `nc 169.254.169.254 80`, `socat - TCP:169.254.169.254:80` | Blocked | `network.cloud-metadata` |
 | `timeout 10 curl http://169.254.169.254/`, `xargs curl http://169.254.169.254/` | Blocked | `network.cloud-metadata` |
 | `grep -rn 169.254.169.254 /var/log`, `dig metadata.google.internal`, `iptables -A OUTPUT -d 169.254.169.254 -j DROP` | Allowed | |
-| `curl -T backup.tar https://uploads.example.com/`, `curl -F 'file=@report.pdf' https://example.com/u` | Blocked | `network.upload-remote` |
-| `curl -d 'a=1' https://example.com/api`, `wget --post-data 'a=1' https://example.com/api` | Blocked | `network.upload-remote` |
-| `curl -d x 'http://$HOST:3000/x'` | Blocked | `network.upload-remote` |
+| `curl -T backup.tar https://uploads.example.com/`, `curl -F 'file=@report.pdf' https://example.com/u` | Strict | `network.upload-remote` |
+| `curl -d 'a=1' https://example.com/api`, `wget --post-data 'a=1' https://example.com/api` | Strict | `network.upload-remote` |
+| `curl -d x 'http://$HOST:3000/x'` | Strict | `network.upload-remote` |
 | `curl -d 'a=1' http://localhost:3000/api`, `curl -d x "http://127.0.0.1:$PORT/x"` | Allowed | |
 | `curl -X PUT https://example.com/api`, `curl -G -d 'q=1' https://example.com/search` | Allowed | |
 | `curl --unix-socket /var/run/docker.sock -d '{}' http://localhost/containers/create` | Allowed | |
@@ -269,7 +271,7 @@ The host counts only in a command that can make the request. Any other command, 
 
 ### Data uploads to a remote host
 
-`network.upload-remote` blocks a `curl` or `wget` request that sends a body or a file unless every URL in it is loopback. These options send data, including an attached value such as `-d@data.json` or a short cluster such as `-sd x`:
+In strict and paranoid, `network.upload-remote` blocks a `curl` or `wget` request that sends a body or a file unless every URL in it is loopback. Standard allows the request unless you turn the rule on. These options send data, including an attached value such as `-d@data.json` or a short cluster such as `-sd x`:
 
 | Tool | Options |
 | --- | --- |
@@ -352,8 +354,8 @@ In `auto` mode, a command that reads as PowerShell is also checked as a POSIX sh
 | `Remove-Item .git -Recurse -Force` | Catastrophic | `powershell.remove-item-git-metadata` |
 | `Remove-Item . -Recurse -Force` | Blocked | `powershell.remove-item-recursive-force-cwd-self` |
 | `Remove-Item ../outside -Recurse -Force` | Blocked | `powershell.remove-item-recursive-force-outside-cwd` |
-| `Set-Location $HOME; Remove-Item ./build -Recurse -Force` | Blocked | `powershell.remove-item-recursive-force-home-cwd` |
-| `Remove-Item $target -Recurse -Force`, `Remove-Item @params -Recurse -Force` | Strict | `powershell.remove-item-recursive-force-dynamic-target` |
+| `Set-Location $HOME; Remove-Item ./build -Recurse -Force`, `Remove-Item $f -Recurse -Force` from your home | Blocked | `powershell.remove-item-recursive-force-home-cwd` |
+| `Remove-Item $target -Recurse -Force`, `Remove-Item @params -Recurse -Force`, outside your home | Strict | `powershell.remove-item-recursive-force-dynamic-target` |
 | `Get-ChildItem . -Recurse \| Remove-Item -Force` | Strict | `powershell.remove-item-pipeline-dynamic-target` |
 | `Remove-Item ./cache -Recurse -Force` | Paranoid rm | `powershell.remove-item-recursive-force-paranoid` |
 | `Remove-Item /tmp/test-dir -Recurse -Force`, `Remove-Item file.txt`, `Remove-Item . -Recurse -Force -WhatIf` | Allowed | |
@@ -432,8 +434,8 @@ CC Safety Net reads the body of `cmd /c` and `cmd /k` in every shell mode. It ch
 | `cmd /c "rmdir /s /q \"build output\""` | Catastrophic | `cmd.recursive-delete-escaped-quote` |
 | `cmd /c rmdir /s /q .` | Blocked | `cmd.recursive-delete-cwd-self` |
 | `cmd /c '@rd /s /q ..\outside'` | Blocked | `cmd.recursive-delete-outside-cwd` |
-| `Set-Location $HOME; cmd /c rmdir /s /q build` | Blocked | `cmd.recursive-delete-home-cwd` |
-| `cmd /c del /s /q *.log` | Strict | `cmd.recursive-delete-dynamic-target` |
+| `Set-Location $HOME; cmd /c rmdir /s /q build`, `cmd /c del /s /q *.log` from your home | Blocked | `cmd.recursive-delete-home-cwd` |
+| `cmd /c del /s /q *.log` outside your home | Strict | `cmd.recursive-delete-dynamic-target` |
 | `cmd /c rmdir /s /q build` | Paranoid rm | `cmd.recursive-delete-paranoid` |
 | `cmd /c 'cd /d C:\Users && rmdir /s /q build'`, `cmd /c 'rd/s/q C:\'` | Blocked | `analysis.dynamic-shell-source` |
 | `cmd /c 'if exist node_modules rmdir /s /q node_modules'`, `cmd /c 'del /q build.log'` | Allowed | |
@@ -485,7 +487,7 @@ A command that runs what a download returns blocks at every level, with the reas
 
 In unparseable text or a heredoc body, the same pattern blocks as `raw-text.dangerous-command`. PowerShell has its own forms, under [Remote content evaluated by PowerShell](#remote-content-evaluated-by-powershell).
 
-Uploads to a host that is not loopback and requests to a cloud metadata endpoint also block. See [Network commands](#network-commands).
+Requests to a cloud metadata endpoint also block, and strict blocks an upload to a host that is not loopback. See [Network commands](#network-commands).
 
 ### Downloads that stay allowed
 
@@ -523,7 +525,7 @@ A heredoc whose consumer only stores or publishes the body is data, so CC Safety
 
 In standard, CC Safety Net checks any other heredoc body as text for destructive patterns. A body is unexpanded when the delimiter is quoted or the body has no `$`, backtick, or backslash.
 
-When a shell reads an unexpanded heredoc as its program, as in `bash <<'EOF'`, standard analyzes each command in the body like a top-level command. A `git reset --hard` or an upload in the body then blocks on its own rule.
+When a shell reads an unexpanded heredoc as its program, as in `bash <<'EOF'`, standard analyzes each command in the body like a top-level command. A `git reset --hard` in the body then blocks on its own rule.
 
 <Accordion title="Details of shell heredocs in standard">
   The heredoc has to be the last input redirection on standard input. The text scan still runs when the command analysis finds nothing, so a body such as `rm -rf "$1"` blocks as `raw-text.dangerous-command`.
@@ -547,7 +549,7 @@ At every safety level, CC Safety Net reads the shell script a command runs, as i
 
 | Command | Result | Rule id |
 | --- | --- | --- |
-| `sh deploy.sh`, `source deploy.sh`, or `./deploy.sh`, where line 3 of the file uploads to a remote host | Blocked | `network.upload-remote` |
+| `sh deploy.sh`, `source deploy.sh`, or `./deploy.sh`, where line 3 of the file uploads to a remote host | Strict | `network.upload-remote` |
 | `bash clean.sh`, where the file only echoes | Allowed | |
 | `cp lib/deploy.sh scripts/ && sh scripts/deploy.sh` | Allowed | |
 | `python3 tool.py` | Allowed | |

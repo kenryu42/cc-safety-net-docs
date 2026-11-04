@@ -15,7 +15,7 @@ description: "CC Safety Net の standard、strict、paranoid の各安全レベ�
 | レベル | `fail_closed` | `paranoid_rm` | `paranoid_interpreters` | 追加される内容 |
 | --- | --- | --- | --- | --- |
 | `standard`（既定） | off | off | off | 認識できる破壊的なコマンドとシークレットへのアクセスをブロック |
-| `strict` | **on** | off | off | 解析できないコマンド、未対応の heredoc、検証できない削除対象、シークレットファイルのメタデータの確認もブロック |
+| `strict` | **on** | off | off | 解析できないコマンド、未対応の heredoc、検証できない削除対象、リモートへのアップロード、シークレットファイルのメタデータの確認もブロック |
 | `paranoid` | **on** | **on** | **on** | 作業ディレクトリ内での一時パス以外への `rm -r` と、すべてのインタープリターのワンライナーもブロック |
 
 レベルは、`policy.json` の `safety.level` または環境変数 `CC_SAFETY_NET_LEVEL` で設定します。2 つのうち高い方が適用されます。このページで紹介する各トグルは、そのレベルの上に機能を 1 つずつ追加します。どのプリセットにも一致しない組み合わせは `custom` として報告されます。
@@ -35,7 +35,7 @@ standard を含むどのレベルでも、不正なフック入力、アナラ�
 standard と strict の違いは、解析や検証ができない入力の扱いです。
 
 - 引用符が閉じていないなどの理由でトークンに分割できないコマンドは、テキストを既知の危険なパターンと照合して判定します。`echo 'unterminated` は実行され、`git reset --hard 'unterminated` はブロックされます。[standard がコマンドを検証できない場合](#when-standard-cannot-verify-a-command)を参照してください。
-- `rm -rf "$target"` のように削除対象が動的な再帰削除は許可されます。strict ではブロックされます。
+- `rm -rf "$target"` のように削除対象が動的な再帰削除は、ホームディレクトリで実行する場合を除いて許可されます。strict ではどこで実行してもブロックされます。
 
 standard はこのほか、動的な実行ファイル、コマンド置換で組み立てたコマンド、`eval "$(ssh-agent -s)"` のようにリテラルなローカルの生成コマンド 1 つに対する `eval` や `source` も許可します。
 
@@ -60,17 +60,20 @@ strict は `fail_closed` 機能を有効にします。珍しい構文では、�
 
 - **解析できないコマンド。** テキストスキャンで危険なものが見つからなくてもブロックします。理由は「Command could not be safely analyzed (strict mode)」です。`echo 'unterminated` は standard では許可され、strict ではブロックされます。
 - **一部の対応形式を除く heredoc。** `git commit -F - <<'EOF'` と単純な `cat <<'EOF'` は通りますが、`python3 - <<'PY'` は拒否します。[heredoc](/ja/reference/blocked-commands#heredocs) を参照してください。
-- **検証できない破壊的な対象。** 下の 5 つのルールでブロックします。
+- **検証できない破壊的な対象。** `rm -rf "$target"` などです。
+- **リモートへのアップロード。** 本文やファイルを送る `curl` や `wget` のリクエストをブロックします。ただし、すべての URL がループバックなら許可されます。[ネットワークコマンド](/ja/reference/blocked-commands#network-commands)を参照してください。
 - **シークレットファイルの存在確認。** `test -f ~/.ssh/id_rsa` や `find ~/.ssh -type f` などです。
 - **インタープリターのコード内にあるシークレットのパス。** `python -c "x = '.env'"` のように、standard ではデータとして扱うものです。
 
-次の 5 つのルールは、`fail_closed` が有効なときにだけ動作します。
+次のルールは、`fail_closed` が有効なときにだけ動作します。
 
 | ルール ID | standard で許可され、strict でブロックされる例 |
 | --- | --- |
 | `rm.recursive-force-dynamic-target` | `rm -rf "$target"` |
 | `powershell.remove-item-recursive-force-dynamic-target` | `Remove-Item $target -Recurse -Force` |
 | `powershell.remove-item-pipeline-dynamic-target` | `Get-ChildItem . -Recurse \| Remove-Item -Force` |
+| `cmd.recursive-delete-dynamic-target` | `cmd /c del /s /q *.log` |
+| `network.upload-remote` | `curl -T backup.tar https://uploads.example.com/` |
 | `shell.dynamic-executable` | `$(printf r)m -rf /` |
 | `shell.dynamic-structure` | `git reset $(printf --hard)` |
 
@@ -83,7 +86,7 @@ export CC_SAFETY_NET_STRICT=1
 ```
 
 <Note>
-  上の 5 つのルールは、[policy.json](/ja/configuration/policy#destructive-command-protection) の `destructive_command_protection.overrides` で個別に無効にできます。`"on"` を指定すれば、standard でも個別に有効にできます。解析できないコマンド、未対応の heredoc、シークレットファイルの確認には無効にできるルールがないため、strict が有効なあいだはブロックされたままです。
+  上の表のルールは、[policy.json](/ja/configuration/policy#destructive-command-protection) の `destructive_command_protection.overrides` で個別に無効にできます。`"on"` を指定すれば、standard でも個別に有効にできます。解析できないコマンド、未対応の heredoc、シークレットファイルの確認には無効にできるルールがないため、strict が有効なあいだはブロックされたままです。
 </Note>
 
 <span id="paranoid-mode-cc_safety_net_paranoid=1"></span>

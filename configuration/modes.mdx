@@ -13,7 +13,7 @@ Each level is a preset of three capabilities:
 | Level | `fail_closed` | `paranoid_rm` | `paranoid_interpreters` | What it adds |
 | --- | --- | --- | --- | --- |
 | `standard` (default) | off | off | off | Blocks recognized destructive commands and secret access |
-| `strict` | **on** | off | off | Also blocks unparseable commands, unsupported heredocs, unverifiable delete targets, and metadata checks of secret files |
+| `strict` | **on** | off | off | Also blocks unparseable commands, unsupported heredocs, unverifiable delete targets, remote uploads, and metadata checks of secret files |
 | `paranoid` | **on** | **on** | **on** | Also blocks non-temp `rm -r` inside the working directory and every interpreter one-liner |
 
 Set the level with `safety.level` in `policy.json` or the `CC_SAFETY_NET_LEVEL` environment variable. The higher of the two wins. The toggles on this page each turn on one capability on top of that level, and a combination that matches no preset reports as `custom`.
@@ -31,7 +31,7 @@ Every level, standard included, blocks malformed hook input, an analyzer error, 
 Standard differs from strict on input it cannot parse or verify:
 
 - A command that cannot be split into tokens, such as one with an unterminated quote, gets a scan for known dangerous patterns. `echo 'unterminated` runs, and `git reset --hard 'unterminated` blocks. See [When standard cannot verify a command](#when-standard-cannot-verify-a-command).
-- A recursive delete with a dynamic target, such as `rm -rf "$target"`, is allowed. Strict blocks it.
+- A recursive delete with a dynamic target, such as `rm -rf "$target"`, is allowed unless the command runs in your home directory. Strict blocks it anywhere.
 
 Standard also allows dynamic executables, commands assembled through substitution, and `eval` or `source` of one literal local generator such as `eval "$(ssh-agent -s)"`.
 
@@ -52,17 +52,20 @@ Strict turns on the `fail_closed` capability. Expect occasional false positives 
 
 - **Unparseable commands**, even when the text scan finds nothing dangerous. The reason is "Command could not be safely analyzed (strict mode)". `echo 'unterminated` is allowed in standard and blocked here.
 - **Heredocs outside a small supported set.** `git commit -F - <<'EOF'` and a plain `cat <<'EOF'` pass, but strict denies `python3 - <<'PY'`. See [Heredocs](/reference/blocked-commands#heredocs).
-- **Unverifiable destructive targets**, through the five rules below.
+- **Unverifiable destructive targets**, such as `rm -rf "$target"`.
+- **Remote uploads.** A `curl` or `wget` request that sends a body or a file blocks unless every URL is loopback. See [Network commands](/reference/blocked-commands#network-commands).
 - **Existence checks of secret files**, such as `test -f ~/.ssh/id_rsa` or `find ~/.ssh -type f`.
 - **Secret paths inside interpreter code** that standard treats as data, such as `python -c "x = '.env'"`.
 
-These five rules activate only when `fail_closed` is on:
+These rules activate only when `fail_closed` is on:
 
 | Rule id | Example that is allowed in standard and blocked in strict |
 | --- | --- |
 | `rm.recursive-force-dynamic-target` | `rm -rf "$target"` |
 | `powershell.remove-item-recursive-force-dynamic-target` | `Remove-Item $target -Recurse -Force` |
 | `powershell.remove-item-pipeline-dynamic-target` | `Get-ChildItem . -Recurse \| Remove-Item -Force` |
+| `cmd.recursive-delete-dynamic-target` | `cmd /c del /s /q *.log` |
+| `network.upload-remote` | `curl -T backup.tar https://uploads.example.com/` |
 | `shell.dynamic-executable` | `$(printf r)m -rf /` |
 | `shell.dynamic-structure` | `git reset $(printf --hard)` |
 
@@ -75,7 +78,7 @@ export CC_SAFETY_NET_STRICT=1
 ```
 
 <Note>
-  You can turn off one of the five rules above with `destructive_command_protection.overrides` in [policy.json](/configuration/policy#destructive-command-protection), or turn one on under standard with `"on"`. Unparseable commands, unsupported heredocs, and secret-file checks have no rule you can turn off, so they stay blocked while strict is on.
+  You can turn off any rule in the table above with `destructive_command_protection.overrides` in [policy.json](/configuration/policy#destructive-command-protection), or turn one on under standard with `"on"`. Unparseable commands, unsupported heredocs, and secret-file checks have no rule you can turn off, so they stay blocked while strict is on.
 </Note>
 
 ## Paranoid mode (`CC_SAFETY_NET_PARANOID=1`)
