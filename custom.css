@@ -289,8 +289,8 @@ mdx-content th,
    own border are excluded; this !important rule would strip their bottom edge. */
 mdx-content a.link:not(.cc-cli-card, .cc-overview-button, .cc-sponsor-link),
 .mdx-content a.link:not(.cc-cli-card, .cc-overview-button, .cc-sponsor-link),
-mdx-content :is(p, li, td) > a,
-.mdx-content :is(p, li, td) > a,
+mdx-content :is(p, li, td) > a:not(.cc-sponsor-link),
+.mdx-content :is(p, li, td) > a:not(.cc-sponsor-link),
 #banner a {
   border-bottom: 0 !important;
   text-decoration-line: underline;
@@ -1337,26 +1337,56 @@ html:is(:lang(ja), :lang(zh)) .cc-release-date {
 .cc-nowrap {
   white-space: nowrap;
 }
-
 /* ------------------------------------------------------------------ */
-/* Sponsor strip: follows the page mode, like the release card.        */
+/* Sponsors: one row per sponsor, follows the page mode.               */
+/* Stacked when narrow, tagline under the logo with the call to action */
+/* on the right when medium, one line when wide enough that the        */
+/* tagline never wraps.                                                */
 /* ------------------------------------------------------------------ */
 .cc-overview-sponsor {
+  display: grid;
+  gap: 1rem;
   min-width: 0;
+  container-type: inline-size;
+}
+
+mdx-content .cc-overview-sponsor h2,
+.mdx-content .cc-overview-sponsor h2 {
+  margin: 0 !important;
+  color: var(--cc-fg);
+  font-family: var(--cc-font-sans) !important;
+  font-size: 1.125rem;
+  font-weight: 650 !important;
+  letter-spacing: 0;
+  line-height: 1.25;
+}
+
+mdx-content ul.cc-sponsor-list,
+.mdx-content ul.cc-sponsor-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0 !important;
+  padding: 0 !important;
+  list-style: none;
+}
+
+mdx-content .cc-sponsor-list li,
+.mdx-content .cc-sponsor-list li {
+  margin: 0 !important;
+  padding: 0 !important;
 }
 
 mdx-content a.cc-sponsor-link,
 .mdx-content a.cc-sponsor-link {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem 2rem;
-  align-items: center;
-  justify-content: space-between;
+  display: grid;
+  gap: 0.75rem 2rem;
+  justify-items: start;
   border: 1px solid var(--cc-rail) !important;
   border-radius: 6px;
   background: var(--cc-surface-tint);
-  padding: clamp(1.25rem, 3vw, 2rem);
-  text-decoration: none;
+  padding: 1.25rem clamp(1.25rem, 3vw, 2rem);
+  font-weight: 500;
+  text-decoration: none !important;
   transition: border-color 150ms ease, background-color 150ms ease;
 }
 
@@ -1372,23 +1402,17 @@ mdx-content a.cc-sponsor-link:focus-visible,
   outline-offset: 2px;
 }
 
-mdx-content .cc-overview-sponsor h2,
-.mdx-content .cc-overview-sponsor h2 {
-  margin: 0 !important;
-  color: var(--cc-fg-soft);
-  font-family: var(--cc-font-sans) !important;
-  font-size: 0.75rem;
-  font-weight: 600 !important;
-  letter-spacing: 0.18em;
-  line-height: 1.25;
-  text-transform: uppercase;
-}
-
-.cc-sponsor-link img {
+.cc-sponsor-logo img {
   display: block;
   width: auto;
-  height: 2rem;
+  height: 1.75rem;
   margin: 0 !important;
+  opacity: 0.85;
+  transition: opacity 150ms ease;
+}
+
+.cc-sponsor-link:hover .cc-sponsor-logo img {
+  opacity: 1;
 }
 
 .cc-sponsor-link .cc-sponsor-mark-light {
@@ -1401,4 +1425,66 @@ html:not(.dark) .cc-sponsor-link .cc-sponsor-mark-light {
 
 html:not(.dark) .cc-sponsor-link .cc-sponsor-mark-dark {
   display: none;
+}
+
+.cc-sponsor-tagline,
+.cc-sponsor-cta {
+  font-size: 0.875rem;
+  line-height: 1.43;
+  transition: color 150ms ease;
+}
+
+.cc-sponsor-tagline {
+  color: var(--cc-accent);
+}
+
+.cc-sponsor-cta {
+  display: inline-flex;
+  gap: 0.375rem;
+  align-items: center;
+  color: var(--cc-fg-muted);
+  white-space: nowrap;
+}
+
+.cc-sponsor-cta span {
+  display: inline-block;
+  transition: transform 150ms ease;
+}
+
+.cc-sponsor-link:hover :is(.cc-sponsor-tagline, .cc-sponsor-cta) {
+  color: var(--cc-fg);
+}
+
+.cc-sponsor-link:hover .cc-sponsor-cta span {
+  transform: translateX(0.125rem);
+}
+
+@container (min-width: 36rem) {
+  mdx-content a.cc-sponsor-link,
+  .mdx-content a.cc-sponsor-link {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .cc-sponsor-tagline {
+    grid-row: 2;
+  }
+
+  .cc-sponsor-cta {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+}
+
+@container (min-width: 48rem) {
+  mdx-content a.cc-sponsor-link,
+  .mdx-content a.cc-sponsor-link {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .cc-sponsor-tagline,
+  .cc-sponsor-cta {
+    grid-column: auto;
+    grid-row: auto;
+  }
 }
