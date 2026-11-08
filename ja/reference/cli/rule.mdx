@@ -32,6 +32,7 @@ npx -y cc-safety-net rule <subcommand>
 | `--ref <ref>` | ブランチ、タグ、コミットを指定する | `add` のみ |
 | `--only <rulebook...>` | リポジトリ内の指定したルールブックだけを追加する | `add` のみ |
 | `--cwd-arg <name>` | 作業ディレクトリを渡す引数の名前を指定する | `tool add` のみ |
+| `--no-cwd-arg` | 作業ディレクトリの引数を読まない。コマンドを別のマシンで実行するツール向け | `tool add` のみ |
 | `-h`, `--help` | ヘルプを表示する | すべて |
 
 ドライランはありません。ルール設定をオフラインで検証するには、[`rule verify`](#rule-verify) を使います。
@@ -201,18 +202,22 @@ npx -y cc-safety-net rule wrapper remove rtk
 npx -y cc-safety-net rule tool list
 npx -y cc-safety-net rule tool add ops_bash ops_run_background
 npx -y cc-safety-net rule tool add ops_run_background --cwd-arg dir
+npx -y cc-safety-net rule tool add phone_shell --no-cwd-arg
 npx -y cc-safety-net rule tool remove ops_bash --project
 ```
 
 - 既定はユーザースコープなので、宣言したツールはすべてのプロジェクトで解析されます。`--project` を付けると、代わりにプロジェクトの設定に書き込みます。
-- `add` と `remove` は 1 つ以上の名前を受け取ります。`--cwd-arg` は、その呼び出しで指定したすべての名前に適用されます。
-- 宣言済みの名前を追加すると、そのエントリが置き換わります。`--cwd-arg` を変更したり外したりするには、この方法を使います。
+- `add` と `remove` は 1 つ以上の名前を受け取ります。`--cwd-arg` と `--no-cwd-arg` は、その呼び出しで指定したすべての名前に適用されます。
+- `--no-cwd-arg` は、コマンドを別のマシンで実行するツールに使います。この場合、CC Safety Net はセッションのワークスペースを基準にそのコマンドを検査します。[コミュニティ製のシェルツール](/ja/configuration/custom-rules#community-shell-tools)を参照してください。
+- `--cwd-arg` と `--no-cwd-arg` を同時に指定すると、`rule tool add takes --cwd-arg or --no-cwd-arg, not both` を出力して `1` で終了します。
+- 宣言済みの名前を追加すると、そのエントリが置き換わります。作業ディレクトリの引数を変更したり外したりするには、この方法を使います。
 
 `add` と `remove` は、名前ごとに 1 行を出力し、最後に書き込んだファイルを出力します。
 
 ```text
 Added command tool: ops_bash
 Added command tool: ops_run_background (cwd argument: dir)
+Added command tool: phone_shell (no cwd argument)
 Scope: user (/Users/you/.cc-safety-net/rules/rule.json)
 ```
 

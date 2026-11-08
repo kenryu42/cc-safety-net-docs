@@ -109,6 +109,9 @@ npx -y cc-safety-net rule tool add ops_bash ops_run_background
 # Name the argument that carries the working directory
 npx -y cc-safety-net rule tool add ops_run_background --cwd-arg dir
 
+# Declare a tool that runs its commands on another machine
+npx -y cc-safety-net rule tool add phone_shell --no-cwd-arg
+
 # Write the project config instead
 npx -y cc-safety-net rule tool add team_shell --project
 
@@ -125,15 +128,19 @@ That writes the `command_tools` array:
   "rules": [],
   "overrides": {},
   "transparent_wrappers": [],
-  "command_tools": ["ops_bash", { "name": "ops_run_background", "cwd": "dir" }]
+  "command_tools": [
+    "ops_bash",
+    { "name": "ops_run_background", "cwd": "dir" },
+    { "name": "phone_shell", "cwd": false }
+  ]
 }
 ```
 
 From the next tool call, a declared call gets the same built-in rules, custom rules, and safety level as a built-in shell tool. `git.reset-hard` then blocks `ops_bash` running `git reset --hard`.
 
 - The name must match the tool name the agent sends exactly, including case. `rule tool add` refuses built-in tool names. See [`rule tool add` name errors](/reference/cli/rule#rule-tool-add-name-errors).
-- `cwd` names the argument that holds the working directory. Without it, CC Safety Net reads `workdir`, `cwd`, or `working_directory`, then falls back to the session workspace.
-- A blank working directory denies the call as `tool-call.malformed`, and a directory that does not exist denies it as `cwd.requested-unusable`.
+- `cwd` names the argument that holds the working directory. Without it, CC Safety Net reads `workdir`, `cwd`, or `working_directory`, then falls back to the session workspace. A blank working directory denies the call as `tool-call.malformed`, and a directory that does not exist denies it as `cwd.requested-unusable`.
+- `"cwd": false` is for a tool that runs its commands on another machine, such as a phone or a remote host. CC Safety Net reads no working-directory argument for it, so neither denial above applies, and checks each command against the session workspace. A relative path such as `rm -rf build` is judged inside that workspace, not in the remote directory.
 
 Declarations live in `rule.json`, so an unreadable `rule.json` drops that scope's tools. Run `npx -y cc-safety-net rule verify` after editing the file by hand.
 
@@ -229,7 +236,7 @@ Declarations live in `rule.json`, so an unreadable `rule.json` drops that scope'
 </ParamField>
 
 <ParamField body="command_tools" type="array">
-  Plugin shell tools whose `command` CC Safety Net analyzes like a built-in shell tool's. Each entry is a tool name, or an object like `{ "name": "ops_bash", "cwd": "dir" }`. Defaults to an empty array. Names must be unique and must not be built-in tool names. See [Community shell tools](#community-shell-tools).
+  Plugin shell tools whose `command` CC Safety Net analyzes like a built-in shell tool's. Each entry is a tool name, or an object like `{ "name": "ops_bash", "cwd": "dir" }`, where `cwd` is an argument name or `false`. Defaults to an empty array. Names must be unique and must not be built-in tool names. See [Community shell tools](#community-shell-tools).
 </ParamField>
 
 An override that changes both the message and the agent-facing intent looks like this:

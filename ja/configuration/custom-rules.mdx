@@ -117,6 +117,9 @@ npx -y cc-safety-net rule tool add ops_bash ops_run_background
 # Name the argument that carries the working directory
 npx -y cc-safety-net rule tool add ops_run_background --cwd-arg dir
 
+# Declare a tool that runs its commands on another machine
+npx -y cc-safety-net rule tool add phone_shell --no-cwd-arg
+
 # Write the project config instead
 npx -y cc-safety-net rule tool add team_shell --project
 
@@ -133,15 +136,19 @@ npx -y cc-safety-net rule tool remove ops_bash
   "rules": [],
   "overrides": {},
   "transparent_wrappers": [],
-  "command_tools": ["ops_bash", { "name": "ops_run_background", "cwd": "dir" }]
+  "command_tools": [
+    "ops_bash",
+    { "name": "ops_run_background", "cwd": "dir" },
+    { "name": "phone_shell", "cwd": false }
+  ]
 }
 ```
 
 次のツール呼び出しから、宣言したツールの呼び出しには、組み込みのシェルツールと同じ組み込みルール、カスタムルール、安全レベルが適用されます。`ops_bash` で `git reset --hard` を実行すると、`git.reset-hard` でブロックされるようになります。
 
 - 名前は、エージェントが送るツール名と大文字・小文字まで完全に一致させます。`rule tool add` は組み込みのツール名を拒否します。[`rule tool add` の名前のエラー](/ja/reference/cli/rule#rule-tool-add-name-errors)を参照してください。
-- `cwd` には、作業ディレクトリを渡す引数の名前を指定します。指定しない場合は `workdir`、`cwd`、`working_directory` を読み、どれもなければセッションのワークスペースを使います。
-- 作業ディレクトリが空白の場合は `tool-call.malformed`、存在しないディレクトリの場合は `cwd.requested-unusable` として呼び出しを拒否します。
+- `cwd` には、作業ディレクトリを渡す引数の名前を指定します。指定しない場合は `workdir`、`cwd`、`working_directory` を読み、どれもなければセッションのワークスペースを使います。作業ディレクトリが空白の場合は `tool-call.malformed`、存在しないディレクトリの場合は `cwd.requested-unusable` として呼び出しを拒否します。
+- `"cwd": false` は、スマートフォンやリモートホストなど、別のマシンでコマンドを実行するツールに使います。CC Safety Net はこのツールでは作業ディレクトリの引数を読まないため、上記の拒否はどちらも起きず、セッションのワークスペースを基準に各コマンドを検査します。`rm -rf build` のような相対パスは、リモートの作業ディレクトリではなく、このワークスペース内にあるものとして判定されます。
 
 宣言は `rule.json` に保存されるため、`rule.json` を読み取れないと、そのスコープのツールは失われます。ファイルを手で編集したら `npx -y cc-safety-net rule verify` を実行してください。
 
@@ -237,7 +244,7 @@ npx -y cc-safety-net rule tool remove ops_bash
 </ParamField>
 
 <ParamField body="command_tools" type="array">
-  プラグインのシェルツールです。CC Safety Net はその `command` を組み込みのシェルツールと同じように解析します。各項目は、ツール名か `{ "name": "ops_bash", "cwd": "dir" }` のようなオブジェクトです。既定値は空の配列です。名前は一意でなければならず、組み込みのツール名は指定できません。[コミュニティ製のシェルツール](#community-shell-tools)を参照してください。
+  プラグインのシェルツールです。CC Safety Net はその `command` を組み込みのシェルツールと同じように解析します。各項目は、ツール名か `{ "name": "ops_bash", "cwd": "dir" }` のようなオブジェクトで、`cwd` には引数名か `false` を指定します。既定値は空の配列です。名前は一意でなければならず、組み込みのツール名は指定できません。[コミュニティ製のシェルツール](#community-shell-tools)を参照してください。
 </ParamField>
 
 メッセージとエージェント向けの意図（`intent`）の両方を変えるオーバーライドは、次のようになります。

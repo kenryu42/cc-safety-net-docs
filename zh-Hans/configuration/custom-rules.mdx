@@ -117,6 +117,9 @@ npx -y cc-safety-net rule tool add ops_bash ops_run_background
 # Name the argument that carries the working directory
 npx -y cc-safety-net rule tool add ops_run_background --cwd-arg dir
 
+# Declare a tool that runs its commands on another machine
+npx -y cc-safety-net rule tool add phone_shell --no-cwd-arg
+
 # Write the project config instead
 npx -y cc-safety-net rule tool add team_shell --project
 
@@ -133,15 +136,19 @@ npx -y cc-safety-net rule tool remove ops_bash
   "rules": [],
   "overrides": {},
   "transparent_wrappers": [],
-  "command_tools": ["ops_bash", { "name": "ops_run_background", "cwd": "dir" }]
+  "command_tools": [
+    "ops_bash",
+    { "name": "ops_run_background", "cwd": "dir" },
+    { "name": "phone_shell", "cwd": false }
+  ]
 }
 ```
 
 从下一次工具调用起，已声明工具的调用会和内置 shell 工具一样，适用相同的内置规则、自定义规则和安全级别。此时 `ops_bash` 执行 `git reset --hard` 会被 `git.reset-hard` 阻止。
 
 - 名称必须与智能体发送的工具名完全一致，包括大小写。`rule tool add` 会拒绝内置工具名。参见 [`rule tool add` 名称错误](/zh-Hans/reference/cli/rule#rule-tool-add-name-errors)。
-- `cwd` 指出由哪个参数承载工作目录。未指定时，CC Safety Net 读取 `workdir`、`cwd` 或 `working_directory`，都没有则使用会话工作区。
-- 工作目录为空白时，该调用以 `tool-call.malformed` 拒绝；目录不存在时，以 `cwd.requested-unusable` 拒绝。
+- `cwd` 指出由哪个参数承载工作目录。未指定时，CC Safety Net 读取 `workdir`、`cwd` 或 `working_directory`，都没有则使用会话工作区。工作目录为空白时，该调用以 `tool-call.malformed` 拒绝；目录不存在时，以 `cwd.requested-unusable` 拒绝。
+- `"cwd": false` 适用于在另一台机器（例如手机或远程主机）上执行命令的工具。CC Safety Net 不会为它读取工作目录参数，因此上述两种拒绝都不适用，每条命令都以会话工作区为基准检查。`rm -rf build` 这类相对路径在该工作区内判定，而不是在远程目录中。
 
 声明保存在 `rule.json` 中，因此 `rule.json` 不可读时，该范围声明的工具会失效。手动编辑该文件后，请运行 `npx -y cc-safety-net rule verify`。
 
@@ -237,7 +244,7 @@ npx -y cc-safety-net rule tool remove ops_bash
 </ParamField>
 
 <ParamField body="command_tools" type="array">
-  插件提供的 shell 工具，CC Safety Net 会像分析内置 shell 工具一样分析它的 `command`。每个条目可以是工具名，也可以是 `{ "name": "ops_bash", "cwd": "dir" }` 这样的对象。默认为空数组。名称必须唯一，且不能是内置工具名。参见[社区 shell 工具](#community-shell-tools)。
+  插件提供的 shell 工具，CC Safety Net 会像分析内置 shell 工具一样分析它的 `command`。每个条目可以是工具名，也可以是 `{ "name": "ops_bash", "cwd": "dir" }` 这样的对象，其中 `cwd` 为参数名或 `false`。默认为空数组。名称必须唯一，且不能是内置工具名。参见[社区 shell 工具](#community-shell-tools)。
 </ParamField>
 
 同时替换消息和面向智能体的意图的覆盖如下：

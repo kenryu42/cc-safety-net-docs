@@ -32,6 +32,7 @@ Running `rule` with no subcommand prints help and exits `1`. For the rulebook sc
 | `--ref <ref>` | Use a branch, tag, or commit | `add` only |
 | `--only <rulebook...>` | Add only these repository rulebooks | `add` only |
 | `--cwd-arg <name>` | Name the argument that carries the working directory | `tool add` only |
+| `--no-cwd-arg` | Read no working-directory argument, for a tool that runs its commands elsewhere | `tool add` only |
 | `-h`, `--help` | Show help | Any |
 
 There is no dry run. To validate rule config offline, use [`rule verify`](#rule-verify).
@@ -197,18 +198,22 @@ npx -y cc-safety-net rule wrapper remove rtk
 npx -y cc-safety-net rule tool list
 npx -y cc-safety-net rule tool add ops_bash ops_run_background
 npx -y cc-safety-net rule tool add ops_run_background --cwd-arg dir
+npx -y cc-safety-net rule tool add phone_shell --no-cwd-arg
 npx -y cc-safety-net rule tool remove ops_bash --project
 ```
 
 - The user scope is the default, so CC Safety Net analyzes a tool you declare in every project. `--project` writes the project config instead.
-- `add` and `remove` take one or more names. `--cwd-arg` applies to every name in the call.
-- Adding a name that is already declared replaces its entry. That is how you change or drop its `--cwd-arg`.
+- `add` and `remove` take one or more names. `--cwd-arg` and `--no-cwd-arg` apply to every name in the call.
+- `--no-cwd-arg` is for a tool that runs its commands on another machine. CC Safety Net then checks them against the session workspace. See [Community shell tools](/configuration/custom-rules#community-shell-tools).
+- Passing both `--cwd-arg` and `--no-cwd-arg` prints `rule tool add takes --cwd-arg or --no-cwd-arg, not both` and exits `1`.
+- Adding a name that is already declared replaces its entry. That is how you change or drop its working-directory argument.
 
 `add` and `remove` print one line per name, then the file they wrote:
 
 ```text
 Added command tool: ops_bash
 Added command tool: ops_run_background (cwd argument: dir)
+Added command tool: phone_shell (no cwd argument)
 Scope: user (/Users/you/.cc-safety-net/rules/rule.json)
 ```
 

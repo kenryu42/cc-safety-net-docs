@@ -32,6 +32,7 @@ npx -y cc-safety-net rule <subcommand>
 | `--ref <ref>` | 指定分支、标签或提交 | 仅 `add` |
 | `--only <rulebook...>` | 只添加仓库中的这些 rulebook | 仅 `add` |
 | `--cwd-arg <name>` | 指出由哪个参数承载工作目录 | 仅 `tool add` |
+| `--no-cwd-arg` | 不读取工作目录参数，适用于在别处执行命令的工具 | 仅 `tool add` |
 | `-h`, `--help` | 显示帮助 | 任意子命令 |
 
 没有试运行模式。要离线校验规则配置，请使用 [`rule verify`](#rule-verify)。
@@ -201,18 +202,22 @@ npx -y cc-safety-net rule wrapper remove rtk
 npx -y cc-safety-net rule tool list
 npx -y cc-safety-net rule tool add ops_bash ops_run_background
 npx -y cc-safety-net rule tool add ops_run_background --cwd-arg dir
+npx -y cc-safety-net rule tool add phone_shell --no-cwd-arg
 npx -y cc-safety-net rule tool remove ops_bash --project
 ```
 
 - 默认作用于用户范围，因此你声明的工具在每个项目中都会被分析。`--project` 改为写入项目配置。
-- `add` 和 `remove` 接受一个或多个名称。`--cwd-arg` 对本次调用中的每个名称都生效。
-- 添加已声明的名称会替换它的条目，修改或去掉 `--cwd-arg` 就用这种方式。
+- `add` 和 `remove` 接受一个或多个名称。`--cwd-arg` 和 `--no-cwd-arg` 对本次调用中的每个名称都生效。
+- `--no-cwd-arg` 适用于在另一台机器上执行命令的工具，此时 CC Safety Net 以会话工作区为基准检查这些命令。参见[社区 shell 工具](/zh-Hans/configuration/custom-rules#community-shell-tools)。
+- 同时指定 `--cwd-arg` 和 `--no-cwd-arg` 会打印 `rule tool add takes --cwd-arg or --no-cwd-arg, not both` 并退出 `1`。
+- 添加已声明的名称会替换它的条目，修改或去掉工作目录参数就用这种方式。
 
 `add` 和 `remove` 为每个名称打印一行，最后打印写入的文件：
 
 ```text
 Added command tool: ops_bash
 Added command tool: ops_run_background (cwd argument: dir)
+Added command tool: phone_shell (no cwd argument)
 Scope: user (/Users/you/.cc-safety-net/rules/rule.json)
 ```
 
