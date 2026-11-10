@@ -86,7 +86,17 @@ CC Safety Net scans the code passed to `-c` or `-e` for `python`, `node`, `ruby`
 
 ### PowerShell is read as a subset
 
-CC Safety Net reads a conservative subset of PowerShell, not the full language. In the `posix` shell mode, the `Remove-Item` rules apply only inside a nested `powershell` or `pwsh` `-Command` script. In `auto` mode, `ForEach-Object` and `Where-Object` switch to the PowerShell reader, but their `%` and `?` aliases do not. See [PowerShell commands](/reference/blocked-commands#powershell-commands).
+CC Safety Net reads a conservative subset of PowerShell, not the full language. In the `posix` shell mode, the `Remove-Item` rules apply only inside a nested `powershell` or `pwsh` `-Command` script. A relative Windows path such as `.\build\.env` is not read as a path in any shell mode.
+
+`auto` mode switches to the PowerShell reader when the command head is a listed cmdlet or alias, or when a word names a [Windows path](/reference/blocked-commands#windows-paths-and-powershell-parameters). `ForEach-Object` and `Where-Object` are listed heads; their `%` and `?` aliases are not. These paths match neither test, so they keep the POSIX reading, which drops their backslashes:
+
+| Path shape | Example |
+| --- | --- |
+| A UNC path | `rg KEY \\server\share\.env` |
+| `$HOME\` or another `$name\` prefix | `rg KEY $HOME\.ssh\id_rsa` |
+| A quoted `$env:NAME\` path | `rg KEY "$env:USERPROFILE\.ssh\id_rsa"` |
+
+The `powershell` shell mode reads all three. See [PowerShell commands](/reference/blocked-commands#powershell-commands).
 
 ### Windows Command Prompt and nested PowerShell
 

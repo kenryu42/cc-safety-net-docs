@@ -390,6 +390,23 @@ Only the user may apply a policy proposal, because it rewrites the configuration
 
 `-WhatIf`、`-WhatIf:$true` 和 `-wi` 会让任何 `Remove-Item` 变成演练，因此不会阻止。`-WhatIf:$false` 则重新阻止。PowerShell 通配符会匹配以点开头的条目，所以通配符可能触及 `.git`。
 
+<span id="windows-paths-and-powershell-parameters"></span>
+
+### Windows 路径与 PowerShell 参数
+
+在 `auto` 模式下，只要命令里出现 Windows 路径，无论是什么命令都按 PowerShell 读取。否则 POSIX 读取会丢掉反斜杠，内置规则和[自定义规则](/zh-Hans/configuration/custom-rules)都看不到这个路径。
+
+| 触发 PowerShell 读取的词 | 示例 |
+| --- | --- |
+| 盘符加反斜杠 | `cat C:\proj\.env` |
+| `~\` | `rg KEY ~\OneDrive\.env` |
+| `$env:NAME\` | `Get-ChildItem $env:USERPROFILE\.ssh` |
+| `=` 或 `:` 后跟盘符路径的选项 | `docker run --env-file=C:\proj\.env img`、`dotnet build -p:OutputPath=C:\src\.env` |
+
+以上示例都读取受保护的文件，因此会被[机密保护](/zh-Hans/reference/secret-protection#where-it-runs)阻止。
+
+PowerShell 绑定 `-Path:C:\proj\.env` 与绑定 `-Path C:\proj\.env` 的方式相同。CC Safety Net 也按同样的方式读取附在参数后的值，因此 `Set-Content -Path:.cc-safety-net/policy.json x` 会以 `guard.policy-config` 阻止。
+
 <span id="remote-content-evaluated-by-powershell"></span>
 
 ### PowerShell 求值的远程内容

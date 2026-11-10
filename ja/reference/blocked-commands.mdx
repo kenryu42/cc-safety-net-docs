@@ -390,6 +390,23 @@ Only the user may apply a policy proposal, because it rewrites the configuration
 
 `-WhatIf`、`-WhatIf:$true`、`-wi` を付けた `Remove-Item` はドライランになるため、ブロックされません。`-WhatIf:$false` を指定すると再びブロックされます。PowerShell のワイルドカードはドットで始まるエントリにも一致するため、ワイルドカードが `.git` に及ぶことがあります。
 
+<span id="windows-paths-and-powershell-parameters"></span>
+
+### Windows のパスと PowerShell のパラメーター
+
+`auto` モードでは、コマンドの種類にかかわらず、Windows のパスがあれば PowerShell として読み取ります。この切り替えがないと POSIX の読み取りでバックスラッシュが落ちるため、組み込みルールも[カスタムルール](/ja/configuration/custom-rules)もそのパスを認識できません。
+
+| PowerShell の読み取りに切り替える語 | 例 |
+| --- | --- |
+| ドライブレターとバックスラッシュ | `cat C:\proj\.env` |
+| `~\` | `rg KEY ~\OneDrive\.env` |
+| `$env:NAME\` | `Get-ChildItem $env:USERPROFILE\.ssh` |
+| `=` または `:` の後ろにドライブパスが続くオプション | `docker run --env-file=C:\proj\.env img`、`dotnet build -p:OutputPath=C:\src\.env` |
+
+いずれの例も保護対象のファイルを読み取るため、[シークレット保護](/ja/reference/secret-protection#where-it-runs)でブロックされます。
+
+PowerShell は `-Path:C:\proj\.env` を `-Path C:\proj\.env` と同じようにバインドします。CC Safety Net もコロンで付けた値を同様に読み取るため、`Set-Content -Path:.cc-safety-net/policy.json x` は `guard.policy-config` でブロックされます。
+
 <span id="remote-content-evaluated-by-powershell"></span>
 
 ### PowerShell が評価するリモートのコンテンツ

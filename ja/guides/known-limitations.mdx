@@ -92,7 +92,17 @@ CC Safety Net は、`python`、`node`、`ruby`、`perl` の `-c` や `-e` に渡
 
 ### PowerShell は一部の構文だけを読み取る
 
-CC Safety Net が読み取るのは、PowerShell の言語全体ではなく、保守的に絞った一部の構文です。シェルモードが `posix` の場合、`Remove-Item` のルールが適用されるのは、入れ子の `powershell` または `pwsh` の `-Command` スクリプトの中だけです。`auto` モードでは、`ForEach-Object` と `Where-Object` は PowerShell の読み取りに切り替わりますが、そのエイリアスの `%` と `?` は切り替わりません。[PowerShell コマンド](/ja/reference/blocked-commands#powershell-commands)を参照してください。
+CC Safety Net が読み取るのは、PowerShell の言語全体ではなく、保守的に絞った一部の構文です。シェルモードが `posix` の場合、`Remove-Item` のルールが適用されるのは、入れ子の `powershell` または `pwsh` の `-Command` スクリプトの中だけです。`.\build\.env` のような Windows の相対パスは、どのシェルモードでもパスとして読み取りません。
+
+`auto` モードが PowerShell の読み取りに切り替わるのは、コマンドの先頭が一覧にあるコマンドレットまたはエイリアスである場合か、いずれかの語が [Windows のパス](/ja/reference/blocked-commands#windows-paths-and-powershell-parameters)である場合です。`ForEach-Object` と `Where-Object` はこの一覧に含まれますが、そのエイリアスの `%` と `?` は含まれません。次のパスはどちらの条件にも当てはまらないため、POSIX の読み取りのままになってバックスラッシュが落ちます。
+
+| パスの形 | 例 |
+| --- | --- |
+| UNC パス | `rg KEY \\server\share\.env` |
+| `$HOME\` などの `$name\` で始まるパス | `rg KEY $HOME\.ssh\id_rsa` |
+| 引用符で囲んだ `$env:NAME\` のパス | `rg KEY "$env:USERPROFILE\.ssh\id_rsa"` |
+
+シェルモードが `powershell` の場合は、3 つとも読み取ります。[PowerShell コマンド](/ja/reference/blocked-commands#powershell-commands)を参照してください。
 
 <span id="windows-command-prompt-and-nested-powershell"></span>
 

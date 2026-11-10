@@ -362,6 +362,21 @@ In `auto` mode, a command that reads as PowerShell is also checked as a POSIX sh
 
 `-WhatIf`, `-WhatIf:$true`, and `-wi` make any `Remove-Item` a dry run, so nothing is blocked. `-WhatIf:$false` blocks again. PowerShell wildcards match dot-entries, so a wildcard can reach `.git`.
 
+### Windows paths and PowerShell parameters
+
+A Windows path in the command selects the PowerShell reading in `auto` mode, whatever the command is. Without that switch the POSIX reading drops the backslashes, so neither a built-in rule nor a [custom rule](/configuration/custom-rules) sees the path.
+
+| Word that selects PowerShell | Example |
+| --- | --- |
+| A drive letter and a backslash | `cat C:\proj\.env` |
+| `~\` | `rg KEY ~\OneDrive\.env` |
+| `$env:NAME\` | `Get-ChildItem $env:USERPROFILE\.ssh` |
+| An option with a drive path after `=` or `:` | `docker run --env-file=C:\proj\.env img`, `dotnet build -p:OutputPath=C:\src\.env` |
+
+Each example reads a protected file, so it blocks under [secret protection](/reference/secret-protection#where-it-runs).
+
+PowerShell binds `-Path:C:\proj\.env` the way it binds `-Path C:\proj\.env`. CC Safety Net reads the attached value the same way, so `Set-Content -Path:.cc-safety-net/policy.json x` blocks under `guard.policy-config`.
+
 ### Remote content evaluated by PowerShell
 
 `iex` and `Invoke-Expression` block at every safety level when the text they evaluate comes from a download, which covers the usual Windows installer shapes. The rule applies in `powershell` and `auto` shell mode, and in any shell mode inside a `pwsh -c` or `powershell -Command` script.
