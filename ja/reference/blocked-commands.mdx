@@ -602,6 +602,21 @@ Unquoted heredoc input is not supported safely. Quote the delimiter or ask the u
 This heredoc form or stdin consumer is not supported safely. Use a quoted heredoc with a supported consumer (cat, tee, git apply, git commit, gh pr create, gh issue create), or ask the user to verify.
 ```
 
+<span id="a-wrapper-in-front-of-a-heredoc-consumer"></span>
+
+### heredoc の読み取り側の前にあるラッパー
+
+standard では、`cat`、`tee`、`git commit`、`gh pr create`、`gh issue create` が保存する引用符付き heredoc の本文を、[シークレット保護](/ja/reference/secret-protection)は読み取りません。読み取り側の前に代入やラッパーがあっても同じです。テキストの検査は実行するため、`rm -rf ~` を含む本文は `raw-text.dangerous-command` としてブロックされます。
+
+| コマンド（本文に機密パスを記載） | standard での結果 |
+| --- | --- |
+| `nohup git commit -F - <<'MSG'`、`X=1 cat <<'EOF'` | 許可 |
+| `timeout 5 cat <<'EOF'`、`sudo -u deploy cat <<'EOF'` | ブロック。ラッパー自身のオプションは読み飛ばしません |
+| `nohup sh <<'EOF'` | ブロック。シェルが本文を実行します |
+| `nohup cat <<'EOF'` を `sh` にパイプ | ブロック。パイプが本文を受け取ります |
+
+読み飛ばすのは、`X=1` のような代入、`sudo`、`env`、`command`、`builtin` の各コマンド、組み込みの[透過ラッパー](/ja/configuration/custom-rules#transparent-wrappers) 8 つ、自分で宣言したラッパーです。strict と paranoid ではどれも読み飛ばしません。読み取り側がコマンドの先頭の語でなければならないためです。
+
 <span id="scripts-run-from-a-file"></span>
 
 ## ファイルから実行するスクリプト

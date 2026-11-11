@@ -602,6 +602,21 @@ Unquoted heredoc input is not supported safely. Quote the delimiter or ask the u
 This heredoc form or stdin consumer is not supported safely. Use a quoted heredoc with a supported consumer (cat, tee, git apply, git commit, gh pr create, gh issue create), or ask the user to verify.
 ```
 
+<span id="a-wrapper-in-front-of-a-heredoc-consumer"></span>
+
+### heredoc 消费者前面的包装器
+
+在 standard 下，加引号的 heredoc 正文由 `cat`、`tee`、`git commit`、`gh pr create` 或 `gh issue create` 存储时，[机密保护](/zh-Hans/reference/secret-protection)不会读取这段正文。消费者前面有赋值或包装器也一样。文本扫描仍会运行，因此含有 `rm -rf ~` 的正文会以 `raw-text.dangerous-command` 阻止。
+
+| 命令（正文中写有敏感路径） | standard 下的结果 |
+| --- | --- |
+| `nohup git commit -F - <<'MSG'`、`X=1 cat <<'EOF'` | 允许 |
+| `timeout 5 cat <<'EOF'`、`sudo -u deploy cat <<'EOF'` | 阻止。包装器自己的选项不会被跳过 |
+| `nohup sh <<'EOF'` | 阻止。shell 会运行正文 |
+| `nohup cat <<'EOF'` 通过管道交给 `sh` | 阻止。管道会接走正文 |
+
+CC Safety Net 会跳过 `X=1` 这类赋值、`sudo`、`env`、`command` 和 `builtin` 这几条命令、八个内置[透明包装器](/zh-Hans/configuration/custom-rules#transparent-wrappers)，以及你声明的任何包装器。strict 和 paranoid 一个都不跳过，因为消费者必须是命令的第一个词。
+
 <span id="scripts-run-from-a-file"></span>
 
 ## 从文件运行的脚本

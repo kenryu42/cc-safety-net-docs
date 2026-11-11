@@ -558,6 +558,19 @@ Every other unsupported form or consumer denies with:
 This heredoc form or stdin consumer is not supported safely. Use a quoted heredoc with a supported consumer (cat, tee, git apply, git commit, gh pr create, gh issue create), or ask the user to verify.
 ```
 
+### A wrapper in front of a heredoc consumer
+
+In standard, [secret protection](/reference/secret-protection) does not read the body of a quoted heredoc that `cat`, `tee`, `git commit`, `gh pr create`, or `gh issue create` stores. An assignment or a wrapper in front of the consumer does not change that. The text scan still runs, so a body that contains `rm -rf ~` blocks as `raw-text.dangerous-command`.
+
+| Command, with a sensitive path named in the body | Result in standard |
+| --- | --- |
+| `nohup git commit -F - <<'MSG'`, `X=1 cat <<'EOF'` | Allowed |
+| `timeout 5 cat <<'EOF'`, `sudo -u deploy cat <<'EOF'` | Blocked. A wrapper's own option is not skipped |
+| `nohup sh <<'EOF'` | Blocked. A shell runs the body |
+| `nohup cat <<'EOF'` piped to `sh` | Blocked. The pipe takes the body |
+
+CC Safety Net skips an assignment such as `X=1`, the commands `sudo`, `env`, `command`, and `builtin`, the eight built-in [transparent wrappers](/configuration/custom-rules#transparent-wrappers), and any wrapper you declare. Strict and paranoid skip none of them, because the consumer has to be the command's first word.
+
 ## Scripts run from a file
 
 At every safety level, CC Safety Net reads the shell script a command runs, as in `sh x.sh`, `bash x.sh`, `source x.sh`, `. x.sh`, or `./x.sh`, and checks what is inside it. The script can be a file on disk or one the same command wrote from a heredoc, as in `cat > x.sh <<'EOF' … EOF && bash x.sh`.
