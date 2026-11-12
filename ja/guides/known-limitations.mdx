@@ -90,9 +90,13 @@ CC Safety Net は、`python`、`node`、`ruby`、`perl` の `-c` や `-e` に渡
   [インタープリター自身が実行するルートやホームの再帰削除](/ja/reference/blocked-commands#recursive-deletes-an-interpreter-runs-itself)は、コードのテキストで一致を判定します。そのため `python3 -c "print(\"shutil.rmtree('/')\")"` のように、その呼び出しが何も実行しない場所にあってもブロックされます。
 </Accordion>
 
+<span id="powershell-is-read-as-a-subset"></span>
+
 ### PowerShell は一部の構文だけを読み取る
 
 CC Safety Net が読み取るのは、PowerShell の言語全体ではなく、保守的に絞った一部の構文です。シェルモードが `posix` の場合、`Remove-Item` のルールが適用されるのは、入れ子の `powershell` または `pwsh` の `-Command` スクリプトの中だけです。`.\build\.env` のような Windows の相対パスは、どのシェルモードでもパスとして読み取りません。
+
+`-Recurse:$false` でも再帰として扱われるため、`Remove-Item -Recurse:$false ../outside.txt` は再帰削除ではないのにブロックされます。
 
 `auto` モードが PowerShell の読み取りに切り替わるのは、コマンドの先頭が一覧にあるコマンドレットまたはエイリアスである場合か、いずれかの語が [Windows のパス](/ja/reference/blocked-commands#windows-paths-and-powershell-parameters)である場合です。`ForEach-Object` と `Where-Object` はこの一覧に含まれますが、そのエイリアスの `%` と `?` は含まれません。次のパスはどちらの条件にも当てはまらないため、POSIX の読み取りのままになってバックスラッシュが落ちます。
 

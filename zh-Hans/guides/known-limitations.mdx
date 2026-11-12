@@ -90,9 +90,13 @@ CC Safety Net 会扫描传给 `python`、`node`、`ruby` 和 `perl` 的 `-c` 或
   [解释器自己执行的根目录或主目录递归删除](/zh-Hans/reference/blocked-commands#recursive-deletes-an-interpreter-runs-itself)按代码文本匹配，因此即使这段调用根本不会执行，例如 `python3 -c "print(\"shutil.rmtree('/')\")"`，也一样会被阻止。
 </Accordion>
 
+<span id="powershell-is-read-as-a-subset"></span>
+
 ### PowerShell 只按子集读取
 
 CC Safety Net 读取的是 PowerShell 的一个保守子集，而不是完整语言。在 `posix` shell 模式下，`Remove-Item` 规则只在嵌套的 `powershell` 或 `pwsh` `-Command` 脚本中生效。像 `.\build\.env` 这样的相对 Windows 路径，在任何 shell 模式下都不会被当成路径读取。
+
+`-Recurse:$false` 仍算作递归，因此 `Remove-Item -Recurse:$false ../outside.txt` 虽然并不是递归删除，却依然会阻止。
 
 `auto` 模式切换到 PowerShell 读取器的条件有两个：命令头部是名单内的 cmdlet 或别名，或者其中某个词是 [Windows 路径](/zh-Hans/reference/blocked-commands#windows-paths-and-powershell-parameters)。`ForEach-Object` 和 `Where-Object` 属于名单内的头部，它们的别名 `%` 和 `?` 不属于。下面这几种路径两个条件都不满足，因此仍按 POSIX 读取，反斜杠会被丢掉：
 
