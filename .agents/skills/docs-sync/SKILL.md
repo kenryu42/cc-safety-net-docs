@@ -155,6 +155,10 @@ it unchanged.
   docs section that owns the fact (deep links, hard rule 9).
 - A `cc-release-breaking` paragraph only when the release has Breaking Changes,
   linking to the page that states the new requirement. Drop it otherwise.
+- The card is HTML, so Markdown backticks don't work there. Write code as
+  `<code>…</code>`, and write code containing `$` as `<code>{"-Recurse:$false"}</code>`:
+  Mintlify renders text between two bare `$` signs as math, which can't wrap
+  and pushes the card off a phone screen. `make check` rejects the bare form.
 - Keep the update command, and link the full notes at
   `https://ccsafetynet.com/release#release-<tag>` (`/ja/release`,
   `/zh-Hans/release` in the mirrors).

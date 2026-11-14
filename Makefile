@@ -20,6 +20,7 @@ sitemap:
 
 check: $(MINT)
 	bun scripts/generate-sitemap.ts --check
+	bun scripts/check-code-dollars.ts
 	bun run check
 
 # Read-only. Lists the source commits the docs have not absorbed, oldest first.
