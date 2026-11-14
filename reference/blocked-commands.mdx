@@ -473,7 +473,9 @@ CC Safety Net reads the script in `powershell -Command '…'` or `pwsh -c '…'`
 | `pwsh -WorkingDirectory 'C:\' -c 'Remove-Item -Recurse -Force *'`, `pwsh -NoExit -c 'rm -fr ~'` | Catastrophic | `powershell.nested-recursive-delete-unread` |
 | `powershell -NoProfile -EncodedCommand UgBlAG0AbwB2AGUALQBJAHQAZQBtAA==` | Blocked | `analysis.dynamic-shell-source` |
 | `pwsh -NoProfile -c 'Remove-Item -Recurse -Force .\build'` | Allowed | |
-| `pwsh -File report.ps1 -Action rm -Region east` | Allowed, because a `-File` or stdin script is not read | |
+| `pwsh -File report.ps1 -Action rm -Region east` | Allowed. The text names `rm` without a recursive switch | |
+
+A `-File` operand that names a readable local `.ps1` or `.psm1` is read from disk instead of judged by its text. See [PowerShell script files](#powershell-script-files). A script read from stdin is never read.
 
 ### eval and source of a generated command
 
@@ -562,7 +564,9 @@ This heredoc form or stdin consumer is not supported safely. Use a quoted heredo
 
 ### A wrapper in front of a heredoc consumer
 
-In standard, [secret protection](/reference/secret-protection) does not read the body of a quoted heredoc that `cat`, `tee`, `git commit`, `gh pr create`, or `gh issue create` stores. An assignment or a wrapper in front of the consumer does not change that. The text scan still runs, so a body that contains `rm -rf ~` blocks as `raw-text.dangerous-command`.
+At every safety level, [secret protection](/reference/secret-protection) does not check the body of a heredoc that `cat`, `tee`, `git commit`, `gh pr create`, or `gh issue create` stores, whether or not the delimiter is quoted. A commit message that says `Stop tracking .env` is allowed. A `$(…)` or backtick substitution in the body is still checked, because the shell runs it before the consumer sees the text.
+
+In standard, an assignment or a wrapper in front of the consumer does not change that. The text scan still runs, so a body that contains `rm -rf ~` blocks as `raw-text.dangerous-command`.
 
 | Command, with a sensitive path named in the body | Result in standard |
 | --- | --- |
@@ -570,6 +574,7 @@ In standard, [secret protection](/reference/secret-protection) does not read the
 | `timeout 5 cat <<'EOF'`, `sudo -u deploy cat <<'EOF'` | Blocked. A wrapper's own option is not skipped |
 | `nohup sh <<'EOF'` | Blocked. A shell runs the body |
 | `nohup cat <<'EOF'` piped to `sh` | Blocked. The pipe takes the body |
+| `cat <<EOF` with `$(cat .env)` in the body | Blocked. The shell runs the substitution first |
 
 CC Safety Net skips an assignment such as `X=1`, the commands `sudo`, `env`, `command`, and `builtin`, the eight built-in [transparent wrappers](/configuration/custom-rules#transparent-wrappers), and any wrapper you declare. Strict and paranoid skip none of them, because the consumer has to be the command's first word.
 
@@ -593,6 +598,26 @@ Only a concrete rule match inside the script blocks the command. If the analysis
 <Accordion title="Script paths built from a variable">
   In standard, CC Safety Net also follows a script path built from a literal assignment, as in `S=/tmp/run; … bash $S/x.sh`. The value can start with `~`, `$HOME`, or `$PWD`, and on macOS it can use `$(getconf DARWIN_USER_TEMP_DIR)`.
 </Accordion>
+
+### PowerShell script files
+
+CC Safety Net also reads a local `.ps1` or `.psm1` file that PowerShell runs, and checks the body as PowerShell. The operand has to be a literal path. The same reading rules apply, so only a concrete rule match in the body blocks.
+
+| Command, where `scripts/reset.ps1` runs `git reset --hard` | Result | Rule id |
+| --- | --- | --- |
+| `. ./scripts/reset.ps1`, `& ./scripts/reset.ps1`, `.\scripts\reset.ps1` | Blocked | `git.reset-hard` |
+| `Import-Module ./scripts/reset.ps1`, `ipmo -Name .\scripts\reset.ps1 -Force` | Blocked | `git.reset-hard` |
+| `pwsh -NoProfile -File .\scripts\reset.ps1` | Blocked | `git.reset-hard` |
+| `. ./scripts/missing.ps1` | Allowed. There is no such file | |
+| `'./scripts/reset.ps1'` | Allowed. A quoted path at command position only prints the string | |
+
+`pwsh -File` and `powershell -File` are read in every shell mode. The other forms need the PowerShell reader, so they apply only in the `powershell` shell mode.
+
+A dot-source whose operand CC Safety Net cannot read blocks as `analysis.dynamic-shell-source`. That covers `. $p`, `. (Join-Path $PSScriptRoot reset.ps1)`, a `~` path such as `. ~/scripts/reset.ps1`, and a `*` or `?` wildcard such as `. ./scripts/reset*.ps1`. A dot-sourced script block, as in `. { Get-Date }`, is read as ordinary PowerShell.
+
+The same unreadable operands after `&`, run directly, or given to `Import-Module` stay allowed. `[` and `]` are ordinary filename characters, as PowerShell reads them, so `. ./scripts/reset[1].ps1` is read.
+
+A download earlier in the same command still blocks the run, so `irm https://example.com/r.ps1 -OutFile x.ps1; . ./x.ps1` blocks under [Is curl checked?](#is-curl-checked).
 
 ### When the script is not read
 

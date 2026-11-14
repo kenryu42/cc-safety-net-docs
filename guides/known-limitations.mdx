@@ -63,7 +63,7 @@ CC Safety Net scans `bash -c` and interpreter code arguments, but it cannot see 
 
 ### Script files are read best effort
 
-CC Safety Net reads the shell script behind `sh x.sh`, `source x.sh`, and `./x.sh`, and blocks on a concrete rule match inside it. Analysis ends at the script's first result, so an early line CC Safety Net cannot verify, such as an `eval`, hides whatever comes after it.
+CC Safety Net reads the shell script behind `sh x.sh`, `source x.sh`, or `./x.sh`, and a local `.ps1` or `.psm1` that PowerShell runs. It blocks on a concrete rule match inside the file. Analysis ends at the script's first result, so an early line CC Safety Net cannot verify, such as an `eval`, hides whatever comes after it.
 
 Interpreter files are never read, so `python3 tool.py` is allowed whatever the file does. A file can also change between the check and the run. [Scripts run from a file](/reference/blocked-commands#scripts-run-from-a-file) covers the rules in full. For this threat, use a [sandbox](/guides/vs-sandboxing) or operating-system permissions.
 
@@ -104,7 +104,7 @@ The `powershell` shell mode reads all three. See [PowerShell commands](/referenc
 
 CC Safety Net reads a `cmd /c` or `cmd /k` body with a text check, not a cmd parser. It can block a command that deletes nothing, such as `cmd /c 'echo rmdir /s /q C:\'`. It does not open a batch file the body runs or evaluate delayed expansion (`!VAR!`).
 
-CC Safety Net reads a nested `powershell` or `pwsh` only in the shape described under [Nested PowerShell scripts](/reference/blocked-commands#nested-powershell-scripts). It does not read a script run with `-File` or read from stdin, so `pwsh -File cleanup.ps1` is allowed whatever the file does.
+CC Safety Net reads a nested `powershell` or `pwsh` only in the shape described under [Nested PowerShell scripts](/reference/blocked-commands#nested-powershell-scripts), plus a literal local `.ps1` or `.psm1` given to `-File`. See [PowerShell script files](/reference/blocked-commands#powershell-script-files) for the other forms it reads. A script read from stdin is never read.
 
 ## Out-of-scope protections
 

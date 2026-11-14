@@ -67,7 +67,7 @@ CC Safety Net 会扫描 `bash -c` 和解释器的代码参数，但看不到 `de
 
 ### 脚本文件只做尽力读取
 
-CC Safety Net 会读取 `sh x.sh`、`source x.sh` 和 `./x.sh` 背后的 shell 脚本，并在脚本内部命中具体规则时阻止命令。分析在脚本的第一个结果处结束，所以脚本中靠前的一行只要是 CC Safety Net 无法验证的（例如 `eval`），就会隐藏它后面的全部内容。
+CC Safety Net 会读取 `sh x.sh`、`source x.sh` 和 `./x.sh` 背后的 shell 脚本，以及 PowerShell 运行的本地 `.ps1` 或 `.psm1`，并在文件内部命中具体规则时阻止命令。分析在脚本的第一个结果处结束，所以脚本中靠前的一行只要是 CC Safety Net 无法验证的（例如 `eval`），就会隐藏它后面的全部内容。
 
 解释器文件从不读取，所以无论文件里做了什么，`python3 tool.py` 都会被允许。文件也可能在检查和运行之间发生变化。完整规则见[从文件运行的脚本](/zh-Hans/reference/blocked-commands#scripts-run-from-a-file)。这类威胁请改用[沙箱](/zh-Hans/guides/vs-sandboxing)或操作系统权限。
 
@@ -114,7 +114,7 @@ CC Safety Net 读取的是 PowerShell 的一个保守子集，而不是完整语
 
 CC Safety Net 用文本检查读取 `cmd /c` 或 `cmd /k` 的命令体，而不是用 cmd 解析器。因此它可能阻止一条什么都不删除的命令，例如 `cmd /c 'echo rmdir /s /q C:\'`。它不会打开命令体运行的批处理文件，也不会对延迟扩展（`!VAR!`）求值。
 
-对嵌套的 `powershell` 或 `pwsh`，CC Safety Net 只读取[嵌套的 PowerShell 脚本](/zh-Hans/reference/blocked-commands#nested-powershell-scripts)中描述的那种形式。用 `-File` 运行或从 stdin 读取的脚本不会被读取，因此无论文件内容是什么，`pwsh -File cleanup.ps1` 都会被放行。
+对嵌套的 `powershell` 或 `pwsh`，CC Safety Net 只读取[嵌套的 PowerShell 脚本](/zh-Hans/reference/blocked-commands#nested-powershell-scripts)中描述的那种形式，另外还会读取 `-File` 后面那个字面的本地 `.ps1` 或 `.psm1`。其余会读取的形式见 [PowerShell 脚本文件](/zh-Hans/reference/blocked-commands#powershell-script-files)。从 stdin 读入的脚本从不读取。
 
 <span id="out-of-scope-protections"></span>
 

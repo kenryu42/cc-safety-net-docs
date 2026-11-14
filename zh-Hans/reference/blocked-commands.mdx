@@ -511,7 +511,9 @@ cmd 不把 `\"` 当作转义，所以带引号的目标可能被拆开，其中�
 | `pwsh -WorkingDirectory 'C:\' -c 'Remove-Item -Recurse -Force *'`、`pwsh -NoExit -c 'rm -fr ~'` | 灾难性 | `powershell.nested-recursive-delete-unread` |
 | `powershell -NoProfile -EncodedCommand UgBlAG0AbwB2AGUALQBJAHQAZQBtAA==` | 阻止 | `analysis.dynamic-shell-source` |
 | `pwsh -NoProfile -c 'Remove-Item -Recurse -Force .\build'` | 允许 | |
-| `pwsh -File report.ps1 -Action rm -Region east` | 允许，因为不读取 `-File` 或标准输入中的脚本 | |
+| `pwsh -File report.ps1 -Action rm -Region east` | 允许。文本里有 `rm`，但没有递归开关 | |
+
+如果 `-File` 的操作数指向可读的本地 `.ps1` 或 `.psm1`，CC Safety Net 会从磁盘读取它，而不是按文本判断。见 [PowerShell 脚本文件](#powershell-script-files)。从标准输入读入的脚本从不读取。
 
 <span id="eval-and-source-of-a-generated-command"></span>
 
@@ -608,7 +610,9 @@ This heredoc form or stdin consumer is not supported safely. Use a quoted heredo
 
 ### heredoc 消费者前面的包装器
 
-在 standard 下，加引号的 heredoc 正文由 `cat`、`tee`、`git commit`、`gh pr create` 或 `gh issue create` 存储时，[机密保护](/zh-Hans/reference/secret-protection)不会读取这段正文。消费者前面有赋值或包装器也一样。文本扫描仍会运行，因此含有 `rm -rf ~` 的正文会以 `raw-text.dangerous-command` 阻止。
+heredoc 正文由 `cat`、`tee`、`git commit`、`gh pr create` 或 `gh issue create` 存储时，无论分隔符是否加引号，[机密保护](/zh-Hans/reference/secret-protection)在所有安全级别都不检查这段正文，因此写有 `Stop tracking .env` 的提交信息会放行。正文中的 `$(…)` 或反引号替换仍会检查，因为 shell 会在消费者看到这段文本之前先运行它。
+
+在 standard 下，消费者前面有赋值或包装器也一样。文本扫描仍会运行，因此含有 `rm -rf ~` 的正文会以 `raw-text.dangerous-command` 阻止。
 
 | 命令（正文中写有敏感路径） | standard 下的结果 |
 | --- | --- |
@@ -616,6 +620,7 @@ This heredoc form or stdin consumer is not supported safely. Use a quoted heredo
 | `timeout 5 cat <<'EOF'`、`sudo -u deploy cat <<'EOF'` | 阻止。包装器自己的选项不会被跳过 |
 | `nohup sh <<'EOF'` | 阻止。shell 会运行正文 |
 | `nohup cat <<'EOF'` 通过管道交给 `sh` | 阻止。管道会接走正文 |
+| `cat <<EOF` 的正文里有 `$(cat .env)` | 阻止。shell 会先运行这个替换 |
 
 CC Safety Net 会跳过 `X=1` 这类赋值、`sudo`、`env`、`command` 和 `builtin` 这几条命令、八个内置[透明包装器](/zh-Hans/configuration/custom-rules#transparent-wrappers)，以及你声明的任何包装器。strict 和 paranoid 一个都不跳过，因为消费者必须是命令的第一个词。
 
@@ -641,6 +646,28 @@ CC Safety Net 会跳过 `X=1` 这类赋值、`sudo`、`env`、`command` 和 `bui
 <Accordion title="由变量构成的脚本路径">
   在 standard 下，CC Safety Net 还会跟踪由字面量赋值构成的脚本路径，例如 `S=/tmp/run; … bash $S/x.sh`。值的开头可以是 `~`、`$HOME` 或 `$PWD`，在 macOS 上还可以使用 `$(getconf DARWIN_USER_TEMP_DIR)`。
 </Accordion>
+
+<span id="powershell-script-files"></span>
+
+### PowerShell 脚本文件
+
+CC Safety Net 也会读取 PowerShell 运行的本地 `.ps1` 或 `.psm1` 文件，正文按 PowerShell 检查。操作数必须是字面路径。读取规则与上面相同，只有正文中命中具体规则才会阻止命令。
+
+| 命令（其中 `scripts/reset.ps1` 会运行 `git reset --hard`） | 结果 | 规则 ID |
+| --- | --- | --- |
+| `. ./scripts/reset.ps1`、`& ./scripts/reset.ps1`、`.\scripts\reset.ps1` | 阻止 | `git.reset-hard` |
+| `Import-Module ./scripts/reset.ps1`、`ipmo -Name .\scripts\reset.ps1 -Force` | 阻止 | `git.reset-hard` |
+| `pwsh -NoProfile -File .\scripts\reset.ps1` | 阻止 | `git.reset-hard` |
+| `. ./scripts/missing.ps1` | 允许。没有这个文件 | |
+| `'./scripts/reset.ps1'` | 允许。命令位置上加了引号的路径只会打印这个字符串 | |
+
+`pwsh -File` 和 `powershell -File` 在所有 shell 模式下都会读取。其他形式需要 PowerShell 读取器，因此只适用于 `powershell` shell 模式。
+
+操作数读不出来的点源调用会以 `analysis.dynamic-shell-source` 阻止，包括 `. $p`、`. (Join-Path $PSScriptRoot reset.ps1)`、`. ~/scripts/reset.ps1` 这类带 `~` 的路径，以及 `. ./scripts/reset*.ps1` 这类带 `*` 或 `?` 通配符的路径。点源调用脚本块时（例如 `. { Get-Date }`）按普通 PowerShell 读取。
+
+同样读不出来的操作数，放在 `&` 后面、直接运行或交给 `Import-Module` 时仍然允许。和 PowerShell 一样，`[` 和 `]` 只是普通的文件名字符，所以 `. ./scripts/reset[1].ps1` 会被读取。
+
+同一命令中靠前的下载仍会阻止这次运行，因此 `irm https://example.com/r.ps1 -OutFile x.ps1; . ./x.ps1` 会按 [curl 会被检查吗？](#is-curl-checked)中的规则阻止。
 
 ### 什么情况下不读取脚本
 

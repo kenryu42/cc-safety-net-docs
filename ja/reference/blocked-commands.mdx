@@ -511,7 +511,9 @@ cmd は `\"` をエスケープとして扱わないため、引用符で囲ん�
 | `pwsh -WorkingDirectory 'C:\' -c 'Remove-Item -Recurse -Force *'`、`pwsh -NoExit -c 'rm -fr ~'` | 致命的 | `powershell.nested-recursive-delete-unread` |
 | `powershell -NoProfile -EncodedCommand UgBlAG0AbwB2AGUALQBJAHQAZQBtAA==` | ブロック | `analysis.dynamic-shell-source` |
 | `pwsh -NoProfile -c 'Remove-Item -Recurse -Force .\build'` | 許可 | |
-| `pwsh -File report.ps1 -Action rm -Region east` | 許可。`-File` や標準入力のスクリプトは読み取らない | |
+| `pwsh -File report.ps1 -Action rm -Region east` | 許可。テキストに `rm` はあるが再帰スイッチがない | |
+
+`-File` のオペランドが読み取れるローカルの `.ps1` または `.psm1` を指している場合は、テキストで判断せずディスクから読み取ります。[PowerShell スクリプトファイル](#powershell-script-files)を参照してください。標準入力から読み込むスクリプトは一切読み取りません。
 
 <span id="eval-and-source-of-a-generated-command"></span>
 
@@ -608,7 +610,9 @@ This heredoc form or stdin consumer is not supported safely. Use a quoted heredo
 
 ### heredoc の読み取り側の前にあるラッパー
 
-standard では、`cat`、`tee`、`git commit`、`gh pr create`、`gh issue create` が保存する引用符付き heredoc の本文を、[シークレット保護](/ja/reference/secret-protection)は読み取りません。読み取り側の前に代入やラッパーがあっても同じです。テキストの検査は実行するため、`rm -rf ~` を含む本文は `raw-text.dangerous-command` としてブロックされます。
+すべての安全レベルで、[シークレット保護](/ja/reference/secret-protection)は、`cat`、`tee`、`git commit`、`gh pr create`、`gh issue create` が保存する heredoc の本文を、区切り文字が引用符付きかどうかにかかわらず検査しません。`Stop tracking .env` と書いたコミットメッセージは許可されます。本文中の `$(…)` やバッククォートによる置換は検査します。読み取り側がテキストを受け取る前に、シェルが実行するためです。
+
+standard では、読み取り側の前に代入やラッパーがあっても、この扱いは変わりません。テキストの検査は引き続き実行されるため、`rm -rf ~` を含む本文は `raw-text.dangerous-command` としてブロックされます。
 
 | コマンド（本文に機密パスを記載） | standard での結果 |
 | --- | --- |
@@ -616,6 +620,7 @@ standard では、`cat`、`tee`、`git commit`、`gh pr create`、`gh issue crea
 | `timeout 5 cat <<'EOF'`、`sudo -u deploy cat <<'EOF'` | ブロック。ラッパー自身のオプションは読み飛ばしません |
 | `nohup sh <<'EOF'` | ブロック。シェルが本文を実行します |
 | `nohup cat <<'EOF'` を `sh` にパイプ | ブロック。パイプが本文を受け取ります |
+| `cat <<EOF` の本文に `$(cat .env)` がある | ブロック。シェルが先に置換を実行します |
 
 読み飛ばすのは、`X=1` のような代入、`sudo`、`env`、`command`、`builtin` の各コマンド、組み込みの[透過ラッパー](/ja/configuration/custom-rules#transparent-wrappers) 8 つ、自分で宣言したラッパーです。strict と paranoid ではどれも読み飛ばしません。読み取り側がコマンドの先頭の語でなければならないためです。
 
@@ -641,6 +646,28 @@ CC Safety Net は、すべての安全レベルで、コマンドが実行する
 <Accordion title="変数から組み立てたスクリプトのパス">
   standard では、リテラルの代入から組み立てたスクリプトのパスもたどります（`S=/tmp/run; … bash $S/x.sh` など）。値は `~`、`$HOME`、`$PWD` で始まっていてもよく、macOS では `$(getconf DARWIN_USER_TEMP_DIR)` も使えます。
 </Accordion>
+
+<span id="powershell-script-files"></span>
+
+### PowerShell スクリプトファイル
+
+CC Safety Net は、PowerShell が実行するローカルの `.ps1` または `.psm1` ファイルも読み取り、その中身を PowerShell として検査します。オペランドはリテラルのパスでなければなりません。読み取りの規則は上と同じで、スクリプト内にルールと具体的に一致する箇所があった場合だけブロックします。
+
+| コマンド（`scripts/reset.ps1` が `git reset --hard` を実行する） | 結果 | ルール ID |
+| --- | --- | --- |
+| `. ./scripts/reset.ps1`、`& ./scripts/reset.ps1`、`.\scripts\reset.ps1` | ブロック | `git.reset-hard` |
+| `Import-Module ./scripts/reset.ps1`、`ipmo -Name .\scripts\reset.ps1 -Force` | ブロック | `git.reset-hard` |
+| `pwsh -NoProfile -File .\scripts\reset.ps1` | ブロック | `git.reset-hard` |
+| `. ./scripts/missing.ps1` | 許可。そのファイルは存在しません | |
+| `'./scripts/reset.ps1'` | 許可。コマンドの位置にある引用符付きのパスは、文字列を表示するだけです | |
+
+`pwsh -File` と `powershell -File` は、どのシェルモードでも読み取ります。それ以外の形は PowerShell の読み取りが必要なため、`powershell` シェルモードでのみ適用されます。
+
+オペランドを読み取れないドットソースは、`analysis.dynamic-shell-source` としてブロックされます。対象は `. $p`、`. (Join-Path $PSScriptRoot reset.ps1)`、`. ~/scripts/reset.ps1` のような `~` 付きのパス、`. ./scripts/reset*.ps1` のような `*` や `?` のワイルドカードです。`. { Get-Date }` のようにスクリプトブロックをドットソースした場合は、通常の PowerShell として読み取ります。
+
+読み取れない同じオペランドでも、`&` の後ろ、直接実行、`Import-Module` への指定なら許可されたままです。`[` と `]` は、PowerShell と同じく通常のファイル名の文字として扱うため、`. ./scripts/reset[1].ps1` は読み取ります。
+
+同じコマンドの前の部分にダウンロードがあれば、実行は引き続きブロックされます。`irm https://example.com/r.ps1 -OutFile x.ps1; . ./x.ps1` は[curl は検査されますか？](#is-curl-checked)のルールでブロックされます。
 
 ### スクリプトを読み取らない場合
 
