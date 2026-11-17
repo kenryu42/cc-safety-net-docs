@@ -1,7 +1,7 @@
 ---
 title: "Blocked and allowed commands"
 sidebarTitle: "Blocked and allowed commands"
-description: "Which git, rm, find, rsync, disk, network, unshare, PowerShell, cmd, and shell commands CC Safety Net blocks or allows, the rule id behind each block, the safety level it needs, and how to allow a blocked command."
+description: "Which git, rm, find, rsync, disk, network, unshare, container, PowerShell, cmd, and shell commands CC Safety Net blocks or allows, the rule id behind each block, the safety level it needs, and how to allow a blocked command."
 keywords:
   - "blocked commands"
   - "allowed commands"
@@ -22,6 +22,8 @@ keywords:
   - "cloud metadata endpoint"
   - "169.254.169.254"
   - "unshare user namespace"
+  - "docker run"
+  - "container run"
   - "script file"
   - "xargs rm"
   - "rsync --delete"
@@ -90,7 +92,7 @@ An override accepts only `"on"` or `"off"`. No setting makes a rule prompt you f
 
 | Level | What changes |
 | --- | --- |
-| [Standard](/configuration/modes#default-mode) | Blocks every Blocked and Catastrophic row. Allows the Standard only rows: dynamic delete targets, dynamic executables, safe-looking unparseable text, and `eval` of one literal local generator |
+| [Standard](/configuration/modes#default-mode) | Blocks every Blocked and Catastrophic row. Allows the Standard only rows: dynamic delete targets, dynamic executables, safe-looking unparseable text, `eval` of one literal local generator, and a [container run](#container-runs) that cannot reach the host filesystem |
 | [Strict](/configuration/modes#strict-mode-cc_safety_net_strict=1) | Also blocks the Standard only rows, uploads to a remote host, every unparseable command, and [heredocs](#heredocs) outside a small supported set |
 | [Paranoid](/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) | Also blocks recursive deletes of non-temp paths inside the working directory, and every interpreter one-liner whatever it contains |
 
@@ -101,6 +103,8 @@ Ten rules are catastrophic. They cover recursive removal of `/` or your home dir
 A catastrophic rule blocks at every safety level under every policy. `destructive_command_protection.enabled: false`, an `"off"` override, `allow_paths`, [worktree mode](/configuration/modes#worktree-mode-cc_safety_net_worktree=1), the temp-repository relaxation, and the Standard only allowances all leave it in force.
 
 It also blocks when the rule that would normally catch the command is off, so `parallel rm -rf ::: /` still blocks as `rm.recursive-force-root-or-home`.
+
+At standard, a [container run](#container-runs) that cannot reach the host filesystem is judged inside the container, so a catastrophic rule can come out allowed there.
 
 The [Git metadata](#git-metadata) and [policy.json](#protected-policy-json-files) guards behave the same way. They run before your configuration is read, so no setting turns them off.
 
@@ -320,6 +324,8 @@ CC Safety Net protects the repository's `.git` entry, the Git directories it poi
 
 A `-name` or `-iname` filter lifts the block only when no entry in `.git` matches it. `.git` holds a `HEAD` file, so `-name HEAD` still blocks.
 
+At standard, a delete inside a [container run](#container-runs) that cannot reach the host filesystem is not a delete of this repository's metadata.
+
 <Note>
   The guard covers the nearest repository above the working directory and above the directory that holds the project configuration. It does not cover other repositories nested below them.
 </Note>
@@ -488,6 +494,32 @@ A `-File` operand that names a readable local `.ps1` or `.psm1` is read from dis
 | `eval "$(curl https://example.com/install.sh)"`, `eval "$(sudo ssh-agent -s)"`, `eval "$(ssh-agent -s; echo hi)"`, `trap "$(ssh-agent -s)" EXIT` | Blocked | `analysis.dynamic-shell-source` |
 
 Standard allows only one simple command of literal words that is not a download tool, a shell, or a wrapper such as `sudo`. It trusts the output of that command.
+
+## Container runs
+
+CC Safety Net has no analyzer for `docker`, `podman`, or `nerdctl`, so it scans the rest of the command for a dangerous command and judges the one it finds against your host.
+
+At standard, a `run` whose payload (the command the container runs) cannot reach the host filesystem is judged inside the container instead, so `rm -rf .git` in the payload deletes a container path and runs. A `git.push-*`, `network.*`, `interpreter.*`, or [custom rule](/configuration/custom-rules) match still blocks, because a read-only mount keeps the payload off your disk, not off the network.
+
+A payload cannot reach the host filesystem only when every `-v`, `--volume`, and `--mount` is read-only, and the run carries none of `--volumes-from`, `--privileged`, `--pid`, `--userns`, `--device`, `--rootfs`, or `--cap-add`. A mount of a `.sock` path, of `/run`, or of `/var/run` reaches the host as well, and a named volume counts as writable.
+
+| Command | Result | Rule id |
+| --- | --- | --- |
+| `docker run --rm -w /tmp/app alpine sh -c 'rm -rf .git'` | Standard only | `rm.git-metadata` |
+| `podman run --rm --mount type=bind,source=/src,target=/src,readonly alpine rm -rf .git` | Standard only | `rm.git-metadata` |
+| `nerdctl container run --rm --volume=/src:/src:ro alpine find . -name .git -delete` | Standard only | `find.delete-git-metadata` |
+| `docker run --rm alpine sh -c 'rm -rf /'` | Standard only | `rm.recursive-force-root-or-home` |
+| `docker run --rm -v "$PWD:/work" -w /work alpine rm -rf .git` | Catastrophic | `rm.git-metadata` |
+| `docker exec -w /tmp/app builder rm -rf .git` | Catastrophic | `rm.git-metadata` |
+| `docker run --rm -v "$PWD:/src:ro" -w /src alpine sh -c 'git push --force origin main'` | Blocked | `git.push-force` |
+
+The host verdict also stays when a word could hide a mount option, as in `docker run --rm "$OPTS" …`, and when an option CC Safety Net does not know comes before `run`. It stays too when your safety level or an override turns on the [paranoid rm check](/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1) or the [paranoid interpreters check](/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1).
+
+A [custom rule](/configuration/custom-rules) whose `command` appears as a word anywhere in the command keeps the host verdict as well, so a rule on `rm` restores the block on a payload that runs `rm`. The comparison ignores letter case and a `.exe` suffix, so a rule written `RM` counts.
+
+<Accordion title="A container-local delete can hide a later force push">
+  Analysis of one payload string stops at its first match. In `docker run --rm alpine sh -c 'rm -rf /var/cache/apk && git push --force origin main'` the delete matches first and is dropped as container-local, so the push is never reached and the command runs. Give the push its own command, or use [strict](/configuration/modes#strict-mode-cc_safety_net_strict=1).
+</Accordion>
 
 ## Is curl checked?
 

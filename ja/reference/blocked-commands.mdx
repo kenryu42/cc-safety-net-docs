@@ -1,7 +1,7 @@
 ---
 title: "ブロック・許可されるコマンド"
 sidebarTitle: "ブロック・許可されるコマンド"
-description: "CC Safety Net がブロックまたは許可する git、rm、find、rsync、ディスク、ネットワーク、unshare、PowerShell、cmd、シェルのコマンドの一覧です。各ブロックのルール ID、必要な安全レベル、ブロックされたコマンドを許可する方法を示します。"
+description: "CC Safety Net がブロックまたは許可する git、rm、find、rsync、ディスク、ネットワーク、unshare、コンテナ、PowerShell、cmd、シェルのコマンドの一覧です。各ブロックのルール ID、必要な安全レベル、ブロックされたコマンドを許可する方法を示します。"
 keywords:
   - "ブロックされるコマンド"
   - "許可されるコマンド"
@@ -22,6 +22,8 @@ keywords:
   - "クラウドのメタデータエンドポイント"
   - "169.254.169.254"
   - "unshare のユーザー名前空間"
+  - "docker run"
+  - "コンテナの実行"
   - "スクリプトファイル"
   - "xargs rm"
   - "rsync --delete"
@@ -94,7 +96,7 @@ CC Safety Net は、未コミットの変更、スタッシュに退避した作
 
 | レベル | 変わること |
 | --- | --- |
-| [Standard](/ja/configuration/modes#default-mode) | 結果が「ブロック」と「致命的」の行をすべてブロックする。「Standard のみ」の行は許可する。対象は、動的な削除対象、動的な実行ファイル、安全に見える解析不能なテキスト、リテラルのローカル生成コマンド 1 つに対する `eval` |
+| [Standard](/ja/configuration/modes#default-mode) | 結果が「ブロック」と「致命的」の行をすべてブロックする。「Standard のみ」の行は許可する。対象は、動的な削除対象、動的な実行ファイル、安全に見える解析不能なテキスト、リテラルのローカル生成コマンド 1 つに対する `eval`、ホストのファイルシステムに到達できない[コンテナの実行](#container-runs) |
 | [Strict](/ja/configuration/modes#strict-mode-cc_safety_net_strict=1) | さらに「Standard のみ」の行、リモートホストへのアップロード、解析できないすべてのコマンド、限られた対応形式から外れる [heredoc](#heredocs) もブロックする |
 | [Paranoid](/ja/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) | さらに、作業ディレクトリ内でも一時パス以外への再帰削除をブロックし、インタープリターのワンライナーを内容にかかわらずすべてブロックする |
 
@@ -107,6 +109,8 @@ CC Safety Net は、未コミットの変更、スタッシュに退避した作
 致命的なルールは、どのポリシーでも、すべての安全レベルでブロックします。`destructive_command_protection.enabled: false`、`"off"` のオーバーライド、`allow_paths`、[ワークツリーモード](/ja/configuration/modes#worktree-mode-cc_safety_net_worktree=1)、一時リポジトリの緩和、「Standard のみ」の許可のいずれがあっても、ブロックは維持されます。
 
 本来そのコマンドを捕捉するルールが無効でもブロックするため、`parallel rm -rf ::: /` は `rm.recursive-force-root-or-home` として引き続きブロックされます。
+
+standard では、ホストのファイルシステムに到達できない[コンテナの実行](#container-runs)はコンテナ内部の操作として判定するため、致命的なルールでも許可という結果になることがあります。
 
 [Git メタデータ](#git-metadata)と [policy.json](#protected-policy-json-files) のガードも同じ扱いです。どちらも設定を読み込む前に実行されるため、どの設定でも無効にできません。
 
@@ -342,6 +346,8 @@ CC Safety Net は、リポジトリの `.git` エントリ、それが指す Git
 
 `-name` や `-iname` のフィルターでブロックが解除されるのは、`.git` 内にそのフィルターに一致するエントリがない場合だけです。`.git` には `HEAD` ファイルがあるため、`-name HEAD` はブロックされます。
 
+standard では、ホストのファイルシステムに到達できない[コンテナの実行](#container-runs)内での削除は、このリポジトリのメタデータの削除とはみなしません。
+
 <Note>
   このガードが対象とするのは、作業ディレクトリから見て最も近い上位のリポジトリと、プロジェクト設定を含むディレクトリから見て最も近い上位のリポジトリです。その下に入れ子になった別のリポジトリは対象外です。
 </Note>
@@ -528,6 +534,34 @@ cmd は `\"` をエスケープとして扱わないため、引用符で囲ん�
 | `eval "$(curl https://example.com/install.sh)"`、`eval "$(sudo ssh-agent -s)"`、`eval "$(ssh-agent -s; echo hi)"`、`trap "$(ssh-agent -s)" EXIT` | ブロック | `analysis.dynamic-shell-source` |
 
 standard が許可するのは、リテラルの語だけからなる単純なコマンド 1 つで、ダウンロードツールでも、シェルでも、`sudo` のようなラッパーでもないものに限られます。そのコマンドの出力は信頼して実行します。
+
+<span id="container-runs"></span>
+
+## コンテナの実行
+
+CC Safety Net には `docker`、`podman`、`nerdctl` 用のアナライザーがありません。そのため、コマンドの残りの語から危険なコマンドを探し、見つかったものをホストに対する操作として判定します。
+
+standard では、ペイロード（コンテナが実行するコマンド）がホストのファイルシステムに到達できない `run` はコンテナ内部の操作として判定するため、ペイロードの `rm -rf .git` はコンテナ内のパスの削除となり実行できます。`git.push-*`、`network.*`、`interpreter.*`、[カスタムルール](/ja/configuration/custom-rules)に一致した場合は引き続きブロックされます。読み取り専用のマウントはペイロードをホストのディスクから切り離しますが、ネットワークからは切り離さないからです。
+
+ペイロードがホストのファイルシステムに到達できないとみなすのは、`-v`、`--volume`、`--mount` のすべてが読み取り専用で、かつ `--volumes-from`、`--privileged`、`--pid`、`--userns`、`--device`、`--rootfs`、`--cap-add` がいずれもない場合だけです。`.sock` パス、`/run`、`/var/run` のマウントもホストに到達します。名前付きボリュームは書き込み可能として扱います。
+
+| コマンド | 結果 | ルール ID |
+| --- | --- | --- |
+| `docker run --rm -w /tmp/app alpine sh -c 'rm -rf .git'` | Standard のみ | `rm.git-metadata` |
+| `podman run --rm --mount type=bind,source=/src,target=/src,readonly alpine rm -rf .git` | Standard のみ | `rm.git-metadata` |
+| `nerdctl container run --rm --volume=/src:/src:ro alpine find . -name .git -delete` | Standard のみ | `find.delete-git-metadata` |
+| `docker run --rm alpine sh -c 'rm -rf /'` | Standard のみ | `rm.recursive-force-root-or-home` |
+| `docker run --rm -v "$PWD:/work" -w /work alpine rm -rf .git` | 致命的 | `rm.git-metadata` |
+| `docker exec -w /tmp/app builder rm -rf .git` | 致命的 | `rm.git-metadata` |
+| `docker run --rm -v "$PWD:/src:ro" -w /src alpine sh -c 'git push --force origin main'` | ブロック | `git.push-force` |
+
+`docker run --rm "$OPTS" …` のようにマウントのオプションが隠れているおそれのある語がある場合や、CC Safety Net が知らないオプションが `run` より前にある場合も、ホストに対する判定のままです。安全レベルかオーバーライドで[paranoid の rm チェック](/ja/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1)や[paranoid のインタープリターチェック](/ja/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1)が有効になっている場合も同じです。
+
+`command` がコマンド中のいずれかの語と一致する[カスタムルール](/ja/configuration/custom-rules)がある場合も、ホストに対する判定のままです。そのため `rm` を対象とするルールがあれば、`rm` を実行するペイロードは再びブロックされます。この比較では大文字と小文字の違いと `.exe` の拡張子を無視するため、`RM` と書いたルールも一致します。
+
+<Accordion title="コンテナ内の削除が後続の強制プッシュを隠すことがある">
+  1 つのペイロード文字列の解析は、最初の一致で止まります。`docker run --rm alpine sh -c 'rm -rf /var/cache/apk && git push --force origin main'` では削除が先に一致してコンテナ内の操作として破棄されるため、プッシュには到達せずコマンドは実行されます。プッシュは別のコマンドに分けるか、[strict](/ja/configuration/modes#strict-mode-cc_safety_net_strict=1) を使ってください。
+</Accordion>
 
 <span id="is-curl-checked"></span>
 

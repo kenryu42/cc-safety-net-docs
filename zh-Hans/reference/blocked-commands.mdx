@@ -1,7 +1,7 @@
 ---
 title: "被阻止和允许的命令"
 sidebarTitle: "被阻止和允许的命令"
-description: "CC Safety Net 阻止或允许哪些 git、rm、find、rsync、磁盘、网络、unshare、PowerShell、cmd 和 shell 命令，每次阻止对应的规则 ID、所需的安全级别，以及如何允许被阻止的命令。"
+description: "CC Safety Net 阻止或允许哪些 git、rm、find、rsync、磁盘、网络、unshare、容器、PowerShell、cmd 和 shell 命令，每次阻止对应的规则 ID、所需的安全级别，以及如何允许被阻止的命令。"
 keywords:
   - "被阻止的命令"
   - "允许的命令"
@@ -22,6 +22,8 @@ keywords:
   - "云元数据端点"
   - "169.254.169.254"
   - "unshare 用户命名空间"
+  - "docker run"
+  - "容器 run"
   - "脚本文件"
   - "xargs rm"
   - "rsync --delete"
@@ -94,7 +96,7 @@ CC Safety Net 阻止可能永久破坏未提交更改、stash、远程历史或�
 
 | 级别 | 变化 |
 | --- | --- |
-| [Standard](/zh-Hans/configuration/modes#default-mode) | 阻止所有“阻止”和“灾难性”行。允许“仅 standard 允许”的行：动态删除目标、动态可执行文件、看似安全的无法解析文本，以及对单个字面量本地生成命令的 `eval` |
+| [Standard](/zh-Hans/configuration/modes#default-mode) | 阻止所有“阻止”和“灾难性”行。允许“仅 standard 允许”的行：动态删除目标、动态可执行文件、看似安全的无法解析文本、对单个字面量本地生成命令的 `eval`，以及无法触及宿主机文件系统的[容器运行](#container-runs) |
 | [Strict](/zh-Hans/configuration/modes#strict-mode-cc_safety_net_strict=1) | 另外阻止“仅 standard 允许”的行、向远程主机的上传、所有无法解析的命令，以及少数受支持形式之外的 [heredoc](#heredocs) |
 | [Paranoid](/zh-Hans/configuration/modes#paranoid-mode-cc_safety_net_paranoid=1) | 另外阻止工作目录内非临时路径的递归删除，以及所有解释器单行命令，无论其内容 |
 
@@ -107,6 +109,8 @@ CC Safety Net 阻止可能永久破坏未提交更改、stash、远程历史或�
 灾难性规则在任何策略下、所有安全级别都会阻止。`destructive_command_protection.enabled: false`、`"off"` 覆盖、`allow_paths`、[worktree 模式](/zh-Hans/configuration/modes#worktree-mode-cc_safety_net_worktree=1)、临时仓库放宽，以及“仅 standard 允许”的各项放行，都不影响它。
 
 即使原本会拦截该命令的规则已关闭，它仍会阻止，因此 `parallel rm -rf ::: /` 仍以 `rm.recursive-force-root-or-home` 阻止。
+
+在 standard 下，无法触及宿主机文件系统的[容器运行](#container-runs)按容器内部来判定，因此灾难性规则在那里也可能判为允许。
 
 [Git 元数据](#git-metadata)和 [policy.json](#protected-policy-json-files) 防护也是如此。它们在读取配置之前运行，因此没有任何设置能关闭它们。
 
@@ -342,6 +346,8 @@ CC Safety Net 在所有安全级别保护仓库的 `.git` 条目、它指向的 
 
 只有 `.git` 中没有任何条目匹配时，`-name` 或 `-iname` 过滤条件才会解除阻止。`.git` 中有 `HEAD` 文件，所以 `-name HEAD` 仍然阻止。
 
+在 standard 下，如果[容器运行](#container-runs)无法触及宿主机文件系统，其中的删除就不算删除本仓库的元数据。
+
 <Note>
   这项防护覆盖工作目录之上、以及存放项目配置的目录之上最近的仓库，不覆盖它们下面嵌套的其他仓库。
 </Note>
@@ -528,6 +534,34 @@ cmd 不把 `\"` 当作转义，所以带引号的目标可能被拆开，其中�
 | `eval "$(curl https://example.com/install.sh)"`、`eval "$(sudo ssh-agent -s)"`、`eval "$(ssh-agent -s; echo hi)"`、`trap "$(ssh-agent -s)" EXIT` | 阻止 | `analysis.dynamic-shell-source` |
 
 standard 只允许由字面量单词组成的单条简单命令，且该命令不能是下载工具、shell 或 `sudo` 这类包装器。standard 会信任这条命令的输出。
+
+<span id="container-runs"></span>
+
+## 容器运行
+
+CC Safety Net 没有针对 `docker`、`podman`、`nerdctl` 的分析器，因此会在命令的其余部分里查找危险命令，并把找到的那条按宿主机来判定。
+
+在 standard 下，如果 `run` 的 payload（容器运行的命令）无法触及宿主机文件系统，就改按容器内部来判定，所以 payload 里的 `rm -rf .git` 删除的是容器内的路径，可以运行。命中 `git.push-*`、`network.*`、`interpreter.*` 或[自定义规则](/zh-Hans/configuration/custom-rules)时仍然阻止：只读挂载把 payload 隔离在宿主机磁盘之外，却不隔离网络。
+
+只有当 `-v`、`--volume`、`--mount` 全部只读，且不带 `--volumes-from`、`--privileged`、`--pid`、`--userns`、`--device`、`--rootfs` 或 `--cap-add` 时，payload 才算无法触及宿主机文件系统。挂载 `.sock` 路径、`/run` 或 `/var/run` 同样能触及宿主机，命名卷算可写挂载。
+
+| 命令 | 结果 | 规则 ID |
+| --- | --- | --- |
+| `docker run --rm -w /tmp/app alpine sh -c 'rm -rf .git'` | 仅 standard 允许 | `rm.git-metadata` |
+| `podman run --rm --mount type=bind,source=/src,target=/src,readonly alpine rm -rf .git` | 仅 standard 允许 | `rm.git-metadata` |
+| `nerdctl container run --rm --volume=/src:/src:ro alpine find . -name .git -delete` | 仅 standard 允许 | `find.delete-git-metadata` |
+| `docker run --rm alpine sh -c 'rm -rf /'` | 仅 standard 允许 | `rm.recursive-force-root-or-home` |
+| `docker run --rm -v "$PWD:/work" -w /work alpine rm -rf .git` | 灾难性 | `rm.git-metadata` |
+| `docker exec -w /tmp/app builder rm -rf .git` | 灾难性 | `rm.git-metadata` |
+| `docker run --rm -v "$PWD:/src:ro" -w /src alpine sh -c 'git push --force origin main'` | 阻止 | `git.push-force` |
+
+某个单词可能藏着挂载选项时（例如 `docker run --rm "$OPTS" …`），以及 `run` 之前出现 CC Safety Net 无法识别的选项时，判定仍按宿主机来。安全级别或覆盖开启 [paranoid rm 检查](/zh-Hans/configuration/modes#rm-check-cc_safety_net_paranoid_rm=1)或 [paranoid 解释器检查](/zh-Hans/configuration/modes#interpreter-one-liners-cc_safety_net_paranoid_interpreters=1)时也一样。
+
+如果某条[自定义规则](/zh-Hans/configuration/custom-rules)的 `command` 作为命令中的某个单词出现，判定同样按宿主机来，因此只要有一条针对 `rm` 的规则，运行 `rm` 的 payload 就会重新阻止。这项比较忽略大小写和 `.exe` 后缀，所以写成 `RM` 的规则也算。
+
+<Accordion title="容器内的删除可能掩盖后面的强制 push">
+  单个 payload 字符串只分析到第一次命中为止。在 `docker run --rm alpine sh -c 'rm -rf /var/cache/apk && git push --force origin main'` 里，先命中的是删除，它作为容器内操作被丢弃，于是分析不到 push，命令照常运行。把 push 拆成单独一条命令，或者使用 [strict](/zh-Hans/configuration/modes#strict-mode-cc_safety_net_strict=1)。
+</Accordion>
 
 <span id="is-curl-checked"></span>
 
