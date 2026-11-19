@@ -84,7 +84,7 @@ CC Safety Net は、未コミットの変更、スタッシュに退避した作
 
 オーバーライドで無効になるのはルール全体であり、特定のコマンド 1 つではありません。逆に `"on"` を指定すると、安全レベルでは無効になっているルールを有効にできます。standard での `rm.recursive-force-paranoid` がその例です。フィールドの書き方は[ポリシー](/ja/configuration/policy#destructive-command-protection)を参照してください。
 
-ルールを無効にせず、特定のディレクトリ配下の再帰削除だけを許可するには、[`allow_paths`](#recursive-deletes-under-allow_paths) を使います。保護対象のファイルの読み取りを許可する方法は、[ブロックされたファイルを許可する](/ja/reference/secret-protection#allow-a-blocked-file)を参照してください。
+ルールを無効にせず、特定のディレクトリ配下の再帰削除だけを許可するには、[`allow_paths`](#recursive-deletes-under-allow_paths) を使います。保護対象のファイルの読み取りを許可する方法は、[ブロックされたファイルを許可する](/ja/reference/secret-protection#allow-a-blocked-file)を参照してください。コマンドはブロックしたまま、実行してほしいラッパースクリプトなど、代わりに何をすべきかをエージェントに伝えたい場合は、そのルール ID に[カスタムのブロックメッセージ](/ja/configuration/policy#custom-block-messages)を設定します。
 
 ## ルールを確認プロンプトに設定することはできない
 
@@ -111,6 +111,8 @@ CC Safety Net は、未コミットの変更、スタッシュに退避した作
 本来そのコマンドを捕捉するルールが無効でもブロックするため、`parallel rm -rf ::: /` は `rm.recursive-force-root-or-home` として引き続きブロックされます。
 
 standard では、ホストのファイルシステムに到達できない[コンテナの実行](#container-runs)はコンテナ内部の操作として判定するため、致命的なルールでも許可という結果になることがあります。
+
+他のルールと同じく、致命的なルールも CC Safety Net が読み取るコマンドだけを対象とします。`flock` は CC Safety Net が[中身を検査するラッパー](#shell-wrappers-and-interpreter-one-liners)ではないため、`flock /tmp/lock -c 'rm -rf /'` の中のコマンドは解析されず、standard、strict、paranoid のいずれでも許可されます。
 
 [Git メタデータ](#git-metadata)と [policy.json](#protected-policy-json-files) のガードも同じ扱いです。どちらも設定を読み込む前に実行されるため、どの設定でも無効にできません。
 
@@ -747,7 +749,7 @@ standard では、解析できないテキストに `rm -rf`、`git reset --hard
 
 ルールによらない拒否もあります。コマンド解析の前に実行されるガード、解析の上限と失敗、使用できない作業ディレクトリによる拒否です。これらには固定の ID が付き、ルール ID が表示される場所に表示されます。[`checkCommand`](/ja/reference/library-api) が返す拒否の `ruleId` も同じです。
 
-これらの ID は登録済みのルールではないため、`destructive_command_protection.overrides` には指定できません。`policy check` は、いずれも `unknown destructive command rule id "<id>"` として拒否します。
+これらの ID は登録済みのルールではないため、`destructive_command_protection.overrides` にも `destructive_command_protection.messages` にも指定できません。`policy check` は、いずれも `unknown destructive command rule id "<id>"` として拒否します。
 
 | ID | 拒否する条件 |
 | --- | --- |

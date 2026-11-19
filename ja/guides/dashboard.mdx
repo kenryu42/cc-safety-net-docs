@@ -98,6 +98,7 @@ SSH 経由やコンテナ内など、ブラウザーを開かずに URL だけ�
 | --- | --- | --- |
 | **Report false positive** | ブロックされたエントリ | GitHub Issue を用意します。次の節を参照してください |
 | **Block this in future** | 許可されたエントリ | `What should be blocked?` の欄にそのコマンドを入力した状態でカスタムルール画面を開きます。ルールが自動で作られるわけではありません |
+| **Customize message** | 組み込みルールが判定したエントリ | 保護画面で、そのルールの[ブロックメッセージ](#block-message)のエディターを開きます |
 | **Copy log entry** | すべてのエントリ | 監査レコードをそのまま JSON としてコピーします。[レコードのスキーマ](/ja/reference/audit-log#record-schema)を参照してください |
 
 ### 誤検知を報告する
@@ -139,7 +140,7 @@ SSH 経由やコンテナ内など、ブラウザーを開かずに URL だけ�
 
 `Test a command` では、シェルコマンドを実行せずに、ブロックされるかどうかを確認できます。判定には未保存の編集内容とカスタムルールブックが使われるため、保存する前に変更を確かめられます。プロジェクトの下書き中は、自分のポリシーに下書きを重ねた状態で判定します。
 
-ブロックされる場合は、ルール ID、理由、複合コマンドのうちブロックされた部分が表示されます。ターミナルで同じ確認をするには [`explain`](/ja/reference/cli/explain) を使います。
+ブロックされる場合は、ルール ID、理由、複合コマンドのうちブロックされた部分が表示されます。組み込みルールによるブロックでは `Edit its message` も表示され、そのルールの[ブロックメッセージ](#block-message)のエディターを開けます。ターミナルで同じ確認をするには [`explain`](/ja/reference/cli/explain) を使います。
 
 ### 安全プリセット
 
@@ -175,6 +176,32 @@ SSH 経由やコンテナ内など、ブラウザーを開かずに URL だけ�
 <Warning>
   コマンド保護やシークレット保護をオフにすると、再びオンにするまで、その層の設定可能なルールがすべて無効になります。ブロックを続けるのは `Always on` のコマンドルールだけです。マスタースイッチを切るより、個々のルールのオーバーライドか、より低いプリセットを選んでください。
 </Warning>
+
+<span id="block-message"></span>
+
+### ブロックメッセージ
+
+**Command protection** と **Secret protection** の各ルールの行に `Block message` ボタンがあります。エディターでは、そのルールがブロックしたときにエージェントが読む内容を設定します。`What the agent is told` には理由を書き、`Start from this` を押すとそのルールの組み込みの文言が入ります。`What the agent should do next` は末尾の行を決めます。
+
+`Preview of the block message` には、自分が書いた部分が分かる形で、完成後のメッセージが表示されます。メッセージが判定を変えることはなく、1 つのメッセージがそのルールでブロックされるすべてのコマンドに使われます。
+
+| `What the agent should do next` | ポリシーの値 |
+| --- | --- |
+| `Stop and report to me` | `hard_stop` |
+| `Use the alternative in the message` | `use_alternative` |
+| `Retry with a narrower target` | `scope_down` |
+| `Ask me to run it myself` | `manual_only` |
+| `Simplify the command, or report to me` | `stop_and_explain` |
+
+ポリシーのフィールドそのものは[カスタムのブロックメッセージ](/ja/configuration/policy#custom-block-messages)を参照してください。
+
+理由が 256 文字を超えると、`A block message is longer than 256 characters.` が表示され、**Save** は無効になります。`Remove message` でメッセージを削除できます。ルールのメッセージはユーザースコープのみなので、プロジェクトの下書き中はエディターを使えません。
+
+メッセージを設定したルールには `Custom message` の注記が付き、`Agent is told` の下にその文言が表示され、`Changed from default` の絞り込みにも並びます。
+
+<Accordion title="Strict プリセット未満での raw-text.dangerous-command">
+  このルールでは、エディターに `Below the Strict preset, an agent that can ask for approval shows this rule as a prompt with its own closing line.` が追加で表示されます。
+</Accordion>
 
 <span id="exceptions-and-extra-paths"></span>
 

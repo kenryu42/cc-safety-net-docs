@@ -59,16 +59,24 @@ Changes (<n>):
 
 `--global` を付けると、1 行目は `Scope: user (<path>)` になります。変更がない場合、差分は `No changes.` の 1 行だけです。片側に値がない箇所は `(unset)` と表示されます。`check` は差分を出力した時点で終了し、終了コードは `0` です。
 
+`policy check --global` では、[カスタムのブロックメッセージ](/ja/configuration/policy#custom-block-messages)を 1 件ずつ 1 行に表示し、その項目を JSON として出力します。
+
+```text
+destructive_command_protection.messages.git.push-force: (unset) -> {"reason":"Use --force-with-lease.","intent":"use_alternative"}
+```
+
 ### プロジェクトスコープの差分が比較するもの
 
 プロジェクトスコープでは、変更前と変更後の実効ポリシーを比較します。実効ポリシーはユーザーポリシーとプロジェクトのファイルをマージしたものです。そのため差分には、ファイル自体の内容ではなく、セッションが実際に動作するレベルが表示されます。`safety.level` を含まない提案は、ユーザーポリシーから継承したレベルに戻します。ユーザースコープでは、ユーザーポリシーファイル自体を比較し、`Effective policy` の見出しは出力しません。
 
 ## policy のエラー
 
-不明なオプションやサブコマンド、ファイルの指定漏れ、余分な引数があると、差分を出力する前に標準エラー出力へエラーを書き出して `1` で終了します。監査ログの設定はユーザースコープ専用のため、`audit` セクションを含むプロジェクト向けの提案も失敗します。
+不明なオプションやサブコマンド、ファイルの指定漏れ、余分な引数があると、差分を出力する前に標準エラー出力へエラーを書き出して `1` で終了します。監査ログの設定とルールのメッセージはユーザースコープ専用のため、`audit` セクションやいずれかの `messages` マップを含むプロジェクト向けの提案も失敗します。該当するセクションごとに 1 行ずつ出力されます。
 
 ```text
 <file>: audit settings are user scope only; remove the audit section from a project proposal
+<file>: destructive_command_protection.messages is user scope only; remove it from a project proposal
+<file>: secret_protection.messages is user scope only; remove it from a project proposal
 ```
 
 ## policy apply でポリシーを適用する

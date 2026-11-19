@@ -96,6 +96,7 @@ Select a row to see the full command, reason, rule, and folder.
 | --- | --- | --- |
 | **Report false positive** | Blocked entries | Prepares a GitHub issue. See the next section |
 | **Block this in future** | Allowed entries | Opens Custom rules with the command filled into `What should be blocked?`. It does not create a rule by itself |
+| **Customize message** | Entries a built-in rule decided | Opens that rule's [block message](#block-message) editor on Protections |
 | **Copy log entry** | Every entry | Copies the raw audit record as JSON. See [Record schema](/reference/audit-log#record-schema) |
 
 ### Report a false positive
@@ -137,7 +138,7 @@ The draft makes the same checks as `cc-safety-net policy apply`. See [Project po
 
 `Test a command` shows whether a shell command would be blocked, without running it. The test uses your unsaved edits and your custom rulebooks, so you can check a change before you save it. In a project draft, it tests your policy with the draft applied on top.
 
-A block shows the rule ID, the reason, and the blocked part of a compound command. Use [`explain`](/reference/cli/explain) for the same check in the terminal.
+A block shows the rule ID, the reason, and the blocked part of a compound command. A built-in rule's block also offers `Edit its message`, which opens that rule's [block message](#block-message) editor. Use [`explain`](/reference/cli/explain) for the same check in the terminal.
 
 ### Safety preset
 
@@ -171,6 +172,30 @@ The `Coding agent settings` rules ship off and show `Off by default`. Turn them 
 <Warning>
   Turning off command protection or secret protection disables every configurable rule in that layer until you turn it back on. Only the `Always on` command rules keep blocking. Prefer a single rule override or a lower preset over the master switch.
 </Warning>
+
+### Block message
+
+Every rule row in **Command protection** and **Secret protection** has a `Block message` button. Its editor sets what the agent reads when that rule blocks. `What the agent is told` holds the reason, and `Start from this` fills it with the rule's built-in wording. `What the agent should do next` sets the closing line.
+
+`Preview of the block message` renders the finished message with your parts marked. A message never changes the decision, and one message covers every command that rule blocks.
+
+| `What the agent should do next` | Policy value |
+| --- | --- |
+| `Stop and report to me` | `hard_stop` |
+| `Use the alternative in the message` | `use_alternative` |
+| `Retry with a narrower target` | `scope_down` |
+| `Ask me to run it myself` | `manual_only` |
+| `Simplify the command, or report to me` | `stop_and_explain` |
+
+See [Custom block messages](/configuration/policy#custom-block-messages) for the policy field itself.
+
+A reason over 256 characters disables **Save**, with the message `A block message is longer than 256 characters.` `Remove message` clears a message, and the editor is unavailable in a project draft, because rule messages are user scope only.
+
+A rule that has a message carries the note `Custom message`, shows its wording under `Agent is told`, and is listed by the `Changed from default` filter.
+
+<Accordion title="raw-text.dangerous-command below the Strict preset">
+  For this rule the editor adds `Below the Strict preset, an agent that can ask for approval shows this rule as a prompt with its own closing line.`
+</Accordion>
 
 ### Exceptions and extra paths
 

@@ -59,16 +59,24 @@ Changes (<n>):
 
 带 `--global` 时，第一行为 `Scope: user (<path>)`。没有任何改动时，差异只有一行 `No changes.`。某一侧没有值时显示为 `(unset)`。`check` 打印完差异就结束，退出 `0`。
 
+`policy check --global` 会为每条[自定义阻止消息](/zh-Hans/configuration/policy#custom-block-messages)单独列出一行，值以 JSON 形式打印该条目。
+
+```text
+destructive_command_protection.messages.git.push-force: (unset) -> {"reason":"Use --force-with-lease.","intent":"use_alternative"}
+```
+
 ### 项目范围差异比较的内容
 
 项目范围下，差异比较的是改动前后的生效策略。生效策略由用户策略与项目文件合并而成，因此差异显示的是会话实际运行的级别，而不是文件本身的内容。提案不设置 `safety.level` 时，级别恢复为从用户策略继承的值。用户范围下，差异比较的是用户策略文件本身，不打印 `Effective policy` 标题。
 
 ## policy 报错
 
-未知选项或子命令、缺少文件、多余的参数，都会在打印差异之前向 stderr 打印错误并退出 `1`。审计设置只属于用户范围，因此含 `audit` 段的项目提案同样会失败：
+未知选项或子命令、缺少文件、多余的参数，都会在打印差异之前向 stderr 打印错误并退出 `1`。审计设置和规则消息只属于用户范围，因此含 `audit` 段或任一 `messages` 映射的项目提案同样会失败，涉及的每个段各打印一行：
 
 ```text
 <file>: audit settings are user scope only; remove the audit section from a project proposal
+<file>: destructive_command_protection.messages is user scope only; remove it from a project proposal
+<file>: secret_protection.messages is user scope only; remove it from a project proposal
 ```
 
 ## 用 policy apply 应用策略

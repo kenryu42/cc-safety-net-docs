@@ -1,7 +1,7 @@
 ---
 title: "策略文件：完整的 policy.json 契约"
 sidebarTitle: "策略"
-description: "CC Safety Net policy.json 的完整参考：用户范围与项目范围及其合并方式、schema、安全预设和能力覆盖、worktree 模式、该用哪个允许列表、用拒绝路径阻止任意文件或目录、机密允许路径，以及审计保留期。"
+description: "CC Safety Net policy.json 的完整参考：用户范围与项目范围及其合并方式、schema、安全预设和能力覆盖、worktree 模式、该用哪个允许列表、用拒绝路径阻止任意文件或目录、机密允许路径、自定义阻止消息，以及审计保留期。"
 ---
 
 `policy.json` 是 CC Safety Net 的设置文件，用来选择安全预设、开关内置规则、放行或阻止特定路径，以及设置审计记录的保留时间。用户文件处处生效，提交到仓库的可选项目文件叠加在它之上。
@@ -37,9 +37,10 @@ description: "CC Safety Net policy.json 的完整参考：用户范围与项目�
 | `safety.overrides` | 按能力键合并，项目条目优先 |
 | `destructive_command_protection.overrides`、`secret_protection.overrides` | 按规则 ID 合并，项目条目优先 |
 | `destructive_command_protection.allow_paths`、`secret_protection.deny_paths`、`secret_protection.allow_paths` | 取两个范围的并集，任何一方都不会抹掉另一方的条目 |
+| `destructive_command_protection.messages`、`secret_protection.messages` | 仅用户范围 |
 | `audit` | 仅用户范围 |
 
-CC Safety Net 会忽略项目文件中的 `audit` 部分，并报告 `project policy audit settings are ignored; audit is user scope only`。
+CC Safety Net 会忽略项目文件中仅属于用户范围的部分，并指明是哪一部分。`audit` 部分报告 `project policy audit settings are ignored; audit is user scope only`，`messages` 映射报告 `project policy <section>.messages is ignored; rule messages are user scope only`。用户策略自己的消息继续生效。
 
 <span id="the-user-config-directory-is-not-a-project"></span>
 
@@ -111,11 +112,13 @@ npx cc-safety-net status
   "destructive_command_protection": {
     "enabled": true,
     "overrides": {},
+    "messages": {},
     "allow_paths": []
   },
   "secret_protection": {
     "enabled": true,
     "overrides": {},
+    "messages": {},
     "deny_paths": [],
     "allow_paths": []
   },
@@ -161,6 +164,10 @@ npx cc-safety-net status
   按破坏性命令规则 ID 设置的单条规则状态，值为 `"on"` 或 `"off"`。覆盖叠加在预设之上，因此 `"on"` 可以开启预设未开启的规则，`"off"` 可以关闭预设开启的规则。
 </ParamField>
 
+<ParamField body="destructive_command_protection.messages" type="object">
+  按破坏性命令规则 ID 设置的替换阻止消息。每个条目必须有 `reason`，`intent` 可选。参见[自定义阻止消息](#custom-block-messages)。
+</ParamField>
+
 <ParamField body="destructive_command_protection.allow_paths" type="string[]" default="[]">
   不受破坏性命令规则约束的路径。条目必须是绝对路径，或以 `~/` 开头。
 </ParamField>
@@ -171,6 +178,10 @@ npx cc-safety-net status
 
 <ParamField body="secret_protection.overrides" type="object" default="{}">
   按机密保护规则 ID 设置的单条规则状态，值为 `"on"` 或 `"off"`。大多数机密规则默认开启，因此通常写 `"off"`。`"on"` 用于启用默认关闭的[编码 CLI 配置层](#rules-that-are-off-by-default)中的规则。
+</ParamField>
+
+<ParamField body="secret_protection.messages" type="object">
+  按机密保护规则 ID 设置的替换阻止消息，`reason` 和 `intent` 字段与上面相同。参见[自定义阻止消息](#custom-block-messages)。
 </ParamField>
 
 <ParamField body="secret_protection.deny_paths" type="string[]" default="[]">
@@ -312,7 +323,7 @@ npx cc-safety-net status
 | `~`、`$HOME`、`${HOME}`，或解析为主目录及其上级的任何路径，例如 `/` 或 `/Users` | 无效：`cannot be the home directory or a path above it (this would block every command the agent runs)` |
 | 其他任何绝对路径、`~/…` 或 `$HOME/…` 路径 | 有效 |
 
-拒绝路径属于机密保护，因此 `secret_protection.enabled: false` 也会关闭它们。`secret.deny-path` 不是已注册的规则 ID，因此无法用覆盖关闭它。
+拒绝路径属于机密保护，因此 `secret_protection.enabled: false` 也会关闭它们。`secret.deny-path` 不是已注册的规则 ID，因此既无法用覆盖关闭它，也无法用消息改写它的措辞。
 
 <span id="secret-allow-paths"></span>
 
@@ -341,6 +352,69 @@ npx cc-safety-net status
 | 其他任何字面绝对路径、`~/…`、`$HOME/…` 或 `${HOME}/…` 路径 | 有效 |
 
 `**/` 条目从不豁免目录本身。通过符号链接到达的目标同样受允许路径覆盖。
+
+<span id="custom-block-messages"></span>
+
+## 自定义阻止消息
+
+`destructive_command_protection.messages` 和 `secret_protection.messages` 用来替换内置规则阻止时智能体读到的消息。条目以规则 ID 为键，`reason` 替换内置的原因文本，可选的 `intent` 决定结尾那句指令。规则照样阻止，一个条目适用于该规则 ID 阻止的所有命令。
+
+```json
+{
+  "version": 1,
+  "destructive_command_protection": {
+    "messages": {
+      "git.push-force": {
+        "reason": "Open a pull request instead of force-pushing.",
+        "intent": "use_alternative"
+      }
+    }
+  },
+  "secret_protection": {
+    "messages": {
+      "secret.pattern.env-variant": {
+        "reason": "Agents never read env files. To give a worktree its env, run `link-env <worktree>`.",
+        "intent": "use_alternative"
+      }
+    }
+  }
+}
+```
+
+有了上面的机密条目，`ln -s ~/project/apps/web/.env.local apps/web/.env.local` 被阻止时给出的就是你写的原因，结尾行则是 `use_alternative` 那一句。其他机密规则仍用各自的内置消息。
+
+| Intent | 结尾行告诉智能体的内容 |
+| --- | --- |
+| `hard_stop` | 不要重试，也不要绕过 |
+| `use_alternative` | 改用原因中指出的更安全的替代方案 |
+| `scope_down` | 用更窄、更明确的目标重试 |
+| `manual_only` | 请用户手动运行 |
+| `stop_and_explain` | 简化或重组命令，或报告这次阻止 |
+
+省略 `intent` 时，规则沿用自身的 `intent`，例如机密规则都以 `hard_stop` 行结尾。
+
+`reason` 必填，且最长 256 个字符。只能写该部分自身规则集中的 ID，因此[固定拒绝 ID](/zh-Hans/reference/blocked-commands#fixed-denial-ids) 和 `secret.deny-path` 都无法设置消息。
+
+规则匹配的是脚本文件中的命令时，`file:line` 前缀仍排在你写的原因之前，例如 `Reason: cleanup.sh:2: Stash with 'git stash -u' first.`。
+
+消息仅属于用户范围。项目文件设置的消息会[被忽略并给出警告](#project-policy)，带有消息的项目提案在 [`policy check`](/zh-Hans/reference/cli/policy) 中会失败。仪表板编辑的是同一批字段，参见[阻止消息](/zh-Hans/guides/dashboard#block-message)。
+
+下表中的 `<path>` 是字段路径，例如 `destructive_command_protection.messages.git.push-force`。
+
+| 错误写法 | 报错 |
+| --- | --- |
+| 不在该部分规则集中的 ID | `unknown destructive command rule id "<id>"` 或 `unknown secret protection rule id "<id>"` |
+| `reason` 缺失或为空 | `<path>.reason required non-empty string` |
+| `reason` 超出长度上限 | `<path>.reason must be at most 256 characters` |
+| `intent` 不在这五个值之内 | `<path>.intent must be one of hard_stop, use_alternative, scope_down, manual_only, stop_and_explain` |
+| 条目不是对象 | `<path> must be an object with a reason` |
+| 条目中出现其他字段 | `<path>.unknown field "<key>"` |
+| `messages` 的值不是对象 | `secret_protection.messages must be an object if provided` |
+| 在 `overrides` 下写了对象 | `secret_protection.overrides.secret.pattern.env-variant must be "on" or "off"; a custom reason belongs in secret_protection.messages` |
+
+<Accordion title="raw-text.dangerous-command 改为询问而不是阻止时">
+  在 strict 以下的级别，如果宿主允许智能体请求批准，这条规则的拒绝会变成批准提示，结尾是 `Approve only if you expected this command.`。你写的原因照样出现，但你选的 `intent` 不会出现。
+</Accordion>
 
 <span id="audit-retention"></span>
 

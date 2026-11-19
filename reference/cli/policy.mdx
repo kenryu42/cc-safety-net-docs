@@ -57,16 +57,24 @@ Changes (<n>):
 
 With `--global`, the first line reads `Scope: user (<path>)`. When nothing would change, the diff is the single line `No changes.` A side with no value reads `(unset)`. `check` stops after the diff and exits `0`.
 
+`policy check --global` lists each [custom block message](/configuration/policy#custom-block-messages) as its own row and prints the entry as JSON.
+
+```text
+destructive_command_protection.messages.git.push-force: (unset) -> {"reason":"Use --force-with-lease.","intent":"use_alternative"}
+```
+
 ### What the project-scope diff compares
 
 In project scope, the diff compares the effective policy before and after the change. The effective policy is your user policy merged with the project file, so the diff shows the level the session will run at, not the file's own contents. A proposal that leaves out `safety.level` restores the level inherited from the user policy. In user scope, the diff compares the user policy file itself and prints no `Effective policy` heading.
 
 ## policy errors
 
-An unknown option or subcommand, a missing file, or an extra argument prints an error to stderr and exits `1` before any diff. Audit settings are user scope only, so a project proposal with an `audit` section also fails:
+An unknown option or subcommand, a missing file, or an extra argument prints an error to stderr and exits `1` before any diff. Audit settings and rule messages are user scope only, so a project proposal with an `audit` section or either `messages` map also fails. It prints one line per offending section:
 
 ```text
 <file>: audit settings are user scope only; remove the audit section from a project proposal
+<file>: destructive_command_protection.messages is user scope only; remove it from a project proposal
+<file>: secret_protection.messages is user scope only; remove it from a project proposal
 ```
 
 ## Applying a policy with policy apply

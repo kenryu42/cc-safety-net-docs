@@ -82,7 +82,7 @@ Turn off the rule that blocks it. This works for every rule except the [catastro
 
 An override turns off the whole rule, not one command. `"on"` turns on a rule your safety level leaves off, such as `rm.recursive-force-paranoid` in standard. See [Policy](/configuration/policy#destructive-command-protection) for the field syntax.
 
-To allow recursive deletes under one directory instead of turning a rule off, use [`allow_paths`](#recursive-deletes-under-allow_paths). To allow reading a protected file, see [Allow a blocked file](/reference/secret-protection#allow-a-blocked-file).
+To allow recursive deletes under one directory instead of turning a rule off, use [`allow_paths`](#recursive-deletes-under-allow_paths). To allow reading a protected file, see [Allow a blocked file](/reference/secret-protection#allow-a-blocked-file). To keep the command blocked but tell the agent what to do instead, such as which wrapper script to run, set a [custom block message](/configuration/policy#custom-block-messages) for the rule id.
 
 ## Rules cannot be set to ask
 
@@ -105,6 +105,8 @@ A catastrophic rule blocks at every safety level under every policy. `destructiv
 It also blocks when the rule that would normally catch the command is off, so `parallel rm -rf ::: /` still blocks as `rm.recursive-force-root-or-home`.
 
 At standard, a [container run](#container-runs) that cannot reach the host filesystem is judged inside the container, so a catastrophic rule can come out allowed there.
+
+Like every rule, a catastrophic rule covers only the command CC Safety Net reads. `flock` is not one of the [wrappers it unwraps](#shell-wrappers-and-interpreter-one-liners), so the command inside `flock /tmp/lock -c 'rm -rf /'` is never analyzed and the call is allowed at standard, strict, and paranoid.
 
 The [Git metadata](#git-metadata) and [policy.json](#protected-policy-json-files) guards behave the same way. They run before your configuration is read, so no setting turns them off.
 
@@ -693,7 +695,7 @@ To see why a specific command was blocked or allowed, run [`explain`](/reference
 
 Some denials come from guards that run before command analysis, from analysis limits and failures, or from unusable working directories, not from a rule. Each has a fixed id, shown wherever a rule id is, including the `ruleId` of a [`checkCommand`](/reference/library-api) deny.
 
-These ids are not registered rules, so `destructive_command_protection.overrides` cannot name them. `policy check` rejects each one with `unknown destructive command rule id "<id>"`.
+These ids are not registered rules, so neither `destructive_command_protection.overrides` nor `destructive_command_protection.messages` can name them. `policy check` rejects each one with `unknown destructive command rule id "<id>"`.
 
 | Id | When it denies |
 | --- | --- |

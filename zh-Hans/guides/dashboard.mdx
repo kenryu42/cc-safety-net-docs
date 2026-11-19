@@ -98,6 +98,7 @@ CC Safety Net policy GUI: http://127.0.0.1:52341/?token=...
 | --- | --- | --- |
 | **Report false positive** | 被阻止的条目 | 准备一份 GitHub issue，见下一节 |
 | **Block this in future** | 被允许的条目 | 打开自定义规则视图，并把该命令填入 `What should be blocked?`，但不会自行创建规则 |
+| **Customize message** | 决策来自内置规则的条目 | 在保护视图中打开这条规则的[阻止消息](#block-message)编辑器 |
 | **Copy log entry** | 所有条目 | 把原始审计记录复制为 JSON。字段说明见[记录 schema](/zh-Hans/reference/audit-log#record-schema) |
 
 ### 报告误报
@@ -139,7 +140,7 @@ CC Safety Net policy GUI: http://127.0.0.1:52341/?token=...
 
 `Test a command` 显示某条 shell 命令是否会被阻止，但不会执行它。测试会用上你未保存的编辑和自定义 rulebook，因此可以在保存前检查改动。在项目草稿中，测试的是你的策略叠加草稿后的结果。
 
-会被阻止时，结果显示 rule ID、原因，以及复合命令中被阻止的部分。在终端里做同样的检查，用 [`explain`](/zh-Hans/reference/cli/explain)。
+会被阻止时，结果显示 rule ID、原因，以及复合命令中被阻止的部分。阻止来自内置规则时，还会给出 `Edit its message`，用来打开这条规则的[阻止消息](#block-message)编辑器。在终端里做同样的检查，用 [`explain`](/zh-Hans/reference/cli/explain)。
 
 ### 安全预设
 
@@ -175,6 +176,32 @@ CC Safety Net policy GUI: http://127.0.0.1:52341/?token=...
 <Warning>
   关闭命令保护或机密保护后，该层的所有可配置规则都会停用，直到重新开启。只有 `Always on` 的命令规则会继续阻止。应优先使用单条规则覆盖或较低的预设，而不是关闭总开关。
 </Warning>
+
+<span id="block-message"></span>
+
+### 阻止消息
+
+**Command protection** 和 **Secret protection** 中每条规则的行上都有一个 `Block message` 按钮。该编辑器用来设置这条规则阻止时智能体读到的内容。`What the agent is told` 填写原因，`Start from this` 会填入这条规则的内置文案。`What the agent should do next` 决定结尾行。
+
+`Preview of the block message` 显示最终的消息，并标出你自定义的部分。消息不会改变决策，而且一条消息适用于这条规则阻止的所有命令。
+
+| `What the agent should do next` | 策略值 |
+| --- | --- |
+| `Stop and report to me` | `hard_stop` |
+| `Use the alternative in the message` | `use_alternative` |
+| `Retry with a narrower target` | `scope_down` |
+| `Ask me to run it myself` | `manual_only` |
+| `Simplify the command, or report to me` | `stop_and_explain` |
+
+策略字段本身见[自定义阻止消息](/zh-Hans/configuration/policy#custom-block-messages)。
+
+原因超过 256 个字符时 **Save** 不可用，提示为 `A block message is longer than 256 characters.`。`Remove message` 可清除消息。规则消息仅属于用户范围，因此起草项目策略时无法使用该编辑器。
+
+设置了消息的规则会标上 `Custom message`，在 `Agent is told` 下显示文案，并出现在 `Changed from default` 的筛选结果中。
+
+<Accordion title="Strict 预设以下的 raw-text.dangerous-command">
+  这条规则的编辑器还会额外显示 `Below the Strict preset, an agent that can ask for approval shows this rule as a prompt with its own closing line.`
+</Accordion>
 
 <span id="exceptions-and-extra-paths"></span>
 

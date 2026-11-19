@@ -1,7 +1,7 @@
 ---
 title: "Policy file: the complete policy.json contract"
 sidebarTitle: "Policy"
-description: "Full reference for CC Safety Net's policy.json: user and project scopes and how they merge, schema, safety presets and capability overrides, worktree mode, which allow list to use, blocking any file or folder with deny paths, secret allow paths, and audit retention."
+description: "Full reference for CC Safety Net's policy.json: user and project scopes and how they merge, schema, safety presets and capability overrides, worktree mode, which allow list to use, blocking any file or folder with deny paths, secret allow paths, custom block messages, and audit retention."
 ---
 
 `policy.json` is CC Safety Net's settings file. It selects your safety preset, turns built-in rules on or off, allows or blocks specific paths, and sets how long audit records are kept. Your user file applies everywhere, and an optional project file committed to a repository layers on top of it.
@@ -33,9 +33,10 @@ The effective policy is the user policy with the project policy layered on top:
 | `safety.overrides` | Merged by capability key, and the project entry wins |
 | `destructive_command_protection.overrides`, `secret_protection.overrides` | Merged by rule id, and the project entry wins |
 | `destructive_command_protection.allow_paths`, `secret_protection.deny_paths`, `secret_protection.allow_paths` | The union of both scopes, so neither scope erases the other's entries |
+| `destructive_command_protection.messages`, `secret_protection.messages` | User scope only |
 | `audit` | User scope only |
 
-CC Safety Net ignores an `audit` section in a project file and reports `project policy audit settings are ignored; audit is user scope only`.
+CC Safety Net ignores a user-scope-only section in a project file and reports which one it dropped. An `audit` section reports `project policy audit settings are ignored; audit is user scope only`, and a `messages` map reports `project policy <section>.messages is ignored; rule messages are user scope only`. The user policy's own messages stay in force.
 
 ### The user config directory is not a project
 
@@ -99,11 +100,13 @@ Every field, with its default value:
   "destructive_command_protection": {
     "enabled": true,
     "overrides": {},
+    "messages": {},
     "allow_paths": []
   },
   "secret_protection": {
     "enabled": true,
     "overrides": {},
+    "messages": {},
     "deny_paths": [],
     "allow_paths": []
   },
@@ -149,6 +152,10 @@ Only `version` is required, and an omitted field takes the default shown above. 
   Per-rule state, keyed by destructive-command rule id, with the value `"on"` or `"off"`. It applies on top of your preset, so `"on"` can enable a rule the preset leaves off and `"off"` can disable one it turns on.
 </ParamField>
 
+<ParamField body="destructive_command_protection.messages" type="object">
+  Replacement block messages, keyed by destructive-command rule id. Each entry requires a `reason` and takes an optional `intent`. See [Custom block messages](#custom-block-messages).
+</ParamField>
+
 <ParamField body="destructive_command_protection.allow_paths" type="string[]" default="[]">
   Paths exempted from destructive-command rules. Entries must be absolute or start with `~/`.
 </ParamField>
@@ -159,6 +166,10 @@ Only `version` is required, and an omitted field takes the default shown above. 
 
 <ParamField body="secret_protection.overrides" type="object" default="{}">
   Per-rule state, keyed by secret-protection rule id, with the value `"on"` or `"off"`. Most secret rules are on by default, so `"off"` is the usual direction. `"on"` opts into a rule from the [Coding CLI config tier](#rules-that-are-off-by-default), which is off by default.
+</ParamField>
+
+<ParamField body="secret_protection.messages" type="object">
+  Replacement block messages, keyed by secret-protection rule id, with the same `reason` and `intent` fields. See [Custom block messages](#custom-block-messages).
 </ParamField>
 
 <ParamField body="secret_protection.deny_paths" type="string[]" default="[]">
@@ -290,7 +301,7 @@ Validation:
 | `~`, `$HOME`, `${HOME}`, or any path that resolves to home or above, such as `/` or `/Users` | Invalid. `cannot be the home directory or a path above it (this would block every command the agent runs)` |
 | Any other absolute, `~/…`, or `$HOME/…` path | Valid |
 
-Deny paths belong to secret protection, so `secret_protection.enabled: false` turns them off too. `secret.deny-path` is not a registered rule id, so an override cannot disable it.
+Deny paths belong to secret protection, so `secret_protection.enabled: false` turns them off too. `secret.deny-path` is not a registered rule id, so an override cannot disable it and a message cannot change its wording.
 
 ### Secret allow paths
 
@@ -317,6 +328,67 @@ Validation:
 | Any other literal absolute, `~/…`, `$HOME/…`, or `${HOME}/…` path | Valid |
 
 A `**/` entry never exempts the folder itself. An allow path also covers a target reached through a symlink.
+
+## Custom block messages
+
+`destructive_command_protection.messages` and `secret_protection.messages` replace what your agent reads when a built-in rule blocks. Each entry is keyed by rule id. `reason` replaces the built-in reason text, and the optional `intent` picks the closing instruction. The rule still blocks, and one entry covers every command that rule id blocks.
+
+```json
+{
+  "version": 1,
+  "destructive_command_protection": {
+    "messages": {
+      "git.push-force": {
+        "reason": "Open a pull request instead of force-pushing.",
+        "intent": "use_alternative"
+      }
+    }
+  },
+  "secret_protection": {
+    "messages": {
+      "secret.pattern.env-variant": {
+        "reason": "Agents never read env files. To give a worktree its env, run `link-env <worktree>`.",
+        "intent": "use_alternative"
+      }
+    }
+  }
+}
+```
+
+With that secret entry, `ln -s ~/project/apps/web/.env.local apps/web/.env.local` blocks with your reason and the use-the-alternative closing line. Every other secret rule keeps its built-in message.
+
+| Intent | What the closing line tells the agent |
+| --- | --- |
+| `hard_stop` | Do not retry or work around it |
+| `use_alternative` | Use the safer alternative named in the reason |
+| `scope_down` | Retry with a narrower, explicit target |
+| `manual_only` | Ask the user to run it manually |
+| `stop_and_explain` | Simplify or restructure the command, or report the block |
+
+Omit `intent` and the rule keeps its own intent. Every secret rule keeps `hard_stop`.
+
+A `reason` is required and at most 256 characters. Only ids from that section's own rule set qualify, so a [fixed denial id](/reference/blocked-commands#fixed-denial-ids) and `secret.deny-path` cannot carry a message.
+
+When the rule matched a command inside a script file, the `file:line` prefix stays in front of your reason, as in `Reason: cleanup.sh:2: Stash with 'git stash -u' first.`
+
+Messages are user scope only. A project file that sets them is [ignored with a warning](#project-policy), and [`policy check`](/reference/cli/policy) fails on a project proposal that carries them. The dashboard edits the same fields. See [Block message](/guides/dashboard#block-message).
+
+In the errors below, `<path>` is the field path, such as `destructive_command_protection.messages.git.push-force`.
+
+| Mistake | Error |
+| --- | --- |
+| An id outside that section's rule set | `unknown destructive command rule id "<id>"` or `unknown secret protection rule id "<id>"` |
+| Missing or empty `reason` | `<path>.reason required non-empty string` |
+| `reason` longer than the limit | `<path>.reason must be at most 256 characters` |
+| An `intent` outside the five values | `<path>.intent must be one of hard_stop, use_alternative, scope_down, manual_only, stop_and_explain` |
+| An entry that is not an object | `<path> must be an object with a reason` |
+| Any other field in an entry | `<path>.unknown field "<key>"` |
+| A `messages` value that is not an object | `secret_protection.messages must be an object if provided` |
+| An object written under `overrides` | `secret_protection.overrides.secret.pattern.env-variant must be "on" or "off"; a custom reason belongs in secret_protection.messages` |
+
+<Accordion title="When raw-text.dangerous-command asks instead of blocking">
+  Below the strict level, a host that lets the agent ask for approval shows this rule as an approval prompt rather than a denial. That prompt closes with `Approve only if you expected this command.`, so your reason appears but your `intent` does not.
+</Accordion>
 
 ## Audit retention
 
