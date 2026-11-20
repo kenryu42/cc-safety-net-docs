@@ -314,6 +314,10 @@ CC Safety Net 为 `rule.json` 发布了一份 JSON Schema。把编辑器指向�
   自定义阻止规则。参见[规则 schema](#rule-schema)。
 </ParamField>
 
+<ParamField body="options_with_values" type="object">
+  仅 `rulebook_version` 2 可用。以规则的 `command` 为键，列出取值分开书写的选项。每个值都是一个非空数组，其中的选项以 `-` 开头，且不得重复。参见[版本 2 中带值的选项](#version-2-options-that-take-a-value)。
+</ParamField>
+
 <ParamField body="tests" type="array">
   可选的 rulebook fixture。参见 [Fixture schema](#fixture-schema)。
 </ParamField>
@@ -404,7 +408,7 @@ CC Safety Net 为 `rule.json` 发布了一份 JSON Schema。把编辑器指向�
 
 ## Fixture schema
 
-Fixture 用于记录预期行为。CC Safety Net 解析其中的命令，交给该 rulebook 的规则求值，但从不执行它们。
+Fixture 用于记录预期行为。CC Safety Net 从不执行 fixture 中的命令。
 
 <ParamField body="command" type="string" required>
   Shell 命令 fixture。
@@ -418,7 +422,9 @@ Fixture 用于记录预期行为。CC Safety Net 解析其中的命令，交给�
   预期会阻止该命令的规则。`blocked` fixture 必填。
 </ParamField>
 
-版本 1 的 fixture 只校验结构。`rule add`、`rule update` 和 `rule verify` 会对版本 2 的 fixture 求值。`blocked` fixture 在它指定的规则第一个命中时通过，`allowed` fixture 在没有任何规则命中时通过。
+版本 1 的 fixture 只校验结构。`rule add`、`rule update` 和 `rule verify` 会把版本 2 的 fixture 交给 hook 所用的同一个分析器，对照该 rulebook 的规则求值。`blocked` fixture 在它指定的规则第一个命中时通过，`allowed` fixture 在该 rulebook 的规则都不命中时通过。
+
+只要 hook 会阻止，套上包装器的写法也是有效的 `blocked` fixture，例如 `sudo docker system prune`、`env FOO=1 docker system prune` 和 `bash -c 'docker system prune'`。
 
 `rule add` 和 `rule update` 会在写入之前拒绝 fixture 失败的来源。每条失败都以该 fixture 在 `tests` 中的下标标明：
 
@@ -426,17 +432,24 @@ Fixture 用于记录预期行为。CC Safety Net 解析其中的命令，交给�
 tests[<index>]: expected "<rule>" to block "<command>" but no rule matched
 tests[<index>]: expected "<rule>" to block "<command>" but "<other-rule>" matched first
 tests[<index>]: expected "<command>" to be allowed but "<rule>" matched
-tests[<index>]: could not parse fixture command: <command>
 ```
 
 `rule verify` 会在每条前面加上 rulebook 文件名，形如 `example-rules/rulebook.json: tests[0]: ...`。
+
+<Accordion title="fixture 求值会忽略什么">
+  rulebook 必须对所有添加它的人给出相同的判定，因此求值既不依赖本机文件系统，也不依赖使用方的配置：
+
+  - 不读取任何文件。像 `bash deploy.sh` 这样按路径执行脚本的 fixture，只按命令行本身判定。
+  - `transparent_wrappers` 中的包装器不生效，策略可以关闭的内置规则也不生效。任何策略都关不掉的内置规则照常生效，因此 `rm -rf /` 这样的 `blocked` fixture 会失败，并指出阻止它的那条内置规则。
+  - 只定义而从未调用的函数正文不算命中，与 hook 一致。
+</Accordion>
 
 ## 匹配行为
 
 | | 版本 1 | 版本 2 |
 | --- | --- | --- |
 | 命令 | 按小写 basename 匹配，`/usr/local/bin/npm` 能匹配 `"command": "npm"` | 与版本 1 相同 |
-| 位置 | `subcommand` 是命令之后的第一个非选项参数，在 `git --no-pager add -A` 中是 `add`。`block_args` 中的 token 可以出现在任意位置 | 跳过已识别的全局选项后，命令词必须按顺序与 `command_path` 一致。路径之后的参数不影响匹配 |
+| 位置 | `subcommand` 是命令之后的第一个非选项参数，在 `git --no-pager add -A` 中是 `add`。`block_args` 中的 token 可以出现在任意位置 | 跳过已识别的选项后，命令词必须按顺序与 `command_path` 一致。路径之后的参数不影响匹配 |
 | 参数 | 出现 `block_args` 中任意一个 token 即阻止 | 必须出现至少一个 `any_args` token；出现任一 `exclude_args` token 则不匹配 |
 | 短选项 | 拆开处理，`-Ap` 视为 `-A` 和 `-p` | 不展开，`-Ap` 就是 `-Ap`。请列出每种写法，例如 `"-destroy"` 和 `"--destroy"` |
 
@@ -444,11 +457,39 @@ tests[<index>]: could not parse fixture command: <command>
 
 规则同样作用于嵌套命令。为 `rm` 写了规则后，`bash -c 'rm -r ./tmpdir'`、`eval 'rm -r ./tmpdir'` 和被调用的函数正文都会被阻止，内置分析器同样覆盖的命令也不例外。
 
-<span id="version-2-global-options"></span>
+<span id="version-2-options-that-take-a-value"></span>
 
-### 版本 2 的全局选项
+### 版本 2 中带值的选项
 
-CC Safety Net 只认识 `aws`、`gcloud` 和 `az` 的带值全局选项。对其他命令，取值分开书写的选项（如 `git -C repo push`）会导致规则匹配不上。Terraform 的 `-chdir=DIR` 是单个 token，会被跳过。
+版本 2 的规则会跳过命令路径之前的选项。CC Safety Net 认识 `aws`、`gcloud` 和 `az` 的带值全局选项，Terraform 的 `-chdir=DIR` 是单个 token。除此之外，取值分开书写的选项会导致规则匹配不上，因此 `git -C repo push` 不匹配 `["push"]`。
+
+把这类选项声明在 rulebook 的 `options_with_values` 中，即可补上这个缺口。声明过的选项后面那个 token 会被当作它的取值，对该命令的所有规则都生效，因此 `kubectl -n payments delete pod api` 能匹配下面这条规则。
+
+```json
+{
+  "rulebook_version": 2,
+  "name": "kubectl-rules",
+  "version": "1.0.0",
+  "allowed_commands": ["kubectl"],
+  "options_with_values": {
+    "kubectl": ["-n", "--namespace", "--context"]
+  },
+  "rules": [
+    {
+      "name": "block-kubectl-delete",
+      "command": "kubectl",
+      "match": {
+        "command_path": ["delete"]
+      },
+      "reason": "Delete a Kubernetes resource by hand after review."
+    }
+  ]
+}
+```
+
+每个键都必须是某条规则的 `command`，且拼写完全一致。`rulebook_version` 1 会拒绝这个键；把列表写在规则的 `match` 里会报 `belongs at the rulebook level, keyed by command`。
+
+早于 v2.8.1 的客户端会忽略这个键，因此仍然匹配不上这些命令。它还会拒绝 `blocked` fixture 依赖已声明选项的 rulebook。
 
 发布通道需要单独的规则。`gcloud beta compute instances delete` 不匹配 `["compute", "instances", "delete"]`，请另写一条 `["beta", "compute", "instances", "delete"]` 的规则。
 
@@ -503,7 +544,7 @@ CC Safety Net 只认识 `aws`、`gcloud` 和 `az` 的带值全局选项。对其
 }
 ```
 
-由于 `timeout` 是[透明包装器](#transparent-wrappers)，这条规则也会阻止 `timeout 5 git push`。它不会命中 `git -C repo push`。参见[版本 2 的全局选项](#version-2-global-options)。
+由于 `timeout` 是[透明包装器](#transparent-wrappers)，这条规则也会阻止 `timeout 5 git push`。在 rulebook 声明 `-C` 之前，它不会命中 `git -C repo push`。参见[版本 2 中带值的选项](#version-2-options-that-take-a-value)。
 
 <span id="turn-off-one-rule"></span>
 

@@ -314,6 +314,10 @@ CC Safety Net は `rule.json` の JSON Schema を公開しています。エデ�
   カスタムのブロックルールです。[ルールのスキーマ](#rule-schema)を参照してください。
 </ParamField>
 
+<ParamField body="options_with_values" type="object">
+  `rulebook_version` 2 でのみ使えます。値を別の語として取るオプションを、ルールの `command` をキーにして宣言します。各値は、`-` で始まる重複のないオプションを 1 つ以上含む配列です。[バージョン 2 で値を取るオプション](#version-2-options-that-take-a-value)を参照してください。
+</ParamField>
+
 <ParamField body="tests" type="array">
   任意のフィクスチャです。[フィクスチャのスキーマ](#fixture-schema)を参照してください。
 </ParamField>
@@ -406,7 +410,7 @@ CC Safety Net は `rule.json` の JSON Schema を公開しています。エデ�
 
 ## フィクスチャのスキーマ
 
-フィクスチャは、意図した動作を記録するものです。CC Safety Net はフィクスチャのコマンドをパースしてルールブックのルールで評価しますが、実行はしません。
+フィクスチャは、意図した動作を記録するものです。CC Safety Net がフィクスチャを実行することはありません。
 
 <ParamField body="command" type="string" required>
   フィクスチャのシェルコマンドです。
@@ -420,7 +424,9 @@ CC Safety Net は `rule.json` の JSON Schema を公開しています。エデ�
   コマンドをブロックするはずのルールです。`blocked` のフィクスチャでは必須です。
 </ParamField>
 
-バージョン 1 のフィクスチャは形式だけを確認します。バージョン 2 のフィクスチャは、`rule add`、`rule update`、`rule verify` が評価します。`blocked` のフィクスチャは指定したルールが最初に一致すれば合格し、`allowed` のフィクスチャはどのルールにも一致しなければ合格します。
+バージョン 1 のフィクスチャは形式だけを確認します。バージョン 2 のフィクスチャは、`rule add`、`rule update`、`rule verify` がフックと同じアナライザーでこのルールブックのルールに照らして評価します。`blocked` のフィクスチャは指定したルールが最初に一致すれば合格し、`allowed` のフィクスチャはルールブックのどのルールにも一致しなければ合格します。
+
+フックがブロックする書き方であれば、ラッパーを介したものも `blocked` のフィクスチャとして有効です。`sudo docker system prune`、`env FOO=1 docker system prune`、`bash -c 'docker system prune'` などが該当します。
 
 `rule add` と `rule update` は、フィクスチャが失敗した設定元を書き込む前に拒否します。失敗したフィクスチャは、`tests` 内のインデックスで示されます。
 
@@ -428,17 +434,24 @@ CC Safety Net は `rule.json` の JSON Schema を公開しています。エデ�
 tests[<index>]: expected "<rule>" to block "<command>" but no rule matched
 tests[<index>]: expected "<rule>" to block "<command>" but "<other-rule>" matched first
 tests[<index>]: expected "<command>" to be allowed but "<rule>" matched
-tests[<index>]: could not parse fixture command: <command>
 ```
 
 `rule verify` では、`example-rules/rulebook.json: tests[0]: ...` のように、各行の先頭にルールブックのファイルが付きます。
+
+<Accordion title="フィクスチャの評価が考慮しないもの">
+  ルールブックは、追加した人がだれであっても同じ判定を返す必要があります。そのため評価では、ローカルのファイルシステムも利用側の設定も使いません。
+
+  - ファイルは読み取りません。`bash deploy.sh` のようにパスでスクリプトを実行するフィクスチャは、コマンドラインだけで判定されます。
+  - `transparent_wrappers` のラッパーも、ポリシーで無効にできる組み込みルールも適用されません。どのポリシーでも無効にできない組み込みルールは適用されるため、`rm -rf /` のような `blocked` のフィクスチャは、ブロックした組み込みルールの名前を示して失敗します。
+  - 定義されただけで呼び出されない関数の本体は、フックと同じく一致とみなされません。
+</Accordion>
 
 ## 照合の挙動
 
 | | バージョン 1 | バージョン 2 |
 | --- | --- | --- |
 | コマンド | 小文字の basename で照合します。`/usr/local/bin/npm` は `"command": "npm"` に一致します | バージョン 1 と同じです |
-| 位置 | `subcommand` は、コマンドの後に続く最初のオプションでない引数です。`git --no-pager add -A` では `add` です。`block_args` のトークンはどこにあってもかまいません | 認識できるグローバルオプションを読み飛ばした後、コマンドの語が `command_path` と順序どおり一致する必要があります。パスより後ろの引数は影響しません |
+| 位置 | `subcommand` は、コマンドの後に続く最初のオプションでない引数です。`git --no-pager add -A` では `add` です。`block_args` のトークンはどこにあってもかまいません | 認識できるオプションを読み飛ばした後、コマンドの語が `command_path` と順序どおり一致する必要があります。パスより後ろの引数は影響しません |
 | 引数 | `block_args` のトークンが 1 つでもあればブロックします | `any_args` のトークンが 1 つ以上必要で、`exclude_args` のトークンが 1 つでもあれば一致しません |
 | 短いオプション | 分解します。`-Ap` は `-A` と `-p` として扱います | 展開しません。`-Ap` は `-Ap` のままなので、`"-destroy"` と `"--destroy"` のように書き方をすべて列挙してください |
 
@@ -446,11 +459,39 @@ tests[<index>]: could not parse fixture command: <command>
 
 ルールは入れ子のコマンドにも適用されます。`rm` のルールがあれば、`bash -c 'rm -r ./tmpdir'`、`eval 'rm -r ./tmpdir'`、呼び出された関数の本体のいずれもブロックされます。組み込みのアナライザーが扱うコマンドも対象です。
 
-<span id="version-2-global-options"></span>
+<span id="version-2-options-that-take-a-value"></span>
 
-### バージョン 2 のグローバルオプション
+### バージョン 2 で値を取るオプション
 
-値を取るグローバルオプションを認識できるのは、`aws`、`gcloud`、`az` だけです。それ以外のコマンドでは、`git -C repo push` のように値を別の語として書いたオプションがあると、ルールは一致しません。Terraform の `-chdir=DIR` は 1 つのトークンなので読み飛ばされます。
+バージョン 2 のルールは、コマンドパスより前にあるオプションを読み飛ばします。値を取るグローバルオプションとして認識できるのは `aws`、`gcloud`、`az` のもので、Terraform の `-chdir=DIR` は 1 つのトークンです。それ以外に値を別の語として書いたオプションがあると、ルールは一致しなくなります。そのため `git -C repo push` は `["push"]` に一致しません。
+
+こうしたオプションは、ルールブックの `options_with_values` で宣言すれば認識されます。宣言したオプションの次のトークンは、そのコマンドのすべてのルールで値として読まれるため、`kubectl -n payments delete pod api` は次のルールに一致します。
+
+```json
+{
+  "rulebook_version": 2,
+  "name": "kubectl-rules",
+  "version": "1.0.0",
+  "allowed_commands": ["kubectl"],
+  "options_with_values": {
+    "kubectl": ["-n", "--namespace", "--context"]
+  },
+  "rules": [
+    {
+      "name": "block-kubectl-delete",
+      "command": "kubectl",
+      "match": {
+        "command_path": ["delete"]
+      },
+      "reason": "Delete a Kubernetes resource by hand after review."
+    }
+  ]
+}
+```
+
+キーは、いずれかのルールの `command` と綴りまで同じでなければなりません。`rulebook_version` 1 ではこのキーは拒否され、ルールの `match` の中に書くと `belongs at the rulebook level, keyed by command` で失敗します。
+
+v2.8.1 より前のクライアントはこのキーを無視するため、対象のコマンドには引き続き一致しません。また、`blocked` のフィクスチャが宣言済みのオプションに依存しているルールブックは受け付けません。
 
 リリースチャネルには別のルールが必要です。`gcloud beta compute instances delete` は `["compute", "instances", "delete"]` に一致しません。`["beta", "compute", "instances", "delete"]` で 2 つ目のルールを書いてください。
 
@@ -505,7 +546,7 @@ tests[<index>]: could not parse fixture command: <command>
 }
 ```
 
-`timeout` は[透過ラッパー](#transparent-wrappers)なので、このルールは `timeout 5 git push` もブロックします。一方、`git -C repo push` には一致しません。[バージョン 2 のグローバルオプション](#version-2-global-options)を参照してください。
+`timeout` は[透過ラッパー](#transparent-wrappers)なので、このルールは `timeout 5 git push` もブロックします。一方、ルールブックで `-C` を宣言するまでは `git -C repo push` に一致しません。[バージョン 2 で値を取るオプション](#version-2-options-that-take-a-value)を参照してください。
 
 <span id="turn-off-one-rule"></span>
 

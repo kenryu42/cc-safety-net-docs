@@ -306,6 +306,10 @@ Each rulebook lives in its own `rulebook.json` file.
   Custom blocking rules. See [Rule schema](#rule-schema).
 </ParamField>
 
+<ParamField body="options_with_values" type="object">
+  `rulebook_version` 2 only. Options that take a separate value, keyed by a rule's `command`. Each value is a non-empty array of unique options that start with `-`. See [Version 2 options that take a value](#version-2-options-that-take-a-value).
+</ParamField>
+
 <ParamField body="tests" type="array">
   Optional rulebook fixtures. See [Fixture schema](#fixture-schema).
 </ParamField>
@@ -392,7 +396,7 @@ Version 2 rejects the version 1 fields instead of ignoring them. A rule that sti
 
 ## Fixture schema
 
-Fixtures document intended behavior. CC Safety Net parses their commands and runs them through the rulebook's rules. It never executes them.
+Fixtures document intended behavior. CC Safety Net never executes them.
 
 <ParamField body="command" type="string" required>
   Shell command fixture.
@@ -406,7 +410,9 @@ Fixtures document intended behavior. CC Safety Net parses their commands and run
   Rule expected to block the command. Required for blocked fixtures.
 </ParamField>
 
-CC Safety Net checks only the shape of version 1 fixtures. `rule add`, `rule update`, and `rule verify` run version 2 fixtures. A `blocked` fixture passes when its named rule is the first match, and an `allowed` fixture passes when no rule matches.
+CC Safety Net checks only the shape of version 1 fixtures. `rule add`, `rule update`, and `rule verify` run version 2 fixtures through the same analyzer the hook uses, against this rulebook's rules. A `blocked` fixture passes when its named rule is the first match, and an `allowed` fixture passes when none of the rulebook's rules matches.
+
+A wrapped spelling the hook blocks is a valid `blocked` fixture, including `sudo docker system prune`, `env FOO=1 docker system prune`, and `bash -c 'docker system prune'`.
 
 `rule add` and `rule update` reject a source whose fixtures fail, before writing it. Each failure names the fixture by its index in `tests`:
 
@@ -414,17 +420,24 @@ CC Safety Net checks only the shape of version 1 fixtures. `rule add`, `rule upd
 tests[<index>]: expected "<rule>" to block "<command>" but no rule matched
 tests[<index>]: expected "<rule>" to block "<command>" but "<other-rule>" matched first
 tests[<index>]: expected "<command>" to be allowed but "<rule>" matched
-tests[<index>]: could not parse fixture command: <command>
 ```
 
 `rule verify` prefixes each one with the rulebook file, as `example-rules/rulebook.json: tests[0]: ...`.
+
+<Accordion title="What fixture evaluation ignores">
+  A rulebook must give the same verdicts for everyone who adds it, so evaluation uses neither the local filesystem nor the consumer's config:
+
+  - No file is read. A fixture that runs a script by path, such as `bash deploy.sh`, is judged on its command line alone.
+  - Wrappers from `transparent_wrappers` are not applied, and neither are the built-in rules a policy can turn off. The built-in rules no policy can turn off do apply, so a `blocked` fixture such as `rm -rf /` fails and names the built-in rule that blocked it.
+  - A function body that is defined and never called does not count as a match, as in the hook.
+</Accordion>
 
 ## Matching behavior
 
 | | Version 1 | Version 2 |
 | --- | --- | --- |
 | Command | Lowercase basename, so `/usr/local/bin/npm` matches `"command": "npm"` | Same as version 1 |
-| Position | `subcommand` is the first non-option argument, so in `git --no-pager add -A` it is `add`. A `block_args` token can appear anywhere | After skipping recognized global options, the command words must equal `command_path` in order. Arguments after the path do not matter |
+| Position | `subcommand` is the first non-option argument, so in `git --no-pager add -A` it is `add`. A `block_args` token can appear anywhere | After skipping recognized options, the command words must equal `command_path` in order. Arguments after the path do not matter |
 | Arguments | The rule blocks if any one `block_args` token is present | `any_args` needs one token present, and any `exclude_args` token stops the match |
 | Short options | Unbundled, so `-Ap` counts as `-A` and `-p` | Not expanded, so `-Ap` stays `-Ap`. List every spelling, such as `"-destroy"` and `"--destroy"` |
 
@@ -432,9 +445,37 @@ Both versions match tokens literally and case-sensitively, with no regex, glob, 
 
 A rule applies to nested commands too. Under a rule for `rm`, `bash -c 'rm -r ./tmpdir'`, `eval 'rm -r ./tmpdir'`, and a called function body all block, including for commands a built-in analyzer also covers.
 
-### Version 2 global options
+### Version 2 options that take a value
 
-CC Safety Net knows the value-taking global options of `aws`, `gcloud`, and `az` only. For any other command, an option with a separate value, such as `git -C repo push`, makes the rule miss. Terraform's `-chdir=DIR` is one token, so it is skipped.
+A version 2 rule skips the options that come before the command path. CC Safety Net knows the value-taking global options of `aws`, `gcloud`, and `az`, and Terraform's `-chdir=DIR` is a single token. Any other option with a separate value makes the rule miss, so `git -C repo push` does not match `["push"]`.
+
+Declare those options in the rulebook's `options_with_values` to close the gap. The token after a declared option is read as its value for every rule of that command, so `kubectl -n payments delete pod api` matches the rule below.
+
+```json
+{
+  "rulebook_version": 2,
+  "name": "kubectl-rules",
+  "version": "1.0.0",
+  "allowed_commands": ["kubectl"],
+  "options_with_values": {
+    "kubectl": ["-n", "--namespace", "--context"]
+  },
+  "rules": [
+    {
+      "name": "block-kubectl-delete",
+      "command": "kubectl",
+      "match": {
+        "command_path": ["delete"]
+      },
+      "reason": "Delete a Kubernetes resource by hand after review."
+    }
+  ]
+}
+```
+
+Each key must be the `command` of a rule, spelled the same way. `rulebook_version` 1 rejects the key, and a list inside a rule's `match` fails with `belongs at the rulebook level, keyed by command`.
+
+A client older than v2.8.1 ignores the key, so it keeps missing those commands. It also refuses a rulebook whose `blocked` fixture depends on a declared option.
 
 Release channels need their own rule. `gcloud beta compute instances delete` does not match `["compute", "instances", "delete"]`. Write a second rule with `["beta", "compute", "instances", "delete"]`.
 
@@ -487,7 +528,7 @@ A version 2 rule with `command_path: ["push"]` and no `any_args` blocks `git pus
 }
 ```
 
-The rule also blocks `timeout 5 git push`, because `timeout` is a [transparent wrapper](#transparent-wrappers). It misses `git -C repo push`. See [Version 2 global options](#version-2-global-options).
+The rule also blocks `timeout 5 git push`, because `timeout` is a [transparent wrapper](#transparent-wrappers). It misses `git -C repo push` until the rulebook declares `-C`. See [Version 2 options that take a value](#version-2-options-that-take-a-value).
 
 ### Turn off one rule
 
