@@ -1,17 +1,17 @@
 ---
 title: "Antigravity CLI に CC Safety Net をインストールする"
 sidebarTitle: "Antigravity CLI"
-description: "~/.gemini/config/hooks.json の PreToolUse フックとして、Antigravity CLI に CC Safety Net をインストールします。チェック対象の run_command と manage_task の呼び出し、削除方法、doctor での表示も説明します。"
+description: "CC Safety Net を agy のネイティブプラグインとして Antigravity CLI にインストールします。プラグインに含まれる PreToolUse フックとスキル、チェック対象の run_command と manage_task の呼び出し、従来の hooks.json エントリからの移行、削除方法、doctor での表示も説明します。"
 keywords:
   - "antigravity"
   - "agy-cli"
-  - "hooks.json"
+  - "agy プラグイン"
   - "PreToolUse"
   - "run_command"
   - "manage_task"
 ---
 
-`npx -y cc-safety-net@latest install --agy-cli` を実行します。`~/.gemini/config/hooks.json` に管理対象の `PreToolUse` フックが追加され、ツール呼び出しのたびに `npx -y cc-safety-net hook --agy-cli` が実行されます。このフックは、`run_command` のシェルコマンドと、`manage_task` で実行中のタスクに送られる入力をチェックします。その後、`npx cc-safety-net doctor` を実行してフックが有効か確認してください。
+`npx -y cc-safety-net@latest install --agy-cli` を実行します。CC Safety Net は、`PreToolUse` フックと `/cc-safety-net` スキルを含む Antigravity のネイティブプラグインとしてインストールされます。フックは、`run_command` のシェルコマンドと、`manage_task` で実行中のタスクに送られる入力をチェックします。その後、`npx cc-safety-net doctor` を実行してフックが有効か確認してください。
 
 ## Antigravity CLI に CC Safety Net をインストールする
 
@@ -28,13 +28,27 @@ keywords:
   </Step>
 </Steps>
 
-フックが設定されていれば、`doctor` の出力で Antigravity CLI の行は `Detected` と `Configured` になります。フックの定義に `enabled: false` がある場合は、`Detected` と `Not configured` になります。
+インストールは `agy plugin install` を実行するため、`agy` コマンドが `PATH` 上にある必要があります。`agy` が見つからない場合、[ターゲットの一覧](/ja/reference/cli/install#selecting-a-target)では Antigravity CLI が `CLI not installed` としてグレー表示になります。
 
-Antigravity CLI で `/cc-safety-net` スキルを使うには、別途追加してください。[/cc-safety-net スキル](/ja/guides/skill#how-you-invoke-it)を参照してください。
+プラグインが設定されていれば、`doctor` の出力で Antigravity CLI の行は `Detected` と `Configured` になります。`~/.gemini/config/config.json` でプラグインが無効になっている場合や、フックの定義に `enabled: false` がある場合は、`Detected` と `Not configured` になります。
+
+プラグインには `/cc-safety-net` スキルが含まれるため、インストール時にスキルも追加されます。[/cc-safety-net スキル](/ja/guides/skill#how-you-invoke-it)を参照してください。
+
+<span id="what-the-antigravity-cli-install-changes"></span>
 
 ## Antigravity CLI のインストールで変わること
 
-Antigravity は `.gemini` ディレクトリを共有しているため、インストーラーは `~/.gemini/config/hooks.json` に書き込みます。管理対象のエントリ名は `cc-safety-net` です。このエントリは、`npx -y cc-safety-net hook --agy-cli` をタイムアウト 30 秒で実行する `PreToolUse` コマンドフックを登録します。ファイルがなければ作成し、管理対象のエントリが無効になっていれば有効に戻します。
+インストールは `agy plugin install https://github.com/kenryu42/cc-safety-net/tree/plugin` を実行します。Antigravity はプラグインを `~/.gemini/config/plugins/cc-safety-net` に配置します。その `hooks.json` は、プラグインのフォルダから `node ./dist/bin/cc-safety-net.js hook --agy-cli` をタイムアウト 30 秒で実行する `PreToolUse` フックを登録します。このため、ツール呼び出しごとに `npx` のダウンロードは発生しません。
+
+`~/.gemini/config/config.json` でプラグインが無効になっている場合は、インストールが `agy plugin enable cc-safety-net` も実行します。インストールを再実行すると、プラグインは現在のリリースに置き換わります。
+
+<span id="migrate-from-the-legacy-antigravity-cli-hook"></span>
+
+## 従来の Antigravity CLI フックから移行する
+
+2.9.0 より前のリリースは、`npx -y cc-safety-net hook --agy-cli` を実行する管理対象のエントリを `~/.gemini/config/hooks.json` に書き込んでいました。プラグインのインストールが成功すると、そのエントリを削除し、`Removed the legacy Antigravity CLI hook from <path>` と表示します。ファイル内の他のフックはそのまま残ります。
+
+プラグインのインストールが失敗した場合はエントリが残るため、従来のフックが引き続きコマンドをチェックします。インストールは終了コード `1` で終了します。[`update`](/ja/reference/cli/update) も同じ移行を行います。
 
 <span id="what-the-antigravity-cli-hook-checks"></span>
 
@@ -46,7 +60,7 @@ Antigravity は `.gemini` ディレクトリを共有しているため、イン
 
 ## Antigravity CLI でチェックが失敗したときの動作
 
-フックが失敗すると、Antigravity CLI はツール呼び出しをブロックします。クラッシュや 0 以外の終了コード、タイムアウト（30 秒）、`npx` が見つからない場合、有効な JSON でない出力のいずれでも、呼び出しは止まります。これは 2026 年 10 月に macOS 上の Antigravity CLI 1.4.5 でプロジェクトが確認した動作で、Antigravity が仕様として公開しているものではありません。
+フックが失敗すると、Antigravity CLI はツール呼び出しをブロックします。クラッシュや 0 以外の終了コード、タイムアウト（30 秒）、有効な JSON でない出力のいずれでも、呼び出しは止まります。これは 2026 年 10 月に macOS 上の Antigravity CLI 1.4.5 でプロジェクトが確認した動作で、Antigravity が仕様として公開しているものではありません。
 
 ## Antigravity CLI から CC Safety Net をアンインストールする
 
@@ -54,11 +68,12 @@ Antigravity は `.gemini` ディレクトリを共有しているため、イン
 npx -y cc-safety-net@latest uninstall --agy-cli
 ```
 
-アンインストールで削除するのは、コマンドが管理対象の文字列と一致するエントリだけです。`~/.gemini/config/hooks.json` のそれ以外の部分はそのまま残ります。
+プラグインのフォルダがある場合、アンインストールは `agy plugin uninstall cc-safety-net` を実行し、続いて以前のインストールが `~/.gemini/config/hooks.json` に残した管理対象のエントリを削除します。このファイルのそれ以外の部分はそのまま残ります。
 
 <span id="troubleshoot-antigravity-cli"></span>
 
 ## Antigravity CLI のトラブルシューティング
 
-- **`doctor` が `Error (Antigravity CLI): Failed to parse Antigravity hooks config <path>: <reason>` を報告する。** `~/.gemini/config/hooks.json` が有効な JSON ではありません。そのため `doctor` は Antigravity CLI を未設定として数え、終了コード `1` で終了します。JSON を修正してから、インストールを再実行してください。[フック設定のパースエラー](/ja/reference/cli/doctor#hook-config-parse-errors)を参照してください。
-- **管理対象のエントリを手で編集した。** `doctor` は Antigravity CLI について[設定ずれの検査](/ja/reference/cli/doctor#managed-hook-drift)を行わないため、エントリが変わっても警告しません。インストールも、有効な管理対象エントリには手を加えません。既定のエントリに戻すには、`uninstall --agy-cli` を実行してから、インストールを再実行してください。
+- **`doctor` が `Error (Antigravity CLI): Failed to parse Antigravity hooks config <path>: <reason>` を報告する。** `<path>` のファイル、つまりプラグインの `hooks.json` か `~/.gemini/config/hooks.json` が有効な JSON ではありません。そのため `doctor` は Antigravity CLI を未設定として数え、終了コード `1` で終了します。JSON を修正してから、インストールを再実行してください。[フック設定のパースエラー](/ja/reference/cli/doctor#hook-config-parse-errors)を参照してください。
+- **インストールが成功したのに `doctor` が `Not configured` と表示する。** `~/.gemini/config/config.json` でプラグインが無効になっています。`agy plugin enable cc-safety-net` を実行するか、インストールを再実行してください。再実行すればプラグインは有効になります。
+- **プラグインを手で編集した。** `doctor` は Antigravity CLI について[設定ずれの検査](/ja/reference/cli/doctor#managed-hook-drift)を行わないため、フックが変わっても警告しません。インストールを再実行すると、プラグインが置き換わります。

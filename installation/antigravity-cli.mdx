@@ -1,17 +1,17 @@
 ---
 title: "Install CC Safety Net in Antigravity CLI"
 sidebarTitle: "Antigravity CLI"
-description: "Install CC Safety Net in Antigravity CLI with a PreToolUse hook in ~/.gemini/config/hooks.json, see which run_command and manage_task calls it checks, remove it, and read how doctor reports it."
+description: "Install CC Safety Net in Antigravity CLI as a native agy plugin that carries the PreToolUse hook and the skill, see which run_command and manage_task calls it checks, migrate off the legacy hooks.json entry, remove it, and read how doctor reports it."
 keywords:
   - "antigravity"
   - "agy-cli"
-  - "hooks.json"
+  - "agy plugin"
   - "PreToolUse"
   - "run_command"
   - "manage_task"
 ---
 
-Run `npx -y cc-safety-net@latest install --agy-cli`. It adds a managed `PreToolUse` hook to `~/.gemini/config/hooks.json` that runs `npx -y cc-safety-net hook --agy-cli` on each tool call. The hook checks shell commands from `run_command` and input sent to running tasks through `manage_task`. Then run `npx cc-safety-net doctor` to confirm the hook is active.
+Run `npx -y cc-safety-net@latest install --agy-cli`. It installs CC Safety Net as a native Antigravity plugin that carries a `PreToolUse` hook and the `/cc-safety-net` skill. The hook checks shell commands from `run_command` and input sent to running tasks through `manage_task`. Then run `npx cc-safety-net doctor` to confirm the hook is active.
 
 ## Install CC Safety Net in Antigravity CLI
 
@@ -28,13 +28,23 @@ Run `npx -y cc-safety-net@latest install --agy-cli`. It adds a managed `PreToolU
   </Step>
 </Steps>
 
-When the hook is in place, the Antigravity CLI row in the `doctor` output reads `Detected` and `Configured`. It reads `Detected` and `Not configured` when the hook definition has `enabled: false`.
+The install runs `agy plugin install`, so the `agy` command has to be on your `PATH`. Without it, the [target list](/reference/cli/install#selecting-a-target) greys out Antigravity CLI as `CLI not installed`.
 
-To use the `/cc-safety-net` skill in Antigravity CLI, add it separately. See [The /cc-safety-net skill](/guides/skill#how-you-invoke-it).
+When the plugin is in place, the Antigravity CLI row in the `doctor` output reads `Detected` and `Configured`. It reads `Detected` and `Not configured` when `~/.gemini/config/config.json` disables the plugin, or when the hook definition has `enabled: false`.
+
+The plugin carries the `/cc-safety-net` skill, so the install adds it too. See [The /cc-safety-net skill](/guides/skill#how-you-invoke-it).
 
 ## What the Antigravity CLI install changes
 
-The installer writes to `~/.gemini/config/hooks.json`, because Antigravity shares the `.gemini` directory. The managed entry is named `cc-safety-net`. It registers a `PreToolUse` command hook that runs `npx -y cc-safety-net hook --agy-cli` with a 30-second timeout. Install creates the file if it is absent and re-enables a disabled managed entry.
+Install runs `agy plugin install https://github.com/kenryu42/cc-safety-net/tree/plugin`. Antigravity puts the plugin in `~/.gemini/config/plugins/cc-safety-net`. Its `hooks.json` registers a `PreToolUse` hook that runs `node ./dist/bin/cc-safety-net.js hook --agy-cli` with a 30-second timeout. The hook runs from the plugin folder, so a tool call starts no `npx` download.
+
+When `~/.gemini/config/config.json` disables the plugin, install also runs `agy plugin enable cc-safety-net`. Running the install again replaces the plugin with the current release.
+
+## Migrate from the legacy Antigravity CLI hook
+
+Releases before 2.9.0 wrote a managed entry into `~/.gemini/config/hooks.json` that ran `npx -y cc-safety-net hook --agy-cli`. Once the plugin install succeeds, install removes that entry and prints `Removed the legacy Antigravity CLI hook from <path>`. Other hooks in the file stay.
+
+A failed plugin install keeps the entry, so the old hook still checks your commands. That install exits `1`. [`update`](/reference/cli/update) runs the same migration.
 
 ## What the Antigravity CLI hook checks
 
@@ -44,7 +54,7 @@ The installer writes to `~/.gemini/config/hooks.json`, because Antigravity share
 
 ## What happens when the Antigravity CLI check fails
 
-Antigravity CLI blocks the tool call when the hook fails. A crash or non-zero exit, a timeout (30 seconds), a missing `npx`, and output that is not valid JSON all stop the call. The project observed this on Antigravity CLI 1.4.5 on macOS in October 2026. Antigravity does not publish this as a contract.
+Antigravity CLI blocks the tool call when the hook fails. A crash or non-zero exit, a timeout (30 seconds), and output that is not valid JSON all stop the call. The project observed this on Antigravity CLI 1.4.5 on macOS in October 2026. Antigravity does not publish this as a contract.
 
 ## Uninstall CC Safety Net from Antigravity CLI
 
@@ -52,9 +62,10 @@ Antigravity CLI blocks the tool call when the hook fails. A crash or non-zero ex
 npx -y cc-safety-net@latest uninstall --agy-cli
 ```
 
-Uninstall removes only entries whose command matches the managed string. It leaves the rest of `~/.gemini/config/hooks.json` alone.
+Uninstall runs `agy plugin uninstall cc-safety-net` when the plugin folder exists, then removes the managed entry an older install left in `~/.gemini/config/hooks.json`. The rest of that file stays as it is.
 
 ## Troubleshoot Antigravity CLI
 
-- **`doctor` reports `Error (Antigravity CLI): Failed to parse Antigravity hooks config <path>: <reason>`.** `~/.gemini/config/hooks.json` is not valid JSON, so `doctor` counts Antigravity CLI as not configured and exits `1`. Fix the JSON, then run the install again. See [Hook config parse errors](/reference/cli/doctor#hook-config-parse-errors).
-- **You edited the managed entry by hand.** `doctor` runs no [drift checks](/reference/cli/doctor#managed-hook-drift) for Antigravity CLI, so it does not warn when the entry changes. Install also leaves an active managed entry as it is. To restore the default entry, run `uninstall --agy-cli`, then run the install again.
+- **`doctor` reports `Error (Antigravity CLI): Failed to parse Antigravity hooks config <path>: <reason>`.** The file at `<path>`, the plugin's `hooks.json` or `~/.gemini/config/hooks.json`, is not valid JSON, so `doctor` counts Antigravity CLI as not configured and exits `1`. Fix the JSON, then run the install again. See [Hook config parse errors](/reference/cli/doctor#hook-config-parse-errors).
+- **`doctor` reads `Not configured` after a successful install.** `~/.gemini/config/config.json` disables the plugin. Run `agy plugin enable cc-safety-net`, or run the install again, which enables it for you.
+- **You edited the plugin by hand.** `doctor` runs no [drift checks](/reference/cli/doctor#managed-hook-drift) for Antigravity CLI, so it does not warn when the hook changes. Run the install again to replace the plugin.
